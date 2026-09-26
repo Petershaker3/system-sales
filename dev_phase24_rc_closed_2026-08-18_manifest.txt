@@ -1,0 +1,72 @@
+﻿dev_phase24_rc_closed_2026-08-18
+RC Phase closed: RC-1 (auto-poll), RC-2 (UI refresh), RC-3 (date/time integrity)
+Phase 24 integration: entity_mappers, storage, sync_provider_supabase, sync_supabase_config
+E2E status: NOT EXECUTED — browser/Supabase environment required
+Packaged: 2026-08-18 17:58:59 UTC+3
+Total files: 48  Total size: 661 KB
+
+PATH                                                           BYTES  MODIFIED              STATUS
+----------------------------------------------------------------------------------------------------
+dev/build.py                                                    2293  2026-07-10 10:22:54  
+dev/css/style.css                                              28506  2026-07-10 10:24:30  
+dev/docs/ADR-003-repository-migration.md                        8631  2026-07-26 00:53:18  
+dev/docs/ADR-00X-fault-types-normalization.md                   4278  2026-07-25 21:43:34  
+dev/index.html                                                 68548  2026-07-15 13:29:52  
+dev/js/accessories.js                                           3895  2026-07-25 22:22:42  
+dev/js/analytics.js                                            25713  2026-07-11 14:45:14  
+dev/js/app.js                                                  22135  2026-07-27 19:09:58  
+dev/js/backup.js                                               28477  2026-07-28 00:03:54  
+dev/js/calculator.js                                            3346  2026-07-10 10:24:30  
+dev/js/cash.js                                                  6378  2026-07-26 00:21:16  
+dev/js/db_foundation.js                                        11629  2026-07-13 13:33:36  
+dev/js/db_integration.js                                       50314  2026-07-27 19:10:20  
+dev/js/entity_mappers.js                                       28156  2026-08-18 17:26:46  *** RC/Phase24 fix
+dev/js/expenses.js                                              2641  2026-07-25 22:22:56  
+dev/js/helpers.js                                               2912  2026-07-10 10:32:30  
+dev/js/notes.js                                                 6103  2026-07-25 21:29:46  
+dev/js/notifications.js                                         6532  2026-07-25 21:29:54  
+dev/js/phones.js                                               65807  2026-08-18 16:56:46  *** RC/Phase24 fix
+dev/js/repair.js                                               13772  2026-07-27 18:36:20  
+dev/js/reports.js                                              24983  2026-07-11 09:25:04  
+dev/js/security.js                                              4310  2026-07-11 14:53:50  
+dev/js/settings.js                                              8128  2026-07-27 18:36:04  
+dev/js/software.js                                              1104  2026-07-26 00:50:02  
+dev/js/storage.js                                              14075  2026-08-18 17:26:46  *** RC/Phase24 fix
+dev/js/sync.js                                                 54416  2026-08-18 17:33:50  *** RC/Phase24 fix
+dev/js/sync_auth.js                                             4651  2026-08-18 17:33:13  *** RC/Phase24 fix
+dev/js/sync_provider_supabase.js                               14405  2026-08-18 17:26:46  *** RC/Phase24 fix
+dev/js/sync_supabase_config.js                                   393  2026-08-18 17:26:46  *** RC/Phase24 fix
+dev/js/ui.js                                                   22759  2026-07-22 21:50:52  
+dev/js/usedPhones.js                                            1261  2026-07-26 00:21:20  
+dev/tests/backup_share_reminder_test.js                         7086  2026-07-11 19:50:18  
+dev/tests/backup_system_test.js                                10594  2026-07-11 19:50:18  
+dev/tests/dom-stub.js                                           3196  2026-07-11 02:18:04  
+dev/tests/perf_baseline.js                                      5387  2026-07-11 02:18:04  
+dev/tests/phase2b_financial_test.js                             5626  2026-07-11 09:21:40  
+dev/tests/phase3a_plus_test.js                                 10567  2026-07-12 01:16:22  
+dev/tests/phase3a_round2_test.js                               12711  2026-07-12 14:49:32  
+dev/tests/phase4_sync_arch_test.js                              9292  2026-07-12 19:43:10  
+dev/tests/phase5_db_foundation_test.js                         12205  2026-07-14 00:35:14  
+dev/tests/phase6_5_entity_mappers_test.js                      11928  2026-07-16 01:19:38  
+dev/tests/phase6_db_integration_test.js                         8980  2026-07-15 01:12:22  
+dev/tests/phone_date_roundtrip_test.js                          4812  2026-08-18 16:58:39      new test
+dev/tests/rc_closure_test.js                                    9133  2026-08-18 17:38:19      new test
+dev/tests/regression_test.js                                    5233  2026-07-11 02:18:04  
+dev/tests/storage_api_test.js                                   3502  2026-07-11 02:18:04  
+dev/tests/stress_test.js                                        9368  2026-07-11 02:18:04  
+dev/tests/undo_stress_test.js                                   6825  2026-07-11 02:18:04  
+
+Modified files (RC + Phase 24):
+  dev/js/phones.js
+  dev/js/sync_auth.js
+  dev/js/sync.js
+  dev/js/storage.js
+  dev/js/entity_mappers.js
+  dev/js/sync_provider_supabase.js
+  dev/js/sync_supabase_config.js
+
+New test files:
+  dev/tests/phone_date_roundtrip_test.js
+  dev/tests/rc_closure_test.js
+
+Untouched from dev.zip baseline: all other files

@@ -1,0 +1,5 @@
+total data keys: 73
+day partition keys count: 52
+last 5 day keys: ['mshop_d_2026-08-05', 'mshop_d_2026-08-06', 'mshop_d_2026-08-07', 'mshop_d_2026-08-08', 'mshop_d_2026-08-10']
+has today key (2026-08-10)? True
+today counts: {'acc': 6, 'used': 1, 'cash': 3, 'sw': 1, 'exp': 0, 'phones': 0, 'repairs': 0}

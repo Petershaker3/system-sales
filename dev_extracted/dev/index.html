@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#090e1a">
+<title>محل الموبايلات</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="S-lock">
+  <div class="lock-card">
+    <div class="lock-logo" id="lk-logo">📲</div>
+    <div class="lock-name" id="lk-name">محل الموبايلات</div>
+    <div class="lock-hint">الباسورد الافتراضي: 1234</div>
+    <input class="pin-inp" type="password" id="pin-inp" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')tryUnlock()">
+    <button class="pin-btn" onclick="tryUnlock()">فتح 🔓</button>
+    <div class="pin-err" id="pin-err"></div>
+  </div>
+</div>
+
+<div id="S-main" class="screen">
+  <div class="topbar">
+    <div class="shop-id">
+      <div class="shop-logo" id="main-logo">📲</div>
+      <span class="shop-name" id="main-name">محل الموبايلات</span>
+    </div>
+    <div class="tb-acts">
+      <button class="tb-btn" onclick="goNotes()" title="ملاحظات">📋<span class="notif" id="nb-notes" style="display:none">0</span></button>
+      <button class="tb-btn" onclick="goNotifications()" title="إشعارات">🔔<span class="notif" id="nb-notifs" style="display:none">0</span></button>
+      <button class="tb-btn" onclick="toggleCalc()" title="حاسبة"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5C3.9 3 3 3.9 3 5v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3h5v2h-5V6zM7 6h3v2H7V6zm0 4h3v2H7v-2zm4 0h5v2h-5v-2zm4 8h-4v-2h4v2zm0-4h-4v-2h4v2zM7 18v-2h3v2H7zm0-4v-2h3v2H7z"/></svg></button>
+      <button class="tb-btn" onclick="requireAdmin(goMonthly)" title="حسابات شهرية">📊</button>
+      <button class="tb-btn" onclick="requireAdmin(goAnalytics)" title="تحليلات">📈</button>
+      <button class="tb-btn" onclick="goSearch()" title="بحث ذكي">🔍</button>
+      <button class="tb-btn" onclick="doCreateSecureBackup()" title="نسخة احتياطية سريعة">💾</button>
+      <button class="tb-btn" onclick="goSettings()" title="إعدادات">⚙️</button>
+      <button class="tb-btn" onclick="lockApp()" title="قفل">🔒</button>
+    </div>
+  </div>
+  <div class="date-row">
+    <button class="nav-btn" onclick="prevDay()">›</button>
+    <div class="date-box"><span id="date-label"></span><input type="date" id="dpick" onchange="changeDate(this.value)"></div>
+    <button class="nav-btn" onclick="nextDay()">‹</button>
+    <button class="today-btn" id="today-btn" onclick="goToday()">اليوم ↩</button>
+    <span class="save-ind" id="save-ind">✓ تم الحفظ</span>
+  </div>
+  <div class="past-banner" id="past-banner"></div>
+  <div id="rating-area" style="display:none"></div>
+  <div id="insights-area" style="display:none"></div>
+  <!-- DASHBOARD CAROUSEL -->
+  <div class="dash-wrap">
+    <button class="dc-arr dc-arr-r" onclick="scrollDash(1)">›</button>
+    <button class="dc-arr dc-arr-l" onclick="scrollDash(-1)">‹</button>
+    <div class="dash-carousel" id="dash-carousel">
+      <!-- Card 1: صافي ربح اليوم -->
+      <div class="dc-card">
+        <div class="kpi-card" id="pcard" onclick="requireAdmin(()=>{showProfits=!showProfits;extendAdminSession();renderAll();renderRatingAndInsights();})">
+          <div class="kpi-top"><span class="kpi-icon">💰</span><span class="kpi-label">صافي الربح</span></div>
+          <div class="kpi-val" id="pval" style="color:#4ade80">•••</div>
+          <div class="kpi-sub" id="peye">🔐 اضغط للكشف</div>
+        </div>
+      </div>
+      <!-- Card 2: تقييم الأداء -->
+      <div class="dc-card" id="dc-rating" style="display:none">
+        <div id="dc-rating-content" style="height:100%"></div>
+      </div>
+      <!-- Card 3: التحليل الذكي -->
+      <div class="dc-card" id="dc-insights" style="display:none">
+        <div id="dc-insights-content" style="height:100%"></div>
+      </div>
+      <!-- Card 4: مخزون الهواتف -->
+      <div class="dc-card" id="inv-widget-area"></div>
+    </div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <nav class="main-nav" id="main-nav">
+    <button class="main-tab" data-id="acc"     onclick="ST('acc')"><span class="ti">🎧</span>إكسسوار</button>
+    <button class="main-tab" data-id="cash"    onclick="ST('cash')"><span class="ti">💳</span>الكاش</button>
+    <button class="main-tab" data-id="repairs" onclick="ST('repairs')"><span class="ti">🔧</span>صيانة</button>
+    <button class="main-tab" data-id="sw"      onclick="ST('sw')"><span class="ti">⚙️</span>سوفت وير</button>
+    <button class="main-tab" data-id="phones"  onclick="ST('phones')"><span class="ti">📦</span>هواتف</button>
+    <button class="main-tab" data-id="used"    onclick="ST('used')"><span class="ti">📱</span>مستعمل</button>
+    <button class="main-tab" data-id="exp"     onclick="ST('exp')"><span class="ti">💸</span>مصاريف</button>
+  </nav>
+
+  <div class="panel" id="panel-acc">
+    <div class="phdr"><div class="ptitle" style="color:#3b82f6">🎧 اكسسوار</div><div class="pmeta"><span id="acc-meta"></span><span class="pcount" id="acc-cnt">0</span></div></div>
+    <div id="acc-main-cats"></div><div id="acc-sub-area"></div>
+    <div class="fbox"><div class="frow">
+      <div class="field"><label>اسم القطعة</label><input id="acc-n" placeholder="كفر، شاشة..."></div>
+      <div class="field fw"><label>شراء</label><input id="acc-b" type="number" placeholder="اختياري"></div>
+      <div class="field fw"><label>بيع</label><input id="acc-s" type="number" placeholder="0"></div>
+      <div class="field fw"><label>الكمية (اختياري)</label><input id="acc-q" type="number" placeholder="1" min="1"></div>
+      <button class="abtn" style="background:#3b82f6" onclick="addAcc()">+ إضافة</button>
+    </div></div>
+    <div id="acc-list"></div>
+  </div>
+
+  <div class="panel" id="panel-used">
+    <div class="phdr"><div class="ptitle" style="color:#8b5cf6">📱 مستعمل</div><div class="pmeta"><span id="used-meta"></span><span class="pcount" id="used-cnt">0</span></div></div>
+    <div id="cat-q-used"></div>
+    <div class="fbox"><div class="frow">
+      <div class="field"><label>اسم الموبايل</label><input id="used-n" placeholder="آيفون 12، سامسونج A54..."></div>
+      <div class="field fw"><label>شراء</label><input id="used-b" type="number" placeholder="0"></div>
+      <div class="field fw"><label>بيع</label><input id="used-s" type="number" placeholder="0"></div>
+      <button class="abtn" style="background:#8b5cf6" onclick="addUsed()">+ إضافة</button>
+    </div>
+    <div class="frow" style="margin-top:7px"><div class="field"><label>ملاحظة (اختياري)</label><input id="used-note" placeholder="حالة الجهاز..."></div></div></div>
+    <div id="used-list"></div>
+  </div>
+
+  <div class="panel" id="panel-cash">
+    <div class="phdr"><div class="ptitle" style="color:#ef4444">💳 الكاش والمحافظ</div><div class="pmeta"><span id="cash-meta"></span><span class="pcount" id="cash-cnt">0</span></div></div>
+
+    <!-- ══ ملخص المحافظ (ثابت أعلى الصفحة دائمًا) ══ -->
+    <div id="cash-wallet-summary" style="margin-bottom:10px"></div>
+
+    <details id="cash-sec-add" style="background:#111827;border-radius:12px;margin-bottom:8px;overflow:hidden">
+      <summary style="padding:10px 12px;cursor:pointer;font-size:12px;font-weight:700;color:#e2e8f0;list-style:none">➕ عملية جديدة (إيداع / سحب)</summary>
+      <div class="fbox" style="border-top:1px solid #1e293b;margin:0;border-radius:0">
+        <div style="font-size:10px;color:#64748b;margin-bottom:6px">نوع العملية</div>
+        <div class="type-row">
+          <button class="type-btn" id="ct-dep" onclick="setCashType('ايداع',this)">⬆️ إيداع</button>
+          <button class="type-btn" id="ct-wit" onclick="setCashType('سحب',this)">⬇️ سحب</button>
+        </div>
+        <div style="font-size:10px;color:#64748b;margin-bottom:6px">المحفظة</div>
+        <div class="svc-row" id="cash-svc-row"></div>
+        <div class="frow"><div class="field"><label>العمولة / الربح (اختياري)</label><input id="cash-amt" type="number" placeholder="0 إذا لا يوجد"></div><button class="abtn" style="background:#ef4444" onclick="addCash()">+ إضافة</button></div>
+      </div>
+    </details>
+
+    <details id="cash-sec-list" style="background:#111827;border-radius:12px;margin-bottom:8px;overflow:hidden">
+      <summary style="padding:10px 12px;cursor:pointer;font-size:12px;font-weight:700;color:#e2e8f0;list-style:none">📋 سجل العمليات</summary>
+      <div style="border-top:1px solid #1e293b;padding:8px"><div id="cash-list"></div></div>
+    </details>
+
+    <details id="cash-sec-manage" style="background:#111827;border-radius:12px;margin-bottom:8px;overflow:hidden">
+      <summary style="padding:10px 12px;cursor:pointer;font-size:12px;font-weight:700;color:#e2e8f0;list-style:none">🏦 إدارة المحافظ (الحدود · الرصيد الافتتاحي · الترتيب)</summary>
+      <div style="border-top:1px solid #1e293b;padding:10px">
+        <div id="wallet-manage-list"></div>
+        <button class="set-btn" style="background:#ef4444;margin-top:10px" onclick="saveWalletsCfg(true)">💾 حفظ إعدادات المحافظ</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel" id="panel-sw">
+    <div class="phdr"><div class="ptitle" style="color:#10b981">⚙️ سوفت وير</div><div class="pmeta"><span id="sw-meta"></span><span class="pcount" id="sw-cnt">0</span></div></div>
+    <div class="fbox"><div class="frow">
+      <div class="field"><label>اسم الموبايل</label><input id="sw-n" placeholder="سامسونج A15..."></div>
+      <div class="field fw"><label>سعر الخدمة</label><input id="sw-p" type="number" placeholder="0"></div>
+      <button class="abtn" style="background:#10b981" onclick="addSw()">+ إضافة</button>
+    </div>
+    <div class="frow" style="margin-top:7px"><div class="field"><label>ملاحظة (اختياري)</label><input id="sw-note" placeholder="نوع المشكلة..."></div></div></div>
+    <div id="sw-list"></div>
+  </div>
+
+  <div class="panel" id="panel-exp">
+    <div class="phdr"><div class="ptitle" style="color:#f59e0b">💸 مصاريف</div><div class="pmeta"><span id="exp-meta"></span><span class="pcount" id="exp-cnt">0</span></div></div>
+    <div id="cat-q-exp"></div>
+    <div class="fbox"><div class="frow">
+      <div class="field"><label>الصنف</label><input id="exp-cat" placeholder="إيجار، فاتورة..."></div>
+      <div class="field fw"><label>المبلغ</label><input id="exp-a" type="number" placeholder="0"></div>
+      <button class="abtn" style="background:#f59e0b" onclick="addExp()">+ إضافة</button>
+    </div></div>
+    <div id="exp-list"></div>
+  </div>
+
+  <div class="panel" id="panel-phones">
+    <div class="phdr"><div class="ptitle" style="color:#06b6d4">📦 هواتف جديدة</div><div class="pmeta"><span id="ph-meta"></span><span class="pcount" id="ph-cnt">0</span></div></div>
+    <div id="quick-kpi" style="margin-bottom:9px"></div>
+    <div id="inv-summary-row" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:7px;margin-bottom:11px"></div>
+    <div style="display:flex;gap:5px;overflow-x:auto;padding-bottom:3px;margin-bottom:10px">
+      <button class="tab on" id="pst-inv"   onclick="setPhonesTab('inv',this)"   style="background:#06b6d4;border-color:#06b6d4;color:#fff;font-size:11px">📦 المخزون</button>
+      <button class="tab" id="pst-sales" onclick="setPhonesTab('sales',this)" style="font-size:11px">💰 المبيعات</button>
+      <button class="tab" id="pst-brand" onclick="setPhonesTab('brand',this)" style="font-size:11px">📊 التحليلات</button>
+      <button class="tab" id="pst-short" onclick="setPhonesTab('short',this)" style="font-size:11px">⚠️ النواقص</button>
+      <button class="tab" id="pst-reord" onclick="setPhonesTab('reord',this)" style="font-size:11px">🔄 مقترحات</button>
+      <button class="tab" id="pst-supp"  onclick="setPhonesTab('supp',this)"  style="font-size:11px">🏭 الموردون</button>
+    </div>
+    <div id="phs-inv">
+      <div style="display:flex;gap:6px;margin-bottom:9px;flex-wrap:wrap">
+        <button class="abtn" style="background:#06b6d4" onclick="openAddPhone()">+ إضافة موديل</button>
+        <button class="abtn" style="background:#1e293b;border:1px solid #475569;color:#94a3b8" onclick="openJard()">📋 جرد سريع</button>
+        <input id="ph-search" style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;direction:rtl;min-width:110px" placeholder="بحث: شركة، موديل، رام، سعة..." oninput="renderPhonesList()">
+        <select id="ph-filter" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;cursor:pointer" onchange="renderPhonesList()">
+          <option value="all">الكل</option><option value="fav">⭐ المفضلة</option><option value="fast">🔥 سريع</option><option value="medium">📊 متوسط</option><option value="slow">🐌 بطيء</option><option value="stagnant">💤 راكد</option><option value="low">⚠️ منخفض</option><option value="out">❌ منتهي</option>
+        </select>
+      </div>
+      <div id="brand-filter-bar" style="display:flex;gap:5px;overflow-x:auto;padding-bottom:4px;margin-bottom:9px;scrollbar-width:none"></div>
+      <div id="phones-list"></div>
+    </div>
+    <div id="phs-sales" style="display:none">
+      <div style="display:flex;gap:6px;margin-bottom:9px;flex-wrap:wrap">
+        <input id="ph-sales-search" style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;direction:rtl;min-width:110px" placeholder="بحث: موديل، تاريخ..." oninput="renderPhonesSales()">
+        <select id="ph-sales-filter" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;cursor:pointer" onchange="renderPhonesSales()">
+          <option value="all">كل العمليات</option>
+          <option value="today">اليوم فقط</option>
+          <option value="month">هذا الشهر</option>
+          <option value="rolled">المتراجع عنها</option>
+        </select>
+      </div>
+      <div id="ph-sales-content"></div>
+    </div>
+    <div id="phs-brand" style="display:none"><div id="ph-brand-content"></div></div>
+    <div id="phs-short" style="display:none"><div id="ph-short-content"></div></div>
+    <div id="phs-reord" style="display:none"><div id="ph-reord-content"></div></div>
+    <div id="phs-supp"  style="display:none"><div id="ph-supp-content"></div></div>
+  </div>
+
+  <!-- ══ SCROLL FAB (uses #scroll-fab CSS) ══ -->
+<div id="scroll-fab">
+  <button class="sfab" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="للأعلى">↑</button>
+  <button class="sfab" onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})" title="للأسفل">↓</button>
+</div>
+
+<!-- ══ BRANDS MANAGER MODAL ══ -->
+<div id="modal-brands" class="modal-bg" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:540px;padding:16px;direction:rtl;max-height:88vh;overflow-y:auto;border-top:2px solid #06b6d4">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px">
+      <div style="font-size:15px;font-weight:800;color:#06b6d4">🏢 إدارة الشركات</div>
+      <button class="back-btn" onclick="document.getElementById('modal-brands').style.display='none'">×</button>
+    </div>
+    <!-- نوع الأجهزة -->
+    <div style="display:flex;gap:6px;margin-bottom:11px">
+      <button id="bm-tab-touch"  onclick="setBrandTab('touch')"  style="flex:1;background:#06b6d4;color:#000;border:none;border-radius:8px;padding:9px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">📱 تاتش</button>
+      <button id="bm-tab-keypad" onclick="setBrandTab('keypad')" style="flex:1;background:#1e293b;color:#64748b;border:none;border-radius:8px;padding:9px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer">⌨️ زراير</button>
+    </div>
+    <!-- إضافة شركة جديدة -->
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <input id="bm-new-input" placeholder="اسم الشركة الجديدة..." style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;direction:rtl" onkeydown="if(event.key==='Enter')addBrand()">
+      <button onclick="addBrand()" style="background:#06b6d4;border:none;border-radius:8px;color:#000;padding:8px 14px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">+ إضافة</button>
+    </div>
+    <!-- فلتر عرض -->
+    <div style="display:flex;gap:5px;margin-bottom:10px">
+      <button id="bm-show-active" onclick="setBrandView('active')" style="flex:1;background:#0f172a;border:1px solid #3b82f6;border-radius:7px;color:#60a5fa;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✅ نشطة</button>
+      <button id="bm-show-archived" onclick="setBrandView('archived')" style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:7px;color:#475569;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">📂 مؤرشفة</button>
+    </div>
+    <div id="bm-list"></div>
+  </div>
+</div>
+  <div id="modal-jard" class="modal-bg" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:90vh;overflow-y:auto;border-top:2px solid #06b6d4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px">
+        <div style="font-size:15px;font-weight:800;color:#06b6d4">📋 الجرد السريع</div>
+        <button class="back-btn" onclick="document.getElementById('modal-jard').style.display='none'">×</button>
+      </div>
+      <input id="jard-search" style="width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;direction:rtl;margin-bottom:9px" placeholder="بحث..." oninput="renderJard()">
+      <div id="jard-list"></div>
+      <div id="jard-summary" style="margin-top:10px;font-size:11px;color:#64748b;text-align:center;padding:7px;background:#0f172a;border-radius:7px"></div>
+    </div>
+  </div>
+  <!-- ══ BRAND DETAIL MODAL ══ -->
+  <div id="modal-brand-detail" class="modal-bg modal-center" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:#111827;border-radius:16px;width:92%;max-width:500px;padding:16px;direction:rtl;max-height:88vh;overflow-y:auto;border:1px solid #1e293b">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:15px;font-weight:800;color:#e2e8f0" id="brand-detail-title">الشركة</div>
+        <button class="back-btn" onclick="document.getElementById('modal-brand-detail').style.display='none'">×</button>
+      </div>
+      <div id="brand-detail-content"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-repairs">
+    <div class="phdr"><div class="ptitle" style="color:#f97316">🔧 الصيانة</div><div class="pmeta"><span id="repairs-meta"></span><span class="pcount" id="repairs-cnt">0</span></div></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px">
+      <button class="abtn" style="background:#f97316" onclick="openAddRepair()">+ عملية جديدة</button>
+      <button class="abtn" style="background:#334155" onclick="goRepairs()">📋 كل العمليات</button>
+    </div>
+    <div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:3px;margin-bottom:10px">
+      <button class="tab on" id="rft-all"   onclick="setRepairFilter('all',this)"    style="background:#f97316;border-color:#f97316;color:#fff;font-size:10px">الكل</button>
+      <button class="tab" id="rft-prog"  onclick="setRepairFilter('prog',this)"   style="font-size:10px">🔧 قيد الصيانة</button>
+      <button class="tab" id="rft-fixed" onclick="setRepairFilter('fixed',this)"  style="font-size:10px">✅ تم الإصلاح</button>
+      <button class="tab" id="rft-undel" onclick="setRepairFilter('undel',this)"  style="font-size:10px">📦 لم يُسلَّم</button>
+      <button class="tab" id="rft-unpay" onclick="setRepairFilter('unpay',this)"  style="font-size:10px">💰 لم يُدفع</button>
+      <button class="tab" id="rft-done"  onclick="setRepairFilter('done',this)"   style="font-size:10px">🏁 مكتملة</button>
+    </div>
+    <div id="repairs-list-panel"></div>
+  </div>
+</div>
+
+<div id="S-monthly" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>📊 الحسابات الشهرية</h2></div>
+  <div class="month-nav">
+    <button class="nav-btn" onclick="prevMonth()">›</button>
+    <div class="month-lbl" id="month-lbl"></div>
+    <button class="nav-btn" onclick="nextMonth()">‹</button>
+  </div>
+  <div class="exp-row">
+    <button class="ebtn pr" onclick="exportMonth()">📤 تصدير JSON</button>
+    <button class="ebtn pr" onclick="exportAll()">💾 كل البيانات</button>
+    <button class="ebtn gr" onclick="printMonthPDF()">🖨️ PDF</button>
+    <button class="ebtn" style="background:#22c55e30;border-color:#22c55e;color:#4ade80" onclick="uploadToDrive()">☁️ رفع Drive</button>
+    <button class="ebtn" style="background:#3b82f630;border-color:#3b82f6;color:#60a5fa" onclick="downloadFromDrive()">⬇️ تحميل Drive</button>
+    <button class="ebtn" onclick="$('imp-file').click()">📥 استيراد</button>
+    <input type="file" id="imp-file" accept=".json" style="display:none" onchange="importData(this)">
+  </div>
+  <div class="month-totals" id="month-totals"></div>
+  <div class="m-sec"><div class="m-sec-hdr" style="color:#a78bfa">📊 تحليل مصادر الأرباح</div><div id="profit-source-chart"></div></div>
+  <div class="m-sec">
+    <div class="m-sec-hdr" style="color:#a78bfa">⚖️ مقارنة الشهور</div>
+    <div style="margin-bottom:9px">
+      <select id="cmp-mode" onchange="updateCmpUI()" style="width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;margin-bottom:8px;font-family:inherit">
+        <option value="one">مقارنة شهرين</option>
+        <option value="multi">شهور محددة</option>
+        <option value="all">كل الشهور المتاحة</option>
+      </select>
+      <div id="cmp-single-row" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        <select id="cmp-month-sel" style="flex:1;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;font-family:inherit">
+          <option value="01">يناير</option><option value="02">فبراير</option><option value="03">مارس</option>
+          <option value="04">أبريل</option><option value="05">مايو</option><option value="06">يونيو</option>
+          <option value="07">يوليو</option><option value="08">أغسطس</option><option value="09">سبتمبر</option>
+          <option value="10">أكتوبر</option><option value="11">نوفمبر</option><option value="12">ديسمبر</option>
+        </select>
+        <select id="cmp-year-sel" style="flex:0 0 80px;background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;font-family:inherit" id="cmp-year-sel"></select>
+      </div>
+      <div id="cmp-multi-row" style="display:none;margin-top:6px">
+        <div style="font-size:10px;color:#64748b;margin-bottom:6px">اختر الشهور للمقارنة:</div>
+        <div id="cmp-multi-checks" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="abtn" style="background:#7c3aed;flex:1" onclick="doComparison()">📊 مقارنة</button>
+      <button class="abtn" style="background:#334155" onclick="$('cmp-result').innerHTML=''">مسح</button>
+    </div>
+    <div id="cmp-result" style="margin-top:10px"></div>
+  </div>
+  <div class="sf-box">
+    <div style="font-size:11px;color:#64748b;margin-bottom:7px">🔍 بحث في الشهر</div>
+    <input style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;width:100%;direction:rtl" id="msearch-inp" placeholder="ابحث عن قطعة، موبايل، صيانة..." oninput="doMonthSearch()">
+    <div id="msearch-results" style="margin-top:9px"></div>
+  </div>
+  <div id="monthly-detail"></div>
+</div>
+
+<div id="S-analytics" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>📈 التحليلات الذكية</h2></div>
+  <div style="display:flex;gap:7px;margin-bottom:13px;flex-wrap:wrap">
+    <select id="ana-month" onchange="renderAnalytics()" style="background:#111827;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:7px 10px;font-family:inherit;font-size:12px;cursor:pointer;flex:1"></select>
+    <button class="ebtn pr" style="flex:0;padding:7px 12px;min-width:auto" onclick="renderAnalytics()">تحديث</button>
+  </div>
+  <div id="analytics-content"></div>
+</div>
+
+<div id="S-notes" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>📋 الملاحظات</h2>
+    <button class="abtn" style="background:#06b6d4;margin-right:auto" onclick="openAddNote()">+ ملاحظة جديدة</button>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+    <div class="note-type-btn on" id="nf-all" onclick="setNoteFilter('all',this)">الكل</div>
+    <div class="note-type-btn" id="nf-note" onclick="setNoteFilter('note',this)">📝 ملاحظات</div>
+    <div class="note-type-btn" id="nf-reminder" onclick="setNoteFilter('reminder',this)">⏰ تذكيرات</div>
+    <div class="note-type-btn" id="nf-conditional" onclick="setNoteFilter('conditional',this)">⚡ شرطية</div>
+    <div class="note-type-btn" id="nf-done" onclick="setNoteFilter('done',this)">✅ مكتملة</div>
+  </div>
+  <input style="background:#111827;border:1px solid #1e293b;border-radius:9px;padding:8px 12px;color:#e2e8f0;font-size:12px;width:100%;direction:rtl;margin-bottom:10px" id="notes-search" placeholder="ابحث في الملاحظات..." oninput="renderNotes()">
+  <div id="notes-list"></div>
+</div>
+
+<div id="S-notifications" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>🔔 مركز الإشعارات</h2>
+    <button class="abtn" style="background:#334155;margin-right:auto;font-size:11px" onclick="markAllNotifsRead()">تعليم الكل مقروء</button>
+  </div>
+  <div style="display:flex;gap:5px;margin-bottom:11px;flex-wrap:wrap">
+    <div class="note-type-btn on" id="nof-all" onclick="setNotifFilter('all',this)">الكل</div>
+    <div class="note-type-btn" id="nof-unread" onclick="setNotifFilter('unread',this)">غير مقروء</div>
+    <div class="note-type-btn" id="nof-reminder" onclick="setNotifFilter('reminder',this)">⏰ تذكيرات</div>
+    <div class="note-type-btn" id="nof-conditional" onclick="setNotifFilter('conditional',this)">⚡ شرطية</div>
+    <div class="note-type-btn" id="nof-inventory" onclick="setNotifFilter('inventory',this)">📦 مخزون</div>
+    <div class="note-type-btn" id="nof-repair" onclick="setNotifFilter('repair',this)">🔧 صيانة</div>
+  </div>
+  <div id="notifs-list"></div>
+</div>
+
+<div id="S-search" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>🔍 البحث الذكي</h2></div>
+  <div class="nlp-bar">
+    <input class="nlp-inp" id="nlp-inp" placeholder="مثال: مبيعات سامسونج الشهر الماضي، صيانة هذا الأسبوع..." oninput="doNLPSearch()">
+    <button class="abtn" style="background:#3b82f6" onclick="doNLPSearch()">بحث</button>
+  </div>
+  <div class="nlp-examples">
+    <div class="nlp-ex" onclick="setNLP('مبيعات المستعمل هذا الشهر')">مستعمل هذا الشهر</div>
+    <div class="nlp-ex" onclick="setNLP('صيانة هذا الأسبوع')">صيانة الأسبوع</div>
+    <div class="nlp-ex" onclick="setNLP('هاتف جديد الشهر الماضي')">هواتف الشهر الماضي</div>
+    <div class="nlp-ex" onclick="setNLP('أرباح أكبر من 500')">أرباح أكبر من 500</div>
+    <div class="nlp-ex" onclick="setNLP('مصاريف هذا الشهر')">مصاريف الشهر</div>
+    <div class="nlp-ex" onclick="setNLP('اكسسوار آخر 7 أيام')">اكسسوار آخر 7 أيام</div>
+  </div>
+  <div id="nlp-filter-display" style="font-size:11px;color:#475569;margin-bottom:9px;background:#0f172a;border-radius:7px;padding:7px 10px;display:none"></div>
+  <div id="search-stats" style="font-size:11px;color:#475569;margin-bottom:9px"></div>
+  <div id="search-results-adv"></div>
+</div>
+
+<div id="S-repairs" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>🔧 سجل الصيانة</h2>
+    <button class="abtn" style="background:#f97316;margin-right:auto" onclick="openAddRepair()">+ عملية جديدة</button>
+  </div>
+  <div style="display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+    <input id="rep-search" style="flex:1;background:#111827;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;direction:rtl;min-width:130px" placeholder="بحث بالاسم، الشركة، العطل..." oninput="renderRepairList()">
+    <select id="rep-status-filter" style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:7px 9px;color:#e2e8f0;font-size:12px;cursor:pointer" onchange="renderRepairList()">
+      <option value="all">كل الحالات</option>
+      <option value="inProgress">🔧 جاري الإصلاح</option>
+      <option value="done">✅ تم الإصلاح</option>
+      <option value="delivered">📦 تم التسليم</option>
+      <option value="cancelled">❌ ملغي</option>
+    </select>
+  </div>
+  <div style="font-size:11px;color:#64748b;margin-bottom:9px;display:flex;gap:10px;flex-wrap:wrap"><span id="repair-list-cnt">0 عملية</span><span id="repair-list-meta"></span></div>
+  <div id="all-repairs-list"></div>
+</div>
+
+<div id="S-settings" class="screen">
+  <div class="screen-hdr"><button class="back-btn" onclick="goMain()">←</button><h2>⚙️ الإعدادات</h2></div>
+
+  <details class="set-sec">
+    <summary><h3>🏪 هوية المحل</h3></summary>
+    <div class="logo-opts" id="logo-opts"></div>
+    <div style="display:flex;gap:7px;align-items:center;margin-bottom:9px;flex-wrap:wrap">
+      <div id="logo-img-wrap" style="display:none"><img id="logo-preview" class="logo-preview" src="" alt=""></div>
+      <button class="ebtn" style="min-width:auto;padding:6px 11px;font-size:11px" onclick="$('logo-upload').click()">📁 رفع لوجو</button>
+      <input type="file" id="logo-upload" accept="image/*" style="display:none" onchange="uploadLogo(this)">
+      <button id="logo-clear-btn" class="ebtn" style="min-width:auto;padding:6px 11px;font-size:11px;display:none" onclick="clearLogo()">🗑 حذف الصورة</button>
+    </div>
+    <input class="set-inp" id="set-name" placeholder="اسم المحل">
+    <button class="set-btn" onclick="saveIdentity()">💾 حفظ</button>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>🔐 كلمات المرور</h3></summary>
+    <div style="font-size:11px;color:#475569;background:#0f172a;border-radius:7px;padding:8px 10px;margin-bottom:10px">🔑 <b>باسورد النظام</b> لفتح التطبيق &nbsp;|&nbsp; 👑 <b>باسورد الإدارة</b> للأرباح والتقارير</div>
+    <div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:7px">باسورد النظام (افتراضي: 1234)</div>
+    <input class="set-inp" type="password" id="set-old-m" placeholder="الحالي">
+    <input class="set-inp" type="password" id="set-new-m" placeholder="الجديد">
+    <input class="set-inp" type="password" id="set-cf-m" placeholder="تأكيد">
+    <button class="set-btn" onclick="changePass('main')">تغيير باسورد النظام</button>
+    <div class="set-msg" id="set-pass-msg-m"></div>
+    <div style="font-size:11px;font-weight:700;color:#7c3aed;margin:12px 0 7px">باسورد الإدارة (افتراضي: 5678)</div>
+    <input class="set-inp" type="password" id="set-old-a" placeholder="الحالي">
+    <input class="set-inp" type="password" id="set-new-a" placeholder="الجديد">
+    <input class="set-inp" type="password" id="set-cf-a" placeholder="تأكيد">
+    <button class="set-btn pu" onclick="changePass('admin')">تغيير باسورد الإدارة</button>
+    <div class="set-msg" id="set-pass-msg-a"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>⏱ قفل الأرباح التلقائي</h3></summary>
+    <div style="font-size:11px;color:#475569;margin-bottom:9px">يُعيد قفل بيانات الأرباح تلقائياً بعد:</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px">
+      <select id="set-admin-timeout" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-family:inherit;font-size:12px;cursor:pointer">
+        <option value="1">1 دقيقة (افتراضي)</option>
+        <option value="3">3 دقائق</option>
+        <option value="5">5 دقائق</option>
+        <option value="10">10 دقائق</option>
+      </select>
+      <button class="set-btn" onclick="saveAdminTimeout()">💾 حفظ</button>
+    </div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>☁️ Google Drive Sync</h3></summary>
+    <div id="drive-conn-status"></div>
+    <div style="font-size:11px;color:#475569;background:#0f172a;border-radius:8px;padding:9px;margin-bottom:10px">يتم الرفع والتحميل عبر Google Apps Script — لا يحتاج إعداد إضافي.</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button class="set-btn" style="background:#22c55e" onclick="uploadToDrive()">☁️ رفع على Drive</button>
+      <button class="set-btn" style="background:#3b82f6" onclick="downloadFromDrive()">⬇️ تحميل من Drive</button>
+    </div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>📦 فئات الاكسسوار</h3></summary>
+    <div style="font-size:11px;color:#475569;margin-bottom:8px">◀ ▶ للترتيب · × للحذف</div>
+    <div id="cat-tags-mgmt" style="display:flex;flex-wrap:wrap"></div>
+    <div class="frow" style="margin-top:10px">
+      <div class="field"><input id="new-cat-inp" placeholder="فئة جديدة..."></div>
+      <button class="abtn" style="background:#3b82f6" onclick="addCatDyn()">+ إضافة</button>
+    </div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>💾 النسخ الاحتياطي</h3></summary>
+    <div id="backup-status" style="font-size:11px;color:#475569;margin-bottom:9px">آخر نسخة: —</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button class="set-btn" style="background:#4ade80;color:#000;flex:1" onclick="exportBackup()">📤 تصدير نسخة احتياطية</button>
+      <label class="set-btn" style="background:#334155;flex:1;text-align:center;cursor:pointer">
+        📥 استعادة نسخة
+        <input type="file" accept=".json" style="display:none" onchange="importBackup(this)">
+      </label>
+    </div>
+  </details>
+  <details class="set-sec" id="sec-secure-backup">
+    <summary><h3>🔒 نسخة احتياطية مشفّرة (.mshop)</h3></summary>
+    <div style="font-size:10px;color:#64748b;margin-bottom:9px;line-height:1.7">نسخة كاملة من كل بيانات المحل (المخزون، المبيعات، الإعدادات، كل شيء)، بتشفير قياسي (AES-GCM) وحماية بكلمة مرور منفصلة تمامًا عن كلمة مرور الإدارة.</div>
+    <div class="field" style="margin-bottom:8px">
+      <label>🔒 كلمة مرور النسخة الاحتياطية <span style="color:#4ade80">(موصى بها لحماية بياناتك)</span></label>
+      <input id="backup-password-inp" type="password" placeholder="أدخل كلمة مرور — أو اتركها فارغة (غير موصى به)">
+    </div>
+    <button id="secure-backup-btn" class="set-btn" style="background:#4ade80;color:#000;width:100%;margin-bottom:6px" onclick="doCreateSecureBackup()">🔒 إنشاء نسخة ومشاركتها الآن</button>
+    <div id="backup-create-progress-text" class="backup-progress-indicator" style="display:none;font-size:10px;color:#4ade80;text-align:center;margin-bottom:10px"></div>
+    <div class="field" style="margin-bottom:8px">
+      <label>كلمة مرور الاستعادة (إن كانت النسخة مشفّرة)</label>
+      <input id="restore-password-inp" type="password" placeholder="اتركها فارغة لو النسخة بدون تشفير">
+    </div>
+    <label class="set-btn" style="background:#334155;display:block;text-align:center;cursor:pointer;margin-bottom:10px">
+      📥 استعادة من نسخة .mshop
+      <input type="file" accept=".mshop,application/json" style="display:none" onchange="doRestoreSecureBackup(this)">
+    </label>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button class="set-btn" style="background:transparent;border:1px solid #334155;color:#64748b;flex:1;font-size:11px" onclick="restoreEmergencyBackup()">🆘 استعادة النسخة الطارئة</button>
+      <button class="set-btn" style="background:transparent;border:1px solid #450a0a;color:#f87171;flex:1;font-size:11px" onclick="deleteEmergencyBackup()">🗑️ حذف النسخة الطارئة</button>
+    </div>
+    <div id="backup-history-list" style="font-size:10px;color:#64748b;margin-bottom:10px;line-height:1.8"></div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b;cursor:pointer">
+      <input type="checkbox" id="backup-reminder-toggle" onchange="Storage.saveRaw('mshop_backup_reminder_dismissed', this.checked?'0':'1')">
+      🔔 تذكير يومي بعمل نسخة احتياطية
+    </label>
+  </details>
+  <details class="set-sec">
+    <summary><h3>🔍 فحص صحة البيانات</h3></summary>
+    <button class="set-btn" style="background:#06b6d4;color:#000;margin-bottom:9px" onclick="runHealthCheck()">🔍 تشغيل الفحص</button>
+    <div id="health-result"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>📋 ترتيب الأقسام</h3></summary>
+    <div style="font-size:11px;color:#475569;margin-bottom:10px">رتّب الأقسام حسب الأكثر استخدامًا — الضغط على ↑↓ للتحريك</div>
+    <div id="tab-order-list"></div>
+    <button class="set-btn" style="background:#06b6d4;margin-top:10px" onclick="saveTabOrder()">💾 حفظ الترتيب</button>
+    <button class="set-btn" style="background:#334155;margin-top:5px" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>🔧 أنواع الأعطال (صيانة)</h3></summary>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field"><input id="new-fault-inp" placeholder="نوع عطل جديد..."></div>
+      <button class="abtn" style="background:#f97316" onclick="addFaultType()">+</button>
+    </div>
+    <div id="fault-types-list"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>🔩 قطع الغيار</h3></summary>
+    <div class="frow" style="margin-bottom:9px;flex-wrap:wrap">
+      <div class="field"><label>اسم القطعة</label><input id="rp-name" placeholder="شاشة، بطارية..."></div>
+      <div class="field fw"><label>متوافق مع</label><input id="rp-compat" placeholder="سامسونج A15..."></div>
+      <div class="field fw"><label>الكمية</label><input id="rp-qty" type="number" placeholder="1"></div>
+      <div class="field fw"><label>سعر الشراء</label><input id="rp-buy" type="number" placeholder="0"></div>
+      <div class="field fw"><label>المورد</label><input id="rp-supplier" placeholder="المورد"></div>
+      <button class="abtn" style="background:#f97316;align-self:flex-end" onclick="addRepairPart()">+</button>
+    </div>
+    <div id="repair-parts-list"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>🎧 كتالوج الاكسسوار</h3></summary>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field"><label>الاسم</label><input id="ca-n" placeholder="كفر A15..."></div>
+      <div class="field fw"><label>الفئة</label><select id="ca-cat"></select></div>
+      <div class="field fw"><label>شراء</label><input id="ca-b" type="number" placeholder="0"></div>
+      <div class="field fw"><label>بيع</label><input id="ca-s" type="number" placeholder="0"></div>
+      <button class="abtn" style="background:#3b82f6;align-self:flex-end" onclick="addCA()">+</button>
+    </div>
+    <div id="ca-list"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>📱 كتالوج المستعمل</h3></summary>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field"><label>الموبايل</label><input id="cu-n" placeholder="آيفون 13..."></div>
+      <div class="field fw"><label>شراء</label><input id="cu-b" type="number" placeholder="0"></div>
+      <div class="field fw"><label>بيع</label><input id="cu-s" type="number" placeholder="0"></div>
+      <button class="abtn" style="background:#8b5cf6;align-self:flex-end" onclick="addCU()">+</button>
+    </div>
+    <div id="cu-list"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>💸 أصناف المصاريف</h3></summary>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field"><input id="ce-n" placeholder="إيجار، فاتورة..."></div>
+      <button class="abtn" style="background:#f59e0b;align-self:flex-end" onclick="addCE()">+</button>
+    </div>
+    <div id="ce-list"></div>
+  </details>
+
+  <details class="set-sec">
+    <summary><h3>🗑️ سلة المحذوفات</h3></summary>
+    <div style="display:flex;gap:7px;margin-bottom:10px">
+      <button class="ebtn" style="min-width:auto;padding:6px 11px;font-size:11px" onclick="renderTrash()">تحديث</button>
+      <button class="ebtn" style="min-width:auto;padding:6px 11px;font-size:11px;background:#450a0a;border-color:#ef4444;color:#f87171" onclick="clearOldTrash()">حذف القديم (30 يوم+)</button>
+    </div>
+    <div id="trash-list"></div>
+  </details>
+</div>
+
+<!-- MODALS -->
+<div id="modal-admin" class="modal-bg modal-center" style="display:none" onclick="if(event.target===this)closeAdmin()">
+  <div class="admin-wrap" onclick="event.stopPropagation()">
+    <h3>👑 باسورد الإدارة</h3>
+    <input class="admin-i" type="password" id="admin-pin" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')confirmAdmin()">
+    <div class="admin-err" id="admin-err"></div>
+    <button class="admin-ok" onclick="confirmAdmin()">تأكيد</button>
+    <button class="admin-cl" onclick="closeAdmin()">إلغاء</button>
+  </div>
+</div>
+
+<div id="modal-calc" class="modal-bg" style="display:none" onclick="if(event.target===this)toggleCalc()">
+  <div class="calc-wrap" onclick="event.stopPropagation()">
+    <div class="calc-disp"><div class="calc-expr" id="calc-expr"></div><div class="calc-result" id="calc-res">0</div></div>
+    <div class="calc-grid">
+      <button class="cbtn clr" onclick="CI('C')">C</button><button class="cbtn op" onclick="CI('±')">±</button><button class="cbtn op" onclick="CI('%')">%</button><button class="cbtn op" onclick="CI('÷')">÷</button>
+      <button class="cbtn" onclick="CI('7')">7</button><button class="cbtn" onclick="CI('8')">8</button><button class="cbtn" onclick="CI('9')">9</button><button class="cbtn op" onclick="CI('×')">×</button>
+      <button class="cbtn" onclick="CI('4')">4</button><button class="cbtn" onclick="CI('5')">5</button><button class="cbtn" onclick="CI('6')">6</button><button class="cbtn op" onclick="CI('−')">−</button>
+      <button class="cbtn" onclick="CI('1')">1</button><button class="cbtn" onclick="CI('2')">2</button><button class="cbtn" onclick="CI('3')">3</button><button class="cbtn op" onclick="CI('+')">+</button>
+      <button class="cbtn" onclick="CI('.')">.</button><button class="cbtn zero" onclick="CI('0')">0</button><button class="cbtn op" onclick="CI('⌫')">⌫</button><button class="cbtn eq" onclick="CI('=')">=</button>
+    </div>
+    <button class="calc-hist-btn" onclick="toggleCalcHist()">📜 سجل العمليات</button>
+    <div class="hist-panel" id="hist-panel"></div>
+    <button class="calc-close" onclick="toggleCalc()">إغلاق</button>
+  </div>
+</div>
+
+<div id="modal-add-note" class="modal-bg" style="display:none" onclick="if(event.target===this)closeAddNote()">
+  <div class="add-note-wrap" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#94a3b8">ملاحظة جديدة</h3><button class="delbtn" onclick="closeAddNote()" style="font-size:20px">×</button></div>
+    <div class="note-type-sel">
+      <div class="nts on" onclick="selectNoteType('note',this)">📝 عادية</div>
+      <div class="nts" onclick="selectNoteType('reminder',this)">⏰ تذكير</div>
+      <div class="nts" onclick="selectNoteType('conditional',this)">⚡ شرطية</div>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field"><label>العنوان</label><input id="an-title" placeholder="عنوان الملاحظة..."></div>
+      <div class="field fw"><label>الأولوية</label><select id="an-pri"><option value="3">🔴 عاجل</option><option value="2" selected>🔵 عادي</option><option value="1">⚪ منخفض</option></select></div>
+    </div>
+    <div class="field" style="margin-bottom:8px"><label>المحتوى</label><textarea id="an-body" placeholder="محتوى الملاحظة..." style="min-height:65px"></textarea></div>
+    <div id="an-reminder-sec" style="display:none">
+      <div class="frow" style="margin-bottom:8px">
+        <div class="field fw"><label>تاريخ التذكير</label><input type="date" id="an-date" style="background:#090e1a;border:1px solid #1e293b;border-radius:8px;padding:6px 9px;color:#e2e8f0;font-size:12px;width:100%;direction:ltr"></div>
+        <div class="field fw"><label>الوقت</label><input type="time" id="an-time" style="background:#090e1a;border:1px solid #1e293b;border-radius:8px;padding:6px 9px;color:#e2e8f0;font-size:12px;width:100%;direction:ltr"></div>
+      </div>
+    </div>
+    <div id="an-cond-sec" class="cond-section" style="display:none">
+      <div class="cond-section-title">⚡ شرط التنبيه التلقائي</div>
+      <div class="frow" style="margin-bottom:7px">
+        <div class="field"><label>القسم</label><select id="an-cond-sec-val"><option value="">أي قسم</option><option value="acc">اكسسوار</option><option value="used">مستعمل</option><option value="cash">كاش</option><option value="sw">سوفت وير</option><option value="phones">هواتف جديدة</option><option value="repairs">صيانة</option></select></div>
+        <div class="field fw"><label>سعر أدنى</label><input id="an-cond-min" type="number" placeholder="0"></div>
+        <div class="field fw"><label>سعر أقصى</label><input id="an-cond-max" type="number" placeholder="أي"></div>
+      </div>
+      <div class="field"><label>كلمة مفتاحية</label><input id="an-cond-kw" placeholder="سامسونج، آيفون..."></div>
+    </div>
+    <div style="display:flex;gap:7px;margin-top:10px">
+      <button class="abtn" style="background:#06b6d4;flex:1" onclick="saveNote()">💾 حفظ</button>
+      <button class="abtn" style="background:#334155" onclick="closeAddNote()">إلغاء</button>
+    </div>
+    <div id="an-err" style="font-size:11px;color:#f87171;margin-top:6px;min-height:14px"></div>
+  </div>
+</div>
+
+<div id="modal-np" class="modal-bg modal-center" style="display:none">
+  <div class="np-wrap">
+    <div class="np-icon" id="np-icon">🔔</div>
+    <div class="np-title" id="np-title"></div>
+    <div class="np-body" id="np-body"></div>
+    <div class="np-time" id="np-time"></div>
+    <div class="np-match" id="np-match" style="display:none"></div>
+    <div class="np-actions">
+      <button class="np-btn np-done" onclick="npAction('done')">✅ مكتمل</button>
+      <button class="np-btn np-snooze" onclick="npAction('snooze')">⏰ ساعة</button>
+      <button class="np-btn np-dismiss" onclick="npAction('dismiss')">✕ تجاهل</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD PHONE MODAL -->
+<div id="modal-add-phone" class="modal-bg" style="display:none" onclick="if(event.target===this)closeAddPhone()">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:92vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px">
+      <h3 style="font-size:14px;font-weight:700;color:#06b6d4" id="add-phone-title">📦 إضافة موديل</h3>
+      <button class="delbtn" onclick="closeAddPhone()" style="font-size:20px">×</button>
+    </div>
+    <!-- نوع الجهاز -->
+    <div style="font-size:10px;color:#64748b;margin-bottom:5px">نوع الجهاز</div>
+    <div style="display:flex;gap:6px;margin-bottom:11px">
+      <button id="ptype-touch"  onclick="setPhoneType('touch',this)"  style="flex:1;background:#06b6d4;color:#000;border:2px solid #06b6d4;border-radius:9px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s">📱 تاتش</button>
+      <button id="ptype-keypad" onclick="setPhoneType('keypad',this)" style="flex:1;background:#111827;color:#64748b;border:2px solid #1e293b;border-radius:9px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s">⌨️ زراير</button>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field">
+        <label>الشركة</label>
+        <select id="ph-brand"><option>Samsung</option><option>Apple</option><option>Xiaomi</option><option>Oppo</option><option>Vivo</option><option>Tecno</option><option>Infinix</option><option>Huawei</option><option>Realme</option><option>أخري</option></select>
+      </div>
+      <div class="field">
+        <label>الموديل</label>
+        <input id="ph-model" list="dl-ph-models" placeholder="Galaxy A55، iPhone 15..." autocomplete="off">
+        <datalist id="dl-ph-models"></datalist>
+      </div>
+    </div>
+    <div id="ph-ram-storage-row" class="frow" style="margin-bottom:8px">
+      <div class="field fw"><label>الرام</label><select id="ph-ram"><option>3GB</option><option>4GB</option><option>6GB</option><option>8GB</option><option>12GB</option><option>16GB</option></select></div>
+      <div class="field fw"><label>السعة</label><select id="ph-storage"><option>32GB</option><option>64GB</option><option>128GB</option><option>256GB</option><option>512GB</option><option>1TB</option></select></div>
+      <div class="field fw"><label>اللون</label><input id="ph-color" placeholder="أسود..."></div>
+      <div class="field fw"><label>كود داخلي</label><input id="ph-code" placeholder="اختياري"></div>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field fw"><label>الكمية</label><input id="ph-qty" type="number" placeholder="1" min="1"></div>
+      <div class="field fw"><label>سعر الشراء</label><input id="ph-buy" type="number" placeholder="0"></div>
+      <div class="field">
+        <label>المورد</label>
+        <input id="ph-supplier" list="dl-ph-suppliers" placeholder="اسم المورد..." autocomplete="off">
+        <datalist id="dl-ph-suppliers"></datalist>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:8px"><label>ملاحظات</label><textarea id="ph-notes" style="min-height:45px" placeholder="..."></textarea></div>
+    <div style="display:flex;gap:7px;margin-top:10px">
+      <button class="abtn" style="background:#06b6d4;flex:1" onclick="savePhone()">💾 حفظ</button>
+      <button class="abtn" style="background:#334155" onclick="closeAddPhone()">إلغاء</button>
+    </div>
+    <div id="ph-err" style="font-size:11px;color:#f87171;margin-top:6px;min-height:14px"></div>
+  </div>
+</div>
+
+<div id="modal-sell-phone" class="modal-bg modal-center" style="display:none" onclick="if(event.target===this)closeSellPhone()">
+  <div style="background:#111827;border-radius:16px;width:90%;max-width:360px;padding:18px;direction:rtl" onclick="event.stopPropagation()">
+    <h3 style="font-size:14px;font-weight:700;color:#4ade80;margin-bottom:13px">💰 بيع من المخزون</h3>
+    <div id="sell-phone-info" style="background:#0f172a;border-radius:8px;padding:9px;margin-bottom:11px;font-size:12px;color:#94a3b8"></div>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field fw"><label>الكمية</label><input id="sell-qty" type="number" placeholder="1" min="1" value="1"></div>
+      <div class="field fw"><label>سعر البيع</label><input id="sell-price" type="number" placeholder="0"></div>
+    </div>
+    <div id="sell-profit-preview" style="font-size:12px;color:#64748b;margin-bottom:11px;min-height:18px"></div>
+    <div style="display:flex;gap:7px">
+      <button class="abtn" style="background:#4ade80;color:#000;flex:1;font-weight:800" onclick="confirmSell()">✅ تأكيد البيع</button>
+      <button class="abtn" style="background:#334155" onclick="closeSellPhone()">إلغاء</button>
+    </div>
+    <div id="sell-err" style="font-size:11px;color:#f87171;margin-top:6px;min-height:14px"></div>
+  </div>
+</div>
+
+<div id="modal-add-stock" class="modal-bg modal-center" style="display:none" onclick="if(event.target===this)closeAddStock()">
+  <div style="background:#111827;border-radius:16px;width:90%;max-width:360px;padding:18px;direction:rtl" onclick="event.stopPropagation()">
+    <h3 style="font-size:14px;font-weight:700;color:#06b6d4;margin-bottom:13px">+ إضافة مخزون</h3>
+    <div id="stock-info" style="background:#0f172a;border-radius:8px;padding:9px;margin-bottom:11px;font-size:12px;color:#94a3b8"></div>
+    <div class="frow" style="margin-bottom:9px">
+      <div class="field fw"><label>الكمية</label><input id="stock-qty" type="number" placeholder="1" min="1"></div>
+      <div class="field fw"><label>سعر الشراء</label><input id="stock-buy" type="number" placeholder="0"></div>
+      <div id="stock-price-warn" style="min-height:18px;margin-top:-5px;margin-bottom:5px;padding:0 2px"></div>
+      <div class="field"><label>المورد</label><input id="stock-supplier" placeholder="المورد"></div>
+    </div>
+    <div style="display:flex;gap:7px">
+      <button class="abtn" style="background:#06b6d4;flex:1" onclick="confirmAddStock()">+ إضافة</button>
+      <button class="abtn" style="background:#334155" onclick="closeAddStock()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-phone-detail" class="modal-bg" style="display:none" onclick="if(event.target===this)closePhoneDetail()">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:92vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#06b6d4" id="detail-title">تفاصيل الموديل</h3><button class="delbtn" onclick="closePhoneDetail()" style="font-size:20px">×</button></div>
+    <div id="phone-detail-content"></div>
+  </div>
+</div>
+
+<div id="modal-shortage" class="modal-bg" style="display:none" onclick="if(event.target===this)$('modal-shortage').style.display='none'">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#f59e0b">⚠️ قائمة النواقص</h3><button class="delbtn" onclick="$('modal-shortage').style.display='none'" style="font-size:20px">×</button></div>
+    <div id="shortage-content"></div>
+  </div>
+</div>
+
+<div id="modal-suppliers" class="modal-bg" style="display:none" onclick="if(event.target===this)$('modal-suppliers').style.display='none'">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#8b5cf6">🏭 الموردون</h3><button class="delbtn" onclick="$('modal-suppliers').style.display='none'" style="font-size:20px">×</button></div>
+    <div id="suppliers-content"></div>
+  </div>
+</div>
+
+<div id="modal-reorder" class="modal-bg" style="display:none" onclick="if(event.target===this)$('modal-reorder').style.display='none'">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:580px;padding:16px;direction:rtl;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#34d399">🔄 اقتراحات إعادة الشراء</h3><button class="delbtn" onclick="$('modal-reorder').style.display='none'" style="font-size:20px">×</button></div>
+    <div id="reorder-content"></div>
+  </div>
+</div>
+
+<!-- ADD REPAIR MODAL -->
+<div id="modal-add-repair" class="modal-bg" style="display:none" onclick="if(event.target===this)closeAddRepair()">
+  <div style="background:#111827;border-radius:18px 18px 0 0;width:100%;max-width:600px;padding:16px;direction:rtl;max-height:92vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px"><h3 style="font-size:14px;font-weight:700;color:#f97316">🔧 عملية صيانة</h3><button class="delbtn" onclick="closeAddRepair()" style="font-size:20px">×</button></div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field"><label>اسم العميل (اختياري)</label><input id="rep-client-name" placeholder="اسم العميل..." list="dl-rep-client"><datalist id="dl-rep-client"></datalist></div>
+      <div class="field fw"><label>رقم الهاتف</label><input id="rep-client-phone" placeholder="01..." type="tel" dir="ltr"></div>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field fw"><label>الشركة</label><input id="rep-brand" placeholder="Samsung، Apple..." list="dl-rep-brand"><datalist id="dl-rep-brand"></datalist></div>
+      <div class="field"><label>الموديل</label><input id="rep-model" placeholder="A55، iPhone 15..." list="dl-rep-model"><datalist id="dl-rep-model"></datalist></div>
+      <div class="field fw"><label>نوع الجهاز</label><select id="rep-device-type"><option>موبايل</option><option>تابلت</option><option>لاب توب</option><option>ساعة ذكية</option><option>إيربودز</option><option>أخري</option></select></div>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field"><label>نوع العطل</label><input id="rep-fault" placeholder="شاشة، بطارية..." list="dl-rep-fault"><datalist id="dl-rep-fault"><option>شاشة</option><option>بطارية</option><option>سوكت شحن</option><option>ميكروفون</option><option>سماعة</option><option>فلاتة شحن</option><option>فلاتة باور</option><option>كاميرا</option><option>بصمة</option><option>ظهر الجهاز</option><option>تنظيف</option><option>سوفت وير</option><option>أخرى</option></datalist></div>
+      <div class="field"><label>القطعة المستخدمة (اختياري)</label><input id="rep-part-name" placeholder="شاشة، بطارية..." list="dl-rep-part"><datalist id="dl-rep-part"></datalist></div>
+    </div>
+    <div class="frow" style="margin-bottom:8px">
+      <div class="field fw"><label>سعر شراء القطعة</label><input id="rep-part-buy" type="number" placeholder="0" oninput="updateRepairProfit()"></div>
+      <div class="field fw"><label>سعر الخدمة (إجمالي)</label><input id="rep-service-price" type="number" placeholder="0" oninput="updateRepairProfit()"></div>
+      <div class="field fw"><label>المورد</label><input id="rep-supplier" placeholder="المورد..." list="dl-rep-sup"><datalist id="dl-rep-sup"></datalist></div>
+
+    </div>
+    <div id="rep-profit-preview" style="font-size:12px;color:#64748b;margin-bottom:8px;min-height:18px"></div>
+    <div class="field" style="margin-bottom:10px"><label>ملاحظات (اختياري)</label><textarea id="rep-notes" style="min-height:45px" placeholder="..."></textarea></div>
+    <div style="display:flex;gap:7px">
+      <button class="abtn" style="background:#f97316;flex:1" onclick="saveRepair()">💾 حفظ العملية</button>
+      <button class="abtn" style="background:#334155" onclick="closeAddRepair()">إلغاء</button>
+    </div>
+    <div id="rep-err" style="font-size:11px;color:#f87171;margin-top:6px;min-height:14px"></div>
+  </div>
+</div>
+
+<!-- ══ ROLLBACK REASON MODAL (replaces window.prompt) ══ -->
+<div id="modal-rollback-reason" class="modal-bg modal-center" style="display:none" onclick="if(event.target===this)closeRollbackReasonModal()">
+  <div style="background:#111827;border-radius:16px;width:92%;max-width:380px;padding:16px;direction:rtl" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="font-size:14px;font-weight:700;color:#f59e0b">↩️ سبب التراجع</h3><button class="delbtn" onclick="closeRollbackReasonModal()" style="font-size:20px">×</button></div>
+    <div id="rollback-reason-label" style="font-size:11px;color:#64748b;background:#0f172a;border-radius:8px;padding:8px;margin-bottom:10px;line-height:1.6"></div>
+    <div class="field" style="margin-bottom:12px"><label>سبب التراجع (اختياري)</label><input id="rollback-reason-inp" placeholder="مثال: خطأ في السعر..."></div>
+    <div style="display:flex;gap:7px">
+      <button class="abtn" style="background:#f59e0b;flex:1" onclick="finishRollback()">✅ تأكيد التراجع</button>
+      <button class="abtn" style="background:#334155" onclick="closeRollbackReasonModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ RESTORE LOCK OVERLAY (Phase 3A+) ══ -->
+<div id="restore-lock-overlay" style="display:none;position:fixed;inset:0;z-index:9998;background:#090e1acc;backdrop-filter:blur(2px);flex-direction:column;align-items:center;justify-content:center;pointer-events:all">
+  <div style="width:44px;height:44px;border:4px solid #1e293b;border-top-color:#4ade80;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:14px"></div>
+  <div id="restore-progress-text" class="backup-progress-indicator" style="color:#e2e8f0;font-size:14px;font-weight:700">⏳ جاري استعادة النسخة الاحتياطية...</div>
+  <div style="color:#64748b;font-size:11px;margin-top:6px">من فضلك لا تغلق الصفحة أو تضغط أي زر</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+<!-- ══ BACKUP SUMMARY DIALOG (Phase 3A+) ══ -->
+<div id="modal-backup-summary" class="modal-bg modal-center" style="display:none">
+  <div style="background:#111827;border-radius:16px;width:92%;max-width:380px;padding:18px;direction:rtl" onclick="event.stopPropagation()">
+    <h3 style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:12px">📋 ملخص النسخة الاحتياطية</h3>
+    <div id="backup-summary-content" style="font-size:12px;color:#94a3b8;line-height:2.1;margin-bottom:16px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="abtn" style="background:#4ade80;color:#000;flex:1" onclick="backupSummaryAction(true)">✅ متابعة والمشاركة</button>
+      <button class="abtn" style="background:#334155" onclick="backupSummaryAction(false)">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ BACKUP REMINDER MODAL (Phase 3A) ══ -->
+<div id="modal-backup-reminder" class="modal-bg modal-center" style="display:none">
+  <div style="background:#111827;border-radius:16px;width:92%;max-width:380px;padding:18px;direction:rtl;text-align:center" onclick="event.stopPropagation()">
+    <div style="font-size:34px;margin-bottom:8px">⏰</div>
+    <h3 style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:6px">مر وقت منذ آخر نسخة احتياطية</h3>
+    <div id="backup-reminder-msg" style="font-size:12px;color:#94a3b8;margin-bottom:16px"></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="abtn" style="background:#4ade80;color:#000" onclick="backupReminderAction('create')">🔒 إنشاء نسخة الآن</button>
+      <button class="abtn" style="background:#334155" onclick="backupReminderAction('later')">⏳ ذكّرني لاحقًا</button>
+      <button class="abtn" style="background:transparent;color:#64748b" onclick="backupReminderAction('dismiss')">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/app_config.js"></script>
+<script src="js/helpers.js"></script>
+<script src="js/db_foundation.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/db_integration.js"></script>
+<script src="js/entity_mappers.js"></script>
+<script src="js/security.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/accessories.js"></script>
+<script src="js/usedPhones.js"></script>
+<script src="js/expenses.js"></script>
+<script src="js/cash.js"></script>
+<script src="js/software.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/notes.js"></script>
+<script src="js/calculator.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/phones.js"></script>
+<script src="js/repair.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

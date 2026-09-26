@@ -1,0 +1,43 @@
+# Sales System — Git ignore policy
+# See docs/GITHUB_INITIALIZATION_REPORT.md for the publication decision record.
+
+# ── SECURITY: historical artifacts containing the retired GAS bearer URL ──
+# These files are kept LOCALLY as marked historical evidence and MUST NEVER
+# be committed. A clone or fork would redistribute the retired credential.
+# Their 4 sidecar markers are excluded alongside them (kept locally only).
+dev.zip
+dev_phase24_rc_closed_2026-08-18.zip
+mshop-diag.html
+mshop-regression-test.html
+dev.zip.SECURITY-RETIRED-DO-NOT-DISTRIBUTE.txt
+dev_phase24_rc_closed_2026-08-18.zip.SECURITY-RETIRED-DO-NOT-DISTRIBUTE.txt
+mshop-diag.html.SECURITY-RETIRED-DO-NOT-DISTRIBUTE.txt
+mshop-regression-test.html.SECURITY-RETIRED-DO-NOT-DISTRIBUTE.txt
+# Backstop: no local single-file build (may embed endpoints) enters git.
+mshop-*.html
+*.mshop
+
+# ── Dependencies (reinstall with `npm ci`; package-lock.json IS tracked) ──
+node_modules/
+
+# ── Secrets / environment ──
+.env
+.env.*
+*.pem
+*.key
+
+# ── OS / editor / caches ──
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Local-only AI/tooling state (machine-specific paths, regenerable) ──
+.claude/
+.freebuff/
