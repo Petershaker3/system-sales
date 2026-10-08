@@ -35,7 +35,7 @@
 
 ### FIFO لا يحتاج تقريبًا إطلاقًا
 
-FIFO يستهلك وحدات كاملة بتكلفة وحدة صحيح��:
+FIFO يستهلك وحدات كاملة بتكلفة وحدة صحيحة:
 
 ```
 cost_removed = Σ (layer_remaining_quantity × layer_unit_cost_minor)

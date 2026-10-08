@@ -4,16 +4,17 @@ Offline-first point-of-sale for a mobile shop. Tauri 2 + Vue 3 + SQLite, with
 Android and Windows both acting as full POS clients, each owning its own local
 database.
 
-> **Status: Identity + Identity lifecycle + Product catalogue slices.** Accounts,
-> sessions, roles, the login flow, password management, user administration and the
-> product identity catalogue are implemented and tested. There is no inventory,
+> **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1b/c) slices.** Accounts,
+> sessions, roles, the login flow, password management, user administration, the
+> product identity catalogue, department classification, device settings and the
+> Pattern step-up approval are implemented and tested. There is no inventory,
 > sales or barcode-capture code yet. See [Current scope](#current-scope).
 >
 > **Verification status differs by slice, and the difference is deliberate.** The
-> Identity slice is verified on the physical SM-N976N. The Product catalogue is
-> verified on desktop only; its Android run is recorded as not done, for a reason
-> that has nothing to do with the catalogue code. See
-> [Hardware verification](#hardware-verification).
+> Identity slice is verified on the physical SM-N976N. The Product catalogue and
+> the Authority & settings slice are verified on desktop only; their Android runs
+> are recorded as not done, for reasons that have nothing to do with the slice
+> code. See [Hardware verification](#hardware-verification).
 
 ---
 
@@ -68,7 +69,7 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 27 unit + 87 integration + 40 architecture tests
+cargo test                        # 84 unit + 152 integration + 50 architecture tests
 cd ..
 
 # Frontend
@@ -242,6 +243,16 @@ Implemented and tested:
 - A broken `user_credentials` row is reported as `ACCOUNT_DATA_INTEGRITY_ERROR`
   rather than being hidden or defaulted. Login and session resolution refuse such
   an account; the management list still shows it, flagged
+- Departments: create, edit, re-order, archive and restore, each with its own cost
+  method and VAT. Classification only — no stock (SP-1b)
+- Device settings: read and write the seven stored keys, every read and every write
+  behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
+  values are refused by the domain; a missing key reads as its default (SP-1b)
+- Pattern step-up approval: set, prove, reset with the Manager password (the only
+  recovery path) and disable. Approvals are five minutes, epoch-invalidated, and
+  never leave an audit trace (`SP-1c`, `ADR-014`)
+- Price history: changing a product's sale price writes the old and new value in
+  the same transaction as the change itself (SP-1b)
 
 Not started, and deliberately so:
 
@@ -281,6 +292,29 @@ nullable, so these boundaries cannot erode unnoticed.
 
 ---
 
+### Authority & settings (SP-1b/c)
+
+Shipped as one body on top of SP-1. Authority = who may run a sensitive
+operation and under what freshly-proven conditions; settings = the device's
+configuration store. Full plan:
+`docs/superpowers/plans/2026-10-07-sp1bc-authority-settings-plan.md`.
+
+| Item | State |
+|---|---|
+| `departments` CRUD, re-order, archive/restore | Shipped. Audited (`department_created` / `department_updated` / `department_archived`); archived rows refuse edits and re-ordering; restore audits as `department_updated` |
+| Device settings: `read_settings` / `update_setting` | Shipped. Seven validated keys; unknown keys and malformed values refused; missing keys read as domain defaults |
+| Blanket re-authentication for `ManageSettings` | Shipped — both read and every write (`DomainError::ReauthenticationRequired`) |
+| Pattern approval (`pattern_set` / `pattern_reset`) | Shipped (`ADR-014`). The stored material never crosses the frontend; approvals are five minutes, epoch-invalidated, and deliberately un-audited |
+| Price history in the catalogue path | Shipped — old and new price written in the same transaction as the price change |
+| `migrations/0007` | Shipped. Two separate `ALTER TABLE` statements (SQLite rejects two clauses in one) |
+| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below |
+
+No inventory, costing, purchasing or sales logic was added here — the 
+`departments.cost_method` column and the settings defaults stay inert until a
+later slice reads them (`ADR-013`).
+
+---
+
 ## Hardware verification
 
 Verification is tracked per slice, because "it works" means different things for
@@ -302,6 +336,8 @@ a slice that has been on a phone and one that has not.
 | SP-1 post-migration integrity | 239 tests | **Verified** - `integrity_check = ok`; schema, FKs and indexes as designed; `users`/`user_credentials`/`audit_events` unchanged |
 | SP-1 UI / login behaviour | 239 tests | **Blocked** - Manager credential unavailable, as above |
 | **SP-1 populated-products preservation** | 16 desktop tests | **UNVERIFIED** - the device held `products = 0`, so `0005` proves the rebuild runs and commits, **not** that it preserves existing rows on device |
+| Authority & settings (SP-1b/c) - backend | 286 tests | **Not run** - no Android build, no install and no on-device migration (`0007`) this round |
+| Authority & settings (SP-1b/c) - UI | 286 tests | **Blocked** - department/settings/pattern interaction unexercised; the Manager credential is unavailable and device operations were frozen for this round, see below |
 
 The last two rows carry the distinction that matters most. A successful migration
 is **not** evidence that data was preserved: with zero product rows, there was no
