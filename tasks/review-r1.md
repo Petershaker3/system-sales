@@ -1888,3 +1888,779 @@ authoritative plan.
 - [ ] R1-T5: Recovery APK + supervised device run + new-password login
 - [ ] R1-T6: Forced-change final password + Pattern re-setup + TEST-MA-1 read
 - [ ] R1-T7: Close path + clean build + reinstall + verify absence + ADR
+---
+
+# §6 Fix addendum (F1-F4) — verdict fixes, uncommitted code at review time
+
+Base: same 32e7515 working tree; prior reviewed docs: commit 44d1a80. This section overlays the reviewed slice.
+
+## §6 file: src-tauri/src/services/identity/recovery.rs
+``rust
+//! One-time supervised manager-password recovery (plan R1, Design B).
+//!
+//! Recovery builds only: this module is compiled only with
+//! `--features recovery`. Production builds contain no recovery path at all,
+//! which an architecture test pins by enumerating the registered commands
+//! with and without the flag.
+//!
+//! # Honesty note
+//!
+//! Resetting a password without the old one is a bypass by construction. It
+//! is contained, not disguised: the call itself is the supervised owner act
+//! (the owner types the new password under supervision after explicit
+//! approval), the approval row binds reference + device + target + reason,
+//! consumption is atomic with the verifier write (at-most-once even across a
+//! crash), every step is audited, old sessions die, and the build carrying
+//! this module is replaced by a clean one immediately after use (R1-T7).
+
+//! Whole-module gate: this file compiles only in recovery builds. The module
+//! declaration in `services/identity/mod.rs` carries the same gate, so
+//! removing either breaks the build loudly.
+#![cfg(feature = "recovery")]
+
+use sqlx::SqlitePool;
+
+use crate::data::repositories::identity::audit;
+use crate::data::repositories::identity::credentials as credential_repo;
+use crate::data::repositories::identity::pattern as pattern_repo;
+use crate::data::repositories::identity::recovery as recovery_repo;
+use crate::data::repositories::identity::session as session_repo;
+use crate::data::repositories::identity::user as user_repo;
+use crate::domain::identity::{
+    password_is_acceptable, CredentialVerifier, DomainError, Role, Timestamp, UserId,
+};
+use crate::services::identity::crypto;
+
+/// Hash a password into a verifier, rejecting one that fails the policy first.
+///
+/// Mirrors the policy gate in `password.rs`: a rejected password costs no
+/// hashing work and surfaces as a policy error, never as storage trouble.
+fn verifier_for(password: &str) -> Result<CredentialVerifier, DomainError> {
+    if !password_is_acceptable(password) {
+        return Err(DomainError::WeakPassword);
+    }
+    let phc = crypto::hash_password(password).map_err(|_| DomainError::InvalidCredentials)?;
+    CredentialVerifier::from_phc(phc)
+}
+
+/// Stage an owner approval for a later single execution.
+///
+/// The supervised owner act: the owner confirms the exact approval (plan R1,
+/// Q2 wording), enters the CURRENT device Pattern, and the supervisor records
+/// the approval. The Pattern check is the same credential check the Pattern
+/// service itself performs (`pattern_repo::find` + `crypto::verify_password`,
+/// same codes) — no session exists to stamp, and none is created.
+///
+/// An identical re-stage is a silent no-op (one row, one approval event): the
+/// stable fields — reference, device, target, reason — define identity, and
+/// `approved_at` deliberately does not, so a retry is never misread as a
+/// conflict. A conflicting row, or any re-stage of a consumed approval,
+/// fails closed and writes nothing.
+pub async fn stage_approval(
+    pool: &SqlitePool,
+    reference: &str,
+    device_id: &str,
+    target: UserId,
+    reason: &str,
+    approved_by: &str,
+    pattern: &str,
+) -> Result<(), DomainError> {
+    // The permission barrier (verdict fix F1): knowledge of the current device
+    // Pattern, checked before anything is written. Argon2 work per attempt is
+    // the brute-force throttle, exactly as in the Pattern verify path. No
+    // audit event on refusal — matching `verify`, which audits neither way —
+    // and no approval row.
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let stored = pattern_repo::find(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(DomainError::PatternNotConfigured)?;
+    if !crypto::verify_password(pattern, &stored.verifier) {
+        return Err(DomainError::InvalidCredentials);
+    }
+    drop(conn);
+
+    let now = Timestamp::now();
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+
+    let staged = recovery_repo::Approval {
+        reference: reference.to_string(),
+        device_id: device_id.to_string(),
+        target_user_id: target.as_str().to_string(),
+        reason: reason.to_string(),
+        approved_at: now.as_millis(),
+    };
+    match recovery_repo::find_by_reference(&mut tx, reference)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+    {
+        None => recovery_repo::provision(&mut tx, &staged)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?,
+        Some(stored) if stored.consumed_at.is_some() => {
+            return Err(DomainError::RecoveryAlreadyUsed)
+        }
+        Some(stored) if !stored.approval.same_stable_fields(&staged) => {
+            return Err(DomainError::RecoveryNotApproved)
+        }
+        // Identical and unconsumed: a retry, not a new approval. No second
+        // row (the key forbids it) and no second event (it would mislead).
+        Some(_) => return Ok(()),
+    }
+
+    audit::append(
+        &mut tx,
+        target,
+        audit::event::RECOVERY_APPROVED,
+        now,
+        Some(format!(
+            r#"{{"reference":"{}","device_id":"{}","approved_by":"{}"}}"#,
+            reference, device_id, approved_by
+        )),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}
+
+/// Execute a staged approval: consume it and set a temporary password on the
+/// target manager, forcing a change at next sign-in.
+///
+/// No staged, unconsumed, device-matching approval exists — no reset, no
+/// writes at all. Consumption shares the transaction with the verifier write
+/// (at-most-once even across a crash), and the target is read from the staged
+/// row, never from the caller, so an approval cannot be redirected to another
+/// account. The `device_id` argument is likewise checked against the staged
+/// row — the value the owner authenticated with the Pattern at staging time
+/// (verdict fix F2) — so a mismatch refuses even though both strings cross
+/// the same transport: one of them is anchored in owner-authenticated state.
+pub async fn recover_manager_password(
+    pool: &SqlitePool,
+    reference: &str,
+    device_id: &str,
+    new_password: &str,
+) -> Result<UserId, DomainError> {
+    // Policy before any write: a weak password must not consume the approval.
+    let verifier = verifier_for(new_password)?;
+    let now = Timestamp::now();
+
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+
+    // Atomic consumption: crash before commit rolls back (safe retry with the
+    // same reference), crash after commit leaves a consumed row (replay
+    // refused). Either way at-most-once is structural.
+    let consumed = recovery_repo::consume_if_unconsumed(&mut tx, reference, device_id, now.as_millis())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let staged = match consumed {
+        Some(approval) => approval,
+        None => {
+            let status = recovery_repo::find_by_reference(&mut tx, reference)
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+            return Err(match status {
+                Some(stored) if stored.consumed_at.is_some() => DomainError::RecoveryAlreadyUsed,
+                _ => DomainError::RecoveryNotApproved,
+            });
+        }
+    };
+    let target = UserId::from_uuid(
+        staged
+            .target_user_id
+            .parse::<uuid::Uuid>()
+            .map_err(|_| DomainError::RecoveryNotApproved)?,
+    );
+
+    // The approval names a live manager and nothing else. A missing, disabled
+    // or non-manager target means the approval does not describe a
+    // recoverable account.
+    let user = user_repo::find_by_id(&mut tx, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(DomainError::RecoveryNotApproved)?;
+    if user.role != Role::Manager {
+        return Err(DomainError::RecoveryNotApproved);
+    }
+    let disabled = user_repo::find_disabled_at(&mut tx, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .flatten()
+        .is_some();
+    if disabled {
+        return Err(DomainError::RecoveryNotApproved);
+    }
+
+    user_repo::update_verifier(&mut tx, target, &verifier, now)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    credential_repo::set_must_change_password(&mut tx, target, true)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let revoked = session_repo::delete_by_user(&mut tx, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(
+        &mut tx,
+        target,
+        audit::event::PASSWORD_RESET,
+        now,
+        Some(format!(
+            r#"{{"target":"{}","sessions_revoked":{},"via":"recovery"}}"#,
+            target.as_str(),
+            revoked
+        )),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(
+        &mut tx,
+        target,
+        audit::event::RECOVERY_EXECUTED,
+        now,
+        Some(format!(
+            r#"{{"reference":"{}","device_id":"{}"}}"#,
+            reference, device_id
+        )),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(target)
+}
+
+``n
+## §6 file: src-tauri/src/commands/recovery.rs
+``rust
+//! Tauri commands for one-time supervised manager-password recovery.
+//!
+//! Recovery builds only (`--features recovery`). Without the flag this module
+//! does not exist and `lib.rs` registers nothing from it, so a production
+//! build cannot expose the recovery path — an architecture test pins that
+//! property by scanning these sources.
+//!
+//! Transport boundaries only. No SQL and no business rule appears here. Like
+//! every other command module, no command accepts a token, a user id that
+//! asserts identity, a role, or an actor: the target of the recovery is read
+//! from the staged approval row inside the use case, and the only identifiers
+//! crossing here are the approval reference, the device id, and the new
+//! password the owner typed under supervision.
+
+#![cfg(feature = "recovery")]
+
+use serde::Serialize;
+use tauri::State;
+
+use crate::domain::identity::{DomainError, UserId};
+use crate::services::identity::recovery as recovery_use_cases;
+use crate::services::identity::IdentityContext;
+
+type Ctx<'a> = State<'a, IdentityContext>;
+
+/// Every failure crossing the boundary is a stable code, never prose.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCommandError {
+    pub code: &'static str,
+}
+
+impl From<DomainError> for RecoveryCommandError {
+    fn from(error: DomainError) -> Self {
+        Self {
+            code: error.code(),
+        }
+    }
+}
+
+fn parse_user_id(raw: &str) -> Result<UserId, DomainError> {
+    // An unparseable target means the approval does not name a recoverable
+    // account. It is deliberately not `UserNotFound`/`INVALID_CREDENTIALS`:
+    // that code would tell the operator their password is wrong when the
+    // problem is the approval itself.
+    uuid::Uuid::parse_str(raw)
+        .map(UserId::from_uuid)
+        .map_err(|_| DomainError::RecoveryNotApproved)
+}
+
+/// Record the owner's explicit approval for one later execution.
+///
+/// The supervisor calls this while the owner confirms the exact approval
+/// wording (plan R1, Q2) and enters the CURRENT device Pattern. Staging
+/// refuses without the Pattern (verdict fix F1). Nothing about any password
+/// changes here.
+#[tauri::command]
+pub async fn stage_recovery_approval(
+    ctx: Ctx<'_>,
+    reference: String,
+    device_id: String,
+    target_user_id: String,
+    reason: String,
+    approved_by: String,
+    pattern: String,
+) -> Result<(), RecoveryCommandError> {
+    recovery_use_cases::stage_approval(
+        &ctx.pool,
+        &reference,
+        &device_id,
+        parse_user_id(&target_user_id)?,
+        &reason,
+        &approved_by,
+        &pattern,
+    )
+    .await
+    .map_err(RecoveryCommandError::from)?;
+    Ok(())
+}
+
+/// Consume a staged approval and set a temporary password on its target.
+///
+/// The caller-supplied `device_id` is compared against the STAGED row — the
+/// value the owner authenticated with the Pattern at staging time (verdict
+/// fix F2) — never against another caller-supplied value in the same call.
+/// Mismatch refuses. No platform hardware identifier is claimed: on this
+/// offline V1 build the device binding is consistency enforcement plus
+/// supervisor verification against the physical device, documented as
+/// procedural rather than an independent attestation barrier.
+///
+/// Returns the recovered account's id so the frontend can continue to the
+/// normal forced-change screen. Fails closed without a matching unconsumed
+/// approval, and a consumed approval fails closed on replay.
+#[tauri::command]
+pub async fn execute_manager_recovery(
+    ctx: Ctx<'_>,
+    reference: String,
+    device_id: String,
+    new_password: String,
+) -> Result<String, RecoveryCommandError> {
+    let target =
+        recovery_use_cases::recover_manager_password(&ctx.pool, &reference, &device_id, &new_password)
+            .await
+            .map_err(RecoveryCommandError::from)?;
+    Ok(target.as_str())
+}
+
+``n
+## §6 file: src-tauri/src/data/repositories/identity/recovery.rs
+``rust
+//! Single-use recovery approvals.
+//!
+//! One row per owner-approved reset. Provisioning and consumption are separate
+//! calls so tests can prove each half, but the use case consumes the row in
+//! the *same transaction* as the verifier write: crash before commit rolls
+//! back (safe retry), crash after commit leaves a consumed row (replay
+//! refused). No secret ever appears here — reference, device, target and
+//! reason only.
+
+use sqlx::{Row, SqliteConnection};
+
+/// An owner-approved reset that has not necessarily been executed yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Approval {
+    pub reference: String,
+    pub device_id: String,
+    pub target_user_id: String,
+    pub reason: String,
+    pub approved_at: i64,
+}
+
+impl Approval {
+    /// Whether two approvals describe the same grant.
+    ///
+    /// `approved_at` deliberately does not participate: it records when the
+    /// row was written, so a retried staging would otherwise misread as a
+    /// conflict (verdict fix F3). Identity is reference + device + target +
+    /// reason.
+    pub fn same_stable_fields(&self, other: &Approval) -> bool {
+        self.reference == other.reference
+            && self.device_id == other.device_id
+            && self.target_user_id == other.target_user_id
+            && self.reason == other.reason
+    }
+}
+
+/// Record an approval. A duplicate reference is an error: a reference is
+/// single-use from the moment it exists.
+pub async fn provision(conn: &mut SqliteConnection, approval: &Approval) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO recovery_approval
+            (reference, device_id, target_user_id, reason, approved_at, consumed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+    )
+    .bind(&approval.reference)
+    .bind(&approval.device_id)
+    .bind(&approval.target_user_id)
+    .bind(&approval.reason)
+    .bind(approval.approved_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// An approval row as stored, including its consumption state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredApproval {
+    pub approval: Approval,
+    /// `None` while the approval is still usable.
+    pub consumed_at: Option<i64>,
+}
+
+/// The row for a reference, or `None` when no such approval was ever staged.
+pub async fn find_by_reference(
+    conn: &mut SqliteConnection,
+    reference: &str,
+) -> Result<Option<StoredApproval>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT reference, device_id, target_user_id, reason, approved_at, consumed_at
+         FROM recovery_approval WHERE reference = ?1",
+    )
+    .bind(reference)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(|row| StoredApproval {
+        approval: Approval {
+            reference: row.get("reference"),
+            device_id: row.get("device_id"),
+            target_user_id: row.get("target_user_id"),
+            reason: row.get("reason"),
+            approved_at: row.get("approved_at"),
+        },
+        consumed_at: row.get("consumed_at"),
+    }))
+}
+/// Consume an approval if — and only if — it exists for this device and is
+/// still unconsumed. Returns the row on success, `None` otherwise: unknown
+/// reference, wrong device and replay are indistinguishable by design, so a
+/// probe discloses nothing about which approvals exist.
+pub async fn consume_if_unconsumed(
+    conn: &mut SqliteConnection,
+    reference: &str,
+    device_id: &str,
+    consumed_at: i64,
+) -> Result<Option<Approval>, sqlx::Error> {
+    let row = sqlx::query(
+        "UPDATE recovery_approval
+         SET consumed_at = ?3
+         WHERE reference = ?1 AND device_id = ?2 AND consumed_at IS NULL
+         RETURNING reference, device_id, target_user_id, reason, approved_at",
+    )
+    .bind(reference)
+    .bind(device_id)
+    .bind(consumed_at)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(|row| Approval {
+        reference: row.get("reference"),
+        device_id: row.get("device_id"),
+        target_user_id: row.get("target_user_id"),
+        reason: row.get("reason"),
+        approved_at: row.get("approved_at"),
+    }))
+}
+
+``n
+## §6 file: src-tauri/tests/integration/recovery_reset.rs
+``rust
+//! Single-use manager-password recovery against real SQLite.
+//!
+//! Fail-closed without approval, exactly-once execution, replay refusal and
+//! wrong-device refusal. Runs only with the `recovery` feature: production
+//! builds never contain this path.
+
+#![cfg(feature = "recovery")]
+
+use super::{fresh, PASSWORD};
+use mobile_shop_system_lib::domain::identity::DomainError;
+use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
+use mobile_shop_system_lib::services::identity::{auth, bootstrap, recovery, session};
+use mobile_shop_system_lib::services::pattern;
+use sqlx::SqlitePool;
+use std::sync::Arc;
+
+const DEVICE: &str = "R3CMA016SEJ";
+const REFERENCE: &str = "R1-20261010-01";
+const REASON: &str = "lost first-run password";
+const APPROVED_BY: &str = "owner";
+const TEMPORARY: &str = "temporary rescue phrase";
+/// The device Pattern, configured exactly as the owner configured it on the
+/// device. Verdict fix F1 stages only behind this secret.
+const PATTERN: &str = "open sesame";
+
+/// First manager, signed in, re-authenticated, Pattern configured — the
+/// in-test analogue of the device state (verdict fix F1).
+async fn manager_with_pattern() -> (SqlitePool, Arc<InMemoryTokenStore>) {
+    let (pool, tokens) = fresh().await;
+    let created = bootstrap::create_first_manager(&pool, "Peter", PASSWORD)
+        .await
+        .expect("first manager");
+    auth::login(&pool, tokens.as_ref(), created.user_id, PASSWORD)
+        .await
+        .expect("login");
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("re-authenticate");
+    pattern::set(&pool, tokens.as_ref(), PATTERN)
+        .await
+        .expect("set pattern");
+    (pool, tokens)
+}
+
+#[tokio::test]
+async fn staging_refuses_a_wrong_pattern_and_writes_nothing() {
+    // Verdict fix F1 acceptance: no approval row and no RECOVERY_APPROVED
+    // event when the current Pattern check fails.
+    let (pool, _tokens) = manager_with_pattern().await;
+    let target = super::manager_of(&pool).await;
+
+    let refused = recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, target, REASON, APPROVED_BY, "wrong pattern",
+    )
+    .await
+    .expect_err("wrong Pattern must refuse staging");
+    assert_eq!(refused, DomainError::InvalidCredentials);
+
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recovery_approval")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(rows, 0, "refused staging writes no approval row");
+    assert_eq!(audit_count(&pool, "recovery_approved").await, 0);
+}
+
+#[tokio::test]
+async fn staging_refuses_when_no_pattern_is_configured() {
+    let (pool, _tokens) = fresh().await;
+    let created = bootstrap::create_first_manager(&pool, "Peter", PASSWORD)
+        .await
+        .expect("first manager");
+
+    let refused = recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, created.user_id, REASON, APPROVED_BY, PATTERN,
+    )
+    .await
+    .expect_err("no Pattern configured must fail closed");
+    assert_eq!(refused, DomainError::PatternNotConfigured);
+}
+
+async fn audit_count(pool: &SqlitePool, event: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE event_type = ?1")
+        .bind(event)
+        .fetch_one(pool)
+        .await
+        .expect("audit count")
+}
+
+#[tokio::test]
+async fn without_approval_nothing_is_written() {
+    let (pool, tokens) = fresh().await;
+    let created = bootstrap::create_first_manager(&pool, "Peter", PASSWORD)
+        .await
+        .expect("first manager");
+
+    let refused = recovery::recover_manager_password(
+        &pool,
+        "R1-20261010-99",
+        DEVICE,
+        TEMPORARY,
+    )
+    .await
+    .expect_err("no approval row, no reset");
+    assert_eq!(refused, DomainError::RecoveryNotApproved);
+
+    // The old password still works: the verifier was not touched.
+    auth::login(&pool, tokens.as_ref(), created.user_id, PASSWORD)
+        .await
+        .expect("verifier untouched");
+    assert_eq!(audit_count(&pool, "password_reset").await, 0);
+    assert_eq!(audit_count(&pool, "recovery_executed").await, 0);
+}
+
+#[tokio::test]
+async fn staged_approval_executes_exactly_once() {
+    let (pool, tokens) = manager_with_pattern().await;
+    let created = super::manager_of(&pool).await;
+
+    recovery::stage_approval(
+        &pool,
+        REFERENCE,
+        DEVICE,
+        created,
+        REASON,
+        APPROVED_BY,
+        PATTERN,
+    )
+    .await
+    .expect("stage");
+    assert_eq!(audit_count(&pool, "recovery_approved").await, 1);
+
+    let target = recovery::recover_manager_password(&pool, REFERENCE, DEVICE, TEMPORARY)
+        .await
+        .expect("execute");
+    assert_eq!(target, created);
+
+    // Old password dead, temporary works, forced change flagged.
+    auth::login(&pool, tokens.as_ref(), created, PASSWORD)
+        .await
+        .expect_err("old password must stop working");
+    auth::login(&pool, tokens.as_ref(), created, TEMPORARY)
+        .await
+        .expect("temporary password works");
+    let must_change: i64 =
+        sqlx::query_scalar("SELECT must_change_password FROM user_credentials WHERE user_id = ?1")
+            .bind(created.as_str())
+            .fetch_one(&pool)
+            .await
+            .expect("credentials row");
+    assert_eq!(must_change, 1);
+    assert_eq!(audit_count(&pool, "password_reset").await, 1);
+    assert_eq!(audit_count(&pool, "recovery_executed").await, 1);
+
+    // Replay with the same reference refuses and changes nothing.
+    let replay = recovery::recover_manager_password(&pool, REFERENCE, DEVICE, "another rescue phrase")
+        .await
+        .expect_err("single use");
+    assert_eq!(replay, DomainError::RecoveryAlreadyUsed);
+    auth::login(&pool, tokens.as_ref(), created, TEMPORARY)
+        .await
+        .expect("temporary still the password after refused replay");
+    assert_eq!(audit_count(&pool, "recovery_executed").await, 1);
+}
+
+#[tokio::test]
+async fn wrong_device_and_conflicting_stage_refuse() {
+    let (pool, _tokens) = manager_with_pattern().await;
+    let created = super::manager_of(&pool).await;
+
+    recovery::stage_approval(
+        &pool,
+        REFERENCE,
+        DEVICE,
+        created,
+        REASON,
+        APPROVED_BY,
+        PATTERN,
+    )
+    .await
+    .expect("stage");
+
+    let wrong_device =
+        recovery::recover_manager_password(&pool, REFERENCE, "OTHER-DEVICE", TEMPORARY)
+            .await
+            .expect_err("device binding");
+    assert_eq!(wrong_device, DomainError::RecoveryNotApproved);
+
+    let conflict = recovery::stage_approval(
+        &pool,
+        REFERENCE,
+        DEVICE,
+        created,
+        "a different reason",
+        APPROVED_BY,
+        PATTERN,
+    )
+    .await
+    .expect_err("conflicting re-stage");
+    assert_eq!(conflict, DomainError::RecoveryNotApproved);
+
+    // Nothing consumed by the refusals: the real execution still works.
+    recovery::recover_manager_password(&pool, REFERENCE, DEVICE, TEMPORARY)
+        .await
+        .expect("execute after refusals");
+}
+
+#[tokio::test]
+async fn identical_restage_is_a_silent_noop() {
+    // Verdict fix F3: retrying the same approval must not create a second row
+    // nor a misleading second approval event. `approved_at` differs between
+    // attempts and must not participate in the identity comparison.
+    let (pool, _tokens) = manager_with_pattern().await;
+    let created = super::manager_of(&pool).await;
+
+    recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, created, REASON, APPROVED_BY, PATTERN,
+    )
+    .await
+    .expect("first stage");
+    recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, created, REASON, APPROVED_BY, PATTERN,
+    )
+    .await
+    .expect("identical re-stage is a no-op, not a conflict");
+
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recovery_approval")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(rows, 1, "one approval row, not two");
+    assert_eq!(audit_count(&pool, "recovery_approved").await, 1);
+
+    // And the single approval still executes exactly once.
+    recovery::recover_manager_password(&pool, REFERENCE, DEVICE, TEMPORARY)
+        .await
+        .expect("execute after restage");
+}
+
+#[tokio::test]
+async fn consumed_approval_cannot_be_restaged() {
+    let (pool, _tokens) = manager_with_pattern().await;
+    let created = super::manager_of(&pool).await;
+
+    recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, created, REASON, APPROVED_BY, PATTERN,
+    )
+    .await
+    .expect("stage");
+    recovery::recover_manager_password(&pool, REFERENCE, DEVICE, TEMPORARY)
+        .await
+        .expect("execute");
+
+    let revived = recovery::stage_approval(
+        &pool, REFERENCE, DEVICE, created, REASON, APPROVED_BY, PATTERN,
+    )
+    .await
+    .expect_err("a consumed approval cannot be revived");
+    assert_eq!(revived, DomainError::RecoveryAlreadyUsed);
+}
+
+#[tokio::test]
+async fn weak_temporary_password_does_not_consume_the_approval() {
+    let (pool, tokens) = manager_with_pattern().await;
+    let created = super::manager_of(&pool).await;
+
+    recovery::stage_approval(
+        &pool,
+        REFERENCE,
+        DEVICE,
+        created,
+        REASON,
+        APPROVED_BY,
+        PATTERN,
+    )
+    .await
+    .expect("stage");
+
+    let weak = recovery::recover_manager_password(&pool, REFERENCE, DEVICE, "short")
+        .await
+        .expect_err("policy first");
+    assert_eq!(weak, DomainError::WeakPassword);
+
+    recovery::recover_manager_password(&pool, REFERENCE, DEVICE, TEMPORARY)
+        .await
+        .expect("approval survived the weak attempt");
+    auth::login(&pool, tokens.as_ref(), created, TEMPORARY)
+        .await
+        .expect("temporary works");
+}
+
+``n
+## §6 fix map (reviewed-version -> fixed-version)
+
+- F1: stage_approval gains pattern: &str; Pattern check (repo find + argon2, codes InvalidCredentials/PatternNotConfigured) runs BEFORE pool tx; refusal writes nothing. Command gains pattern param. Tests: staging_refuses_a_wrong_pattern_and_writes_nothing, staging_refuses_when_no_pattern_is_configured (+ manager_with_pattern helper).
+- F2: execute_manager_recovery doc + use-case doc state the compared-against value is the Pattern-authenticated staged row; no serial plumbing; procedural binding documented, not claimed as attestation.
+- F3: Approval::same_stable_fields (reference+device+target+reason; approved_at excluded); identical unconsumed re-stage returns Ok with no second row/event; consumed re-stage returns RecoveryAlreadyUsed. Tests: identical_restage_is_a_silent_noop, consumed_approval_cannot_be_restaged.
+- F4: cargo build both configs + findstr on rlibs (results in src-tauri/build-proof-evidence.txt); arch source-scan tests unchanged and green.
