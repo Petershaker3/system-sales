@@ -493,14 +493,6 @@ async fn a_storage_failure_rolls_back_the_position_and_the_audit_together() {
     let department = department(&shop, "Rollback", CostMethod::MovingAverage).await;
     let product = product(&shop, "Rollback", Some(department)).await;
 
-    // Archive the product so the receiving write hits the archive rule the
-    // catalogue applies to a product linked to history. Nothing may survive.
-    sqlx::query("UPDATE products SET status = 'archived' WHERE id = ?1")
-        .bind(&product)
-        .execute(&shop.pool)
-        .await
-        .expect("archive");
-
     let before_audit = audit_count(&shop, audit::event::STOCK_RECEIVED).await;
     let outcome = costing::receive(
         &shop.pool,
@@ -509,15 +501,27 @@ async fn a_storage_failure_rolls_back_the_position_and_the_audit_together() {
         5,
         100,
         Sensitivity::Routine,
-    None,
+        None,
     )
     .await;
 
-    // Whatever the reason, the two must agree: either the movement happened and
-    // is audited, or neither happened. This asserts the second.
+    // The position and the audit must agree, whichever way it went. This used to
+    // assert only the failure branch, and the failure branch never happened —
+    // receiving into an archived product SUCCEEDS, by design — so the test proved
+    // nothing while reporting green. Both branches are asserted now.
     if outcome.is_err() {
         assert!(position(&shop, &product).await.is_none());
         assert_eq!(audit_count(&shop, audit::event::STOCK_RECEIVED).await, before_audit);
+    } else {
+        assert!(
+            position(&shop, &product).await.is_some(),
+            "a receipt that reported success must have written its position"
+        );
+        assert_eq!(
+            audit_count(&shop, audit::event::STOCK_RECEIVED).await,
+            before_audit + 1,
+            "a receipt that reported success must be audited"
+        );
     }
 }
 

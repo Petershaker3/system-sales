@@ -759,3 +759,14 @@ mod warranty_migration;
 // The supplier label on receiving (P4b, decision D1): one column on the receipt
 // movement, and the rule that nothing but a receipt may carry it.
 mod receiving_supplier;
+
+// ID-04: archival preserves invoice and movement history, and a product with
+// history cannot be hard-deleted.
+mod archival;
+
+// XC-10: no images and no unbounded large fields inside the database.
+mod schema_probe;
+
+// XC-11: no silent drop of a financial transaction — failure injected late in
+// the transaction, so the rollback actually has something to roll back.
+mod no_drop;
