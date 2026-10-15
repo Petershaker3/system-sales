@@ -162,6 +162,7 @@ async fn moving_average_ceils_and_keeps_the_balance_exact() {
         10,
         150,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -194,6 +195,7 @@ async fn moving_average_rounds_a_fraction_up_never_down() {
             1,
             unit_cost,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive");
@@ -222,6 +224,7 @@ async fn selling_everything_under_moving_average_leaves_nothing_behind() {
         7,
         1000,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -260,6 +263,7 @@ async fn fifo_consumes_the_oldest_layer_first() {
             5,
             100,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive at 100");
@@ -271,6 +275,7 @@ async fn fifo_consumes_the_oldest_layer_first() {
         5,
         200,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive at 200");
@@ -299,6 +304,7 @@ async fn fifo_straddles_two_layers_at_two_prices() {
         2,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -309,6 +315,7 @@ async fn fifo_straddles_two_layers_at_two_prices() {
         3,
         120,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -340,6 +347,7 @@ async fn fifo_never_rounds() {
         3,
         34,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -368,6 +376,7 @@ async fn exactly_one_representation_ever_owns_the_cost() {
             4,
             250,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive");
@@ -442,6 +451,7 @@ async fn insufficient_stock_refuses_the_whole_operation() {
         3,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -499,6 +509,7 @@ async fn a_storage_failure_rolls_back_the_position_and_the_audit_together() {
         5,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await;
 
@@ -523,6 +534,7 @@ async fn a_negative_balance_can_never_be_written() {
         1,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -559,6 +571,7 @@ async fn switching_moving_average_to_fifo_seeds_one_layer_at_the_current_average
         4,
         250,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -601,6 +614,7 @@ async fn switching_back_to_moving_average_collapses_the_layers() {
             2,
             unit_cost,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive");
@@ -642,6 +656,7 @@ async fn switching_an_empty_position_seeds_nothing() {
         5,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -683,6 +698,7 @@ async fn an_ordinary_department_edit_cannot_relabel_the_costing_method() {
         4,
         250,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -754,6 +770,7 @@ async fn receiving_a_delivery_is_routine_and_needs_no_fresh_proof() {
         2,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await;
 
@@ -773,6 +790,7 @@ async fn declaring_an_opening_balance_is_sensitive_work() {
         10,
         100,
         Sensitivity::Sensitive,
+    None,
     )
     .await;
 
@@ -801,6 +819,7 @@ async fn every_movement_is_audited_once() {
         3,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -857,6 +876,7 @@ async fn audit_detail_never_carries_a_costing_secret() {
         2,
         500,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -890,6 +910,7 @@ async fn a_product_with_no_department_uses_the_device_default() {
         2,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -923,6 +944,7 @@ async fn the_device_default_decides_the_representation() {
         2,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -947,6 +969,7 @@ async fn an_unknown_product_is_refused() {
         1,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await;
 
@@ -1025,6 +1048,7 @@ async fn a_position_reports_the_authority_it_obeys() {
             4,
             250,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive");
@@ -1071,6 +1095,7 @@ async fn reading_a_position_requires_fresh_proof_because_it_reveals_cost() {
         1,
         100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -1103,6 +1128,7 @@ async fn reading_a_position_changes_nothing() {
         5,
             100,
         Sensitivity::Routine,
+    None,
     )
     .await
     .expect("receive");
@@ -1145,6 +1171,7 @@ async fn the_effective_cost_is_derived_from_the_layers_under_fifo() {
             2,
             unit_cost,
             Sensitivity::Routine,
+        None,
         )
         .await
         .expect("receive");

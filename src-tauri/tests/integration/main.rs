@@ -755,3 +755,7 @@ mod customer;
 // Warranty dates on a sale line (P4, decisions D4/D8/D9): the two columns and
 // the range rule the table enforces on its own.
 mod warranty_migration;
+
+// The supplier label on receiving (P4b, decision D1): one column on the receipt
+// movement, and the rule that nothing but a receipt may carry it.
+mod receiving_supplier;

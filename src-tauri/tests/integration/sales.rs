@@ -74,6 +74,7 @@ async fn stocked_shop() -> (SqlitePool, Arc<InMemoryTokenStore>, String) {
         10,
         100,
         Sensitivity::Routine,
+        None,
     )
     .await
     .expect("receipt");

@@ -68,6 +68,9 @@ pub struct MovementRecord {
     pub fifo_layer_id: Option<String>,
     pub fifo_received_at: Option<i64>,
     pub reverses_movement_id: Option<String>,
+    /// The supplier label on a receipt (P4b, decision D1). NULL for everything
+    /// that is not a purchase — a sale, a reversal, a removal, an adjustment.
+    pub supplier_name: Option<String>,
 }
 
 pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Result<(), sqlx::Error> {
@@ -130,8 +133,8 @@ pub async fn insert_movement(
         "INSERT INTO stock_movements
              (id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
               occurred_at, actor_id, sale_id, sale_line_id,
-              fifo_layer_id, fifo_received_at, reverses_movement_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+              fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(&movement.id)
     .bind(&movement.product_id)
@@ -146,6 +149,7 @@ pub async fn insert_movement(
     .bind(movement.fifo_layer_id.as_deref())
     .bind(movement.fifo_received_at)
     .bind(movement.reverses_movement_id.as_deref())
+    .bind(movement.supplier_name.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -274,7 +278,7 @@ pub async fn list_movements_for_sale(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name
          FROM stock_movements
          WHERE sale_id = ?1
          ORDER BY occurred_at, id",
@@ -294,7 +298,7 @@ pub async fn list_movements_for_line(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name
          FROM stock_movements
          WHERE sale_line_id = ?1
          ORDER BY occurred_at, id",
@@ -397,5 +401,6 @@ fn row_to_movement(row: sqlx::sqlite::SqliteRow) -> MovementRecord {
         fifo_layer_id: row.get("fifo_layer_id"),
         fifo_received_at: row.get("fifo_received_at"),
         reverses_movement_id: row.get("reverses_movement_id"),
+        supplier_name: row.get("supplier_name"),
     }
 }

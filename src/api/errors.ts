@@ -117,6 +117,10 @@ export const ErrorCode = {
 
   // ملف العملاء (P4، spec:178-179)
   CUSTOMER_NAME_INVALID: 'CUSTOMER_NAME_INVALID',
+
+  // اسم المورد على الاستلام (D1)
+  SUPPLIER_NAME_REQUIRED: 'SUPPLIER_NAME_REQUIRED',
+  SUPPLIER_NAME_TOO_LONG: 'SUPPLIER_NAME_TOO_LONG',
   CUSTOMER_CONTACT_INVALID: 'CUSTOMER_CONTACT_INVALID',
   CUSTOMER_NOT_FOUND: 'CUSTOMER_NOT_FOUND',
   CUSTOMER_IS_ARCHIVED: 'CUSTOMER_IS_ARCHIVED'
@@ -136,6 +140,11 @@ export interface CommandError {
  * a translator can work on this file alone.
  */
 const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
+  // اسم المورد على الاستلام (D1) — مثبّت في أول الجدول حتى يبقى كل كود له رسالة
+  [ErrorCode.SUPPLIER_NAME_REQUIRED]:
+    'اسم المورد لازم يكون مكتوب فعلًا. سيبه فاضي لو مش عارف المورد.',
+  [ErrorCode.SUPPLIER_NAME_TOO_LONG]:
+    'اسم المورد طويل جدًا. اختصره.',
   [ErrorCode.INVALID_CREDENTIALS]: 'بيانات الدخول غير صحيحة',
   [ErrorCode.ACCOUNT_TEMPORARILY_LOCKED]:
     'الحساب مقفل مؤقتًا بسبب محاولات دخول فاشلة. حاول مرة أخرى بعد قليل.',

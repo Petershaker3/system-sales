@@ -50,13 +50,24 @@ export interface StockOutcome {
 /**
  * Receive stock at a known unit cost. Routine work: no re-authentication.
  * Refuses a negative quantity or unit cost (`COST_*`).
+ *
+ * `supplierName` is the operator's own label for who delivered it (decision D1):
+ * optional, and blank means nobody named one. There is no supplier registry and
+ * no purchase document — the shop's supplier list is derived from the receipts
+ * themselves, so this is a label on one delivery and nothing more.
  */
 export async function receiveStock(
   productId: string,
   quantity: number,
-  unitCostMinor: number
+  unitCostMinor: number,
+  supplierName?: string
 ): Promise<StockOutcome> {
-  return invoke<StockOutcome>('receive_stock', { productId, quantity, unitCostMinor });
+  return invoke<StockOutcome>('receive_stock', {
+    productId,
+    quantity,
+    unitCostMinor,
+    supplierName: supplierName ?? null,
+  });
 }
 
 /**

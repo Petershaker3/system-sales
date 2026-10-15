@@ -53,6 +53,12 @@ const selectedDepartmentId = ref('');
 // --- movement forms --------------------------------------------------------
 
 const receiveQuantity = ref('');
+/**
+ * Who delivered this lot (decision D1): a label the operator types, optional.
+ * There is no supplier registry and no purchase document — the shop's supplier
+ * list is read back off the receipts themselves.
+ */
+const receiveSupplier = ref('');
 const receiveUnitCost = ref('');
 const removeQuantity = ref('');
 const error = ref('');
@@ -159,10 +165,18 @@ async function submitReceive(): Promise<void> {
   busy.value = true;
   notice.value = '';
   try {
-    const outcome = await inventory.receiveStock(selectedProductId.value, quantity, unitCost);
+    const outcome = await inventory.receiveStock(
+      selectedProductId.value,
+      quantity,
+      unitCost,
+      receiveSupplier.value.trim()
+    );
     notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
     receiveQuantity.value = '';
     receiveUnitCost.value = '';
+    // The supplier is cleared with the rest of the delivery: the next delivery is
+    // usually from somebody else, and a stale label would be a false record.
+    receiveSupplier.value = '';
     error.value = '';
     await refreshPosition();
   } catch (err) {
@@ -356,6 +370,18 @@ void loadPickers();
           <span>سعر الوحدة (قرش)</span>
           <input v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
         </label>
+        <label class="field">
+          <span>المورد (اختياري)</span>
+          <input
+            v-model="receiveSupplier"
+            autocomplete="off"
+            maxlength="120"
+            placeholder="اسم من كتبته"
+          />
+        </label>
+        <p class="hint">
+          المورد اسم تكتبه أنت على التوريد نفسه. سيبه فاضي لو مش عارف.
+        </p>
         <button type="submit" :disabled="busy">استلام</button>
       </form>
 

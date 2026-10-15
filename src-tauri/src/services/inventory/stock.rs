@@ -51,6 +51,7 @@ use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Session, Timestamp, UserId};
 use crate::domain::organisation::{CostMethod, DepartmentError, DepartmentId};
+use crate::domain::supplier::SupplierName;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::pattern as pattern_service;
@@ -511,6 +512,12 @@ pub(crate) async fn remove_in_tx(
 /// `Routine` by default. An opening balance is the same arithmetic with a
 /// different `Sensitivity`, so the caller chooses rather than this function
 /// guessing what a receipt means.
+///
+/// `supplier` is the label the operator typed on the delivery (D1). It is
+/// recorded on the receipt movement and nowhere else: a sale, a reversal, a
+/// removal and an adjustment never carry one, and the table enforces that too.
+/// `None` means nobody named a supplier, which the column stores as NULL so the
+/// derived supplier list never shows a blank.
 pub async fn receive(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
@@ -518,6 +525,7 @@ pub async fn receive(
     quantity: i64,
     unit_cost_minor: i64,
     sensitivity: Sensitivity,
+    supplier: Option<SupplierName>,
 ) -> Result<StockOutcome, StockServiceError> {
     let session = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
@@ -619,6 +627,9 @@ pub async fn receive(
             fifo_layer_id: receipt_layer_id.clone(),
             fifo_received_at: receipt_layer_id.as_ref().map(|_| now.as_millis()),
             reverses_movement_id: None,
+            // The one movement that is a purchase, so the one that may name a
+            // supplier (D1). Trimmed once here; the column stores it verbatim.
+            supplier_name: supplier.as_ref().map(|name| name.as_str().to_owned()),
         },
     )
     .await
@@ -630,8 +641,17 @@ pub async fn receive(
         audit::event::STOCK_RECEIVED,
         now,
         Some(format!(
-            r#"{{"product":"{}","quantity":{},"unit_cost_minor":{},"method":"{}","on_hand":{}}}"#,
-            product_id, quantity, unit_cost_minor, method, outcome.quantity
+            r#"{{"product":"{}","quantity":{},"unit_cost_minor":{},"method":"{}","on_hand":{},"supplier":{}}}"#,
+            product_id,
+            quantity,
+            unit_cost_minor,
+            method,
+            outcome.quantity,
+            // `null` rather than `""`, so the audit row distinguishes "nobody
+            // named a supplier" from an empty label.
+            supplier.as_ref().map_or("null".to_owned(), |name| {
+                format!("\"{}\"", name.as_str().replace('"', "\\\""))
+            })
         )),
     )
     .await
@@ -681,6 +701,9 @@ pub async fn remove(
                 fifo_layer_id: segment.fifo_layer_id.clone(),
                 fifo_received_at: segment.fifo_received_at,
                 reverses_movement_id: None,
+                // A manual removal corrects stock; it is not a purchase and names
+                // no supplier. The table refuses one here, and rightly so.
+                supplier_name: None,
             },
         )
         .await

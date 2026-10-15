@@ -357,6 +357,8 @@ pub async fn record_sale(
                     fifo_layer_id: segment.fifo_layer_id.clone(),
                     fifo_received_at: segment.fifo_received_at,
                     reverses_movement_id: None,
+                    // A sale is not a purchase and names no supplier (D1).
+                    supplier_name: None,
                 },
             )
             .await
@@ -759,6 +761,8 @@ async fn write_reversal_movement(
             fifo_layer_id,
             fifo_received_at,
             reverses_movement_id: Some(reverses_movement_id),
+            // Undoing a sale is not a purchase, so it names no supplier (D1).
+            supplier_name: None,
         },
     )
     .await

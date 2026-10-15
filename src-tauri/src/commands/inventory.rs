@@ -25,6 +25,7 @@ use tauri::State;
 use crate::domain::costing::fifo::FifoLayer;
 use crate::domain::identity::Sensitivity;
 use crate::domain::organisation::{CostMethod, DepartmentId};
+use crate::domain::supplier::SupplierName;
 use crate::services::identity::IdentityContext;
 use crate::services::inventory::stock::{self as use_cases, StockServiceError};
 
@@ -102,13 +103,20 @@ pub struct StockOutcomeDto {
 /// Receive stock at a known unit cost.
 ///
 /// `Routine`: receiving a delivery is ordinary work (`ADR-015`).
+///
+/// `supplier_name` is the operator's own label for who delivered it (D1). It is
+/// optional and blank means none: an empty supplier is refused by the domain
+/// rather than stored, so the shop's supplier list never grows a blank entry.
 #[tauri::command]
 pub async fn receive_stock(
     ctx: Ctx<'_>,
     product_id: String,
     quantity: i64,
     unit_cost_minor: i64,
+    supplier_name: Option<String>,
 ) -> Result<StockOutcomeDto, InventoryCommandError> {
+    let supplier = SupplierName::parse_optional(supplier_name.as_deref().unwrap_or(""))
+        .map_err(|error| InventoryCommandError { code: error.code() })?;
     let outcome = use_cases::receive(
         &ctx.pool,
         ctx.tokens.as_ref(),
@@ -116,6 +124,7 @@ pub async fn receive_stock(
         quantity,
         unit_cost_minor,
         Sensitivity::Routine,
+        supplier,
     )
     .await?;
 

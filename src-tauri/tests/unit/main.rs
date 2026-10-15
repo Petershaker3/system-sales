@@ -25,6 +25,9 @@ use mobile_shop_system_lib::domain::settings::{
     DiscountKind, SettingKey, SettingsError, SettingsSnapshot, PATTERN_REQUIRED,
 };
 use mobile_shop_system_lib::domain::sales::{SaleError, WarrantyDate};
+use mobile_shop_system_lib::domain::supplier::{
+    SupplierError, SupplierName, SUPPLIER_NAME_MAX_CHARS,
+};
 
 // The backup envelope: byte layout and the manifest path policy.
 mod backup;
@@ -1769,4 +1772,96 @@ fn the_two_warranty_refusals_have_their_own_codes() {
     );
     assert!(!SaleError::WarrantyDateInvalid.to_string().is_empty());
     assert!(!SaleError::WarrantyRangeInvalid.to_string().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// The supplier label on receiving (P4b, decision D1)
+// ---------------------------------------------------------------------------
+//
+// D1 is a NAME the operator typed on a delivery — not a counterparty entity, not
+// a purchase order. `spec:29`/`§231` keep procurement out of V1, so this type
+// holds text and nothing else: no identity, no ledger, no payable.
+
+#[test]
+fn a_supplier_name_is_trimmed_and_stored_trimmed() {
+    let name = SupplierName::parse("  Vodafone Egypt ").expect("a real supplier");
+    assert_eq!(name.as_str(), "Vodafone Egypt");
+    assert_eq!(name.to_string(), "Vodafone Egypt");
+    // A name kept for later lookup must read the same way every time it is
+    // shown, and the migration stores exactly this text.
+    assert_eq!(name.as_str(), name.as_str().trim());
+}
+
+#[test]
+fn a_supplier_name_that_is_only_whitespace_is_refused_rather_than_replaced() {
+    // The load-bearing rule. Trimming "   " would yield "", and an empty string
+    // stored as a supplier would be a supplier the shop can neither search for
+    // nor distinguish from "no supplier given".
+    for candidate in ["", " ", "   ", "\t", "\n", " \t\n "] {
+        assert_eq!(
+            SupplierName::parse(candidate),
+            Err(SupplierError::NameRequired),
+            "{candidate:?} must be refused rather than trimmed into nothing"
+        );
+    }
+}
+
+#[test]
+fn a_blank_field_reads_as_no_supplier_rather_than_as_an_empty_one() {
+    // What the operator's untouched field means. `None` and `Some("")` are not
+    // the same thing, and the column stores only one of them.
+    assert_eq!(SupplierName::parse_optional(""), Ok(None));
+    assert_eq!(SupplierName::parse_optional("   "), Ok(None));
+    assert_eq!(
+        SupplierName::parse_optional("Vodafone")
+            .expect("a named supplier")
+            .map(|name| name.as_str().to_string()),
+        Some("Vodafone".to_string())
+    );
+}
+
+#[test]
+fn a_supplier_name_longer_than_the_operator_field_is_refused() {
+    // The bound is the input field's, not the storage layer's appetite for long
+    // text: this is a label typed on a phone.
+    let longest = "س".repeat(SUPPLIER_NAME_MAX_CHARS);
+    assert!(
+        SupplierName::parse(&longest).is_ok(),
+        "a name exactly at the bound is accepted"
+    );
+    let too_long = "س".repeat(SUPPLIER_NAME_MAX_CHARS + 1);
+    assert_eq!(
+        SupplierName::parse(&too_long),
+        Err(SupplierError::NameTooLong),
+        "one character past the bound must be refused"
+    );
+}
+
+#[test]
+fn a_supplier_name_keeps_the_capitalisation_and_digits_the_operator_typed() {
+    // Case folding is a comparison rule for the storage index, never a
+    // transformation of the operator's text.
+    for candidate in ["STC", "stc", "Etisalat 2G", "0122-345-6789"] {
+        assert_eq!(
+            SupplierName::parse(candidate).expect("a real supplier").as_str(),
+            candidate
+        );
+    }
+}
+
+#[test]
+fn every_supplier_error_has_a_stable_code_the_frontend_can_index() {
+    for error in [SupplierError::NameRequired, SupplierError::NameTooLong] {
+        let code = error.code();
+        assert!(!code.is_empty());
+        assert_eq!(code, code.to_ascii_uppercase(), "{error:?} produced {code:?}");
+        assert!(
+            code.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+            "{error:?} produced {code:?}, which is not a screaming-snake identifier"
+        );
+        assert!(!error.to_string().is_empty());
+    }
+    assert_eq!(SupplierError::NameRequired.code(), "SUPPLIER_NAME_REQUIRED");
+    assert_eq!(SupplierError::NameTooLong.code(), "SUPPLIER_NAME_TOO_LONG");
 }

@@ -60,6 +60,7 @@ async fn shop_with_one_sale() -> (SqlitePool, Arc<InMemoryTokenStore>, String) {
         10,
         100,
         Sensitivity::Routine,
+        None,
     )
     .await
     .expect("receipt");

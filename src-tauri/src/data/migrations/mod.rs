@@ -69,3 +69,8 @@ pub const CUSTOMERS: &str = include_str!("0012_customers.sql");
 /// calendar day, not an instant), shape-checked by CHECK and range-checked by
 /// trigger, with no default period and no backfill.
 pub const WARRANTY: &str = include_str!("0013_warranty.sql");
+
+/// The supplier label on receiving (P4b, decision D1). One nullable column on the
+/// receipt's own movement row: the supplier list is derived from history rather
+/// than stored twice, and there is no counterparty entity in V1.
+pub const RECEIVING_SUPPLIER: &str = include_str!("0014_receiving_supplier.sql");

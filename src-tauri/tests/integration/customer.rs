@@ -159,6 +159,7 @@ async fn shop_with_sale() -> (
         10,
         100,
         Sensitivity::Routine,
+        None,
     )
     .await
     .expect("receipt");

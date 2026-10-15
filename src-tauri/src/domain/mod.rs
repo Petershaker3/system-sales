@@ -28,3 +28,4 @@ pub mod money;
 pub mod organisation;
 pub mod sales;
 pub mod settings;
+pub mod supplier;
