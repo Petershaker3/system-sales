@@ -85,7 +85,30 @@ pub enum DomainError {
     /// It is an invariant violation, it is not transient, and retrying will not fix
     /// it — so it must surface as a defect rather than as a transient hiccup.
     AccountDataIntegrityError,
+    /// Single-use recovery was attempted without a matching unconsumed
+    /// owner approval.
+    ///
+    /// Deliberately distinct from [`DomainError::InvalidCredentials`]: a
+    /// missing approval is a gate state, not a wrong password, and reporting
+    /// it as credentials would send the operator round a retry loop that can
+    /// never succeed.
+    RecoveryNotApproved,
+    /// The single-use recovery approval was already consumed.
+    RecoveryAlreadyUsed,
+    /// A recovery attempt arrived inside its throttle window.
+    ///
+    /// Deliberately distinct from [`DomainError::InvalidCredentials`]: the
+    /// secret was not rejected, the attempt was too early. Reporting it as a
+    /// wrong Pattern would tell the owner their Pattern is wrong when the
+    /// answer is "wait", and would read as a credential problem in the log.
+    ///
+    /// It is also deliberately NOT an account lockout. This path exists to
+    /// recover an account whose password is unknown, so a lock the owner
+    /// cannot clear would remove the only route back in.
+    RecoveryRateLimited,
     /// Refusing to disable the last active manager.
+    ///
+    /// There is no backdoor reset and no second device, because V1 has no server
     ///
     /// There is no backdoor reset and no second device, because V1 has no server
     /// (`ADR-008`). Disabling the only manager would leave a device that nobody
@@ -144,6 +167,9 @@ impl DomainError {
             DomainError::DisplayNameRequired => "DISPLAY_NAME_REQUIRED",
             DomainError::AccountDataIntegrityError => "ACCOUNT_DATA_INTEGRITY_ERROR",
             DomainError::CannotDisableLastManager => "CANNOT_DISABLE_LAST_MANAGER",
+            DomainError::RecoveryNotApproved => "RECOVERY_NOT_APPROVED",
+            DomainError::RecoveryAlreadyUsed => "RECOVERY_ALREADY_USED",
+            DomainError::RecoveryRateLimited => "RECOVERY_RATE_LIMITED",
             DomainError::CannotDisableSelf => "CANNOT_DISABLE_SELF",
             DomainError::WeakPassword => "PASSWORD_DOES_NOT_MEET_POLICY",
             DomainError::SessionIdleExpired => "SESSION_IDLE_EXPIRED",
@@ -204,6 +230,15 @@ impl fmt::Display for DomainError {
             }
             DomainError::CannotDisableLastManager => {
                 write!(f, "cannot disable the last active manager")
+            }
+            DomainError::RecoveryNotApproved => {
+                write!(f, "recovery was not approved for this device and reference")
+            }
+            DomainError::RecoveryAlreadyUsed => {
+                write!(f, "the recovery approval has already been consumed")
+            }
+            DomainError::RecoveryRateLimited => {
+                write!(f, "too many recovery attempts; wait before trying again")
             }
             DomainError::CannotDisableSelf => write!(f, "cannot disable your own account"),
             DomainError::StorageUnavailable => write!(f, "the local database is unavailable"),

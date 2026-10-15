@@ -434,7 +434,44 @@ fn domain_sources() -> Vec<(String, String)> {
 /// error type, and a scanner pointed at a single file would let a new slice's
 /// codes drift out of the Arabic message table without failing the build.
 fn rust_error_codes() -> Vec<String> {
-    rust_error_codes_per_source().concat()
+    let mut codes = rust_error_codes_per_source().concat();
+    // The inventory service declares its own error codes beside the domain ones
+    // (`STOCK_*`). Its `StockServiceError::code` *delegates* to the enum it
+    // wraps, so it contributes no literal arms and must not be held to the
+    // non-vacuity rule below — which is why the scan is added here rather than
+    // by widening the domain walk.
+    codes.extend(literal_code_arms(&COSTING_SERVICE));
+    codes
+}
+
+/// Literal `"UPPER_SNAKE"` values on the right of a `=>` in a `code()` body.
+///
+/// Shared by the per-source scanner and by the service-level addition above so
+/// the two can never drift into accepting different syntax.
+fn literal_code_arms(source: &str) -> Vec<String> {
+    let code_only_src = code_only(source);
+    let Some(start) = code_only_src.find("pub fn code(&self)") else {
+        return Vec::new();
+    };
+
+    let mut codes = Vec::new();
+    for line in code_only_src[start..].lines() {
+        // Arms look like:  CatalogError::Foo => "FOO_CODE",
+        let Some((_, rest)) = line.split_once("=> \"") else {
+            continue;
+        };
+        let Some((code, _)) = rest.split_once('"') else {
+            continue;
+        };
+        if code
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            && code.len() > 2
+        {
+            codes.push(code.to_string());
+        }
+    }
+    codes
 }
 
 /// The same codes, grouped by the file each came from.
@@ -1562,10 +1599,637 @@ fn every_authority_command_is_registered_in_lib() {
         ("pattern", "set_pattern"),
         ("pattern", "reset_pattern"),
         ("pattern", "disable_pattern"),
+        ("inventory", "receive_stock"),
+        ("inventory", "remove_stock"),
+        ("inventory", "get_position"),
+        ("inventory", "switch_cost_method"),
     ] {
         assert!(
             code.contains(&format!("commands::{module}::{command}")),
             "command `{module}::{command}` must stay registered in lib.rs"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SP-2: the costing contract (ADR-013, spec §10)
+//
+// The rounding and storage rules are the ones thing a later slice would
+// silently break, because every alternative compiles and every alternative
+// produces plausible numbers. A piastre lost to a `round()` instead of a
+// ceiling does not fail loudly; it just quietly costs the shop money. These
+// guards turn the contract into a build failure rather than a code review
+// memory.
+// ---------------------------------------------------------------------------
+
+const COSTING_MOD: &str = include_str!("../../src/domain/costing/mod.rs");
+const COSTING_MOVING_AVERAGE: &str = include_str!("../../src/domain/costing/moving_average.rs");
+const COSTING_FIFO: &str = include_str!("../../src/domain/costing/fifo.rs");
+const STOCK_MIGRATION: &str = include_str!("../../src/data/migrations/0008_stock_and_cost_layers.sql");
+const COSTING_SERVICE: &str = include_str!("../../src/services/inventory/stock.rs");
+const INVENTORY_COMMANDS: &str = include_str!("../../src/commands/inventory.rs");
+const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts");
+const FRONTEND_STOCK_PANEL: &str = include_str!("../../../src/components/StockPanel.vue");
+const FRONTEND_DEPARTMENTS_PANEL: &str =
+    include_str!("../../../src/components/DepartmentsPanel.vue");
+
+#[test]
+fn the_inventory_commands_take_no_session_token_role_or_actor() {
+    // The same rule every other command module is held to (`spec:210`, and the
+    // existing catalogue and authority guards). Attribution has to be a fact
+    // resolved from the credential store, never a value a caller supplies.
+    for parameter in ["token:", "role:", "actor:", "assurance:", "user_id:"] {
+        assert!(
+            !INVENTORY_COMMANDS.contains(parameter),
+            "an inventory command must not accept `{parameter}` from a caller"
+        );
+    }
+    assert!(
+        INVENTORY_COMMANDS.contains("State<'a, IdentityContext>"),
+        "inventory commands must resolve the operator through the shared context"
+    );
+}
+
+#[test]
+fn the_inventory_commands_never_touch_sql() {
+    // Transport only. The arithmetic and the transaction belong to the service;
+    // a query here would mean the two could disagree about a rule.
+    let code = code_only(INVENTORY_COMMANDS);
+    for forbidden in ["sqlx::", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !code.contains(forbidden),
+            "commands/inventory.rs must not contain `{forbidden}`: queries live under \
+             data/repositories and the rules in services"
+        );
+    }
+}
+
+#[test]
+fn a_caller_cannot_choose_how_much_proof_a_movement_needs() {
+    // `Sensitivity` decides how much authority an operation needs. If the WebView
+    // could pass it, a caller would downgrade a sensitive operation to a routine
+    // one by sending the weaker value — a parallel authority path, which the
+    // sensitivity module exists to prevent.
+    let code = code_only(INVENTORY_COMMANDS);
+    assert!(
+        !command_parameters(INVENTORY_COMMANDS)
+            .iter()
+            .any(|name| name.contains("sensitivity")),
+        "no command may accept a sensitivity argument"
+    );
+    assert!(
+        code.contains("Sensitivity::Routine"),
+        "the service call must state the sensitivity in Rust, not accept it"
+    );
+}
+
+#[test]
+fn the_stock_panel_never_computes_a_cost_of_its_own() {
+    // The ceiling rule lives in `domain/costing`. A locally divided average
+    // would be a second rounding rule, which is exactly the drift ADR-013 exists
+    // to prevent — and it would differ from the figure the sale is snapshotted
+    // with.
+    let code = code_only(FRONTEND_STOCK_PANEL);
+    for forbidden in ["Math.ceil", "round(", "Math.round", "/ onHand", "/ quantity"] {
+        assert!(
+            !code.contains(forbidden),
+            "the panel must render the figure Rust returned, never recompute one \
+             (found `{forbidden}`)"
+        );
+    }
+    assert!(
+        code.contains("effectiveCostMinor"),
+        "the panel must show the derived cost Rust supplied"
+    );
+}
+
+#[test]
+fn the_null_and_zero_cost_distinction_survives_the_boundary() {
+    // `null` means FIFO holds the cost; `0` means free stock. The API type and
+    // the panel must both keep them apart, or the authority rule becomes
+    // invisible exactly where it matters.
+    assert!(
+        FRONTEND_INVENTORY_API.contains("totalCostMinor: number | null"),
+        "the API type must keep totalCostMinor nullable"
+    );
+    let panel = code_only(FRONTEND_STOCK_PANEL);
+    assert!(
+        !panel.contains("position.totalCostMinor || 0"),
+        "the panel must not collapse a null total into zero"
+    );
+}
+
+#[test]
+fn the_departments_panel_offers_no_control_the_backend_will_refuse() {
+    // An edit may no longer change the costing method: switching has to convert
+    // the stock that already exists. A `<select>` bound to that field would be a
+    // control that can only ever fail, which is worse than no control at all.
+    let panel = code_only(FRONTEND_DEPARTMENTS_PANEL);
+    assert!(
+        !panel.contains("v-model=\"formcostmethod\""),
+        "the department form must not offer a costing-method choice"
+    );
+    assert!(
+        panel.contains("readonly-method"),
+        "the current method should still be shown, read-only"
+    );
+}
+
+#[test]
+fn every_inventory_error_code_has_an_arabic_message() {
+    // The bidirectional guard covers domain error codes. The service introduced
+    // two more (`STOCK_*`) and the frontend message table must carry both, or an
+    // operator sees the generic fallback for a genuine data defect.
+    for code in ["STOCK_PRODUCT_NOT_FOUND", "STOCK_COST_AUTHORITY_CONFLICT"] {
+        assert!(
+            COSTING_SERVICE.contains(&format!("\"{code}\"")),
+            "the service is expected to emit `{code}`; the guard's scan is broken"
+        );
+        assert!(
+            FRONTEND_ERRORS.contains(&format!("{code}:")),
+            "Rust emits `{code}` but src/api/errors.ts declares no code for it"
+        );
+    }
+}
+
+#[test]
+fn the_stock_schema_stays_one_counter_per_product_and_opens_no_location() {
+    // D2, restated where the stock tables actually appear. `ADR-012` decided
+    // that `stock_levels` is keyed by `product_id` alone and that a department
+    // classifies a product rather than locating it, but that decision was
+    // recorded while no stock table existed. `0008` is the migration that creates
+    // one, so it is the file where the question could be quietly reopened — by a
+    // `location_id` column, or by a composite key that reintroduces the per-site
+    // stock the ADR rejected as never requested.
+    let sql = sql_only(STOCK_MIGRATION);
+    for forbidden in [
+        "location",
+        "warehouse",
+        "branch",
+        "stockroom",
+        "shelf",
+        "bin",
+        "aisle",
+    ] {
+        assert!(
+            !sql.contains(forbidden),
+            "0008 must not mention `{forbidden}`: V1 has one stock counter per \
+             product and no physical place (ADR-012)"
+        );
+    }
+
+    // Two tables, so two primary keys. The invariant is not "one key" but "no
+    // composite key": `stock_levels` is keyed by the product alone and
+    // `fifo_layers` by its own id, and neither key may grow a second column that
+    // reintroduces the per-site stock ADR-012 refused.
+    //
+    // `sql_only` lowercases and strips `--` comments, so keywords are compared
+    // in lower case.
+    assert_eq!(
+        sql.matches("primary key").count(),
+        2,
+        "0008 declares two tables and each takes exactly one primary key"
+    );
+    for forbidden in [
+        "primary key (product_id,",
+        "primary key (product_id ,",
+        "primary key (product_id, location",
+    ] {
+        assert!(
+            !sql.contains(forbidden),
+            "`{forbidden}` would reintroduce per-site stock that ADR-012 refused"
+        );
+    }
+    assert!(
+        sql.contains("product_id") && sql.contains("references products (id)"),
+        "stock_levels must be keyed by product_id alone (ADR-012)"
+    );
+}
+
+#[test]
+fn the_stock_schema_keeps_money_and_quantities_integer_and_never_negative() {
+    // `spec:56` and ADR-010: an integer count of piastres, never a float. And
+    // the one state a costing bug must never be able to write is a negative
+    // balance, so the CHECK belongs in the schema rather than only in Rust.
+    let sql = sql_only(STOCK_MIGRATION);
+    assert!(
+        sql.contains("quantity >= 0"),
+        "a negative balance must be impossible at the storage layer"
+    );
+    assert!(
+        sql.contains("total_cost_minor >= 0"),
+        "a negative total cost must be impossible at the storage layer"
+    );
+    assert!(
+        sql.contains("quantity > 0"),
+        "a spent FIFO layer must be deleted, not kept at zero"
+    );
+    for forbidden in ["real", "float", "double", "numeric"] {
+        assert!(
+            !sql.contains(forbidden),
+            "0008 must not declare `{forbidden}`: money is an integer minor unit"
+        );
+    }
+}
+
+#[test]
+fn the_costing_service_runs_each_operation_in_one_transaction() {
+    // The atomicity claim is the point of the slice: a balance, its layers and
+    // its audit event move together or not at all. Asserting that each public
+    // operation opens a transaction and commits one is the cheapest way to stop
+    // a later slice from adding a fourth write outside it.
+    for operation in ["receive", "remove", "switch_cost_method"] {
+        let start = COSTING_SERVICE
+            .find(&format!("pub async fn {operation}("))
+            .unwrap_or_else(|| panic!("`{operation}` must be a public use case"));
+        let body = &COSTING_SERVICE[start..];
+        assert!(
+            body.contains("pool.begin()"),
+            "{operation} must open one transaction"
+        );
+        assert!(
+            body.contains("tx.commit()"),
+            "{operation} must commit that transaction"
+        );
+    }
+}
+
+#[test]
+fn the_costing_service_never_writes_sql() {
+    // Services orchestrate; repositories own queries (`spec:99`, and the same
+    // rule the catalogue and authority services are held to). One exception is
+    // declared and narrow: the switch writes the department's costing method,
+    // because that is the one statement whose whole purpose is to move that
+    // column, and routing it through the ordinary department update would be the
+    // relabelling-without-converting bug the switch exists to prevent.
+    let code = code_only(COSTING_SERVICE);
+    let statements = code.matches("sqlx::query").count();
+    assert!(
+        statements <= 3,
+        "the costing service writes {statements} statements; queries belong in \
+         data/repositories (only the costing-method column update belongs here)"
+    );
+}
+
+#[test]
+fn the_costing_service_never_resolves_a_session_from_a_caller() {
+    // Same rule as every other service: no token, role or assurance level is
+    // accepted from outside. Resolution goes through the shared helper.
+    let code = code_only(COSTING_SERVICE);
+    for parameter in ["token:", "role:", "actor:", "assurance:"] {
+        assert!(
+            !code.contains(parameter),
+            "the costing service must not accept `{parameter}` from a caller"
+        );
+    }
+    assert!(
+        code.contains("identity_session::resolve"),
+        "the session must come from the shared resolver"
+    );
+}
+
+#[test]
+fn the_costing_module_never_uses_a_float() {
+    // spec:56 and ADR-010: money is an integer count of piastres. A float cannot
+    // represent 0.01 EGP, so any float in this path is a silent accuracy bug
+    // wearing the costume of a rounding decision.
+    for (name, source) in [
+        ("costing/mod.rs", COSTING_MOD),
+        ("costing/moving_average.rs", COSTING_MOVING_AVERAGE),
+        ("costing/fifo.rs", COSTING_FIFO),
+    ] {
+        let code = code_only(source);
+        for forbidden in ["f32", "f64", "REAL", "floating"] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} must not mention `{forbidden}`: money is integer piastres (spec:56)"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_costing_module_offers_no_alternative_rounding_rule() {
+    // Nearest, half-up and banker's rounding are all named rejections in
+    // ADR-013. Naming them again here means a future contributor cannot add one
+    // and call it a local optimisation: the ceiling is the only rounding rule
+    // this codebase has for money.
+    for (name, source) in [
+        ("costing/mod.rs", COSTING_MOD),
+        ("costing/moving_average.rs", COSTING_MOVING_AVERAGE),
+        ("costing/fifo.rs", COSTING_FIFO),
+    ] {
+        let code = code_only(source);
+        for forbidden in ["round()", ".round(", "banker", "half_up", "nearest"] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} must not contain `{forbidden}`: ADR-013 approves ceiling rounding only"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_costing_module_carries_no_remainder_column() {
+    // ADR-013 proves the remainder is always zero under ceiling rounding and
+    // rejects the column. A stored remainder would reintroduce exactly the
+    // fractional persisted state `spec` §10 forbids.
+    //
+    // Scoped to declarations, not the whole word: the documentation must be able
+    // to explain the rejection, and a test may legitimately be named after what
+    // it proves. What must not exist is a *field* or *parameter* that carries a
+    // remainder.
+    for (name, source) in [
+        ("costing/mod.rs", COSTING_MOD),
+        ("costing/moving_average.rs", COSTING_MOVING_AVERAGE),
+        ("costing/fifo.rs", COSTING_FIFO),
+    ] {
+        let code = code_only(source);
+        for forbidden in [
+            "remainder:",
+            "remainder :",
+            "_remainder:",
+            "remainder_minor:",
+            "cost_remainder_minor",
+            "residual:",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} must not declare `{forbidden}`: ADR-013 proves no remainder is needed"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_costing_arithmetic_computes_its_intermediates_in_i128() {
+    // `units × total_cost_minor` overflows i64 at plausible volumes, so the
+    // contract is not "careful coding" but a wider type. Asserting the product
+    // goes through `i128::from` keeps a refactor from quietly widening nothing.
+    let code = code_only(COSTING_MOVING_AVERAGE);
+    assert!(
+        code.contains("i128"),
+        "moving_average must compute intermediates in i128 (ADR-013 \"i128 للوسائط\")"
+    );
+}
+
+#[test]
+fn the_costing_module_knows_no_infrastructure() {
+    // domain/ is the layer that knows no Tauri, no SQLx, no SQLite and no
+    // platform (spec:99). Costing is arithmetic, so the cheapest way to keep it
+    // arithmetic is to refuse every one of those names at build time.
+    let code = format!("{COSTING_MOD}{COSTING_MOVING_AVERAGE}{COSTING_FIFO}");
+    for forbidden in ["sqlx", "SqlitePool", "tauri", "invoke", "Transaction"] {
+        assert!(
+            !code.contains(forbidden),
+            "domain/costing must not mention `{forbidden}`: the domain knows no infrastructure"
+        );
+    }
+}
+
+#[test]
+fn the_costing_module_does_not_redefine_the_cost_method_vocabulary() {
+    // `CostMethod` already lives in domain/organisation beside the department
+    // that owns the setting. A second spelling is the drift domain/mod.rs
+    // forbids, and two enums that both parse "fifo" would eventually disagree
+    // on what one stored string means.
+    assert!(
+        !COSTING_MOD.contains("enum CostMethod"),
+        "CostMethod is defined once in domain/organisation; costing must import it, not redefine it"
+    );
+    assert!(
+        COSTING_MOD.contains("pub use crate::domain::organisation::CostMethod"),
+        "costing must re-export the shared CostMethod so callers have one name"
+    );
+}
+
+#[test]
+fn every_costing_error_code_is_declared_and_has_an_arabic_message() {
+    // Mirrors the existing bidirectional guard for domain error codes: a code
+    // Rust can emit but the operator cannot read is a blank error message at
+    // best, and a machine code shown to a shop owner at worst.
+    let code = format!("{COSTING_MOD}{COSTING_MOVING_AVERAGE}{COSTING_FIFO}");
+    let mut codes = Vec::new();
+    let mut rest = code.as_str();
+    while let Some(index) = rest.find("\"COST_") {
+        rest = &rest[index + 1..];
+        let end = rest
+            .find('"')
+            .expect("a COST_ code literal must close");
+        codes.push(&rest[..end]);
+        rest = &rest[end + 1..];
+    }
+    assert!(
+        !codes.is_empty(),
+        "costing must emit COST_* codes; the scan found none, so the guard is broken"
+    );
+    for code in &codes {
+        assert!(
+            FRONTEND_ERRORS.contains(&format!("{code}:")),
+            "Rust emits `{code}` but src/api/errors.ts declares no code for it"
+        );
+    }
+}
+
+const RECOVERY_COMMANDS: &str = include_str!("../../src/commands/recovery.rs");
+const RECOVERY_SERVICE: &str = include_str!("../../src/services/identity/recovery.rs");
+
+// ---------------------------------------------------------------------------
+// Recovery path containment (plan R1, Design B)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn recovery_path_exists_only_behind_the_recovery_feature() {
+    // The bypass must be ungraftable from a production build: the module, the
+    // service and the handler registration all carry the same gate, so
+    // removing any one of them breaks the build loudly rather than silently
+    // widening the path.
+    for (name, source) in [
+        ("commands/recovery.rs", RECOVERY_COMMANDS),
+        ("services/identity/recovery.rs", RECOVERY_SERVICE),
+    ] {
+        assert!(
+            source.contains("cfg(feature = \"recovery\")"),
+            "{name} must be gated on the recovery feature"
+        );
+    }
+    assert!(
+        COMMANDS_MOD.contains("#[cfg(feature = \"recovery\")]"),
+        "commands/mod.rs must gate the recovery module declaration"
+    );
+    let registrations = LIB.matches("commands::recovery::").count();
+    assert_eq!(
+        registrations, 2,
+        "lib.rs must register exactly the two recovery commands, got {registrations}"
+    );
+    let gated = LIB.matches("#[cfg(feature = \"recovery\")]").count();
+    assert!(
+        gated >= 2,
+        "each recovery registration in lib.rs must carry the feature gate"
+    );
+}
+
+#[test]
+fn recovery_commands_take_no_identity_from_the_caller() {
+    // Same transport rule as every other command: no token, user id, role or
+    // actor parameter. The recovery screen sends what the owner typed (the
+    // approval fields and the new password); identity is resolved from the
+    // staged approval row, never asserted by the WebView.
+    let forbidden = ["token", "user_id", "role", "actor", "session"];
+    for parameter in command_parameters(&code_only(RECOVERY_COMMANDS)) {
+        assert!(
+            !forbidden.contains(&parameter.as_str()),
+            "recovery command parameter `{parameter}` would let the caller assert identity"
+        );
+    }
+}
+
+const RECOVERY_PANEL: &str = include_str!("../../../src/components/RecoveryPanel.vue");
+const RECOVERY_API: &str = include_str!("../../../src/api/recovery.ts");
+
+// ---------------------------------------------------------------------------
+// The recovery panel must never ride along in a production bundle (plan R1-T5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_recovery_panel_is_mounted_only_behind_the_build_flag() {
+    // Not a security control - the Rust `recovery` feature is - but the panel and
+    // its strings have no business in the bundle a customer receives, so the
+    // gate is asserted here rather than trusted to a build run someone remembers.
+    assert!(
+        FRONTEND_APP.contains("import.meta.env.VITE_RECOVERY"),
+        "App.vue must gate the recovery panel on the VITE_RECOVERY build flag"
+    );
+    assert!(
+        FRONTEND_APP.contains("defineAsyncComponent(() => import('./components/RecoveryPanel.vue'))"),
+        "the panel must be imported dynamically, or it is hoisted into production \
+         whatever the flag evaluates to"
+    );
+    assert!(
+        FRONTEND_APP.contains(": null"),
+        "the panel reference must fall back to null when the flag is absent"
+    );
+
+    // The dot form matters and is not cosmetic: Vite statically replaces
+    // `import.meta.env.X`, which is what lets the bundler drop the guarded
+    // branch. A bracket access typechecks but is not reliably replaced, and the
+    // panel then ships in production anyway.
+    assert!(
+        !FRONTEND_APP.contains("import.meta.env['VITE_RECOVERY']"),
+        "bracket access on a build flag defeats the replacement the gate depends on"
+    );
+    assert!(
+        !RECOVERY_API.contains("import.meta.env['VITE_RECOVERY']"),
+        "bracket access on a build flag defeats the replacement the gate depends on"
+    );
+}
+
+#[test]
+fn the_recovery_panel_opens_no_external_channel() {
+    // An intent handler, deep link or URL scheme would make the recovery path
+    // reachable from outside the app, which the Product Owner ruled out. The
+    // panel is driven by a person operating the device, and nothing else.
+    for banned in [
+        "intent",
+        "deep-link",
+        "deeplink",
+        "register_uri_scheme",
+        "onNewIntent",
+        "tauri://",
+        "invoke('open",
+    ] {
+        assert!(
+            !RECOVERY_PANEL.contains(banned),
+            "the recovery panel must not contain `{banned}`"
+        );
+        assert!(
+            !RECOVERY_API.contains(banned),
+            "the recovery api must not contain `{banned}`"
+        );
+    }
+}
+
+#[test]
+fn the_recovery_panel_persists_nothing_and_retries_nothing() {
+    // No credential may be written anywhere: there is no storage access in
+    // `src/` and the panel must not add any.
+    for banned in ["localStorage", "sessionStorage", "indexedDB", "document.cookie"] {
+        assert!(
+            !RECOVERY_PANEL.contains(banned),
+            "the recovery panel must not use `{banned}`"
+        );
+    }
+    // A retry loop would turn the attempt throttle straight back into a
+    // guessing loop, so every call is one-shot.
+    assert!(
+        !RECOVERY_PANEL.contains("setTimeout"),
+        "the recovery panel must not schedule retries"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The strongest claim is checked on the artifact, not on the spelling of a
+// source file: whatever is in `dist/` is what a build would ship.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_built_bundle_carries_no_recovery_call() {
+    // Behavioural, deliberately: the three guards above read source text and
+    // would all pass while a recovery panel sat in the bundle. This one reads
+    // the built output.
+    //
+    // It skips when there is no bundle, because `dist/` is a build artefact and
+    // is gitignored. When one exists it must be a production one: a recovery
+    // build left on disk is a leak waiting to be shipped, and this fails until
+    // the production build is re-run. `cargo test --test architecture
+    // -- --ignored` is not required — this runs by default when a bundle is
+    // present.
+    let assets = std::path::Path::new("../dist/assets");
+    let Ok(entries) = std::fs::read_dir(assets) else {
+        eprintln!("no dist/assets to inspect; skipping the built-bundle check");
+        return;
+    };
+
+    let mut inspected = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_bundle = path
+            .extension()
+            .map(|ext| ext == "js")
+            .unwrap_or(false);
+        if !is_bundle {
+            continue;
+        }
+        inspected += 1;
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        assert!(
+            !name.contains("RecoveryPanel"),
+            "dist/assets/{name} is the recovery panel: the bundle on disk is a RECOVERY \
+             build. Re-run the production build (`npm run build`) before shipping."
+        );
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for marker in ["stage_recovery_approval", "execute_manager_recovery"] {
+            assert!(
+                !contents.contains(marker),
+                "dist/assets/{name} calls `{marker}`: a recovery build is sitting in \
+                 dist/. Re-run the production build (`npm run build`)."
+            );
+        }
+    }
+
+    if inspected == 0 {
+        eprintln!("dist/assets held no JavaScript bundle; nothing to inspect");
+        return;
+    }
+
+    // The entry document must not pull in a recovery chunk either.
+    if let Ok(index) = std::fs::read_to_string(std::path::Path::new("../dist/index.html")) {
+        assert!(
+            !index.contains("RecoveryPanel"),
+            "dist/index.html references the recovery panel chunk: the bundle on disk \
+             is a RECOVERY build. Re-run the production build."
         );
     }
 }

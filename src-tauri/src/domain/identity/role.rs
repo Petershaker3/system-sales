@@ -86,6 +86,15 @@ pub enum Permission {
     /// re-authenticated; gated per operation so the Pattern can be required
     /// without a password prompt on every manager action.
     CancelTransaction,
+
+    /// Browse customer records (P4, `spec:18` CUST-03).
+    ///
+    /// Creation is deliberately separate: it rides on `Sell` so a sales user
+    /// can enter a new customer for an invoice without browsing history.
+    /// Browsing names and contacts is manager-only. Not blanket
+    /// re-authenticated: listing customers is routine shop work, like
+    /// receiving stock under `ManageInventory`.
+    ManageCustomers,
 }
 
 impl Permission {
@@ -139,6 +148,7 @@ impl Role {
                     | Permission::ManageDepartments
                     | Permission::ManageSettings
                     | Permission::CancelTransaction
+                    | Permission::ManageCustomers
                     | Permission::Sell
             ),
             Role::Sales => matches!(permission, Permission::Sell),

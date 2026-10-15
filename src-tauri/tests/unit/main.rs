@@ -9,10 +9,12 @@ use mobile_shop_system_lib::domain::catalog::{
     CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
 };
 use mobile_shop_system_lib::domain::identity::{
-    is_locked, password_is_acceptable, register_failure, register_success, Assurance,
+    is_locked, password_is_acceptable, recovery_delay_ms, register_failure, register_success,
+    Assurance,
     CredentialVerifier, DomainError, LockoutState, PatternApproval, Permission, Role, Sensitivity,
     Session, SessionFacts, SessionToken, Timestamp, UserId, ABSOLUTE_LIFETIME_MS,
     IDLE_TIMEOUT_MS, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN, PATTERN_TTL_MS,
+    RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
 };
 use mobile_shop_system_lib::domain::money::{MoneyError, Piastres};
 use mobile_shop_system_lib::domain::organisation::{
@@ -22,6 +24,9 @@ use mobile_shop_system_lib::domain::organisation::{
 use mobile_shop_system_lib::domain::settings::{
     DiscountKind, SettingKey, SettingsError, SettingsSnapshot, PATTERN_REQUIRED,
 };
+
+// The backup envelope: byte layout and the manifest path policy.
+mod backup;
 
 /// Shorthand: a valid amount, so an arithmetic test states only what it is about.
 fn money(value: i64) -> Piastres {
@@ -63,6 +68,7 @@ fn manager_holds_every_business_permission() {
         Permission::ManageCatalog,
         Permission::ViewCostAndProfit,
         Permission::ManageUsers,
+        Permission::ManageCustomers,
         Permission::Sell,
     ] {
         assert!(
@@ -79,6 +85,7 @@ fn sales_may_sell_and_nothing_else() {
         Permission::ManageCatalog,
         Permission::ViewCostAndProfit,
         Permission::ManageUsers,
+        Permission::ManageCustomers,
     ] {
         assert!(
             !Role::Sales.allows(denied),
@@ -340,6 +347,73 @@ fn infrastructure_failures_have_their_own_codes() {
 }
 
 #[test]
+fn recovery_throttle_grows_exponentially_and_never_exceeds_its_cap() {
+    // No prior failure means no delay: the owner's first correct attempt is
+    // never penalised.
+    assert_eq!(recovery_delay_ms(0), 0);
+
+    assert_eq!(recovery_delay_ms(1), RECOVERY_BASE_DELAY_MS);
+    assert_eq!(recovery_delay_ms(2), RECOVERY_BASE_DELAY_MS * 2);
+    assert_eq!(recovery_delay_ms(3), RECOVERY_BASE_DELAY_MS * 4);
+
+    // Capped, and capped for absurd counts too: the delay must never overflow
+    // into a negative value, which would silently disable the throttle.
+    assert_eq!(recovery_delay_ms(20), RECOVERY_MAX_DELAY_MS);
+    assert_eq!(recovery_delay_ms(i32::MAX), RECOVERY_MAX_DELAY_MS);
+    assert!(recovery_delay_ms(i32::MAX) > 0);
+    for failed in 0..64 {
+        assert!(recovery_delay_ms(failed) >= 0, "failed={failed} produced a negative delay");
+        assert!(recovery_delay_ms(failed) <= RECOVERY_MAX_DELAY_MS);
+    }
+}
+
+#[test]
+fn recovery_throttle_is_time_bounded_and_never_permanent() {
+    // A permanent bar would leave the owner with no legitimate path at all,
+    // which is the failure mode this throttle must never have: the delay is a
+    // delay, not a lock.
+    assert!(RECOVERY_MAX_DELAY_MS < i64::from(i32::MAX));
+    assert_eq!(recovery_delay_ms(1), 5_000);
+    assert_eq!(RECOVERY_MAX_DELAY_MS, 5 * 60 * 1000);
+}
+
+#[test]
+fn recovery_rate_limited_is_distinguishable_from_a_wrong_secret() {
+    // Reporting a throttle as invalid credentials would tell the owner their
+    // Pattern is wrong when the real answer is "wait", and would look like a
+    // credential problem in the log.
+    assert_eq!(DomainError::RecoveryRateLimited.code(), "RECOVERY_RATE_LIMITED");
+    assert_ne!(
+        DomainError::RecoveryRateLimited.code(),
+        DomainError::InvalidCredentials.code()
+    );
+}
+
+#[test]
+fn recovery_failures_have_distinct_stable_codes() {
+    // The recovery gate must fail closed with codes the frontend can render.
+    // Reusing INVALID_CREDENTIALS would conflate a missing approval with a
+    // wrong password and send the operator round a retry loop that can never
+    // succeed; reusing anything else would leak the gate's state.
+    assert_eq!(
+        DomainError::RecoveryNotApproved.code(),
+        "RECOVERY_NOT_APPROVED"
+    );
+    assert_eq!(
+        DomainError::RecoveryAlreadyUsed.code(),
+        "RECOVERY_ALREADY_USED"
+    );
+    assert_ne!(
+        DomainError::RecoveryNotApproved.code(),
+        DomainError::InvalidCredentials.code()
+    );
+    assert_ne!(
+        DomainError::RecoveryAlreadyUsed.code(),
+        DomainError::InvalidCredentials.code()
+    );
+}
+
+#[test]
 fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
     // The frontend indexes an Arabic message table by this code. A code that is
     // not a plain upper-case identifier cannot be matched reliably.
@@ -361,6 +435,9 @@ fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
         DomainError::DisplayNameRequired,
         DomainError::CannotDisableLastManager,
         DomainError::CannotDisableSelf,
+        DomainError::RecoveryNotApproved,
+        DomainError::RecoveryAlreadyUsed,
+        DomainError::RecoveryRateLimited,
         DomainError::StorageUnavailable,
         DomainError::SecureStorageUnavailable,
     ];
@@ -695,9 +772,12 @@ fn an_active_department_accepts_an_edit() {
     let actor = UserId::generate();
     let vat = DepartmentVat::new(true, Some(VatRate::new(1450).unwrap()), true).unwrap();
 
+    // The department's own costing method: an edit may round-trip it but not
+    // change it, because changing it must convert the stock that exists.
+    let method = dept.cost_method;
     dept.update(
         DepartmentName::new("  Mobile Phones ").unwrap(),
-        CostMethod::Fifo,
+        method,
         vat,
         3,
         actor,
@@ -706,7 +786,7 @@ fn an_active_department_accepts_an_edit() {
     .expect("an active department may be edited");
 
     assert_eq!(dept.name.as_str(), "Mobile Phones");
-    assert_eq!(dept.cost_method, CostMethod::Fifo);
+    assert_eq!(dept.cost_method, method);
     assert_eq!(dept.sort_order, 3);
     assert!(dept.vat.is_enabled());
     assert_eq!(dept.vat.rate().map(|r| r.as_basis_points()), Some(1450));
@@ -721,22 +801,50 @@ fn an_active_department_accepts_an_edit() {
 
 #[test]
 fn both_cost_methods_are_accepted_and_neither_is_none() {
-    // `Fifo` is refused by nothing. Its costing engine does not exist yet, and
-    // refusing the value would turn a missing implementation into a rule.
+    // `Fifo` is refused by nothing. It arrived with its own costing engine in
+    // SP-2, and refusing the value would still turn a policy choice into a rule
+    // the schema could not express.
+    //
+    // Construction, not an edit: which method a department uses is decided by the
+    // dedicated switch, because switching has to convert existing stock.
     for method in [CostMethod::MovingAverage, CostMethod::Fifo] {
-        let mut dept = department();
-        dept.update(
+        let dept = Department::new(
             DepartmentName::new("Phones").unwrap(),
             method,
             DepartmentVat::disabled(),
             0,
             UserId::generate(),
-            8000,
-        )
-        .unwrap_or_else(|e| panic!("`{method:?}` must be a valid cost method: {e}"));
+            1000,
+        );
 
         assert_eq!(dept.cost_method, method);
     }
+}
+
+#[test]
+fn an_edit_cannot_change_the_costing_method() {
+    let mut dept = department();
+    let before = dept.cost_method;
+    let target = match before {
+        CostMethod::MovingAverage => CostMethod::Fifo,
+        CostMethod::Fifo => CostMethod::MovingAverage,
+    };
+
+    let refused = dept.update(
+        DepartmentName::new("Phones").unwrap(),
+        target,
+        DepartmentVat::disabled(),
+        0,
+        UserId::generate(),
+        8000,
+    );
+
+    assert_eq!(
+        refused,
+        Err(DepartmentError::CostMethodChangeRequiresSwitch),
+        "switching must go through the operation that converts the stock"
+    );
+    assert_eq!(dept.cost_method, before);
 }
 
 #[test]
@@ -1416,4 +1524,68 @@ fn an_archived_product_refuses_a_vat_override_too() {
         "archiving closes every field, the VAT override included"
     );
     assert_eq!(product.vat_rate_bp, None, "the refusal must not partially apply");
+}
+#[test]
+fn piastres_multiply_by_units_is_exact_and_checked() {
+    // Line total = quantity x unit price. The intermediate is i128 because
+    // `units * price` overflows i64 long before either operand looks large,
+    // and money refuses rather than clamps (minor.rs:41-47).
+    assert_eq!(money(100).checked_mul_units(3), Some(money(300)));
+    assert_eq!(Piastres::ZERO.checked_mul_units(1_000_000), Some(Piastres::ZERO));
+    assert_eq!(money(0).checked_mul_units(0), Some(Piastres::ZERO));
+    // 3e9 units at 8e9 minor: 2.4e19, far past i64::MAX. A naive i64 multiply
+    // would wrap negative; the i128 intermediate keeps it exact or refuses.
+    assert_eq!(money(8_000_000_000).checked_mul_units(3_000_000_000), None);
+    assert_eq!(money(i64::MAX).checked_mul_units(2), None);
+}
+
+#[test]
+fn piastres_multiply_refuses_negative_units() {
+    // Quantities arrive from the transport; a negative one must not silently
+    // become a negative amount, and Piastres cannot hold one.
+    assert_eq!(money(100).checked_mul_units(-1), None);
+    assert_eq!(money(100).checked_mul_units(0), Some(Piastres::ZERO));
+}
+
+#[test]
+fn civil_date_handles_leap_year_and_month_boundaries() {
+    use mobile_shop_system_lib::domain::sales::civil_ymd_from_millis;
+    // 2024-02-29 exists (leap year); 2023-02-28 does not roll into March.
+    assert_eq!(civil_ymd_from_millis(1709164800000), (2024, 2, 29));
+    assert_eq!(civil_ymd_from_millis(1677542400000), (2023, 2, 28));
+    // Year boundary: 2025-12-31 23:59:59 UTC -> next day is 2026-01-01.
+    assert_eq!(civil_ymd_from_millis(1767225599000), (2025, 12, 31));
+    assert_eq!(civil_ymd_from_millis(1767225600000), (2026, 1, 1));
+    // Epoch itself is a Thursday, not a special case.
+    assert_eq!(civil_ymd_from_millis(0), (1970, 1, 1));
+}
+
+#[test]
+fn invoice_reference_omits_the_dash_when_no_prefix_is_set() {
+    use mobile_shop_system_lib::domain::sales::format_invoice_reference;
+    // Empty prefix is the documented device default (snapshot.rs:115-118):
+    // bare sequence numbers, no leading dash.
+    assert_eq!(format_invoice_reference("", 2026, 10, 12, 1), "20261012-0001");
+    assert_eq!(format_invoice_reference("SHOP", 2026, 10, 12, 42), "SHOP-20261012-0042");
+    assert_eq!(format_invoice_reference("SHOP", 2026, 10, 12, 9999), "SHOP-20261012-9999");
+}
+
+#[test]
+fn sale_errors_have_stable_screaming_snake_codes() {
+    use mobile_shop_system_lib::domain::sales::SaleError;
+    assert_eq!(SaleError::Empty.code(), "SALE_EMPTY");
+    assert_eq!(SaleError::ProductArchived.code(), "SALE_PRODUCT_ARCHIVED");
+    assert_eq!(
+        SaleError::DispositionNotSupported.code(),
+        "SALE_DISPOSITION_NOT_SUPPORTED"
+    );
+    assert_eq!(SaleError::PriceNotSet.code(), "SALE_PRICE_NOT_SET");
+    assert_eq!(SaleError::InvalidQuantity.code(), "SALE_INVALID_QUANTITY");
+    assert_eq!(SaleError::ReferenceConflict.code(), "SALE_REFERENCE_CONFLICT");
+    assert_eq!(SaleError::AlreadyCancelled.code(), "SALE_ALREADY_CANCELLED");
+    assert_eq!(
+        SaleError::ReversalInconsistent.code(),
+        "SALE_REVERSAL_INCONSISTENT"
+    );
+    assert_eq!(SaleError::Busy.code(), "SALE_BUSY");
 }

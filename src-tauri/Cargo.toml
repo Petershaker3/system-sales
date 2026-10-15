@@ -12,6 +12,13 @@ rust-version = "1.98.1"
 name = "mobile_shop_system_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Optional recovery build (plan R1, Design B). The single-use manager-password
+# recovery path exists ONLY when this feature is enabled. Production builds
+# must never enable it; an architecture test pins the command inventory with
+# and without the flag.
+[features]
+recovery = []
+
 [build-dependencies]
 tauri-build = { version = "=2.7.0", features = [] }
 
@@ -72,6 +79,25 @@ getrandom = "=0.4.3"
 # docs describe as "not warranted to be either secure or robust"; a real
 # platform store must be installed via `set_default_store` at startup.
 keyring-core = "=1.0.0"
+
+# ---------------------------------------------------------------------------
+# ENCRYPTED BACKUP SLICE (ADR-003)
+#
+# Versions verified against the crates.io registry on 2026-10-14 and confirmed
+# `Apache-2.0 OR MIT` (no copyleft). Re-verify against the resolved tree after
+# any change; the evidence is recorded in docs/backup-dependency-licenses.md.
+# ---------------------------------------------------------------------------
+
+# XChaCha20-Poly1305 AEAD for the backup envelope. Pure Rust, no OpenSSL, so it
+# does not add a native dependency to the already-fragile Android cross-build.
+# `default-features = false` drops the crate's own RNG: nonces and salts come
+# from the project's single `getrandom` path so there is one CSPRNG (§ ADR-003).
+# `alloc` keeps the one-shot `Aead::encrypt`/`decrypt` helpers for the payload.
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
+
+# Bounds the lifetime of derived keys and raw password bytes. The whole point of
+# a KDF is that the key does not linger in memory after use.
+zeroize = "=1.9.0"
 
 # Target-gated so each build links only its own native backend. Neither pulls
 # OpenSSL, which matters because the Android cross-build is already fragile.

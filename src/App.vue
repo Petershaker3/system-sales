@@ -9,18 +9,45 @@
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
-import { onMounted, ref } from 'vue';
+import { defineAsyncComponent, onMounted, ref } from 'vue';
 import * as api from './api/identity';
 import { describeError } from './api/errors';
 import type { Session, UserSummary } from './api/identity';
 import CatalogPanel from './components/CatalogPanel.vue';
+import BackupPanel from './components/BackupPanel.vue';
+import CustomerPanel from './components/CustomerPanel.vue';
 import DepartmentsPanel from './components/DepartmentsPanel.vue';
 import ForcedPasswordChange from './components/ForcedPasswordChange.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import StockPanel from './components/StockPanel.vue';
+import SalesPanel from './components/SalesPanel.vue';
 import UserManagement from './components/UserManagement.vue';
 import * as lifecycle from './api/lifecycle';
 
 type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
+
+/**
+ * The recovery panel, present only in a recovery build.
+ *
+ * Two things matter here, and they are not the same thing:
+ *
+ *   * The SECURITY control is the Rust `recovery` cargo feature. In a
+ *     production build the commands this panel calls do not exist, so the panel
+ *     could not perform a recovery even if it were reachable.
+ *   * The build flag below is therefore hygiene, not protection: it keeps the
+ *     panel and its strings out of the bundle a customer actually receives.
+ *
+ * The import is dynamic on purpose. A static import would be hoisted into the
+ * production bundle whatever the condition evaluated to; behind a condition
+ * that the bundler can evaluate to false, it is dropped instead.
+ *
+ * It is `null` when the flag is absent, so the default production build has
+ * no recovery UI at all.
+ */
+const RecoveryPanel =
+  import.meta.env.VITE_RECOVERY === '1'
+    ? defineAsyncComponent(() => import('./components/RecoveryPanel.vue'))
+    : null;
 
 const view = ref<View>('loading');
 const session = ref<Session | null>(null);
@@ -212,6 +239,13 @@ onMounted(decideView);
         </label>
         <button type="submit" :disabled="busy">دخول</button>
       </form>
+
+      <!--
+        Recovery builds only. `RecoveryPanel` is null in a default production
+        build, so this renders nothing there; the guard is that the Rust commands
+        do not exist at all.
+      -->
+      <component :is="RecoveryPanel" v-if="RecoveryPanel" />
     </section>
 
     <!--
@@ -250,7 +284,38 @@ onMounted(decideView);
 
       <DepartmentsPanel v-if="session?.role === 'manager'" />
 
+      <!--
+        Customer file. Browsing is manager-only (`Permission::ManageCustomers`);
+        hiding it from sales matches the enforced rule rather than being the
+        rule itself — `spec:210` keeps hiding a screen distinct from securing
+        it. Sales-side invoice-time entry rides on `Sell` and arrives with the
+        sale link (P5).
+      -->
+      <CustomerPanel v-if="session?.role === 'manager'" />
+
+      <!-- Sales: recording is open to both manager and sales (Sell); cancellation
+        is manager-only (CancelTransaction), hidden in presentation. -->
+      <SalesPanel
+        :can-cancel="session?.role === 'manager'"
+        :can-browse-customers="session?.role === 'manager'"
+      />
+
+      <!--
+        Stock and costing. Shown to managers only, matching the enforced
+        `Permission::ManageInventory`; the backend refuses a sales user
+        regardless of what the DOM offers (`spec:210`).
+      -->
+      <StockPanel v-if="session?.role === 'manager'" />
+
       <SettingsPanel v-if="session?.role === 'manager'" />
+
+      <!--
+        Encrypted backup (P2a, ADR-003). Manager-only (`ManageSettings`,
+        blanket re-authenticated); the backend refuses anyone else. Restore
+        never restarts automatically: the panel tells the operator to restart
+        manually, on success and on failure alike.
+      -->
+      <BackupPanel v-if="session?.role === 'manager'" />
 
       <button type="button" :disabled="busy" @click="signOut">تسجيل الخروج</button>
     </section>

@@ -72,6 +72,24 @@ pub fn run() {
             commands::pattern::set_pattern,
             commands::pattern::reset_pattern,
             commands::pattern::disable_pattern,
+            commands::inventory::receive_stock,
+            commands::inventory::remove_stock,
+            commands::inventory::get_position,
+            commands::inventory::switch_cost_method,
+            #[cfg(feature = "recovery")]
+            commands::recovery::stage_recovery_approval,
+            #[cfg(feature = "recovery")]
+            commands::recovery::execute_manager_recovery,
+            commands::sales::record_sale,
+            commands::sales::cancel_sale,
+            commands::sales::link_sale_customer,
+            commands::sales::set_sale_customer_name,
+            commands::customer::create_customer,
+            commands::customer::list_customers,
+            commands::customer::get_customer,
+            commands::customer::archive_customer,
+            commands::backup::create_backup,
+            commands::backup::restore_backup,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
@@ -88,6 +106,23 @@ pub fn run() {
                 .map_err(|e| format!("could not resolve the application data directory: {e}"))?;
             std::fs::create_dir_all(&data_dir)
                 .map_err(|e| format!("could not create the application data directory: {e}"))?;
+
+            // Crash recovery for an interrupted restore (P2a-Rust). This runs
+            // BEFORE the database is opened: an interrupted restore leaves a
+            // half-replaced device, and opening it would be acting on suspect
+            // state. A clean or reverted device proceeds; a device that cannot
+            // be recovered refuses to start (fail closed).
+            match services::backup::recover_interrupted(&data_dir) {
+                Ok(services::backup::RecoveryOutcome::NothingToDo) => {}
+                Ok(recovered) => {
+                    eprintln!("backup recovery at startup: {recovered:?}");
+                }
+                Err(error) => {
+                    Err(format!(
+                        "an interrupted backup restore could not be completed: {error}"
+                    ))?;
+                }
+            }
 
             let pool = tauri::async_runtime::block_on(data::db::open(&data_dir.join(DB_FILENAME)))
                 .map_err(|e| format!("could not open the local database: {e}"))?;

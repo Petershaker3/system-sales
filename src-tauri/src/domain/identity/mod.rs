@@ -16,8 +16,10 @@ mod user;
 pub use error::DomainError;
 pub use ids::UserId;
 pub use policy::{
-    is_locked, password_is_acceptable, register_failure, register_success, LockoutState,
+    is_locked, password_is_acceptable, recovery_delay_ms, register_failure, register_success,
+    LockoutState,
     LockoutTransition, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN,
+    RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
 };
 pub use role::{Permission, Role};
 pub use sensitivity::{PatternApproval, Sensitivity, PATTERN_TTL_MS};

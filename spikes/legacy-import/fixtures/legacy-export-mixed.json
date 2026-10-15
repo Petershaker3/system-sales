@@ -1,0 +1,188 @@
+{
+  "_fixture": "synthetic-legacy-export-mixed-shapes",
+  "_note": "اصطناعي بالكامل. لا يحتوي أي بيانات حقيقية. الشكل يطابق تصدير legacy قبل ADR-003 وما بعده معًا.",
+  "mshop_cfg": {
+    "name": "محل الموبايلات",
+    "passMain": "1234",
+    "passAdmin": "5678"
+  },
+  "mshop_inventory": [
+    {
+      "id": "m1",
+      "brand": "Samsung",
+      "model": "A55",
+      "ram": "8",
+      "storage": "128",
+      "color": "أسود",
+      "internalCode": "A55-128-BLK",
+      "qty": 4,
+      "buyPrice": 9000,
+      "supplier": "مورد الأمل",
+      "addedDate": "2026-08-01",
+      "lastBuyDate": "2026-09-18",
+      "purchaseHistory": [
+        { "price": 9000, "supplier": "مورد الأمل", "date": "2026-09-18", "qty": 2 },
+        { "price": 8800, "supplier": "مورد الأمل", "date": "2026-08-01", "qty": 2 }
+      ]
+    },
+    {
+      "id": "m2",
+      "brand": "Xiaomi",
+      "model": "Note 12",
+      "ram": "6",
+      "storage": "128",
+      "internalCode": "NT12-128",
+      "qty": 2,
+      "buyPrice": 6000,
+      "supplier": "شركة النيل",
+      "addedDate": "2026-07-15",
+      "lastBuyDate": "2026-09-10",
+      "purchaseHistory": [
+        { "price": 6000, "supplier": "شركة النيل", "date": "2026-09-10", "qty": 2 }
+      ]
+    }
+  ],
+  "mshop_ca": [
+    { "name": "كفر سيليكون", "mainCat": "كفرات", "buy": 40, "sell": 70 },
+    { "name": "شاحن سريع", "mainCat": "شواحن", "buy": 100, "sell": 150 }
+  ],
+  "mshop_cu": [
+    { "name": "Galaxy S22", "buy": 6000, "sell": 6800 }
+  ],
+  "mshop_repair_parts": [
+    { "id": "rp_1", "name": "شاشة", "compatible": "Samsung A55", "qty": 3, "buyPrice": 1500, "supplier": "مورد الأمل" }
+  ],
+  "mshop_d_2026-09-20": {
+    "acc": [
+      {
+        "id": "a-uuid-1",
+        "snapshotName": "كفر سيليكون",
+        "snapshotCategory": "كفرات",
+        "buyAmount": 40,
+        "sellAmount": 70,
+        "profit": 30,
+        "qty": 2,
+        "transactionType": "sale",
+        "createdAt": "2026-09-20T11:00:00.000Z"
+      },
+      { "name": "شاحن سريع", "mainCat": "شواحن", "buy": 100, "sell": 150, "profit": 50, "qty": 1, "time": "12:30" },
+      {
+        "name": "ساعة",
+        "mainCat": "ساعات",
+        "buy": 200,
+        "sell": 260,
+        "profit": 60,
+        "time": "12:50",
+        "_rolled": true
+      }
+    ],
+    "used": [
+      { "name": "Galaxy S22", "buy": 6000, "sell": 6800, "profit": 800, "note": "بدون كفر", "time": "14:00" }
+    ],
+    "sw": [
+      {
+        "id": "s-uuid-1",
+        "snapshotName": "تفعيل شاشة",
+        "amount": 150,
+        "paid": true,
+        "delivered": false,
+        "transactionType": "sale",
+        "createdAt": "2026-09-20T15:10:00.000Z"
+      },
+      { "name": "تنزيل", "price": 80, "paid": true, "delivered": true, "time": "15:40" }
+    ],
+    "cash": [
+      { "cashType": "ايداع", "service": "فودافون كاش", "amount": 500, "time": "16:00" },
+      {
+        "id": "c-uuid-1",
+        "walletName": "اتصالات كاش",
+        "cashType": "سحب",
+        "amount": 200,
+        "transactionType": "adjustment",
+        "createdAt": "2026-09-20T16:30:00.000Z"
+      }
+    ],
+    "exp": [
+      { "category": "كهرباء", "amount": 120, "time": "17:00" }
+    ],
+    "phones": [
+      {
+        "id": "p-uuid-1",
+        "modelId": "m1",
+        "snapshotModelName": "Samsung A55 8/128",
+        "brand": "Samsung",
+        "model": "A55",
+        "qty": 1,
+        "buyPrice": 9000,
+        "sellPrice": 9600,
+        "profit": 600,
+        "transactionType": "sale",
+        "createdAt": "2026-09-20T13:00:00.000Z"
+      }
+    ],
+    "repairs": [
+      {
+        "id": "rep_1",
+        "brand": "Huawei",
+        "model": "P40",
+        "faultType": "شاشة",
+        "servicePrice": 200,
+        "profit": 100,
+        "status": "تم الإصلاح",
+        "clientName": "أحمد",
+        "fixed": true,
+        "delivered": false,
+        "paid": true,
+        "time": "18:00"
+      },
+      {
+        "id": "rep_2",
+        "brand": "Xiaomi",
+        "model": "Note 11",
+        "servicePrice": 150,
+        "profit": 50,
+        "status": "ملغي",
+        "clientName": "سارة",
+        "fixed": false,
+        "delivered": false,
+        "paid": false,
+        "time": "19:00"
+      }
+    ]
+  },
+  "mshop_d_2026-09-21": {
+    "acc": [
+      { "name": "ساعة ذكية", "mainCat": "ساعات", "buy": 200, "sell": 260, "profit": 60, "time": "10:00" }
+    ],
+    "used": [],
+    "sw": [],
+    "cash": [],
+    "exp": [],
+    "phones": [],
+    "repairs": []
+  },
+  "_expected_legacy_totals": {
+    "_formula": "computeFinancialTotals كما في dev_extracted/dev/js/ui.js:24-50",
+    "_caveat": "cT تجمع amount لكل حركات الكاش بما فيها «سحب» — سلوك الكود القديم لا است中村 терاجعي مطلوب هنا",
+    "byDay": {
+      "2026-09-20": {
+        "aS": 220, "aP": 80, "uS": 6800, "uP": 800,
+        "cT": 700, "sT": 230, "eT": 120,
+        "phS": 9600, "phP": 600, "repS": 350, "repP": 100,
+        "total": 1150, "profit": 2390
+      },
+      "2026-09-21": {
+        "aS": 260, "aP": 60, "uS": 0, "uP": 0,
+        "cT": 0, "sT": 0, "eT": 0,
+        "phS": 0, "phP": 0, "repS": 0, "repP": 0,
+        "total": 260, "profit": 60
+      }
+    },
+    "grand": {
+      "aS": 480, "aP": 140, "uS": 6800, "uP": 800,
+      "cT": 700, "sT": 230, "eT": 120,
+      "phS": 9600, "phP": 600, "repS": 350, "repP": 100,
+      "total": 1410, "profit": 2450
+    }
+  }
+}

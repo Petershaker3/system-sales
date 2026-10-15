@@ -34,3 +34,32 @@ pub const SETTINGS_AND_PRICE_HISTORY: &str =
 
 /// The Pattern step-up approval mechanism (SP-1c). `ADR-014`.
 pub const PATTERN: &str = include_str!("0007_pattern.sql");
+
+/// Stock positions and FIFO cost layers (SP-2).
+///
+/// This is the slice `ADR-012` §7 was waiting for: `departments.cost_method`
+/// stops being inert configuration here and becomes arithmetic. One stock
+/// counter per product (`product_id` alone, no location), plus the FIFO layers
+/// that make first-in-first-out exact rather than rounded.
+pub const STOCK_AND_COST_LAYERS: &str = include_str!("0008_stock_and_cost_layers.sql");
+
+/// Single-use recovery approvals (R1). Applied by the migration runner like
+/// every other file in this directory; the constant keeps the inventory of
+/// migrations reviewable in one place.
+pub const RECOVERY_APPROVAL: &str = include_str!("0009_recovery_approval.sql");
+
+/// Recovery attempt throttling (R1 closure, B1). Present in every build: the
+/// table is inert unless the recovery feature is on, and shipping it in
+/// production keeps the migration chain identical across builds.
+pub const RECOVERY_ATTEMPT: &str = include_str!("0010_recovery_attempt.sql");
+
+/// Cash sales, sale lines, the movement ledger and reversals (Sales V1).
+/// Purely additive: sale documents, per-line immutable snapshots, one movement
+/// row per stock change, and a reversal link that makes double cancellation
+/// structurally impossible.
+pub const SALES: &str = include_str!("0011_sales.sql");
+
+/// Customer file core + sale link columns (P4).
+/// Purely additive: one table plus two nullable columns on `sales`.
+/// Warranty columns are deliberately absent (decision D4 pending).
+pub const CUSTOMERS: &str = include_str!("0012_customers.sql");

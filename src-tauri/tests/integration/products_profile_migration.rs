@@ -149,7 +149,7 @@ async fn create_department(pool: &SqlitePool, name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn all_seven_migrations_apply_in_order_on_a_fresh_database() {
+async fn all_migrations_apply_in_order_on_a_fresh_database() {
     let pool = db::open_in_memory().await.expect("in-memory database");
 
     let versions: Vec<i64> =
@@ -160,8 +160,8 @@ async fn all_seven_migrations_apply_in_order_on_a_fresh_database() {
 
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7],
-        "all seven migrations must be recorded in order, with 0007 last"
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        "every migration must be recorded in order, with 0012 (customers) last"
     );
 }
 

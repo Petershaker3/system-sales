@@ -5,6 +5,9 @@
 //! expected; adding SQL above this directory is not.
 
 pub mod catalog;
+pub mod customer;
 pub mod identity;
+pub mod inventory;
 pub mod organisation;
+pub mod sales;
 pub mod settings;

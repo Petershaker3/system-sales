@@ -78,6 +78,27 @@ pub async fn is_configured(pool: &SqlitePool) -> Result<bool, DomainError> {
     Ok(stored.is_some())
 }
 
+/// The epoch a Pattern approval must be stamped against to count as fresh.
+///
+/// `None` when no Pattern exists, which is exactly what
+/// `Session::require_sensitivity` turns into `PATTERN_NOT_CONFIGURED`. That is
+/// why this returns an `Option` rather than a default: a fabricated `0` would
+/// make an approval granted under no Pattern look current.
+///
+/// Pool-only for the same reason as [`is_enabled`]: the first caller is a
+/// sensitive operation deciding whether to prompt, and it asks before it has
+/// decided anything else about the operator.
+pub async fn current_epoch(pool: &SqlitePool) -> Result<Option<i64>, DomainError> {
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let stored = pattern_repo::find(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(stored.map(|stored| stored.epoch))
+}
+
 /// Both facts in one command round-trip for the settings panel.
 pub async fn status(
     pool: &SqlitePool,

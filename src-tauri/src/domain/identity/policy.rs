@@ -16,6 +16,36 @@ pub const LOCKOUT_MS: i64 = 15 * 60 * 1000;
 /// The minimum a password must be to be accepted.
 pub const MIN_PASSWORD_LEN: usize = 8;
 
+/// Delay before the first failed recovery attempt may be followed by another.
+///
+/// A delay, never a lock: the window is measured from the previous attempt and
+/// expires on its own, so the owner is never permanently barred from a
+/// legitimate recovery.
+pub const RECOVERY_BASE_DELAY_MS: i64 = 5 * 1000;
+
+/// Ceiling on the recovery delay. Bounded so a long guessing run cannot become
+/// a denial of service against the owner, and so a crashed in-flight attempt
+/// (one that holds a reservation and never finalises) is taken over within a
+/// known, short time.
+pub const RECOVERY_MAX_DELAY_MS: i64 = 5 * 60 * 1000;
+
+/// How long to wait before attempt number `failed + 1`.
+///
+/// Exponential from [`RECOVERY_BASE_DELAY_MS`], capped at
+/// [`RECOVERY_MAX_DELAY_MS`], and saturating rather than wrapping: an overflow
+/// that produced a negative delay would silently disable the throttle, which is
+/// the one outcome this function must never have. Pure, so the curve is
+/// testable without a database.
+pub fn recovery_delay_ms(failed: i32) -> i64 {
+    if failed <= 0 {
+        return 0;
+    }
+    let shift = u32::try_from(failed - 1).unwrap_or(u32::MAX).min(31);
+    RECOVERY_BASE_DELAY_MS
+        .saturating_mul(1i64 << shift)
+        .min(RECOVERY_MAX_DELAY_MS)
+}
+
 /// Outcome of applying one authentication attempt to the recorded state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LockoutState {

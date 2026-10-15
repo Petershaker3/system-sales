@@ -1,4 +1,13 @@
 # Historical Reference Snapshot — Design
+> 
+> ## SUPERSEDED — خارج نطاق المنتج الحالي
+> 
+> **قرار Product Owner بتاريخ 2026-10-02:** النظام الجديد مستقل تمامًا ويُصمَّم من أول المبادئ، والنظام القديم مادة أرشيفية خارج المعمارية. انظر `docs/decisions/ADR-007-independent-new-system.md`.
+> 
+> **لماذا أُلغي:** هذا المستند كان يفترض النظام القديم كمرجع دائم داخل النظام الجديد. مع قرار الاستقلال، Historical Reference و`historical-months.json` و`FIRST_LIVE_MONTH` و`MonthSource::Historical` و`resolve_month()` كلها **خارج النطاق** ولا تُنفَّذ.
+> 
+> يُحفظ هذا المستند كأثر تخطيطي تاريخي. لا تُنفَّذ أي مهمة فيه، ولا تُشتق منه قاعدة عمل، ولا يُستشهد به كشرط قبول لأي شريحة في النظام الجديد.
+>
 
 > **للProduct Owner:** هذا مستند تصميم، مش تنفيذ. لا ينفَّذ أي كود قبل موافقة صريحة.
 > المصدر: `docs/superpowers/specs/2026-09-28-mobile-shop-system.md`، `docs/decisions/ADR-004`.

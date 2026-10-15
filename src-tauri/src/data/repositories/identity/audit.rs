@@ -30,6 +30,12 @@ pub mod event {
     /// A manager set someone else's password. Distinct from
     /// `PASSWORD_CHANGED` so a report can separate self-service from recovery.
     pub const PASSWORD_RESET: &str = "password_reset";
+    /// An owner approved a single-use recovery (plan R1). The detail carries
+    /// the approval reference, device and approver — never a credential.
+    pub const RECOVERY_APPROVED: &str = "recovery_approved";
+    /// A single-use recovery approval was executed. The detail carries the
+    /// approval reference, device and target — never a credential.
+    pub const RECOVERY_EXECUTED: &str = "recovery_executed";
     pub const ROLE_CHANGED: &str = "role_changed";
     pub const USER_DISABLED: &str = "user_disabled";
     pub const USER_ENABLED: &str = "user_enabled";
@@ -44,6 +50,36 @@ pub mod event {
 pub const DEPARTMENT_CREATED: &str = "department_created";
 pub const DEPARTMENT_UPDATED: &str = "department_updated";
 pub const DEPARTMENT_ARCHIVED: &str = "department_archived";
+
+/// Inventory and costing (SP-2).
+///
+/// `COST_METHOD_SWITCHED` is its own event rather than a
+/// `department_updated`: the switch is the only operation that rewrites how
+/// every existing unit of stock is valued, and a report on costing history has
+/// to be able to find those moments without inferring them from a diff of two
+/// department rows.
+///
+/// Detail carries amounts only, never a Pattern: `spec:19` attributes every
+/// operation, and the schema forbids storing anything secret in `detail`.
+pub const STOCK_RECEIVED: &str = "stock_received";
+pub const STOCK_REMOVED: &str = "stock_removed";
+pub const COST_METHOD_SWITCHED: &str = "cost_method_switched";
+
+/// Sales (SP-5). Detail carries the reference and the money that moved, never a
+/// customer or a credential: `spec:19` attributes the operation, the schema
+/// forbids secrets in `detail`.
+pub const SALE_RECORDED: &str = "sale_recorded";
+pub const SALE_CANCELLED: &str = "sale_cancelled";
+/// A customer link or name snapshot was attached to a sale (P4). Detail
+/// carries the sale and either the customer id or a snapshot marker — never
+/// contact data.
+pub const SALE_CUSTOMER_LINKED: &str = "sale_customer_linked";
+
+/// Customers (P4). Detail carries the customer id, never contact data:
+/// `spec:19` attributes the operation, and contact details stay in the
+/// customer row rather than duplicated into the trail.
+pub const CUSTOMER_CREATED: &str = "customer_created";
+pub const CUSTOMER_ARCHIVED: &str = "customer_archived";
 
 /// Settings and Pattern.
 ///

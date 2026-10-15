@@ -271,13 +271,22 @@ void load();
         <input v-model="formName" required autocomplete="off" />
       </label>
 
-      <label class="field">
-        <span>طريقة حساب التكلفة</span>
-        <select v-model="formCostMethod">
-          <option value="moving_average">متوسط التكلفة المتحرك</option>
-          <option value="fifo">وارد أولاً يخرج أولاً (FIFO)</option>
-        </select>
-      </label>
+      <!--
+        The costing method is deliberately NOT editable here.
+
+        As of SP-2 the method is live arithmetic, and switching it has to convert
+        the stock that already exists — seed a FIFO layer from the current
+        average, or collapse the layers into a moving-average total. An ordinary
+        edit cannot do that, so offering the choice here produced a control that
+        could only ever be refused (`DEPARTMENT_COST_METHOD_REQUIRES_SWITCH`).
+        The current method is displayed read-only, and the switch lives in
+        `StockPanel` where the conversion and its two gates are visible.
+      -->
+      <div class="readonly-method">
+        <span class="readonly-label">طريقة حساب التكلفة</span>
+        <span>{{ costMethodLabel(formCostMethod) }}</span>
+        <span class="hint">تُغيَّر من لوحة «المخزون والتكلفة» لأن التحويل يحوّل المخزون القائم.</span>
+      </div>
 
       <label class="field">
         <span>نسبة الضريبة (%)</span>
@@ -366,5 +375,14 @@ void load();
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+.readonly-method {
+  margin-bottom: 0.9rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px dashed #ccc;
+}
+.readonly-label {
+  display: block;
+  margin-bottom: 0.25rem;
 }
 </style>

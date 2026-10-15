@@ -407,6 +407,13 @@ impl Department {
         if !self.is_editable() {
             return Err(DepartmentError::IsArchived);
         }
+        // The costing method is live as of SP-2, so it cannot ride along on an
+        // ordinary edit: switching has to convert the stock that already exists
+        // (see `DepartmentError::CostMethodChangeRequiresSwitch`). Unchanged is
+        // still fine — the edit form sends every field back.
+        if self.cost_method != cost_method {
+            return Err(DepartmentError::CostMethodChangeRequiresSwitch);
+        }
         self.name = name;
         self.cost_method = cost_method;
         self.vat = vat;
@@ -496,6 +503,22 @@ pub enum DepartmentError {
     /// A stored row claims `active` with an archive timestamp, or `archived`
     /// without one. The two must agree.
     ArchiveStateInconsistent,
+
+    /// An ordinary edit tried to change the costing method.
+    ///
+    /// Its own variant because the costing method is no longer inert
+    /// configuration. `ADR-012` stored it while nothing read it; SP-2 gives it
+    /// an engine, and switching between `moving_average` and `fifo` has to
+    /// convert the stock that already exists — seed a FIFO layer from the
+    /// current average, or collapse the layers into a moving-average total.
+    /// Accepting the new value here would flip the label while leaving the stock
+    /// costed by the old method, which is the "behaviour invented for a value"
+    /// that `ADR-012` §7 forbids.
+    ///
+    /// Passing the *current* method is still allowed, because the edit dialog
+    /// round-trips every editable field and refusing an unchanged value would
+    /// make renaming a department depend on which tab the operator used.
+    CostMethodChangeRequiresSwitch,
 }
 
 impl DepartmentError {
@@ -510,6 +533,9 @@ impl DepartmentError {
             DepartmentError::VatRateRequired => "VAT_RATE_REQUIRED",
             DepartmentError::VatRateNegative => "VAT_RATE_NEGATIVE",
             DepartmentError::ArchiveStateInconsistent => "DEPARTMENT_ARCHIVE_STATE_INCONSISTENT",
+            DepartmentError::CostMethodChangeRequiresSwitch => {
+                "DEPARTMENT_COST_METHOD_REQUIRES_SWITCH"
+            }
         }
     }
 }
@@ -532,6 +558,10 @@ impl fmt::Display for DepartmentError {
             DepartmentError::ArchiveStateInconsistent => {
                 write!(f, "department status and archive timestamp disagree")
             }
+            DepartmentError::CostMethodChangeRequiresSwitch => write!(
+                f,
+                "changing the costing method needs the dedicated switch operation"
+            ),
         }
     }
 }

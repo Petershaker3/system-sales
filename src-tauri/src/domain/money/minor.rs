@@ -96,6 +96,22 @@ impl Piastres {
         self.0.checked_sub(other.0).filter(|v| *v >= 0).map(Self)
     }
 
+    /// Unit price times a whole-unit quantity, or `None` on overflow or a
+    /// negative count.
+    ///
+    /// The `i128` intermediate is the point, exactly as in the costing
+    /// arithmetic (`ADR-013`): `units * price` overflows `i64` long before
+    /// either operand looks large, and money refuses rather than clamps.
+    pub fn checked_mul_units(&self, units: i64) -> Option<Self> {
+        if units < 0 {
+            return None;
+        }
+        i128::from(self.0)
+            .checked_mul(i128::from(units))
+            .and_then(|value| i64::try_from(value).ok())
+            .map(Self)
+    }
+
     /// Whole EGP plus piastres, for display only.
     ///
     /// Division happens here, in presentation, and never feeds a stored value.

@@ -1,0 +1,27 @@
+# Line endings for SQL are load-bearing, not cosmetic.
+#
+# SQLx records a SHA-384 of each migration file's bytes in `_sqlx_migrations` and
+# refuses to open a database whose recorded checksum no longer matches the file
+# it is about to run:
+#
+#     could not open the local database:
+#     migration 5 was previously applied but has been modified
+#
+# With `core.autocrlf=true` and no rule here, git rewrote 0005 from LF in the
+# blob to CRLF in the working tree. The SQL was unchanged, but its bytes were not,
+# so the checksum diverged from the one already recorded on a device and the
+# application could no longer start. 0005 was the only file affected because it
+# was the only one git converted.
+#
+# `text eol=lf` keeps `.sql` files diffable and text-normal in the working tree
+# while guaranteeing that git checks them out with LF, so the bytes hashed at
+# build time are the bytes that were hashed the first time.
+#
+# `eol=lf` rather than `-text`: these files should stay text for review and
+# diffing. What is being pinned is the byte representation, not their meaning.
+#
+# Note this changes how files are *checked out*; it does not rewrite migration
+# history or any applied migration's content. An already-applied migration must
+# never be edited — that is a separate and much harder problem, and SQLx is right
+# to refuse when it happens.
+*.sql text eol=lf

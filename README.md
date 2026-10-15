@@ -4,17 +4,25 @@ Offline-first point-of-sale for a mobile shop. Tauri 2 + Vue 3 + SQLite, with
 Android and Windows both acting as full POS clients, each owning its own local
 database.
 
-> **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1b/c) slices.** Accounts,
-> sessions, roles, the login flow, password management, user administration, the
-> product identity catalogue, department classification, device settings and the
-> Pattern step-up approval are implemented and tested. There is no inventory,
-> sales or barcode-capture code yet. See [Current scope](#current-scope).
+> **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1) + Inventory & costing (SP-2) slices.**
+> Accounts, sessions, roles, the login flow, password management, user
+> administration, the product identity catalogue, department classification,
+> device settings and the Pattern step-up approval are implemented and tested.
+> **Moving Average and FIFO costing are now implemented too**: stock positions,
+> FIFO cost layers, receiving and consumption, and the costing-method switch.
+> The sales slice is also implemented: atomic invoice + lines + stock + cost +
+> ledger + audit with line-level cost snapshots (`commands/sales.rs`,
+> `migrations/0011`, `SalesPanel.vue`). Receipt documents and barcode capture
+> are still absent. See
+> [Current scope](#current-scope).
 >
 > **Verification status differs by slice, and the difference is deliberate.** The
 > Identity slice is verified on the physical SM-N976N. The Product catalogue and
 > the Authority & settings slice are verified on desktop only; their Android runs
 > are recorded as not done, for reasons that have nothing to do with the slice
-> code. See [Hardware verification](#hardware-verification).
+> code. **SP-2 is verified by the reported test suite only — its device
+> verification has not been run, and no Android behaviour is claimed for it.**
+> See [Hardware verification](#hardware-verification).
 
 ---
 
@@ -164,13 +172,49 @@ Each device owns one file. No shared database, no synchronisation, no server
 (`ADR-008`). Migrations are forward-only; rollback means restore a backup then
 fix forward, not run a `Down` script.
 
-| Table | Purpose |
-|---|---|
-| `users` | Accounts, Argon2id verifiers, lockout counters |
-| `sessions` | Token digest, assurance level, expiry timestamps |
-| `audit_events` | Login, logout, lockout, re-authentication, first-run setup |
+Eleven migrations (`0001`…`0011`), forward-only. Tables:
+
+| Table | Migration | Purpose |
+|---|---|---|
+| `users` | `0001` | Accounts, Argon2id verifiers, lockout counters |
+| `sessions` | `0001`, `0003` | Token digest, assurance level, Pattern approval, expiry |
+| `audit_events` | `0001` | Every attributed operation: identity, catalogue, departments, settings, Pattern, stock |
+| `products` | `0002`, `0005` | Product identity, disposition, department classification, prices |
+| `user_credentials` | `0003` | Login identifier, forced-change flag |
+| `departments` | `0004` | Product classification, plus its costing method and VAT defaults |
+| `app_settings` | `0006` | Device defaults; `product_price_history` records every price transition |
+| `manager_pattern` | `0007` | Exactly one row: a **verifier**, never the Pattern text, plus an epoch |
+| `stock_levels` | `0008` | One stock counter per product (`product_id` alone, no location) |
+| `fifo_layers` | `0008` | Cost layers, consumed oldest-first by `(received_at, id)` |
+| `product_price_history` | `0006` | Every price transition, written in the same transaction as the change |
+| `recovery_approval` | `0009` | One-time supervised manager-recovery approval (recovery builds only) |
+| `recovery_attempt` | `0010` | Recovery attempts (recovery builds only) |
+| `sales` | `0011` | Sale header: immutable monotonic reference, cancellation state |
+| `sale_lines` | `0011` | Line snapshots: price/cost/profit at sale time, never recomputed |
+| `stock_movements` | `0011` | Movement ledger: the rebuild source |
+| `sale_reversals` | `0011` | Cancellation reversals; no edit, no double-cancel |
 
 There are deliberately **no** `sync_outbox` or `sync_cursors` tables.
+
+### The costing authority rule
+
+A product's cost lives in exactly one place, decided by its department's
+`cost_method`. Storing both would mean two sources of truth that drift; storing
+one with no rule would leave a reader unable to tell which (`ADR-015`).
+
+| `cost_method` | owns the cost | the other representation |
+|---|---|---|
+| `moving_average` | `stock_levels.total_cost_minor` | `fifo_layers` must be **empty** |
+| `fifo` | `fifo_layers` | `total_cost_minor` must be **`NULL`** |
+
+`NULL` is not zero: `NULL` means "the layers are in charge", and `0` would read as
+free stock. `stock_levels.quantity` is the on-hand count under either method.
+
+Rounding is **ceiling to the piastre at computation only**, intermediates are
+`i128`, storage is integer minor units, and there is deliberately no remainder
+column and no floating point anywhere in the money path (`ADR-013`, spec §10). A
+product with **no department** follows the device default in
+`app_settings.default_cost_method` rather than being refused or auto-classified.
 
 ## Dependencies
 
@@ -253,14 +297,35 @@ Implemented and tested:
   never leave an audit trace (`SP-1c`, `ADR-014`)
 - Price history: changing a product's sale price writes the old and new value in
   the same transaction as the change itself (SP-1b)
+- Stock and costing (SP-2): one stock counter per product, Moving Average and FIFO
+  cost arithmetic with the ceiling rounding rule of `ADR-013`, receiving and
+  consumption, and a costing-method switch that converts the stock that already
+  exists rather than relabelling it
+- Receiving a delivery is routine; declaring an opening balance and switching the
+  costing method are sensitive and sit behind re-authentication and the Pattern
+  (`ADR-015`)
+- Insufficient stock refuses the whole operation: no partial consumption, and a
+  negative balance is impossible at the storage layer
+- Encrypted backup in-app (P2a, `ADR-003`): manager-only create/restore
+  commands plus UI, crash-safe staged restore with startup recovery wiring
+  (`recover_interrupted` before open, fail closed). Restore takes effect on
+  manual restart — automatic restart and auto-close were decided against
+- Customer file core (P4, `spec:178-179`): name plus one optional contact,
+  never merged; explicit one-time sale links and free-text snapshots on
+  unlinked sales, entered at invoice time in the sales panel. Browsing is
+  manager-only; sellers create at invoice time.
+  Warranty dates at sale time only (no preset periods)
 
 Not started, and deliberately so:
 
 | Item | Blocked on |
 |---|---|
-| Inventory ledger, stock movements, cost layers | A later slice. SP-1 built the schema foundation only — see below |
+| Sale-line cost snapshot | Shipped with the sales slice: each line stores price/cost/profit at sale time, never recomputed (`sale_lines.unit_cost_minor`) |
+| Customer returns at original cost | Later slice (needs decision D7: damaged/non-resellable accounting) |
+| Movement ledger | Shipped with the sales slice (`stock_movements` in `migrations/0011`); stocktakes and adjustments stay a later slice |
+| Sales recording and cancellation | Shipped (`record_sale` / `cancel_sale` with reversal, no double-cancel). Receipts and reports stay later slices |
 | Serialised units, IMEI tracking | A later slice. `disposition` names the class; nothing tracks units yet |
-| Sales, receipts, reports | Later slices. Requiring a price before a sale belongs here |
+| Suppliers, purchase orders, payables | Deferred by `spec` §231. Receiving is a unit cost and a quantity, not a procurement document |
 | Barcode scanning, generation, label printing | BLOCKED in `ADR-008`. Needs hardware evidence. Typed and pasted lookup needs neither, so it shipped |
 | Wholesale price | Deferred. A shop selling both retail and wholesale will need it |
 | Rounding on weighted average, discounts, tax | OPEN. Settled in principle by the delivery specification (ceiling at each fractional piastre, `ADR-013`) but **not implemented** — SP-1 applies no rounding, and `spec:239` closes only when the costing engine lands |
@@ -338,6 +403,18 @@ a slice that has been on a phone and one that has not.
 | **SP-1 populated-products preservation** | 16 desktop tests | **UNVERIFIED** - the device held `products = 0`, so `0005` proves the rebuild runs and commits, **not** that it preserves existing rows on device |
 | Authority & settings (SP-1b/c) - backend | 286 tests | **Not run** - no Android build, no install and no on-device migration (`0007`) this round |
 | Authority & settings (SP-1b/c) - UI | 286 tests | **Blocked** - department/settings/pattern interaction unexercised; the Manager credential is unavailable and device operations were frozen for this round, see below |
+| SP-1 device re-run - build and install | 286 tests | **Verified** - debug APK rebuilt from the current source (298 MB), clean uninstall + install, app launched with no crash and no `FATAL`/panic in logcat |
+| SP-1 device re-run - migrations | 286 tests | **Verified** - all seven migrations applied from zero on a fresh `shop.db` (`users = 0`); schema byte-for-byte as `0006`/`0007` define it |
+| SP-1 device re-run - departments | 286 tests | **Verified** - created `GroceryG1`, edited it, archived it and restored it, each with its own audit event |
+| SP-1 device re-run - settings | 286 tests | **Verified** - the Manager re-authentication modal passed and the settings form loaded |
+| SP-1 device re-run - Pattern **save** | 286 tests | **UNVERIFIED** - the UI form and button were reached, but the run was cut short by a timeout before the write. **No `manager_pattern` row and no `PATTERN_SET` event was observed**, so this is not claimed as a pass |
+| Inventory & costing (SP-2) | 361 tests | **Not runnable** - the commands, the API client and the panel now exist, but no APK carrying them has been built, installed or run. Migration `0008` has never been applied on a device |
+
+The Pattern save row is the one to read twice. Reaching the form and pressing the
+button is not evidence that anything was stored; the only evidence that would
+close it is a `manager_pattern` row and a `PATTERN_SET` audit event read back from
+the device database. Neither exists yet, so the row stays unverified rather than
+being folded into the passes above it.
 
 The last two rows carry the distinction that matters most. A successful migration
 is **not** evidence that data was preserved: with zero product rows, there was no

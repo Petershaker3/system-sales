@@ -2664,3 +2664,154 @@ async fn weak_temporary_password_does_not_consume_the_approval() {
 - F2: execute_manager_recovery doc + use-case doc state the compared-against value is the Pattern-authenticated staged row; no serial plumbing; procedural binding documented, not claimed as attestation.
 - F3: Approval::same_stable_fields (reference+device+target+reason; approved_at excluded); identical unconsumed re-stage returns Ok with no second row/event; consumed re-stage returns RecoveryAlreadyUsed. Tests: identical_restage_is_a_silent_noop, consumed_approval_cannot_be_restaged.
 - F4: cargo build both configs + findstr on rlibs (results in src-tauri/build-proof-evidence.txt); arch source-scan tests unchanged and green.
+---
+
+# §7 Closure pass (B1 + B2) — findings, changes, evidence
+
+Status: implemented and verified on the working tree at HEAD `7c8506a`. **Not
+committed** — Product Owner boundary. Historical evidence in §1-§6 is unchanged
+and remains valid; §7 is the newly produced evidence.
+
+## 7.1 Baseline (Verified)
+
+- HEAD `7c8506a60394f32b28eeeebf1d73b5bc4b1f00f5`, branch `review/r1-bundle`,
+  matching `git ls-remote origin review/r1-bundle` exactly. No divergence.
+- Working tree dirty by design: the R1 code is uncommitted; only docs are committed.
+
+## 7.2 Audit result before the fix
+
+**Blocker A - staging was unthrottled (Verified).** `stage_approval` verified the
+Pattern with no attempt counter. The only attempt control in the codebase is the
+account lockout (`policy.rs`: 5 failures / 15 min) and it is applied only in
+`auth::login` to `users.failed_attempts`. No rate/cooldown/backoff exists anywhere
+in `src`. Argon2 cost is `m=19MiB, t=2, p=1` (`crypto.rs:22-28`), roughly
+40-70 ms per attempt, i.e. unbounded rapid guessing.
+
+**Blocker B - hand-built audit JSON (Verified).** Three recovery payloads were
+built with `format!` and interpolated raw caller strings. A quote or backslash
+in `reference`, `device_id`, `approved_by` or `reason` produced invalid JSON,
+stored verbatim because `audit_events.detail` is plain `TEXT` with no validation
+(`0001_identity.sql:58-59`). The repository already had the exact precedent and
+convention: `settings/mod.rs:103-104` says "built with `serde_json` so a value
+containing quotes cannot corrupt the record", and `serde_json` is already a
+dependency. Every other hand-built payload interpolates only UUIDs or enum
+roles (`users.rs:363`, `auth.rs:259`, `bootstrap.rs:107`); recovery was the only
+place free text was interpolated, so this was a real integrity defect and a
+forgeable field (`approved_by` could inject a top-level `role`), not a style issue.
+
+**Already satisfied - C/D/E.** All nine transaction/replay guarantees held in code
+and tests; the device-binding wording was accurate; build separation evidence
+stood as supporting evidence only.
+
+## 7.3 Behavioural RED (observed before any production change)
+
+`src-tauri/red-integration.log` - 10 passed, 6 failed:
+
+- B2 proved by parse failure:
+  `stored audit detail must parse as JSON: Error("expected ',' or '}'", line: 1, column: 19)`
+  and the same for `recovery_executed`.
+- B1 proved by wrong code:
+  `assertion failed, left: "INVALID_CREDENTIALS", right: "RECOVERY_RATE_LIMITED"`,
+  plus `no such table: recovery_attempt` for the missing counter.
+- The concurrency test failed: both attempts reached the credential check.
+
+## 7.4 What changed (files)
+
+Production:
+- `src-tauri/src/domain/identity/policy.rs` - `recovery_delay_ms(failed)` pure
+  function, `RECOVERY_BASE_DELAY_MS = 5s`, `RECOVERY_MAX_DELAY_MS = 5min`.
+  Saturating, capped, never negative.
+- `src-tauri/src/domain/identity/mod.rs` - exports.
+- `src-tauri/src/domain/identity/error.rs` - `RecoveryRateLimited` ->
+  `RECOVERY_RATE_LIMITED` + Display.
+- `src-tauri/src/data/migrations/0010_recovery_attempt.sql` - new table
+  `recovery_attempt(device_id PK, failed_attempts, last_attempt_at, reservation)`.
+- `src-tauri/src/data/migrations/mod.rs` - migration constant.
+- `src-tauri/src/data/repositories/identity/recovery.rs` - `find_attempt`,
+  `ensure_attempt`, `reserve_attempt`, `record_attempt_failure`, `clear_attempt`.
+- `src-tauri/src/services/identity/recovery.rs` - throttle reservation before
+  Argon2; `serde_json::json!` for all three audit payloads.
+- `src/api/errors.ts` - code + Arabic message (required by the existing
+  architecture guard).
+
+Tests:
+- `tests/unit/main.rs` - delay curve, cap/overflow, no-permanent-lock,
+  code distinctness, added to the exhaustive list.
+- `tests/integration/recovery_reset.rs` - 6 new behavioural tests.
+- `tests/integration/migration_backward_compat.rs`, `products_profile_migration.rs` -
+  migration ledger 1..=10.
+
+## 7.5 Concurrency design (the property the Product Owner called out)
+
+The reservation is a single SQL statement, so the check and the write cannot
+interleave:
+
+```
+UPDATE recovery_attempt
+   SET reservation = ?token, last_attempt_at = ?now
+ WHERE device_id = ?1
+   AND failed_attempts = ?2                      -- state the delay was derived from
+   AND (last_attempt_at IS NULL OR last_attempt_at <= ?cooldown_deadline)
+   AND (reservation IS NULL OR last_attempt_at <= ?takeover_before)
+```
+
+- The `failed_attempts = ?2` guard is a compare-and-swap on the value the delay
+  was computed from, so two callers cannot both read one counter and both write
+  one increment.
+- `reservation IS NULL` makes admission mutually exclusive: of two simultaneous
+  callers exactly one updates a row and the other updates zero, is refused as
+  `RECOVERY_RATE_LIMITED`, and never reaches Argon2.
+- The delay is enforced **before** `crypto::verify_password` runs, so ordering
+  cannot be used to bypass it.
+- The outcome is written only by the reservation holder
+  (`WHERE reservation = ?token`), so a taken-over reservation cannot be written
+  by the attempt that replaced it.
+- A reservation left behind by a crash is taken over after
+  `RECOVERY_MAX_DELAY_MS`, so the throttle degrades to a delay and never to a
+  lock. `users.failed_attempts` is deliberately untouched.
+- A failed reservation is not retried in a loop: cooldown-active and
+  in-flight both mean the same refusal.
+
+Stated honestly: a delay raises the cost of guessing; it is not proof that
+guessing is impossible. The Pattern remains the actual secret.
+
+## 7.6 Verification (actual)
+
+Commands, both configurations, Windows MSVC host:
+
+| Command | Result |
+|---|---|
+| `cargo test` | arch 71, integration 194 (3 ignored), unit 89 - ok, 0 failed |
+| `cargo test --features recovery` | arch 71, integration 208 (3 ignored), unit 89 - ok, 0 failed |
+| `cargo test --features recovery --test integration recovery` | 16 passed, 0 failed |
+
+Zero compiler warnings in every log. Logs: `final-default2.log`,
+`final-recovery.log`, `green2-integration.log`, `red-integration.log`.
+
+New behavioural tests, all executed:
+- `the_first_wrong_pattern_is_refused_and_recorded` - refusal recorded.
+- `an_immediate_second_attempt_is_throttled_before_any_hashing` - the decisive
+  ordering property; no row, no audit event, not itself counted.
+- `a_correct_pattern_succeeds_once_the_window_has_elapsed` - no permanent lockout;
+  success clears the counter.
+- `two_concurrent_attempts_proceed_at_most_one_at_a_time` - exactly one reaches
+  the credential check, one is throttled, exactly one failure counted.
+- `hostile_approval_text_still_stores_valid_auditable_json` - quotes, backslashes,
+  newline, tab, and a field-forging attempt; parses, exact values preserved,
+  injected `role` absent, and `reason` survives the row round trip so an identical
+  re-stage is still a no-op.
+- `hostile_execution_text_still_stores_valid_auditable_json` - same for
+  `recovery_executed` and `password_reset`.
+
+## 7.7 Deferred, recorded separately
+
+The pre-existing `verify_pattern` command is also unthrottled
+(`services/pattern/mod.rs:209`). It is outside R1 scope and was deliberately not
+changed. It requires a live re-authenticated session and is a decision for a
+separate slice.
+
+## 7.8 Mandatory check assigned to R1-T7
+
+Scan the final production APK for recovery symbols before the path is declared
+closed. Source scans and `.rlib` string scans are supporting evidence only; they
+do not prove every artifact is clean.

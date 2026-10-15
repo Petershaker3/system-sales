@@ -19,8 +19,12 @@
 //! Any further slice-pairing import is a new architectural decision, not a
 //! convenience.
 
+pub mod backup;
 pub mod catalog;
+pub mod costing;
+pub mod customer;
 pub mod identity;
 pub mod money;
 pub mod organisation;
+pub mod sales;
 pub mod settings;

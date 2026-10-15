@@ -7,5 +7,6 @@
 pub mod audit;
 pub mod credentials;
 pub mod pattern;
+pub mod recovery;
 pub mod session;
 pub mod user;

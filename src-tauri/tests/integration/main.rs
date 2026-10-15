@@ -721,3 +721,33 @@ mod authority;
 // Price history: the edit and its transition row commit together (plan
 // SP-1b).
 mod price_history;
+
+// Stock and costing: Moving Average, FIFO, the authority invariant, stock
+// exhaustion, rollback and the costing-method switch (plan SP-2).
+mod stock_costing;
+
+// Backward-compatible migration: a populated database from an earlier chain must
+// accept the current one. Found on the device, not by the fresh-database suite.
+mod migration_backward_compat;
+
+// Cash sales recorded atomically with stock deduction and cost consumption
+// (Sales V1). A sale is an immutable document; cancellation arrives as a
+// separate reversal sale.
+mod sales;
+
+// Single-use recovery approvals: provision, atomic consume, replay refusal
+// (plan R1). No password logic here; the reset is proved with the use case.
+mod recovery;
+
+// The recovery use case itself. Recovery-build only: production builds never
+// contain this path (plan R1, Design B).
+#[cfg(feature = "recovery")]
+mod recovery_reset;
+
+// Encrypted backup and crash-safe restore (ADR-003): the envelope, the
+// manifest, refusals, and recovery from an interrupted restore.
+mod backup;
+
+// Customer file core (P4): record identity without merging (`spec:178`,
+// `spec:179`). Permission split and sale-link command arrive next slice.
+mod customer;

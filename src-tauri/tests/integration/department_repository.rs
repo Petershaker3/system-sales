@@ -227,7 +227,10 @@ async fn an_edit_persists_and_survives_a_reload() {
 
     dept.update(
         DepartmentName::new("  Mobile Phones  ").expect("valid"),
-        CostMethod::MovingAverage,
+        // The department's own method. Changing it is a separate operation as of
+        // SP-2, because switching has to convert the stock that already exists;
+        // this test is about the name, the VAT and the order.
+        CostMethod::Fifo,
         DepartmentVat::new(false, Some(VatRate::new(700).unwrap()), false).expect("valid"),
         3,
         operator,
@@ -238,7 +241,7 @@ async fn an_edit_persists_and_survives_a_reload() {
 
     let loaded = repo::find_by_id(&mut conn, dept.id).await.unwrap().unwrap();
     assert_eq!(loaded.name.as_str(), "Mobile Phones", "the domain trimmed it");
-    assert_eq!(loaded.cost_method, CostMethod::MovingAverage);
+    assert_eq!(loaded.cost_method, CostMethod::Fifo);
     assert!(!loaded.vat.is_enabled());
     assert_eq!(
         loaded.vat.rate().map(|r| r.as_basis_points()),
@@ -260,7 +263,7 @@ async fn an_update_cannot_reach_identity_or_provenance_columns() {
 
     dept.update(
         DepartmentName::new("Phones").expect("valid"),
-        CostMethod::MovingAverage,
+        CostMethod::Fifo,
         DepartmentVat::disabled(),
         5,
         operator,
@@ -601,4 +604,56 @@ async fn a_user_referenced_by_a_department_may_not_be_deleted() {
         .execute(&mut *conn)
         .await
         .expect_err("ON DELETE RESTRICT must refuse removing a referenced user");
+}
+
+#[tokio::test]
+async fn an_ordinary_edit_may_not_change_the_costing_method() {
+    // As of SP-2 the costing method is live arithmetic rather than inert
+    // configuration, so changing it has to convert the stock that already
+    // exists. An ordinary edit that flipped the label would leave the stock
+    // costed by the old method while the department claimed the new one.
+    let (_pool, manager, operator) = shop().await;
+    let mut dept = department(manager, "Phones");
+    assert_eq!(dept.cost_method, CostMethod::Fifo, "the fixture is FIFO");
+
+    let refused = dept.update(
+        DepartmentName::new("Phones").expect("valid"),
+        CostMethod::MovingAverage,
+        DepartmentVat::disabled(),
+        5,
+        operator,
+        9000,
+    );
+
+    assert_eq!(
+        refused,
+        Err(DepartmentError::CostMethodChangeRequiresSwitch),
+        "the costing method must be changed through the switch, not through an edit"
+    );
+    assert_eq!(
+        dept.cost_method,
+        CostMethod::Fifo,
+        "a refused edit must leave the stored value untouched"
+    );
+}
+
+#[tokio::test]
+async fn an_ordinary_edit_may_still_round_trip_the_same_costing_method() {
+    // The edit dialog sends every editable field back, so refusing an unchanged
+    // value would make renaming a department depend on which tab was used.
+    let (_pool, manager, operator) = shop().await;
+    let mut dept = department(manager, "Phones");
+
+    dept.update(
+        DepartmentName::new("Mobile Phones").expect("valid"),
+        CostMethod::Fifo,
+        dept.vat.clone(),
+        dept.sort_order,
+        operator,
+        9000,
+    )
+    .expect("sending the same method back is not a change");
+
+    assert_eq!(dept.name.as_str(), "Mobile Phones");
+    assert_eq!(dept.cost_method, CostMethod::Fifo);
 }

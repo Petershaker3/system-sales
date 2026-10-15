@@ -1,0 +1,57 @@
+# AGENTS.md — Mobile Shop System
+
+> الهدف الملزم: سيستم سهل ذكي إنتاجي سلس. أي عمل لا يخدمه يُرفض.
+> السلطة العليا: `docs/PROJECT_INSTRUCTIONS.md` (المالك يقرر النطاق والمعمارية والسلوك والبيانات). هذه الوثيقة تشغيلية فقط ولا تلغيها.
+
+## Tech Stack (VERIFIED)
+- Tauri `=2.12.0` (`src-tauri/Cargo.toml:29`), SQLx `=0.9.0`, Rust `1.98.1` (`rust-toolchain.toml:9`), `Cargo.lock` committed
+- Vue `3.5.43` + `@tauri-apps/api 2.12.0` فقط في `package.json`، لا `Supabase` في الكود النشط (الإرث في `archive/` و `dev_extracted/` مركون للقراءة فقط)
+- TypeScript strict + `noUnusedLocals` + `noUncheckedIndexedAccess`
+- SQLite محلية لكل جهاز، لا مشاركة ولا مزامنة في V1 (ADR-008)
+- Money: `EGP` قرش كعدد صحيح `amount_minor` فقط، `ceil` عند الحساب فقط (ADR-010/013/015)
+- هوية: `UUID v7` + توكن في مخزن النظام فقط و `SHA-256` في SQLite، فشل مغلق (ADR-009)
+
+## Commands
+- Build: `npm run build` (= `vue-tsc --noEmit && vite build`)
+- Typecheck: `npm run typecheck`
+- Rust tests: `cargo test` داخل `src-tauri/` (اكتشف الأمر الدقيق من `README.md:56-106` قبل التشغيل)
+- لا تدّعي نجاح بناء/اختبار بدون `log` مسجل في الجلسة
+
+## Workflow (ملزم)
+تخطيط → مراجعة الخطة → تنفيذ → مراجعة التنفيذ → تحقق بالدليل. كل مرحلة تنتهي بتقرير: ما تم التحقق منه، ما تغير، نتائج الاختبارات، والـ `diff`. لا تنتقل للمرحلة التالية بدون دعوة (PROJECT_INSTRUCTIONS §5).
+
+## Skills & Agents (إلزامي — لا تعمل بدونهم)
+- قبل أي خطوة: حدد المهارة والاجينت واستخدمهما عبر `skill` و `subagent`
+- مراجعة عربي: `review-ar` | تخطيط: `planning-and-task-breakdown` | سياق: `context-engineering`
+- بناء: `incremental-implementation` + `test-driven-development` | تحقق: `verification-before-completion`
+- فشل/دبج: `systematic-debugging` | جودة قبل الدمج: `code-review-and-quality` | إطلاق: `shipping-and-launch`
+- `P0` واجهة: `frontend-developer` | `P1/P9` قبول جهازي: `test-automation-engineer`
+- `P2a/P5/P6` أوامر وبيع: `backend-architect` | `P4b` مخزون: `database-optimizer` + `backend-architect`
+- غموض معماري: `software-architect` ثم توقف واسأل المالك
+
+## Decision Gate (ملزم)
+أي تغيير في معمارية/نطاق/سلوك/بيانات — خصوصا `schema` — توقف واسأل المالك أولا. لا تخمن `schema` ولا ترمّز افتراضا للاستمرار.
+- محسوم 2026-10-15: `D1` إضافة `supplier_name` اختياري (قبل ترحيلة `P4b`)، `D3` كاش فقط في V1 (قبل ترحيلة `P5`)، `D7` المرتجع بنفس تكلفة السطر (قبل ترحيلة `P5`)
+- مؤجل بأمان: `D2` تعريفات التقارير (`P8`)، `D6` سياسة النسخ (`P2b`)، `D4` الضمان جزئيا، `D5` الليبل جزئيا
+
+## Boundaries
+- لا `legacy` كاعتمادية: لا استيراد ولا ترحيل بيانات ولا إعادة إنتاج قواعد/تقارير قديمة بدون موافقة مسماة (ADR-007)
+- `dev_extracted/` و `archive/` للقراءة فقط. لا أسرار في المستودع. الرفض المحظور نتيجة صحيحة — لا تلتف حوله
+- المصدر الحاكم للتنفيذ: `delivery-plan-reviewed.md` (91 صف، `A0-A28`، أطوار `P0-P9` + `PA`)
+
+## Learning Log (يُحدّث — لا تمسح القديم)
+- `2026-10-15`: المالك يتكلم مصري، يريد مراجعة ثم تنفيذ مرحلي، تُرسل له القرارات المعمارية وهو يجيب. سُجلت إجابات `D1/D3/D7` أعلاه.
+- `2026-10-15` (`P0`): حذف `showCancelReauth` من `src/components/SalesPanel.vue:260` (كان معلنا بدون استخدام ويكسر `noUnusedLocals`). التحقق: `npm run typecheck` نظيف، `npm run build` خرج `0` وبنى `dist/` في `1.29s`.
+- `2026-10-15` (`P1` جزئي): الجهاز `R3CMA016SEJ` (`SM-N976N`, `Android 12`) متصل، والتطبيق المثبت `com.mshop.system v0.1.0` يفتح على شاشة الدخول بالعربي مع `ShopManager1` (لقطة `p1-launch.png` في `Temp\opencode`). البناء الجديد والتثبيت وفحوص `Pattern/A11/A22` بعد اكتمال نصف `P2a-Rust` حتى لا يُبنى على شجرة نصف معدلة.
+- `2026-10-15` (`PA-README`): صُحح `C4` (البانر كان ينفي وجود كود بيع — البيع موجود) و `C8` (11 ترحيلة و17 جدول حي بدل 8/8) في `README.md` من فحص الملفات فقط، بدون تغيير كود.
+- `2026-10-15` (`P4-A` خلفية): `0012_customers.sql` (جدول `customers` بلا دمج أسماء + عمودا ربط البيع، وبدون أعمدة ضمان بانتظار `D4`) و `domain/customer.rs` و `repositories/customer.rs` (+`set_archived`) و `services/customer.rs` (إنشاء بـ`Sell` + تصفح/أرشفة بصلاحية `ManageCustomers` الجديدة) و `tests/integration/customer.rs` — موصولة كلها (`mod` + `CUSTOMER_*` في `errors.ts` + ترتيب الترحيلات حتى 12).
+- `2026-10-15` (`P4` واجهة): `api/customer.ts` و `CustomerPanel.vue` (مدير فقط) وربط `App.vue` — `typecheck` نظيف.
+- `2026-10-15` (`P2a-Rust` تم عبر `backend-architect`): `commands/backup.rs` + `services/backup/authorized.rs` + تسجيل الأمرين + `recover_interrupted` قبل فتح القاعدة (فشل مغلق). `cargo build` خرج `0`. `vcvars64` في `VS\18\BuildTools`.
+- `2026-10-15` (قرارات الاستعادة من المالك): نجاح الاستيراد = إعادة تشغيل يدوية فقط (لا تلقائية)؛ فشله = الرسالة الحالية + مطالبة يدوية (لا إغلاق تلقائي). تُنفذ في واجهة `P2a-UI`.
+- `2026-10-15` (`P4` تسجيل كامل): `commands/customer.rs` + أوامر ربط البيع مسجلة في `lib.rs` + `api/sales.ts` و `api/customer.ts` مكتملة.
+- `2026-10-15` (قرار `D4` الضمان من المالك): تواريخ فقط عند البيع (بداية/نهاية يدخلها المشغّل)، بلا مدد افتراضية. التصميم: عمودان nullable على `sale_lines` (كل صنف مباع) في ترحيلة لاحقة — تُنفذ مع إغلاق `P4`.
+- `2026-10-15` (قرار `D5` الليبل من المالك): المحتوى = الاسم والسعر والباركود مع بيانات المحل. التنفيذ (توليد + طباعة) معلق على توفر الطابعة.
+- `2026-10-15` (`P2a-UI`): `api/backup.ts` و `BackupPanel.vue` (مدير فقط) وربط `App.vue` — رسائل إعادة التشغيل اليدوية حسب قرار المالك — `typecheck` نظيف. `cargo test` المركز يعمل في الخلفية الآن.
+- `2026-10-15` (`PA-README` ب): توثيق شريحتي النسخ والعملاء في قائمة `README` المنفذة.
+- `2026-10-15` (`P4` دخول الفاتورة): قسم العميل في `SalesPanel.vue` — ربط عميل جديد + اسم نصي (كل الأدوار) وربط موجود (مدير فقط) — مع إصلاح سطر صيني شارد في نص عربي. `typecheck` نظيف.
+- `2026-10-15` (قرار `D6` سياسة النسخ من المالك): الإنشاء = يدوي + تلقائي مساعد (عند إغلاق الوردية — يعتمد على `P6`)؛ الاحتفاظ = عدد محدود بتدوير تلقائي؛ التحقق = فحص سلامة معروض بعد الإنشاء وقبل الاستيراد. تُنفذ في `P2b`.
