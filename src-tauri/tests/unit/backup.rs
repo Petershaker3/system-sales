@@ -15,6 +15,9 @@ use mobile_shop_system_lib::domain::backup::manifest::{
     classify_component_path, validate_component_path, ComponentKind, ComponentMeta, Manifest,
     DB_COMPONENT,
 };
+use mobile_shop_system_lib::services::backup::{resolve_inside, resolve_readable};
+
+use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------
 // Header
@@ -405,6 +408,111 @@ fn every_backup_error_has_a_distinct_code() {
         assert!(
             code.starts_with("BACKUP_"),
             "backup codes are namespaced: {code}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bundle paths at the command boundary (P2a)
+// ---------------------------------------------------------------------------
+//
+// Two policies, one per direction, and the asymmetry is deliberate: a backup is
+// always WRITTEN inside the app data dir, while a bundle to restore may be READ
+// from anywhere, because it arrives from another device. These are lexical pure
+// functions, so no filesystem is touched and no symlink can be raced.
+
+/// An absolute app data directory on whichever platform the test runs on, so a
+/// rule can be stated once instead of per-OS.
+fn data_dir() -> PathBuf {
+    std::env::temp_dir().join("app-data")
+}
+
+#[test]
+fn a_relative_backup_path_is_joined_to_the_app_data_dir() {
+    assert_eq!(
+        resolve_inside(&data_dir(), "backups/2026-10-15.msbak").expect("a plain name"),
+        data_dir().join("backups").join("2026-10-15.msbak"),
+    );
+}
+
+#[test]
+fn a_relative_path_may_step_back_so_long_as_it_stays_inside() {
+    // `a/../b` names `b` in the data dir, so refusing it would be refusing a
+    // path that never leaves.
+    assert_eq!(
+        resolve_inside(&data_dir(), "backups/../this.msbak").expect("still inside"),
+        data_dir().join("this.msbak"),
+    );
+}
+
+#[test]
+fn an_absolute_backup_path_is_refused_for_writing() {
+    // The write side stays jailed even though the read side does not (see
+    // `a_restore_path_from_another_device_may_be_absolute`): a backup this app
+    // creates must land in the directory the app owns.
+    let elsewhere = std::env::temp_dir().join("elsewhere.msbak");
+    assert_eq!(
+        resolve_inside(&data_dir(), elsewhere.to_str().expect("a utf-8 path")).unwrap_err(),
+        BackupError::UnsafePath,
+    );
+}
+
+#[test]
+fn a_parent_traversal_that_would_leave_the_app_data_dir_is_refused() {
+    for raw in ["../elsewhere.msbak", "backups/../../elsewhere.msbak", ".."] {
+        assert_eq!(
+            resolve_inside(&data_dir(), raw).unwrap_err(),
+            BackupError::UnsafePath,
+            "{raw:?} must be refused"
+        );
+    }
+}
+
+#[test]
+fn a_path_that_names_no_file_is_refused() {
+    // Each of these resolves to the data dir itself, which is not a file a
+    // backup could be written to or read from.
+    for raw in ["", ".", "./", "backups/.."] {
+        assert_eq!(
+            resolve_inside(&data_dir(), raw).unwrap_err(),
+            BackupError::UnsafePath,
+            "{raw:?} must be refused"
+        );
+    }
+}
+
+#[test]
+fn a_restore_path_from_another_device_may_be_absolute() {
+    // The bundle comes off a USB stick, an SD card or a shared folder, so it
+    // need not live in this app's data dir. Reading is the only thing a restore
+    // does outside the jail; every write it performs is confined by the
+    // manifest path policy, which is checked per component on extraction.
+    let on_the_stick = std::env::temp_dir().join("bundle-from-another-shop.msbak");
+    assert_eq!(
+        resolve_readable(&data_dir(), on_the_stick.to_str().expect("a utf-8 path"))
+            .expect("an absolute bundle path is readable"),
+        on_the_stick,
+    );
+}
+
+#[test]
+fn a_relative_restore_path_is_still_jailed_to_the_app_data_dir() {
+    assert_eq!(
+        resolve_readable(&data_dir(), "backups/2026-10-15.msbak").expect("a plain name"),
+        data_dir().join("backups").join("2026-10-15.msbak"),
+    );
+}
+
+#[test]
+fn a_restore_path_may_not_climb_out_of_the_app_data_dir() {
+    // Widening the read side to absolute paths must not turn a relative path
+    // into a way out of the directory: an absolute path is the operator saying
+    // "this exact file", not "walk up from here".
+    for raw in ["../elsewhere.msbak", "backups/../../elsewhere.msbak", ""] {
+        assert_eq!(
+            resolve_readable(&data_dir(), raw).unwrap_err(),
+            BackupError::UnsafePath,
+            "{raw:?} must be refused"
         );
     }
 }

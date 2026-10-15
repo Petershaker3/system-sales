@@ -22,7 +22,9 @@ pub mod restore;
 /// Authorized entry points for the in-app backup commands (P2a-Rust).
 pub mod authorized;
 
-pub use authorized::{authorize, authorized_create, resolve_inside, BackupServiceError};
+pub use authorized::{
+    authorize, authorized_create, resolve_inside, resolve_readable, BackupServiceError,
+};
 
 pub use create::{create_backup, snapshot_database, BackupReport};
 pub use journal::{recover_interrupted, RecoveryOutcome};

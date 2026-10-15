@@ -9,6 +9,14 @@
 //! least as sensitive as settings. Reusing `ManageSettings` (manager-only +
 //! blanket re-authenticated) avoids touching the authority matrix: no new
 //! permission variant, no role change.
+//!
+//! # Path policy, per direction
+//!
+//! This module owns two resolvers, because writing and reading have different
+//! requirements. [`resolve_inside`] governs every path this app WRITES: a backup
+//! lands inside the app data dir, and an absolute path or a traversal out of it
+//! is refused. [`resolve_readable`] governs the path a bundle is READ from,
+//! which may be absolute because the bundle arrives from another device.
 
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
@@ -147,4 +155,29 @@ pub fn resolve_inside(data_dir: &Path, raw: &str) -> Result<PathBuf, BackupError
         return Err(BackupError::UnsafePath);
     }
     Ok(joined)
+}
+
+/// Resolve a caller-supplied bundle path for READING, widening only the read side.
+///
+/// A backup this app creates is always written inside `data_dir`, so
+/// [`resolve_inside`] governs it. A bundle to restore is different: it arrives
+/// from another device, off a USB stick, an SD card or a shared folder, so it
+/// need not live in the app data dir and an absolute path is accepted as the
+/// operator naming one exact file.
+///
+/// The asymmetry costs nothing, because reading is the only direction a restore
+/// leaves the data dir in: every write it performs is confined to the restore
+/// root by the manifest path policy, which validates each component of each
+/// entry (`validate_component_path`) before extraction, so a hostile bundle
+/// cannot use a read path to place a file anywhere.
+///
+/// A relative path is still jailed exactly as [`resolve_inside`] jails it — an
+/// absolute path is the operator saying "this file", not "walk up from here" —
+/// and everything else about the lexical check is unchanged.
+pub fn resolve_readable(data_dir: &Path, raw: &str) -> Result<PathBuf, BackupError> {
+    let candidate = Path::new(raw);
+    if candidate.is_absolute() {
+        return Ok(candidate.to_path_buf());
+    }
+    resolve_inside(data_dir, raw)
 }

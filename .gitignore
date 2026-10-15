@@ -41,6 +41,9 @@ __pycache__/
 # ── Local-only AI/tooling state (machine-specific paths, regenerable) ──
 .claude/
 .freebuff/
+# Superpowers execution workspace: ledger, task briefs, review packages.
+# Scratch for one plan's run; git history is the durable record.
+.superpowers/
 
 # ── Rust / Tauri build output ──
 #

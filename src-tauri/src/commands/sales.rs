@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::domain::identity::{DomainError, Permission};
+use crate::domain::identity::Permission;
 use crate::services::identity::{session as identity_session};
 use crate::services::identity::IdentityContext;
 use crate::services::sales::{self as use_cases, SaleLineInput, SaleOutcome, SaleServiceError};

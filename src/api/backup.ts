@@ -45,6 +45,11 @@ export async function createBackup(
 /**
  * Restore this device from a backup file.
  *
+ * `backupPath` may be absolute: the bundle arrives from another device, off a
+ * USB stick, an SD card or a shared folder. A relative path is resolved inside
+ * the app's data dir, and is refused in Rust if it climbs out of it
+ * (`BACKUP_UNSAFE_PATH`).
+ *
  * Fully validated before anything is touched; a wrong password, tamper or
  * truncation refuses with `BACKUP_DECRYPT_FAILED` and writes nothing.
  * On success the caller MUST prompt a manual restart — the restored

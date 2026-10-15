@@ -8,12 +8,18 @@
 //! # Restore and the process lifetime
 //!
 //! Restoring replaces `shop.db` on disk, so the pool is closed first and the
-//! process restarts on success (`AppHandle::restart`, verified present in the
-//! pinned tauri 2.12.0): a fresh startup opens the restored database through
-//! the normal path, including startup recovery. On failure the pool stays
-//! closed and the command fails with the underlying backup code; the device
-//! data on disk is intact (the engine reverts from its snapshot), but the app
-//! must be restarted manually before any further command can succeed.
+//! package is applied on a blocking thread. The command then RETURNS and the
+//! operator restarts by hand (owner decision: a restore never restarts the
+//! process itself). A silent restart would drop the open invoice and the
+//! operator's place in the interface without warning, and would hide the one
+//! moment the operator most needs to see.
+//!
+//! The consequence is that the pool stays closed on BOTH outcomes, success and
+//! failure: `Manager::manage` cannot replace managed state and `unmanage` is
+//! deprecated as unsafe, so a restored database can only be opened by the next
+//! process. On failure the device data on disk is intact (the engine reverts
+//! from its snapshot) and the command fails with the underlying backup code.
+//! Either way the frontend must prompt for a manual restart.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -92,15 +98,20 @@ pub async fn create_backup(
     })
 }
 
-/// Replace the device data with a backup package, then restart.
+/// Replace the device data with a backup package.
+///
+/// `backup_path` may be absolute: the bundle arrives from another device (see
+/// [`use_cases::resolve_readable`]). Only the path it is READ from widens —
+/// every path this command writes stays inside `data_dir`.
 ///
 /// Authorization runs while the pool is still open. The pool is then closed —
 /// the engine replaces `shop.db` on disk and must not race an open connection
-/// — and the package is applied on a blocking thread. On success the process
-/// restarts so startup opens the restored database; this call never returns.
-/// On failure the pool stays closed (fail closed: `Manager::manage` cannot
-/// replace managed state and `unmanage` is deprecated as unsafe), the on-disk
-/// data is intact, and the app must be restarted manually.
+/// — and the package is applied on a blocking thread. This call then returns
+/// what was restored and leaves the restart to the operator; it never restarts
+/// the process itself. On failure the pool stays closed as well (fail closed:
+/// `Manager::manage` cannot replace managed state and `unmanage` is deprecated
+/// as unsafe), the on-disk data is intact, and the app must be restarted
+/// manually either way.
 #[tauri::command]
 pub async fn restore_backup(
     ctx: Ctx<'_>,
@@ -115,14 +126,15 @@ pub async fn restore_backup(
         .map_err(|_| BackupCommandError {
             code: BackupError::RestoreFailed.code(),
         })?;
-    let resolved =
-        use_cases::resolve_inside(&data_dir, &backup_path).map_err(BackupServiceError::from)?;
+    let resolved = use_cases::resolve_readable(&data_dir, &backup_path)
+        .map_err(BackupServiceError::from)?;
 
     // Authorize first: this needs the live pool, which is closed below.
     use_cases::authorize(&ctx.pool, ctx.tokens.as_ref()).await?;
 
     // The engine replaces `shop.db` on disk; every pooled connection must be
-    // gone before it starts. From here on a failure means a manual restart.
+    // gone before it starts. From here on the pool does not reopen, whatever the
+    // outcome: the restored database is opened by the next process.
     ctx.pool.close().await;
 
     let joined = tauri::async_runtime::spawn_blocking(move || {
@@ -145,10 +157,11 @@ pub async fn restore_backup(
     };
 
     eprintln!(
-        "backup restore applied (database_len={}, image_count={}); restarting",
+        "backup restore applied (database_len={}, image_count={}); a manual restart is required",
         outcome.database_len, outcome.image_count
     );
-    // Diverges (`-> !`, verified in the pinned tauri 2.12.0 `AppHandle`): the
-    // fresh process opens the restored database through the normal startup.
-    app.restart();
+    Ok(RestoreOutcomeDto {
+        database_len: outcome.database_len,
+        image_count: outcome.image_count,
+    })
 }
