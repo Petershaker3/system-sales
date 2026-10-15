@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::domain::identity::Permission;
+use crate::domain::sales::WarrantyDate;
 use crate::services::identity::{session as identity_session};
 use crate::services::identity::IdentityContext;
 use crate::services::sales::{self as use_cases, SaleLineInput, SaleOutcome, SaleServiceError};
@@ -33,19 +34,46 @@ impl From<SaleServiceError> for SalesCommandError {
 }
 
 /// One product line as sent by the frontend.
+///
+/// `warrantyStart` / `warrantyEnd` are the operator's own typing (D4), so they
+/// arrive as free text and are validated here into [`WarrantyDate`]. An absent or
+/// empty field means "no warranty given" — never a default period.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaleLineInputDto {
     pub product_id: String,
     pub quantity: i64,
+    pub warranty_start: Option<String>,
+    pub warranty_end: Option<String>,
 }
 
-impl From<SaleLineInputDto> for SaleLineInput {
-    fn from(value: SaleLineInputDto) -> Self {
-        Self {
-            product_id: value.product_id,
-            quantity: value.quantity,
-        }
+impl SaleLineInputDto {
+    /// Validate one line's warranty text into the domain's calendar day.
+    ///
+    /// Falls rather than defaulting: a mistyped date is the operator's to see
+    /// and fix, and inventing a coverage the shop never agreed to is exactly the
+    /// claim this software must not make.
+    fn into_input(self) -> Result<SaleLineInput, SalesCommandError> {
+        let warranty_start = parse_warranty(self.warranty_start)?;
+        let warranty_end = parse_warranty(self.warranty_end)?;
+        Ok(SaleLineInput {
+            product_id: self.product_id,
+            quantity: self.quantity,
+            warranty_start,
+            warranty_end,
+        })
+    }
+}
+
+/// An absent or blank field is no warranty; anything else must be a real day.
+fn parse_warranty(raw: Option<String>) -> Result<Option<WarrantyDate>, SalesCommandError> {
+    match raw.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(day) => WarrantyDate::parse(day)
+            .map(Some)
+            .map_err(|error| SalesCommandError {
+                code: error.code(),
+            }),
     }
 }
 
@@ -101,7 +129,10 @@ pub async fn record_sale(
     lines: Vec<SaleLineInputDto>,
     confirmed_total_minor: Option<i64>,
 ) -> Result<serde_json::Value, SalesCommandError> {
-    let lines = lines.into_iter().map(SaleLineInput::from).collect::<Vec<_>>();
+    let lines = lines
+        .into_iter()
+        .map(SaleLineInputDto::into_input)
+        .collect::<Result<Vec<SaleLineInput>, SalesCommandError>>()?;
     let outcome = use_cases::record_sale(&ctx.pool, ctx.tokens.as_ref(), &lines, confirmed_total_minor)
         .await?;
     // Authorize cost visibility from the session, not from caller role alone.

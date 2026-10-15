@@ -45,6 +45,10 @@ pub struct SaleLineRecord {
     pub line_cost_minor: i64,
     pub department_id: Option<String>,
     pub cost_method: String,
+    /// The warranty the operator typed at sale time (D4/D8/D9): ISO calendar
+    /// days, never recomputed and never inferred from a period.
+    pub warranty_start: Option<String>,
+    pub warranty_end: Option<String>,
 }
 
 /// One row of the append-only movement ledger.
@@ -94,8 +98,9 @@ pub async fn insert_sale_line(
         "INSERT INTO sale_lines
              (id, sale_id, line_no, product_id, product_name, disposition,
               quantity, unit_selling_price_minor, line_total_minor,
-              unit_cost_minor, line_cost_minor, department_id, cost_method)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+              unit_cost_minor, line_cost_minor, department_id, cost_method,
+              warranty_start, warranty_end)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )
     .bind(&line.id)
     .bind(&line.sale_id)
@@ -110,6 +115,8 @@ pub async fn insert_sale_line(
     .bind(line.line_cost_minor)
     .bind(line.department_id.as_deref())
     .bind(&line.cost_method)
+    .bind(line.warranty_start.as_deref())
+    .bind(line.warranty_end.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -227,7 +234,8 @@ pub async fn list_lines(
     let rows = sqlx::query(
         "SELECT id, sale_id, line_no, product_id, product_name, disposition,
                 quantity, unit_selling_price_minor, line_total_minor,
-                unit_cost_minor, line_cost_minor, department_id, cost_method
+                unit_cost_minor, line_cost_minor, department_id, cost_method,
+                warranty_start, warranty_end
          FROM sale_lines
          WHERE sale_id = ?1
          ORDER BY line_no",
@@ -252,6 +260,8 @@ pub async fn list_lines(
             line_cost_minor: row.get("line_cost_minor"),
             department_id: row.get("department_id"),
             cost_method: row.get("cost_method"),
+            warranty_start: row.get("warranty_start"),
+            warranty_end: row.get("warranty_end"),
         })
         .collect())
 }

@@ -22,14 +22,25 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /**
- * One line of a sale: a product and how many of it.
+ * One line of a sale: a product, how many of it, and the warranty the operator
+ * typed for that item.
  *
  * `quantity` must be a positive integer. Anything else is refused with
  * `SALE_INVALID_QUANTITY`; a non-integer is refused at the transport boundary.
+ *
+ * `warrantyStart` / `warrantyEnd` are the operator's own dates (decision D4):
+ * there is no default period and nothing is inferred. Each is an ISO calendar day
+ * `YYYY-MM-DD` — a date, never an instant — and either may be omitted. A day that
+ * does not exist is refused with `SALE_WARRANTY_DATE_INVALID`; a range that ends
+ * before it starts is refused with `SALE_WARRANTY_RANGE_INVALID`. Both are
+ * refused rather than corrected, because a warranty this software invented is a
+ * promise the shop never made.
  */
 export interface SaleLine {
   readonly productId: string;
   readonly quantity: number;
+  readonly warrantyStart?: string;
+  readonly warrantyEnd?: string;
 }
 
 /**
@@ -66,14 +77,20 @@ export interface SaleOutcome {
  * Refusals worth distinguishing to an operator: `SALE_EMPTY`,
  * `SALE_PRODUCT_ARCHIVED`, `SALE_PRICE_NOT_SET`, `SALE_INVALID_QUANTITY`,
  * `SALE_DISPOSITION_NOT_SUPPORTED` (V1 sells nothing serialised or one-off),
- * `SALE_REFERENCE_CONFLICT` and `SALE_BUSY` (retryable).
+ * `SALE_REFERENCE_CONFLICT`, `SALE_WARRANTY_DATE_INVALID` and
+ * `SALE_WARRANTY_RANGE_INVALID`, and `SALE_BUSY` (retryable).
  */
 export async function recordSale(
   lines: readonly SaleLine[],
   confirmedTotalMinor?: number
 ): Promise<SaleOutcome> {
   return invoke<SaleOutcome>('record_sale', {
-    lines: lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+    lines: lines.map((line) => ({
+      productId: line.productId,
+      quantity: line.quantity,
+      warrantyStart: line.warrantyStart ?? null,
+      warrantyEnd: line.warrantyEnd ?? null,
+    })),
     confirmedTotalMinor: confirmedTotalMinor ?? null,
   });
 }

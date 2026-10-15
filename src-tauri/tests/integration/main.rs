@@ -751,3 +751,7 @@ mod backup;
 // Customer file core (P4): record identity without merging (`spec:178`,
 // `spec:179`). Permission split and sale-link command arrive next slice.
 mod customer;
+
+// Warranty dates on a sale line (P4, decisions D4/D8/D9): the two columns and
+// the range rule the table enforces on its own.
+mod warranty_migration;

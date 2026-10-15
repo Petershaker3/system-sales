@@ -24,6 +24,7 @@ use mobile_shop_system_lib::domain::organisation::{
 use mobile_shop_system_lib::domain::settings::{
     DiscountKind, SettingKey, SettingsError, SettingsSnapshot, PATTERN_REQUIRED,
 };
+use mobile_shop_system_lib::domain::sales::{SaleError, WarrantyDate};
 
 // The backup envelope: byte layout and the manifest path policy.
 mod backup;
@@ -1588,4 +1589,184 @@ fn sale_errors_have_stable_screaming_snake_codes() {
         "SALE_REVERSAL_INCONSISTENT"
     );
     assert_eq!(SaleError::Busy.code(), "SALE_BUSY");
+}
+
+// ---------------------------------------------------------------------------
+// Warranty dates on a sale line (decisions D4, D8, D9)
+// ---------------------------------------------------------------------------
+//
+// D8: a warranty boundary is a CALENDAR DAY the operator typed, stored as
+// `YYYY-MM-DD` — not an instant in epoch milliseconds like every other
+// timestamp in this schema. "Covered until 15 March" must not depend on a
+// timezone, and must not drift a day because a device clock moved.
+
+#[test]
+fn a_warranty_date_is_the_exact_day_the_operator_typed() {
+    let date = WarrantyDate::parse("2027-03-15").expect("a real day");
+    assert_eq!(date.to_string(), "2027-03-15");
+    assert_eq!(date.as_str(), "2027-03-15");
+    assert_eq!(
+        WarrantyDate::parse("2026-01-01").expect("new year").as_str(),
+        "2026-01-01",
+        "a padded input is stored padded, never as `2026-1-1`"
+    );
+}
+
+#[test]
+fn a_day_that_does_not_exist_is_refused_rather_than_stored() {
+    // The load-bearing case: a permissive parser would store 30 February and
+    // the shop would honour a warranty end date that never arrives.
+    for candidate in [
+        "2026-02-30", // 2026 is not a leap year
+        "2027-02-29", // and neither is 2027
+        "2026-04-31", // April has 30 days
+        "2026-06-31",
+        "2026-09-31",
+        "2026-11-31",
+        "2026-13-01", // there is no month 13
+        "2026-00-10", // nor month 0
+        "2026-01-00", // nor day 0
+        "2026-01-32",
+    ] {
+        assert_eq!(
+            WarrantyDate::parse(candidate),
+            Err(SaleError::WarrantyDateInvalid),
+            "{candidate} is not a day and must be refused"
+        );
+    }
+}
+
+#[test]
+fn a_leap_day_is_a_real_day_in_a_leap_year() {
+    // The other side of the same rule: refusing 29 February outright would be
+    // wrong, and 1900 (not a leap year) must still be refused.
+    assert!(WarrantyDate::parse("2028-02-29").is_ok());
+    assert!(WarrantyDate::parse("2000-02-29").is_ok(), "divisible by 400");
+    assert_eq!(
+        WarrantyDate::parse("1900-02-29"),
+        Err(SaleError::WarrantyDateInvalid),
+        "divisible by 100 but not 400"
+    );
+}
+
+#[test]
+fn a_warranty_date_in_any_shape_other_than_iso_is_refused() {
+    // The operator types into a free-text field, so every plausible typo is
+    // input. Accepting `15-03-2026` would store a day nobody can read back.
+    for candidate in [
+        "",
+        " ",
+        "2026-3-15",            // unpadded
+        "2026-03-5",            // unpadded day
+        "15-03-2026",           // day first
+        "03-15-2026",           // American order
+        "2026/03/15",           // slashes
+        "2026-03-15T00:00:00Z", // an instant, which is what D8 refuses
+        " 2026-03-15",          // leading space
+        "2026-03-15 ",          // trailing space
+        "2026-03-155",          // one digit too many
+        "26-03-15",             // two-digit year
+        "today",
+        "2026-٠٣-١٥", // Arabic-Indic digits
+    ] {
+        assert_eq!(
+            WarrantyDate::parse(candidate),
+            Err(SaleError::WarrantyDateInvalid),
+            "{candidate:?} must be refused"
+        );
+    }
+}
+
+#[test]
+fn warranty_dates_order_by_their_text_because_iso_days_sort_that_way() {
+    // The property the SQL CHECK on the table relies on: `warranty_end >=
+    // warranty_start` compares TEXT, so text order must BE date order. If this
+    // ever fails, the database constraint is comparing nonsense.
+    let days = [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-02-28",
+        "2026-10-12",
+        "2026-12-31",
+        "2027-01-01",
+        "2027-03-15",
+        "2028-01-01",
+        "2028-02-29",
+        "2031-12-31",
+    ];
+    let parsed: Vec<WarrantyDate> = days
+        .iter()
+        .map(|d| WarrantyDate::parse(d).expect("a real day"))
+        .collect();
+    let mut by_text: Vec<String> = parsed.iter().map(|d| d.to_string()).collect();
+    let mut by_value = parsed.clone();
+    by_text.sort();
+    by_value.sort();
+    assert_eq!(
+        by_text,
+        by_value
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<String>>(),
+        "sorting the stored text must agree with sorting the dates"
+    );
+    assert_eq!(by_text[0], "2026-01-01");
+    assert_eq!(by_text[by_text.len() - 1], "2031-12-31");
+}
+
+#[test]
+fn a_warranty_range_that_ends_before_it_starts_is_refused() {
+    let start = WarrantyDate::parse("2027-03-15").expect("a real day");
+
+    assert_eq!(
+        start.checked_end(Some(WarrantyDate::parse("2027-03-14").expect("a real day"))),
+        Err(SaleError::WarrantyRangeInvalid),
+        "a warranty that has already ended is not a warranty"
+    );
+    assert_eq!(
+        start.checked_end(Some(WarrantyDate::parse("2026-03-15").expect("a real day"))),
+        Err(SaleError::WarrantyRangeInvalid)
+    );
+}
+
+#[test]
+fn a_warranty_range_may_be_a_single_day_and_may_be_open_at_either_end() {
+    let start = WarrantyDate::parse("2027-03-15").expect("a real day");
+
+    assert_eq!(
+        start
+            .checked_end(Some(WarrantyDate::parse("2027-03-15").expect("a real day")))
+            .expect("the same day is a valid one-day warranty"),
+        Some("2027-03-15".to_string())
+    );
+    assert_eq!(
+        start
+            .checked_end(Some(WarrantyDate::parse("2029-12-31").expect("a real day")))
+            .expect("a later end is valid"),
+        Some("2029-12-31".to_string())
+    );
+    // Open-ended: an end the operator has not been given yet is not an error,
+    // and the start on its own is a range that has not ended.
+    assert_eq!(start.checked_end(None), Ok(None));
+    assert!(WarrantyDate::parse("2027-03-15").is_ok());
+}
+
+#[test]
+fn the_two_warranty_refusals_have_their_own_codes() {
+    // Distinct codes, because the operator's two mistakes are different: a
+    // mistyped shape versus a range that runs backwards.
+    assert_eq!(
+        SaleError::WarrantyDateInvalid.code(),
+        "SALE_WARRANTY_DATE_INVALID"
+    );
+    assert_eq!(
+        SaleError::WarrantyRangeInvalid.code(),
+        "SALE_WARRANTY_RANGE_INVALID"
+    );
+    assert_ne!(
+        SaleError::WarrantyDateInvalid.code(),
+        SaleError::WarrantyRangeInvalid.code()
+    );
+    assert!(!SaleError::WarrantyDateInvalid.to_string().is_empty());
+    assert!(!SaleError::WarrantyRangeInvalid.to_string().is_empty());
 }

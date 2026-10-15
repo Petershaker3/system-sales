@@ -77,6 +77,13 @@ interface BasketLine {
   readonly quantity: number;
   /** `null` when the product has no sale price; such a line cannot be sold. */
   readonly unitPriceMinor: number | null;
+  /**
+   * The warranty the operator typed for this item, as an ISO day (`YYYY-MM-DD`),
+   * or `''` for none (decision D4: the operator states both ends, this software
+   * invents neither).
+   */
+  readonly warrantyStart: string;
+  readonly warrantyEnd: string;
 }
 
 const basket = ref<BasketLine[]>([]);
@@ -164,6 +171,8 @@ function addLine(): void {
         name: product.name,
         quantity,
         unitPriceMinor: product.salePriceMinor,
+        warrantyStart: '',
+        warrantyEnd: '',
       },
     ];
   }
@@ -175,6 +184,26 @@ function addLine(): void {
 
 function removeLine(productId: string): void {
   basket.value = basket.value.filter((line) => line.productId !== productId);
+}
+
+/**
+ * Record one warranty boundary on one line.
+ *
+ * No validation happens here on purpose: the backend owns the rule and answers
+ * with its own Arabic message (`SALE_WARRANTY_DATE_INVALID`,
+ * `SALE_WARRANTY_RANGE_INVALID`). A second copy of that rule in the browser is a
+ * second thing to keep in step with it, and the browser copy is the one that
+ * never runs on the shop's real screen.
+ */
+function setWarranty(
+  productId: string,
+  boundary: 'warrantyStart' | 'warrantyEnd',
+  value: string
+): void {
+  basket.value = basket.value.map((line) =>
+    line.productId === productId ? { ...line, [boundary]: value } : line
+  );
+  error.value = '';
 }
 
 function clearBasket(): void {
@@ -214,7 +243,16 @@ async function submitSale(): Promise<void> {
   notice.value = '';
   try {
     const outcome = await sales.recordSale(
-      sellable.value.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+      sellable.value.map((line) => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        // The key is omitted rather than sent as `undefined` or `''`: an absent
+        // date is no warranty, and both of those would travel to the backend only
+        // to be trimmed away. `exactOptionalPropertyTypes` is on, so the shape has
+        // to be built rather than assigned.
+        ...(line.warrantyStart === '' ? {} : { warrantyStart: line.warrantyStart }),
+        ...(line.warrantyEnd === '' ? {} : { warrantyEnd: line.warrantyEnd }),
+      })),
       basketTotalMinor.value
     );
 
@@ -478,6 +516,33 @@ void loadProducts();
             {{ formatPiastres(line.unitPriceMinor === null ? null : line.unitPriceMinor * line.quantity) }}
           </span>
           <button type="button" :disabled="busy" @click="removeLine(line.productId)">حذف</button>
+          <!--
+            Warranty for THIS item (D4/D9): per line, because a customer who buys
+            two things has two coverages. `type="date"` gives the platform's own
+            picker and hands back `YYYY-MM-DD` — the exact form the column stores,
+            and a shape that cannot be typed wrong. `dir="ltr"` because a date is
+            read left to right even inside an Arabic layout.
+          -->
+          <label class="warranty-field">
+            <span>ضمان من</span>
+            <input
+              type="date"
+              dir="ltr"
+              :value="line.warrantyStart"
+              :disabled="busy"
+              @input="setWarranty(line.productId, 'warrantyStart', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <label class="warranty-field">
+            <span>ضمان إلى</span>
+            <input
+              type="date"
+              dir="ltr"
+              :value="line.warrantyEnd"
+              :disabled="busy"
+              @input="setWarranty(line.productId, 'warrantyEnd', ($event.target as HTMLInputElement).value)"
+            />
+          </label>
         </li>
       </ul>
 
@@ -487,6 +552,9 @@ void loadProducts();
       <p class="hint">
         الدفع نقدًا فقط. الإجمالي المعروض مُراجَع داخل تسجيل البيع؛ إن تغيّر السعر
         يُرفض البيع ولا يُكتب شيء.
+      </p>
+      <p class="hint">
+        الضمان اختياري لكل بند على حدة، وتكتب تاريخيه بنفسك. لا توجد مدة افتراضية.
       </p>
 
       <div class="row">
@@ -634,9 +702,26 @@ void loadProducts();
   gap: 0.5rem;
   padding: 0.35rem 0;
   border-bottom: 1px solid #f0f0f0;
+  /* Wraps rather than squeezes: the two date fields are as wide as a phone
+     screen each, and a squeezed date input is an unusable one. */
+  flex-wrap: wrap;
 }
 .line-name {
   flex: 1 1 auto;
+}
+.warranty-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  /* The label reads right-to-left even though the value inside it does not. */
+  flex: 0 0 auto;
+}
+.warranty-field input {
+  font: inherit;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #ccc;
+  border-radius: 3px;
 }
 .total {
   font-size: 1rem;

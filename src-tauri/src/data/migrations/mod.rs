@@ -63,3 +63,9 @@ pub const SALES: &str = include_str!("0011_sales.sql");
 /// Purely additive: one table plus two nullable columns on `sales`.
 /// Warranty columns are deliberately absent (decision D4 pending).
 pub const CUSTOMERS: &str = include_str!("0012_customers.sql");
+
+/// Warranty start/end per sold line (P4, decisions D4/D8/D9). Closes the gap
+/// `0012` left open: two nullable `YYYY-MM-DD` columns on `sale_lines` (a
+/// calendar day, not an instant), shape-checked by CHECK and range-checked by
+/// trigger, with no default period and no backfill.
+pub const WARRANTY: &str = include_str!("0013_warranty.sql");

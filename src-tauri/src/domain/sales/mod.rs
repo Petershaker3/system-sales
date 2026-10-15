@@ -53,6 +53,11 @@ pub enum SaleError {
     /// Only a live `sale` document takes a customer. Reversals mirror their
     /// original and take none.
     LinkNotAllowed,
+    /// A warranty date is not a day that exists, or is not written as
+    /// `YYYY-MM-DD`.
+    WarrantyDateInvalid,
+    /// A warranty range ends before it starts.
+    WarrantyRangeInvalid,
 }
 
 impl SaleError {
@@ -72,6 +77,8 @@ impl SaleError {
             SaleError::Busy => "SALE_BUSY",
             SaleError::CustomerAlreadyLinked => "SALE_CUSTOMER_ALREADY_LINKED",
             SaleError::LinkNotAllowed => "SALE_LINK_NOT_ALLOWED",
+            SaleError::WarrantyDateInvalid => "SALE_WARRANTY_DATE_INVALID",
+            SaleError::WarrantyRangeInvalid => "SALE_WARRANTY_RANGE_INVALID",
         }
     }
 }
@@ -105,6 +112,12 @@ impl fmt::Display for SaleError {
             }
             SaleError::LinkNotAllowed => {
                 write!(f, "only a live sale document takes a customer")
+            }
+            SaleError::WarrantyDateInvalid => {
+                write!(f, "a warranty date must be a real day written as YYYY-MM-DD")
+            }
+            SaleError::WarrantyRangeInvalid => {
+                write!(f, "a warranty cannot end before it starts")
             }
         }
     }
@@ -146,5 +159,94 @@ pub fn format_invoice_reference(prefix: &str, year: i32, month: u32, day: u32, s
         format!("{date}-{seq:04}")
     } else {
         format!("{prefix}-{date}-{seq:04}")
+    }
+}
+
+/// A calendar day an operator entered as a warranty boundary (decisions D4, D8).
+///
+/// Ten ASCII characters, `YYYY-MM-DD`, and nothing else. This is the one date in
+/// the schema that is deliberately NOT epoch milliseconds: "covered until 15
+/// March" must mean the same day on every device, in every timezone, whatever the
+/// clock says — and an instant would make the last day of a warranty depend on
+/// both.
+///
+/// # Why the text is the value
+///
+/// ISO days sort lexicographically in chronological order, which is what lets the
+/// table enforce `warranty_end >= warranty_start` with a plain comparison and no
+/// date arithmetic. `Ord` is therefore derived and means what it looks like it
+/// means; `tests/unit` proves text order and date order agree.
+///
+/// The day is computed rather than accepted, so 30 February is refused instead of
+/// stored.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WarrantyDate(String);
+
+impl WarrantyDate {
+    /// Parse and validate `YYYY-MM-DD`.
+    ///
+    /// Exactly ten ASCII characters with dashes in the fourth and seventh
+    /// positions, digits elsewhere, a month of 1..=12 and a day that exists in
+    /// that month of that year. Everything else — an unpadded `2026-3-5`,
+    /// `15-03-2026`, a full ISO instant, a localised digit, surrounding spaces —
+    /// is [`SaleError::WarrantyDateInvalid`].
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        let bytes = raw.as_bytes();
+        let shaped = bytes.len() == 10
+            && bytes[4] == b'-'
+            && bytes[7] == b'-'
+            && [0, 1, 2, 3, 5, 6, 8, 9]
+                .iter()
+                .all(|index| bytes[*index].is_ascii_digit());
+        if !shaped {
+            return Err(SaleError::WarrantyDateInvalid);
+        }
+        // Safe to slice: the shape check proved bytes 0-3, 5-6 and 8-9 are ASCII,
+        // so every boundary below falls on a character boundary.
+        let year: u32 = raw[0..4].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        let month: u32 = raw[5..7].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        let day: u32 = raw[8..10].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        if year == 0 || !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+            return Err(SaleError::WarrantyDateInvalid);
+        }
+        Ok(Self(raw.to_owned()))
+    }
+
+    /// The stored text, exactly as the operator's day is written.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// This date's text together with the end the operator gave, checked against
+    /// each other.
+    ///
+    /// The same day is a valid one-day warranty; an end nobody stated stays `None`
+    /// rather than being filled in. A range that runs backwards is
+    /// [`SaleError::WarrantyRangeInvalid`] — the operator must see and fix it, not
+    /// have it stored as written.
+    pub fn checked_end(&self, end: Option<WarrantyDate>) -> Result<Option<String>, SaleError> {
+        match end {
+            Some(end) if end.0 < self.0 => Err(SaleError::WarrantyRangeInvalid),
+            Some(end) => Ok(Some(end.0)),
+            None => Ok(None),
+        }
+    }
+}
+
+impl fmt::Display for WarrantyDate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Days in a month, with the full Gregorian leap rule: divisible by 4, except
+/// centuries, except every 400th year.
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        _ => 0,
     }
 }

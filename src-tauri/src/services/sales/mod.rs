@@ -27,7 +27,9 @@ use crate::domain::costing::CostError;
 use crate::domain::customer::{CustomerError, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
 use crate::domain::organisation::CostMethod;
-use crate::domain::sales::{civil_ymd_from_millis, format_invoice_reference, SaleError};
+use crate::domain::sales::{
+    civil_ymd_from_millis, format_invoice_reference, SaleError, WarrantyDate,
+};
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::inventory::stock as inventory;
@@ -42,6 +44,11 @@ use crate::services::pattern as pattern_service;
 pub struct SaleLineInput {
     pub product_id: String,
     pub quantity: i64,
+    /// The warranty the operator typed for this item, if any (D4). Already a
+    /// validated [`WarrantyDate`], so the service never re-parses a string and
+    /// never has to imagine a duration the operator did not state.
+    pub warranty_start: Option<WarrantyDate>,
+    pub warranty_end: Option<WarrantyDate>,
 }
 
 /// What recording or cancelling a sale produced.
@@ -186,6 +193,8 @@ pub async fn record_sale(
         department_id: Option<String>,
         method: CostMethod,
         segments: Vec<inventory::ConsumedSegment>,
+        warranty_start: Option<String>,
+        warranty_end: Option<String>,
     }
 
     let mut pending: Vec<PendingLine> = Vec::with_capacity(lines.len());
@@ -196,6 +205,25 @@ pub async fn record_sale(
         if line.quantity <= 0 {
             return Err(SaleError::InvalidQuantity.into());
         }
+
+        // The warranty range is checked before anything is consumed: a backwards
+        // range is an operator typo, and discovering it must not cost a stock
+        // movement. `checked_end` owns the other half of the rule too — an end
+        // nobody stated stays absent rather than being filled in.
+        let (warranty_start, warranty_end) = match &line.warranty_start {
+            Some(start) => (
+                Some(start.as_str().to_owned()),
+                start.checked_end(line.warranty_end.clone())?,
+            ),
+            // With no start there is nothing to measure an end against, so the
+            // end is kept exactly as typed instead of being completed with an
+            // invented beginning. The table accepts this pair too: neither layer
+            // manufactures the half the operator did not give.
+            None => (
+                None,
+                line.warranty_end.as_ref().map(|end| end.as_str().to_owned()),
+            ),
+        };
 
         let id = Uuid::parse_str(&line.product_id).map_err(|_| SaleError::NotFound)?;
         let product = product_repo::find_by_id(&mut *tx, ProductId::from_uuid(id))
@@ -253,6 +281,8 @@ pub async fn record_sale(
             department_id: product.department.as_ref().map(|d| d.as_str()),
             method: removal.method,
             segments: removal.segments,
+            warranty_start,
+            warranty_end,
         });
     }
 
@@ -301,6 +331,8 @@ pub async fn record_sale(
                 line_cost_minor: line.line_cost_minor,
                 department_id: line.department_id.clone(),
                 cost_method: line.method.as_str().to_owned(),
+                warranty_start: line.warranty_start.clone(),
+                warranty_end: line.warranty_end.clone(),
             },
         )
         .await
@@ -461,6 +493,11 @@ pub async fn cancel_sale(
                 line_cost_minor: line.line_cost_minor,
                 department_id: line.department_id.clone(),
                 cost_method: line.cost_method.clone(),
+                // The reversal mirrors every other snapshot on the line, and the
+                // warranty is one of them: a pair of documents that disagree
+                // about what was sold is worse than no reversal at all.
+                warranty_start: line.warranty_start.clone(),
+                warranty_end: line.warranty_end.clone(),
             },
         )
         .await

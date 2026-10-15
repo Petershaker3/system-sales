@@ -92,6 +92,8 @@ export const ErrorCode = {
   SALE_BUSY: 'SALE_BUSY',
   SALE_CUSTOMER_ALREADY_LINKED: 'SALE_CUSTOMER_ALREADY_LINKED',
   SALE_LINK_NOT_ALLOWED: 'SALE_LINK_NOT_ALLOWED',
+  SALE_WARRANTY_DATE_INVALID: 'SALE_WARRANTY_DATE_INVALID',
+  SALE_WARRANTY_RANGE_INVALID: 'SALE_WARRANTY_RANGE_INVALID',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -258,6 +260,10 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'عملية البيع هذه مرتبطة بعميل بالفعل. لا يمكن تغيير الارتباط.',
   [ErrorCode.SALE_LINK_NOT_ALLOWED]:
     'فقط فاتورة البيع الأصلية تقبل عميلًا. المرتجعات تتبع الأصل.',
+  [ErrorCode.SALE_WARRANTY_DATE_INVALID]:
+    'تاريخ الضمان غير صحيح. اكتبه بالصيغة سنة-شهر-يوم مثل 2027-03-15.',
+  [ErrorCode.SALE_WARRANTY_RANGE_INVALID]:
+    'نهاية الضمان قبل بدايته. راجع التاريخين.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:

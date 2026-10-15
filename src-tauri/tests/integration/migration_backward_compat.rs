@@ -237,12 +237,12 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
     assert_intact(&pool, "before").await;
 
     // The real application entry point: open the existing file and let the
-    // embedded chain run. `0008` through `0012` are the ones pending.
+    // embedded chain run. `0008` through `0013` are the ones pending.
     let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
 
     assert_eq!(
         ledger(&pool).await,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
         "the pending migrations must be applied, not the whole chain re-run"
     );
     assert_intact(&pool, "after").await;
@@ -270,6 +270,17 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
         .await
         .expect("customers must exist after 0012");
     assert_eq!(customers, 0, "no customer is invented by migration alone");
+    // A sale line that predates 0013 keeps NULL warranties: the columns are
+    // added, not backfilled, because a shop that never recorded a warranty did
+    // not sell one.
+    let dated: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sale_lines
+          WHERE warranty_start IS NOT NULL OR warranty_end IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the warranty columns must exist after 0013");
+    assert_eq!(dated, 0, "no warranty is invented by migration alone");
 }
 
 #[tokio::test]
@@ -283,7 +294,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 12, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 13, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 }

@@ -8,6 +8,7 @@ use super::{fresh, PASSWORD};
 use mobile_shop_system_lib::data::db;
 use mobile_shop_system_lib::domain::catalog::Disposition;
 use mobile_shop_system_lib::domain::identity::Sensitivity;
+use mobile_shop_system_lib::domain::sales::WarrantyDate;
 use mobile_shop_system_lib::services::catalog::{product as catalog, CatalogContext};
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{auth, bootstrap, session};
@@ -90,6 +91,8 @@ async fn a_cash_sale_commits_atomically() {
         &[SaleLineInput {
             product_id: product_id.clone(),
             quantity: 2,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
@@ -131,6 +134,8 @@ async fn cancelling_a_sale_restores_stock_and_links_the_reversal() {
         &[SaleLineInput {
             product_id: product_id.clone(),
             quantity: 3,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
@@ -194,6 +199,8 @@ async fn cancelling_the_same_sale_twice_is_refused() {
         &[SaleLineInput {
             product_id: product_id.clone(),
             quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
@@ -257,6 +264,8 @@ async fn a_serialized_product_cannot_be_sold_in_v1() {
         &[SaleLineInput {
             product_id: product.id.as_str().to_string(),
             quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
@@ -274,6 +283,8 @@ async fn a_confirmed_total_that_no_longer_matches_is_refused() {
         &[SaleLineInput {
             product_id: product_id.clone(),
             quantity: 2,
+            warranty_start: None,
+            warranty_end: None,
         }],
         // The screen said 299; the catalogue says 300.
         Some(299),
@@ -297,6 +308,8 @@ async fn sale_command_response_omits_cost_for_unauthorized_role() {
         &[SaleLineInput {
             product_id: product_id.clone(),
             quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
@@ -307,4 +320,135 @@ async fn sale_command_response_omits_cost_for_unauthorized_role() {
     // The command-layer split (SaleOutcomePublicDto vs SaleOutcomeWithCostDto)
     // is verified by the authorization check inside record_sale / cancel_sale.
     // A sales-role session (without ViewCostAndProfit) must receive the public DTO.
+}
+
+// ---------------------------------------------------------------------------
+// Warranty dates entered at sale time (P4, decisions D4/D8/D9)
+// ---------------------------------------------------------------------------
+
+/// A validated warranty date, so a test states only the day it is about.
+///
+/// The grammar itself is unit tested; here the day is a given.
+fn warranty(day: &str) -> WarrantyDate {
+    WarrantyDate::parse(day).unwrap_or_else(|error| panic!("{day} must be a real day: {error}"))
+}
+
+/// The warranty columns of a sale's first line, as stored.
+async fn warranty_of_line(pool: &SqlitePool, sale_id: &str) -> (Option<String>, Option<String>) {
+    sqlx::query_as(
+        "SELECT warranty_start, warranty_end FROM sale_lines
+          WHERE sale_id = ?1 ORDER BY line_no LIMIT 1",
+    )
+    .bind(sale_id)
+    .fetch_one(pool)
+    .await
+    .expect("the sale's first line")
+}
+
+#[tokio::test]
+async fn a_sale_line_keeps_the_warranty_dates_the_operator_entered() {
+    let (pool, tokens, product_id) = stocked_shop().await;
+
+    let sale = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: Some(warranty("2026-10-12")),
+            warranty_end: Some(warranty("2027-10-12")),
+        }],
+        None,
+    )
+    .await
+    .expect("record a sale with a warranty");
+
+    assert_eq!(
+        warranty_of_line(&pool, &sale.sale_id).await,
+        (
+            Some("2026-10-12".to_string()),
+            Some("2027-10-12".to_string())
+        ),
+        "the dates the operator typed are the dates the shop keeps"
+    );
+}
+
+#[tokio::test]
+async fn a_warranty_of_one_day_and_an_open_ended_one_are_both_kept() {
+    let (pool, tokens, product_id) = stocked_shop().await;
+
+    let single = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: Some(warranty("2026-10-12")),
+            warranty_end: Some(warranty("2026-10-12")),
+        }],
+        None,
+    )
+    .await
+    .expect("a one-day warranty");
+    assert_eq!(
+        warranty_of_line(&pool, &single.sale_id).await,
+        (
+            Some("2026-10-12".to_string()),
+            Some("2026-10-12".to_string())
+        )
+    );
+
+    let open = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id,
+            quantity: 1,
+            warranty_start: Some(warranty("2026-10-12")),
+            warranty_end: None,
+        }],
+        None,
+    )
+    .await
+    .expect("a warranty with no end yet");
+    assert_eq!(
+        warranty_of_line(&pool, &open.sale_id).await,
+        (Some("2026-10-12".to_string()), None),
+        "an end nobody has stated is absent, never invented"
+    );
+}
+
+#[tokio::test]
+async fn a_cancellation_mirrors_the_warranty_dates_onto_its_reversal_line() {
+    // A reversal is a mirror document: it reproduces every other snapshot on the
+    // line (name, price, cost). The warranty belongs to that same list, or the
+    // pair would disagree about what was sold.
+    let (pool, tokens, product_id) = stocked_shop().await;
+
+    let sale = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id,
+            quantity: 1,
+            warranty_start: Some(warranty("2026-10-12")),
+            warranty_end: Some(warranty("2027-10-12")),
+        }],
+        None,
+    )
+    .await
+    .expect("record");
+
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("reauthenticate");
+    let reversal = sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "mistake")
+        .await
+        .expect("cancel");
+
+    assert_eq!(
+        warranty_of_line(&pool, &reversal.sale_id).await,
+        warranty_of_line(&pool, &sale.sale_id).await,
+        "the reversal must not lose the warranty the original recorded"
+    );
 }

@@ -168,6 +168,8 @@ async fn shop_with_sale() -> (
         &[SaleLineInput {
             product_id: product.id.as_str().to_string(),
             quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
         }],
         None,
     )
