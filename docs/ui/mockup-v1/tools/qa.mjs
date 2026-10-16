@@ -94,6 +94,11 @@ await key('Enter');
 ok(await p.$('.modal[aria-label="تم البيع"]'), 'Enter confirms → done screen');
 ok(await p.evaluate(() => !document.querySelector('[data-act="reprint"]') && S.modal.sale.receiptMode === 'wa' && [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('اتبعت الإيصال على واتساب 01287654321'))), 'receipt sent on WhatsApp (no reprint button without a printer)');
 await shot('07-done-receipt');
+// سجل المبيعات: البيعة اتضافت للسجل، وإجمالي النهارده في التقارير = مجموع فواتير النهارده في السجل
+ok(await p.evaluate(() => { const no = S.modal.sale.no, now = new Date(); const td = DATA.history.filter((x) => x.at.toDateString() === now.toDateString());
+  return DATA.history.some((x) => x.no === no && x.session) && DATA.dash.today.sales === td.reduce((a, x) => a + x.total, 0) && DATA.dash.today.invoices === td.length; }), 'sale goes into the sales record; today in reports = sum of today\'s invoices');
+ok(await p.evaluate(() => { const h = DATA.history, days = new Set(h.map((x) => x.at.toDateString())).size;
+  return h.length > 1500 && days >= 59 && h.every((x, i) => i === 0 || x.no === h[i - 1].no + 1) && h.filter((x) => !x.session).pop().no === 10452; }), 'sales record: 60 days of invoices, numbered in order, last demo invoice 10452');
 await checkOverflow('done');
 await key('Enter');
 ok((await lines()) === 0 && !(await p.$('.modal')), 'Enter on done → fresh invoice');
@@ -224,6 +229,8 @@ ok(await p.evaluate(() => typeof IMGS.a1 === 'string' && IMGS.a1.startsWith('dat
 // 18) التقارير
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').click()); await sleep(200);
 await shot('16-dashboard-light');
+ok(await p.evaluate(() => { const now = new Date(), sum = DATA.history.filter((x) => x.at.toDateString() === now.toDateString()).reduce((a, x) => a + x.total, 0);
+  return document.querySelector('.cards .kpi .value').textContent.trim() === money(sum); }), 'reports show today\'s sales computed from the sales record');
 // تقسيم طرق الدفع: كل جزء ونقطته ليهم لون فعلي (الألوان بتتبني بالاسم var(--c${i}) فلازم تكون معرّفة)
 ok(await p.evaluate(() => { const seg = [...document.querySelectorAll('.split i')]; const dots = [...document.querySelectorAll('.li .dot')];
   const painted = (el) => { const c = getComputedStyle(el).backgroundColor; return c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; };
@@ -280,7 +287,10 @@ ok(await p.evaluate((x) => cur().lines.some((l) => l.imei === x) && DATA.units.s
 const stk = await p.evaluate(() => ({ p11: prod('p11').stock, p9: prod('p9').stock }));
 await p.evaluate(() => document.querySelector('.tile[data-id="p9"]').click()); await sleep(120);
 await clickText('.btn', 'كاش بالظبط'); await p.waitForSelector('.modal[aria-label="تم البيع"]', { timeout: 3000 }); await key('Escape');
-ok(await p.evaluate((x) => prod('p11').stock === x.p11 - 1 && prod('p9').stock === x.p9 - 1 && unitsIn('p9').length <= prod('p9').stock, stk), 'sale reduces phone stock with or without IMEI');
+// المسح من الموبايل في خطوة قبل كده بيختار جهاز عشوائي، فممكن الفاتورة يبقى فيها موبايل تاني من نفس الموديل: النقص = عدد سطوره في الفاتورة
+const stkAfter = await p.evaluate(() => { const ls = S.sales[S.sales.length - 1].lines, n = (id) => ls.filter((l) => l.pid === id).length;
+  return { p11: prod('p11').stock, p9: prod('p9').stock, u9: unitsIn('p9').length, n11: n('p11'), n9: n('p9') }; });
+ok(stkAfter.n11 >= 1 && stkAfter.n9 >= 1 && stkAfter.p11 === stk.p11 - stkAfter.n11 && stkAfter.p9 === stk.p9 - stkAfter.n9 && stkAfter.u9 <= stkAfter.p9, `sale reduces phone stock with or without IMEI (before ${JSON.stringify(stk)}, after ${JSON.stringify(stkAfter)})`);
 // 20) الإعدادات
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="settings"]').click()); await sleep(200);
 await shot('18-settings-shop');

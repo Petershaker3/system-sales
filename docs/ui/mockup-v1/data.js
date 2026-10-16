@@ -16,9 +16,9 @@ const DATA = (() => {
   const makeImei = (tac) => { let s = tac; while (s.length < 14) s += Math.floor(rnd() * 10); return s + luhnDigit(s); };
 
   const users = [
-    { id: 'u1', name: 'بيتر', role: 'owner', pin: '1111', color: '#2563eb' },
-    { id: 'u2', name: 'يوسف', role: 'seller', pin: '2222', color: '#0d9488' },
-    { id: 'u3', name: 'مارينا', role: 'seller', pin: '3333', color: '#c026d3' },
+    { id: 'u1', name: 'بيتر', role: 'owner', pin: '1111', color: '#1d4f91' },
+    { id: 'u2', name: 'يوسف', role: 'seller', pin: '2222', color: '#0f6e5a' },
+    { id: 'u3', name: 'مارينا', role: 'seller', pin: '3333', color: '#8a3b78' },
   ];
 
   // التصنيفات: رئيسية، وتحت «إكسسوارات» تصنيفات فرعية (parent).
@@ -199,8 +199,52 @@ const DATA = (() => {
     { name: 'موبايل يوسف', model: 'Redmi Note 14', online: true, last: 'متصل دلوقتي' },
   ];
 
+  /* ===== سجل المبيعات (تجريبي): فواتير آخر 60 يوم بأصنافها =====
+     التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده، والبيعات الجديدة بتتضاف عليه (app.js: refreshDash).
+     مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي. */
+  const history = (() => {
+    let hs = 20261016;
+    const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
+    const weighted = (list) => { const tot = list.reduce((a, p) => a + p.sold + 2, 0); let r = hr() * tot; for (const p of list) { r -= p.sold + 2; if (r <= 0) return p; } return list[list.length - 1]; };
+    const imeiOf = (tac) => { let x = tac; while (x.length < 14) x += Math.floor(hr() * 10); return x + luhnDigit(x); };
+    const newPhones = products.filter((p) => p.cat === 'phones'), usedPhones = products.filter((p) => p.cat === 'used');
+    const accs = products.filter((p) => !p.serial), addOns = accs.filter((p) => p.cat === 'cases' || p.cat === 'screens');
+    const sellerOf = () => { const r = hr(); return r < 0.42 ? 'u2' : r < 0.75 ? 'u3' : 'u1'; };
+    const unitLine = (p) => ({ pid: p.id, name: p.name, cat: p.cat, qty: 1, price: p.price, cost: p.cost, imei: imeiOf(p.tac), warranty: p.warranty });
+    const itemLine = (p, qty = 1) => ({ pid: p.id, name: p.name, cat: p.cat, qty, price: p.price, cost: p.cost, imei: null, warranty: p.warranty });
+    const out = [], now = new Date(), OPEN = 9 * 60, CLOSE = 23 * 60;
+    for (let back = 59; back >= 0; back--) {
+      const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+      const end = back === 0 ? Math.min(CLOSE, now.getHours() * 60 + now.getMinutes()) : CLOSE;
+      if (end <= OPEN) continue;
+      const busy = day.getDay() === 4 || day.getDay() === 5 ? 9 : 0;
+      const n = Math.round((34 + Math.floor(hr() * 15) + busy) * (end - OPEN) / (CLOSE - OPEN));
+      const mins = Array.from({ length: n }, () => OPEN + Math.floor(hr() * (end - OPEN))).sort((a, b) => a - b);
+      for (const m of mins) {
+        const lines = [], r = hr();
+        if (r < 0.1) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
+        else if (r < 0.13) lines.push(unitLine(weighted(usedPhones)));
+        else { const k = hr() < 0.7 ? 1 : hr() < 0.8 ? 2 : 3; for (let i = 0; i < k; i++) { const p = weighted(accs); const ex = lines.find((l) => l.pid === p.id); if (ex) ex.qty++; else lines.push(itemLine(p, hr() < 0.15 ? 2 : 1)); } }
+        const phone = lines.some((l) => l.imei);
+        const sub = lines.reduce((a, l) => a + l.price * l.qty, 0);
+        const disc = phone && hr() < 0.15 ? 50 * (1 + Math.floor(hr() * 5)) : !phone && sub >= 300 && hr() < 0.04 ? 20 : 0;
+        const total = sub - disc, profit = lines.reduce((a, l) => a + (l.price - l.cost) * l.qty, 0) - disc;
+        const cust = hr() < (phone ? 0.6 : 0.1) ? customers[Math.floor(hr() * customers.length)].id : null;
+        const pr = hr(); let method = pr < 0.6 ? 'cash' : pr < 0.75 ? 'vf' : pr < 0.85 ? 'instapay' : pr < 0.93 ? 'card' : phone ? 'install' : 'cash';
+        if (method === 'cash' && cust && hr() < 0.06) method = 'credit';
+        const payments = [{ method, amount: total, provider: method === 'install' ? installProviders[Math.floor(hr() * installProviders.length)] : '' }];
+        if (method === 'cash' && total >= 1000 && hr() < 0.08) { const part = Math.round((total * (0.3 + hr() * 0.4)) / 10) * 10; payments[0].amount = total - part; payments.push({ method: 'vf', amount: part, provider: '' }); }
+        const at = new Date(day); at.setHours(Math.floor(m / 60), m % 60, Math.floor(hr() * 60));
+        out.push({ no: 0, at, sellerId: sellerOf(), customerId: cust, lines, disc, total, profit, payments });
+      }
+    }
+    // الترقيم بالترتيب، وآخر فاتورة 10452 (أول فاتورة في الجلسة 10453)
+    out.forEach((x, i) => { x.no = 10452 - (out.length - 1 - i); });
+    return out;
+  })();
+
   return {
     users, categories, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
-    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, makeImei, luhnDigit,
+    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, makeImei, luhnDigit,
   };
 })();

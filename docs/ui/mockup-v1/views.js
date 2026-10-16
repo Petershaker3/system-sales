@@ -610,5 +610,6 @@ Object.assign(ACT, {
 /* ===== تشغيل ===== */
 S.mobile.recv = [DATA.makeImei(prod('p5').tac), DATA.makeImei(prod('p5').tac)];
 applySettings();
+refreshDash();
 render();
 focusSearch();
