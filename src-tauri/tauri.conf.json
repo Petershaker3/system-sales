@@ -30,6 +30,6 @@
     "targets": "all",
     "category": "Business",
     "shortDescription": "Offline-first mobile shop POS",
-    "longDescription": "Offline-first point of sale for Android and Windows. Each device owns its local SQLite database; no automatic sync in V1."
+    "longDescription": "Offline-first point of sale for a mobile-phone shop. The Windows desktop is the point of sale and the single source of truth; the Android app is a companion over the shop Wi-Fi with no database of its own."
   }
 }

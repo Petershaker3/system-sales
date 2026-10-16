@@ -8,8 +8,8 @@
 # the compiler underneath a locked Cargo.lock.
 channel = "1.98.1"
 
-# Targets required by the V1 scope: both Android and Windows are full POS
-# clients (ADR-008). arm64 is the primary Android target proven on the
+# Targets required by the V1 scope (ADR-016): the Windows desktop POS and the
+# Android companion app. arm64 is the primary Android target proven on the
 # SM-N976N; the 32-bit Android targets are NOT installed because V1 has
 # not decided whether it needs them.
 targets = [
