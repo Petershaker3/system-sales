@@ -10,6 +10,9 @@ const NM = path.join(HERE, 'node_modules');
 const OUT = path.resolve(process.argv[2] || path.join(HERE, '..'));
 
 const FAMILIES = [
+  // خط كل طابع: Changa مع «لافتة الشارع» و Vazirmatn مع «علبة الموبايل» (docs/ui/REDESIGN.md)
+  { pkg: 'changa', weights: [400, 500, 600, 700, 800] },
+  { pkg: 'vazirmatn', weights: [400, 500, 600, 700] },
   { pkg: 'ibm-plex-sans-arabic', weights: [400, 500, 600, 700] },
   { pkg: 'cairo', weights: [400, 500, 600, 700] },
   { pkg: 'readex-pro', weights: [400, 500, 600, 700] },

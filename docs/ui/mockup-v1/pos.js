@@ -305,7 +305,7 @@ function viewPOS() {
   </div>${keysBar()}</div>`;
 }
 function keysBar() {
-  const K = [['Enter', 'إضافة ثم دفع'], ['F2', 'الكمية'], ['F3', 'خصم'], ['F4', 'عميل'], ['F8', 'انتظار'], ['F9', 'خدمات'], ['F12', 'دفع'], ['Del', 'حذف سطر'], ['+ / −', 'الكمية'], ['↑ ↓', 'اختيار سطر'], ['Ctrl+L', 'قفل']];
+  const K = [['Enter', 'إضافة ثم دفع'], ['F2', 'الكمية'], ['F3', 'خصم'], ['F4', 'عميل'], ['F8', 'انتظار'], ['F9', 'خدمات'], ['F12', 'دفع'], ['Del', 'حذف سطر'], ['+ / −', 'الكمية'], [`<span class="kbd-ar" role="img" aria-label="سهم فوق وسهم تحت">${icon('arrow-up')}${icon('arrow-down')}</span>`, 'اختيار سطر'], ['Ctrl+L', 'قفل']];
   return `<div class="keys-bar">${K.map(([k, l]) => `<span><kbd>${k}</kbd>${l}</span>`).join('')}<span class="sp"></span><span>${icon('smartphone')} موبايل يوسف جاهز كماسح</span></div>`;
 }
 VIEWS.pos = viewPOS;

@@ -275,7 +275,7 @@ await key('Enter');
 ok(await p.evaluate((x) => cur().lines.some((l) => l.imei === x) && DATA.units.some((u) => u.imei === x), newIm), 'new IMEI registered at sale');
 const stk = await p.evaluate(() => ({ p11: prod('p11').stock, p9: prod('p9').stock }));
 await p.evaluate(() => document.querySelector('.tile[data-id="p9"]').click()); await sleep(120);
-await clickText('.btn', 'كاش بالظبط'); await key('Escape');
+await clickText('.btn', 'كاش بالظبط'); await p.waitForSelector('.modal[aria-label="تم البيع"]', { timeout: 3000 }); await key('Escape');
 ok(await p.evaluate((x) => prod('p11').stock === x.p11 - 1 && prod('p9').stock === x.p9 - 1 && unitsIn('p9').length <= prod('p9').stock, stk), 'sale reduces phone stock with or without IMEI');
 // 20) الإعدادات
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="settings"]').click()); await sleep(200);
@@ -337,8 +337,32 @@ ok(await p.evaluate(() => !document.querySelector('.tile .ico.img') && !!IMGS.a1
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="settings"]').click()); await sleep(150);
 await p.evaluate(() => document.querySelector('input[data-change="showImages"]').click()); await sleep(150);
 await p.evaluate(() => document.querySelector('.s-nav [data-id="look"]').click()); await sleep(100);
-await p.evaluate(() => document.querySelector('.swatch[data-c="#0d9488"]').click()); await sleep(100);
-ok(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#0d9488'), 'accent swatch applies');
+ok(await p.evaluate(() => document.documentElement.dataset.look === 'plate' && getComputedStyle(document.body).fontFamily.includes('Changa') && document.fonts.check('16px Changa', 'أ')), 'default look is «لافتة الشارع» with its own font (Changa loaded)');
+await p.evaluate(() => document.querySelector('.look-card[data-id="box"]').click()); await sleep(150);
+ok(await p.evaluate(() => document.documentElement.dataset.look === 'box' && getComputedStyle(document.body).fontFamily.includes('Vazirmatn') && document.fonts.check('16px Vazirmatn', 'أ') && JSON.parse(localStorage.getItem('mshop.mockup.settings.v1')).look === 'box' && document.querySelector('.look-card[data-id="box"]').getAttribute('aria-pressed') === 'true'), 'look switches to «علبة الموبايل» (Vazirmatn loaded) and is saved');
+await shot('19b-settings-look-box');
+await checkOverflow('settings-look-box');
+await p.evaluate(() => document.querySelector('.look-card[data-id="plate"]').click()); await sleep(150);
+// أي لون يختاره المالك: الكلام عليه وبلونه ≥ 4.5:1 في الطابعين والوضعين (حساب مستقل عن app.js)
+const cx = await p.evaluate(() => {
+  const L = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+  const R = (a, b) => { const x = L(a), y = L(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const col = (v) => { const el = document.createElement('i'); el.style.color = `var(${v})`; document.body.appendChild(el); const c = getComputedStyle(el).color; el.remove();
+    let m = /rgba?\(([\d.]+),?\s*([\d.]+),?\s*([\d.]+)/.exec(c); if (m) return [+m[1], +m[2], +m[3]];
+    m = /color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)/.exec(c); return m ? [m[1] * 255, m[2] * 255, m[3] * 255] : [128, 128, 128]; };
+  const bad = [], keep = { look: SET.look, theme: SET.theme, accent: SET.accent };
+  for (const accent of ['#facc15', '#e5e7eb', '#111111', '#22d3ee', '#ff00ff', '#1d4f91']) for (const look of ['plate', 'box']) for (const theme of ['light', 'dark']) {
+    Object.assign(SET, { accent, look, theme }); applySettings();
+    const grounds = ['--bg', '--surface', '--surface-2', '--surface-3', '--accent-weak'].map(col), t = col('--accent-text');
+    const acc = Math.min(...grounds.map((g) => R(t, g))), on = R(col('--on-accent'), col('--accent-fill'));
+    const body = Math.min(R(col('--text'), col('--bg')), R(col('--text'), col('--surface-3')), R(col('--muted'), col('--surface-3')), R(col('--muted'), col('--bg')));
+    if (acc < 4.5 || on < 4.5 || body < 4.5) bad.push(`${accent}/${look}/${theme}: accent-text ${acc.toFixed(2)} on-accent ${on.toFixed(2)} body ${body.toFixed(2)}`);
+  }
+  Object.assign(SET, keep); applySettings(); return bad;
+});
+ok(cx.length === 0, `text stays readable (≥4.5:1) with any shop colour in both looks and themes${cx.length ? ': ' + cx.join(' | ') : ''}`);
+await p.evaluate(() => document.querySelector('.swatch[data-c="#0f6e5a"]').click()); await sleep(100);
+ok(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() === '#0f6e5a'), 'accent swatch applies');
 await p.evaluate(() => document.querySelector('[data-act="setFont"][data-id="cairo"]').click()); await sleep(100);
 ok(await p.evaluate(() => document.documentElement.dataset.font === 'cairo' && document.fonts.check('16px Cairo', 'أ')), 'font switch applies (Cairo loaded)');
 await p.evaluate(() => document.querySelector('[data-act="setDigits"][data-id="arabic"]').click()); await sleep(100);
@@ -347,7 +371,7 @@ await p.evaluate(() => document.querySelector('.s-nav [data-id="shop"]').click()
 await p.focus('#set-shopName'); await p.evaluate(() => { const i = document.querySelector('#set-shopName'); i.select(); }); await type('بيتر موبايل');
 ok(await p.evaluate(() => document.querySelector('.rc-name').textContent === 'بيتر موبايل' && JSON.parse(localStorage.getItem('mshop.mockup.settings.v1')).shopName === 'بيتر موبايل'), 'shop name updates receipt and persists');
 await p.reload({ waitUntil: 'networkidle0' });
-ok(await p.evaluate(() => SET.shopName === 'بيتر موبايل' && SET.digits === 'arabic' && SET.accent === '#0d9488'), 'settings survive reload');
+ok(await p.evaluate(() => SET.shopName === 'بيتر موبايل' && SET.digits === 'arabic' && SET.accent === '#0f6e5a' && SET.look === 'plate'), 'settings survive reload');
 ok(await p.evaluate(() => SET.cats.some((c) => c.name === 'خطوط' && c.custom) && catById('smart').hidden && !!IMGS.a1), 'category settings and product images survive reload');
 await shot('20-pos-custom-settings');
 // 21) الوضع الغامق
@@ -383,6 +407,27 @@ await p.evaluate(() => { SET.scale = 'large'; applySettings(); render(); }); awa
 await p.setViewport({ width: 1366, height: 768 }); await sleep(200);
 await shot('29-pos-large-1366');
 await checkOverflow('pos-large');
+await p.evaluate(() => ACT.resetSettings());
+// 24) طابع «علبة الموبايل»: نفس الشاشات من غير ما الكلام يطلع برّه (الخط عرضه مختلف)
+await p.evaluate(() => { SET.look = 'box'; saveSettings(); applySettings(); render(); }); await sleep(200);
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);
+await p.evaluate(() => { const pick = (id) => document.querySelector(`.tile[data-id="${id}"]`).click(); pick('a2'); pick('a1'); }); await sleep(150);
+await p.focus('#q'); await type('a16'); await key('Enter');
+await shot('30-pos-box'); await checkOverflow('pos-box');
+await key('F12'); await shot('31-pay-box'); await checkOverflow('pay-box'); await key('Escape');
+await key('F9'); await shot('32-services-box'); await checkOverflow('services-box'); await key('Escape');
+await p.evaluate(() => document.querySelector('[data-act="toggleTheme"]').click()); await sleep(150);
+await shot('33-pos-box-dark'); await checkOverflow('pos-box-dark');
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').click()); await sleep(200);
+await shot('34-dashboard-box-dark'); await checkOverflow('dashboard-box-dark');
+await p.evaluate(() => ACT.resetSettings()); await sleep(100);
+// 25) إعدادات من قبل الطابعين: اللون والخط الافتراضيين القدام بيتغيروا، واللي المالك اختاره بيفضل
+await p.evaluate(() => localStorage.setItem('mshop.mockup.settings.v1', JSON.stringify({ shopName: 'محل قديم', font: 'plex', accent: '#2563eb', theme: 'light' })));
+await p.reload({ waitUntil: 'networkidle0' });
+ok(await p.evaluate(() => SET.font === 'auto' && SET.accent === '#1d4f91' && SET.look === 'plate' && SET.shopName === 'محل قديم' && document.documentElement.dataset.font === 'auto'), 'old saved settings move to the new look defaults (custom values kept)');
+await p.evaluate(() => localStorage.setItem('mshop.mockup.settings.v1', JSON.stringify({ font: 'cairo', accent: '#b3261e' })));
+await p.reload({ waitUntil: 'networkidle0' });
+ok(await p.evaluate(() => SET.font === 'cairo' && SET.accent === '#b3261e'), 'a font or colour the owner picked himself survives the migration');
 await p.evaluate(() => ACT.resetSettings());
 
 console.log(notes.join('\n'));

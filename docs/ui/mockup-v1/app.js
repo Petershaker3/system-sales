@@ -16,7 +16,8 @@ const parseNum = (s) => { const t = toLatin(s).replace(/[,\s٬]/g, '').replace('
 const SETTINGS_KEY = 'mshop.mockup.settings.v1';
 const DEFAULTS = {
   shopName: 'موبايل ستور', phone: '01000000000', address: '12 شارع شبرا، القاهرة', logo: '',
-  theme: 'light', accent: '#2563eb', font: 'plex', scale: 'normal', digits: 'latin',
+  // الطابع: «plate» = لافتة الشارع · «box» = علبة الموبايل (docs/ui/REDESIGN.md). الخط «auto» = خط الطابع
+  theme: 'light', look: 'plate', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin',
   paper: '80', footer: 'شكرًا لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة', showQR: true, receiptMode: 'wa',
   waTemplate: 'أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.',
   warrantyNew: 12, warrantyUsed: 1, feePct: 1, feeMin: 5, billFee: 5, discountLimit: 5,
@@ -33,7 +34,9 @@ const DEFAULTS = {
   // التصنيفات (الترتيب = ترتيب الظهور). بتتعدّل من الإعدادات ← الأصناف والبيع
   cats: DATA.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, parent: c.parent || null, hidden: false })),
 };
-const ACCENTS = ['#2563eb', '#0d9488', '#16a34a', '#7c3aed', '#e11d48', '#ea580c', '#334155'];
+// ألوان جاهزة، و«لون تاني» بيقبل أي لون — الكلام عليه بيتظبط تلقائي
+const ACCENTS = ['#1d4f91', '#0f6e5a', '#b3261e', '#0e6170', '#6b2f73', '#a86b00', '#2f3437'];
+const LOOKS = ['plate', 'box'], FONT_IDS = ['auto', 'plex', 'cairo', 'tajawal', 'readex'];
 function mergeCats(saved) {
   if (!Array.isArray(saved)) return DEFAULTS.cats.map((c) => ({ ...c }));
   const ok = saved.filter((c) => c && typeof c.id === 'string' && typeof c.name === 'string' && c.name.trim());
@@ -45,11 +48,17 @@ function mergeCats(saved) {
 function loadSettings() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}; } catch { saved = {}; }
+  // إعدادات من قبل الطابعين: اللون والخط الافتراضيين القدام بيتغيروا للجداد — اللي المالك اختاره بنفسه بيفضل
+  if (!('look' in saved)) {
+    if (saved.font === 'plex') delete saved.font;
+    if (String(saved.accent || '').toLowerCase() === '#2563eb') delete saved.accent;
+  }
   return {
     ...DEFAULTS, ...saved,
     perms: { ...DEFAULTS.perms, ...(saved.perms || {}) }, methods: { ...DEFAULTS.methods, ...(saved.methods || {}) },
     imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats),
     feeMode: saved.feeMode === 'auto' ? 'auto' : 'manual', printer: saved.printer === true,
+    look: LOOKS.includes(saved.look) ? saved.look : DEFAULTS.look, font: FONT_IDS.includes(saved.font) ? saved.font : DEFAULTS.font,
   };
 }
 let SET = loadSettings();
@@ -64,18 +73,48 @@ function receiptSetting() { const m = SET.receiptMode; return hasPrinter() ? m :
 // المتعلّم في شاشة الدفع: واتساب لو الفاتورة على عميل برقمه — من غير عميل: «بدون» (أو «طباعة» لو فيه طابعة)، والبيّاع يقدر يختار واتساب ويكتب الرقم
 function defaultReceipt(inv) { const m = receiptSetting(); return (m === 'wa' || m === 'both') && !(inv.customer && inv.customer.phone) ? (hasPrinter() ? 'print' : 'none') : m; }
 const curTheme = () => (SET.theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : SET.theme);
-function onAccent(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#ffffff';
-  const n = parseInt(m[1], 16);
-  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-  const L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return (1.05 / (L + 0.05)) >= ((L + 0.05) / 0.05) ? '#ffffff' : '#0b1220';
+/* ===== لون المحل ← ألوان الواجهة =====
+   أي لون يختاره المالك: الكلام اللي عليه أو بلونه لازم يعدّي 4.5:1. بنحرّك اللون ناحية الأسود أو الأبيض بأقل قدر لحد ما يعدّي. */
+const rgbOf = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const hexOf = (c) => `#${c.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('')}`;
+const lumOf = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+const ratio = (a, b) => { const x = lumOf(a), y = lumOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const mixRgb = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const WHITE = [255, 255, 255], BLACK = [0, 0, 0], INK = [17, 19, 23];
+// أقل تحريك للون ناحية «toward» لحد ما يعدّي التباين مع كل الخلفيات
+function fitOn(c, bgs, toward, target = 4.5) {
+  // بنختبر اللون بعد التقريب لأرقام صحيحة (اللي هيتكتب فعلًا)، عشان التقريب ما ينزّلش التباين تحت الحد
+  for (let i = 0; i <= 50; i++) { const x = mixRgb(c, toward, i / 50).map(Math.round); if (bgs.every((b) => ratio(x, b) >= target)) return x; }
+  return toward;
+}
+// لون محسوب فعلًا من متغيّر في الـ CSS (بعد color-mix) — بنقراه من عنصر مخفي
+function cssColor(name) {
+  const el = document.createElement('i'); el.style.cssText = `position:absolute;visibility:hidden;color:var(${name})`;
+  document.body.appendChild(el); const v = getComputedStyle(el).color; el.remove();
+  let m = /rgba?\(([\d.]+),?\s*([\d.]+),?\s*([\d.]+)/.exec(v); if (m) return [+m[1], +m[2], +m[3]];
+  m = /color\(srgb\s+([\d.e-]+)\s+([\d.e-]+)\s+([\d.e-]+)/.exec(v); if (m) return [m[1] * 255, m[2] * 255, m[3] * 255];
+  return WHITE;
+}
+// الكلام على خلفية بلون المحل: أبيض أو حبر غامق، اللي أوضح
+function onAccent(hex) { const c = rgbOf(hex) || rgbOf(DEFAULTS.accent); return ratio(WHITE, c) >= ratio(INK, c) ? '#ffffff' : hexOf(INK); }
+function accentTokens(hex, dark) {
+  const a = rgbOf(hex) || rgbOf(DEFAULTS.accent);
+  const grounds = ['--bg', '--surface', '--surface-2', '--surface-3'].map(cssColor);
+  let fill = a, on = rgbOf(onAccent(hexOf(a)));
+  if (ratio(on, fill) < 4.5) { fill = fitOn(a, [WHITE], BLACK); on = WHITE; }
+  // لون المحل ككلام: مقروء على كل الأسطح. والتظليل بيتعمل منه (مش من اللون الخام) عشان يبان حتى لو اللون فاتح جدًا أو غامق جدًا
+  const toward = dark ? WHITE : BLACK;
+  let text = fitOn(a, grounds, toward);
+  const weak = mixRgb(grounds[1], text, dark ? 0.22 : 0.12);
+  if (ratio(text, weak) < 4.5) text = fitOn(text, [...grounds, weak], toward);
+  return { '--accent-fill': hexOf(fill), '--on-accent': hexOf(on), '--accent-text': hexOf(text), '--accent-weak': hexOf(weak) };
 }
 function applySettings() {
   const r = document.documentElement;
-  r.dataset.theme = curTheme(); r.dataset.font = SET.font; r.dataset.scale = SET.scale;
+  r.dataset.theme = curTheme(); r.dataset.look = SET.look; r.dataset.font = SET.font; r.dataset.scale = SET.scale;
   r.style.setProperty('--accent', SET.accent);
-  r.style.setProperty('--on-accent', onAccent(SET.accent));
+  const t = accentTokens(SET.accent, r.dataset.theme === 'dark');
+  for (const k in t) r.style.setProperty(k, t[k]);
   document.title = `${SET.shopName} — نموذج الواجهة`;
 }
 

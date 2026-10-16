@@ -243,15 +243,18 @@ function setShop() {
 }
 function setLook() {
   const themes = [['light', 'sun', 'فاتح'], ['dark', 'moon', 'غامق'], ['auto', 'monitor', 'زي الجهاز']];
-  const fonts = [['plex', 'IBM Plex Sans Arabic', 'واضح ومتوازن'], ['cairo', 'Cairo', 'مألوف وعريض شوية'], ['tajawal', 'Tajawal', 'خفيف وعصري'], ['readex', 'Readex Pro', 'أرقامه مقروءة جدًا']];
+  const looks = [['plate', 'لافتة الشارع', 'لون المحل لوح بإطار رفيع جوّه، وخط Changa'], ['box', 'علبة الموبايل', 'أبيض وحبر وخطوط رفيعة، ولون المحل شريط واحد، وخط Vazirmatn']];
+  const fonts = [['auto', 'خط الطابع', SET.look === 'box' ? 'Vazirmatn مع علبة الموبايل' : 'Changa مع لافتة الشارع'], ['plex', 'IBM Plex Sans Arabic', 'واضح ومتوازن'], ['cairo', 'Cairo', 'مألوف وعريض شوية'], ['tajawal', 'Tajawal', 'خفيف وعصري'], ['readex', 'Readex Pro', 'أرقامه مقروءة جدًا']];
   const acc = SET.accent.toLowerCase();
   return `<div class="card"><h3>${icon('palette')} الشكل</h3>
+    <div class="s-row" style="align-items:flex-start"><div class="t"><b>الطابع</b><small>شكل الواجهة كلها. أماكن الحاجات والخطوات والاختصارات زي ما هي</small></div>
+      <div class="look-cards">${looks.map(([id, name, d]) => `<button type="button" class="look-card ${SET.look === id ? 'on' : ''}" data-act="setLookStyle" data-id="${id}" aria-pressed="${SET.look === id}"><span class="lk lk-${id}" aria-hidden="true"><i class="lk-rail"></i><i class="lk-a"></i><i class="lk-b"></i><i class="lk-pay"></i></span><b>${name}</b><small>${d}</small></button>`).join('')}</div></div>
     <div class="s-row"><div class="t"><b>الوضع</b><small>فاتح للنهار، وغامق للليل أو لو النور قوي على الشاشة</small></div><div class="seg">${themes.map(([id, ic, l]) => `<button type="button" class="${SET.theme === id ? 'on' : ''}" data-act="setTheme" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div></div>
     <div class="s-row"><div class="t"><b>اللون الأساسي</b><small>لون واحد للأزرار والتحديد — وألوان الحالة (أخضر وأصفر وأحمر) ثابتة</small></div>
       <div class="swatches">${ACCENTS.map((c) => `<button type="button" class="swatch ${acc === c ? 'on' : ''}" style="background:${c};color:${onAccent(c)}" data-act="setAccent" data-c="${c}" title="${c}">${acc === c ? icon('check') : ''}</button>`).join('')}
         <label class="color-in">${icon('palette')} لون تاني<input type="color" value="${esc(SET.accent)}" data-input="accent" data-change="accentDone" aria-label="لون مخصص"></label></div></div>
     <div class="s-row" style="align-items:flex-start"><div class="t"><b>الخط</b><small>كل الخطوط مجانية وشغالة من غير إنترنت</small></div>
-      <div class="font-cards">${fonts.map(([id, name, d]) => `<button type="button" class="font-card ${SET.font === id ? 'on' : ''}" data-act="setFont" data-id="${id}" style="font-family:'${name}'"><span class="fs">أهلاً بيك — ${money(9250)}</span><small>${name} · ${d}</small></button>`).join('')}</div></div>
+      <div class="font-cards">${fonts.map(([id, name, d]) => `<button type="button" class="font-card ${SET.font === id ? 'on' : ''}" data-act="setFont" data-id="${id}" style="font-family:${id === 'auto' ? 'var(--font-look)' : `'${name}'`}"><span class="fs">أهلاً بيك، ${money(9250)}</span><small>${name}: ${d}</small></button>`).join('')}</div></div>
     <div class="s-row"><div class="t"><b>حجم الكلام</b><small>«كبير» مريح لو الشاشة بعيدة شوية</small></div><div class="seg"><button type="button" class="${SET.scale === 'normal' ? 'on' : ''}" data-act="setScale" data-id="normal">عادي</button><button type="button" class="${SET.scale === 'large' ? 'on' : ''}" data-act="setScale" data-id="large">كبير</button></div></div>
     <div class="s-row"><div class="t"><b>شكل الأرقام</b><small>الـ IMEI وأرقام التليفونات بتفضل إنجليزي دايمًا عشان المطابقة</small></div><div class="seg"><button type="button" class="${SET.digits === 'latin' ? 'on' : ''}" data-act="setDigits" data-id="latin">123</button><button type="button" class="${SET.digits === 'arabic' ? 'on' : ''}" data-act="setDigits" data-id="arabic">١٢٣</button></div></div>
   </div>`;
@@ -426,6 +429,7 @@ Object.assign(ACT, {
   setTheme: (d) => setAndRender('theme', d.id),
   setAccent: (d) => setAndRender('accent', d.c),
   setFont: (d) => setAndRender('font', d.id),
+  setLookStyle: (d) => { if (LOOKS.includes(d.id)) setAndRender('look', d.id); },
   setScale: (d) => setAndRender('scale', d.id),
   setDigits: (d) => setAndRender('digits', d.id),
   setPaper: (d) => setAndRender('paper', d.id),
@@ -510,7 +514,7 @@ function salesScreen() {
       <div class="ph-card ph-total"><span class="muted">${own ? 'إجمالي المحل' : `مبيعات ${esc(me.name)}`}</span><b class="num big">${money(total)}</b>
         <div class="r"><span class="muted">${num(count)} فاتورة</span>${own ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح</span>` : ''}</div>
         ${own ? `<div class="r"><span class="muted">الربح (للمالك بس)</span><b class="num">${money(d.profit)}</b></div>` : ''}</div>
-      ${own ? `<div class="ph-card"><span class="muted" style="font-size:.78rem">مين باع كام</span>${DATA.users.map((u) => { const v = d.bySeller[u.id] || 0; return `<div class="seller-bar"><span class="nm">${esc(u.name)}</span><span class="bar-track"><i style="width:${Math.round((v / maxV) * 100)}%;background:${u.color}"></i></span><b class="num">${money(v)}</b></div>`; }).join('')}</div>` : ''}
+      ${own ? `<div class="ph-card"><span class="muted" style="font-size:.8rem">مين باع كام</span>${DATA.users.map((u) => { const v = d.bySeller[u.id] || 0; return `<div class="seller-bar"><span class="nm">${esc(u.name)}</span><span class="bar-track"><i style="width:${Math.round((v / maxV) * 100)}%;background:${u.color}"></i></span><b class="num">${money(v)}</b></div>`; }).join('')}</div>` : ''}
       <div class="ph-list">${recent.map((r) => `<div class="ph-sale ${r.fresh ? 'fresh' : ''}"><div class="r"><b class="num">فاتورة ${dg(r.no)}</b><b class="num">${money(r.total)}</b></div><div class="r muted"><span>${dg(r.at)} · ${esc(r.seller)}</span>${r.fresh ? '<span class="tag accent">جديدة</span>' : `<span>${esc(r.method)}</span>`}</div></div>`).join('') || '<div class="muted" style="font-size:.85rem;text-align:center">لسه مفيش مبيعات</div>'}</div>
     </div>`;
 }
@@ -521,8 +525,8 @@ function scanScreen() {
       <div class="viewfinder"><div class="box-art"></div><div class="scan-frame"><div class="scan-line"></div></div><span class="vf-cap">وجّه الكاميرا على باركود الـ IMEI</span></div>
       <button type="button" class="btn primary block" data-act="mScan">${icon('scan-barcode')} امسح علبة موبايل</button>
       <button type="button" class="btn block" data-act="mScanAcc">${icon('scan-line')} امسح باركود إكسسوار</button>
-      ${last ? `<div class="ph-card"><div class="r"><b><bdi dir="rtl">${esc(last.name)}</bdi></b><span class="ok-t">${icon('circle-check')}</span></div>${last.imei ? `<div class="muted" style="font-size:.78rem">IMEI ${imeiHTML(last.imei)}</div>` : ''}<div class="muted" style="font-size:.78rem">اتبعت لشاشة البيع</div></div>` : ''}
-      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.78rem">${num(t.count)} قطعة</div></div>
+      ${last ? `<div class="ph-card"><div class="r"><b><bdi dir="rtl">${esc(last.name)}</bdi></b><span class="ok-t">${icon('circle-check')}</span></div>${last.imei ? `<div class="muted" style="font-size:.8rem">IMEI ${imeiHTML(last.imei)}</div>` : ''}<div class="muted" style="font-size:.8rem">اتبعت لشاشة البيع</div></div>` : ''}
+      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.8rem">${num(t.count)} قطعة</div></div>
     </div>`;
 }
 function lookupScreen() {
@@ -533,8 +537,8 @@ function lookupScreen() {
       const st = stockOf(p), colors = p.serial ? [...new Set(unitsFree(p.id).map((u) => u.color).filter(Boolean))] : [], img = prodImg(p);
       return `<div class="ph-card"><div class="ph-prod">${img ? `<img class="ph-thumb" src="${img}" alt="">` : ''}<b><bdi dir="rtl">${esc(p.name)}</bdi></b></div>
         <div class="r"><span class="num" style="font-size:1.2rem;font-weight:700">${money(p.price)}</span><span class="tag ${st <= 0 ? 'danger' : st <= p.min ? 'warn' : 'ok'}">${st <= 0 ? 'خلصان' : `متاح ${num(st)}`}</span></div>
-        ${colors.length ? `<div class="muted" style="font-size:.78rem">الألوان: ${colors.map(esc).join('، ')}</div>` : ''}
-        ${isOwner() ? `<div class="muted" style="font-size:.78rem">التكلفة (للمالك): ${money(p.cost)}</div>` : ''}</div>`;
+        ${colors.length ? `<div class="muted" style="font-size:.8rem">الألوان: ${colors.map(esc).join('، ')}</div>` : ''}
+        ${isOwner() ? `<div class="muted" style="font-size:.8rem">التكلفة (للمالك): ${money(p.cost)}</div>` : ''}</div>`;
     }).join('') : '<div class="muted" style="text-align:center;padding:20px 0">اكتب اسم الصنف</div>'}
   </div>`;
 }
@@ -546,7 +550,7 @@ function recvScreen() {
   if (byQty) {
     return `${head}
     <div class="ph-card"><div class="r"><b>العدد</b><div class="qty"><button type="button" data-act="mRecvQty" data-d="1" title="زوّد">${icon('plus')}</button><span class="num">${num(M.recvQty)}</span><button type="button" data-act="mRecvQty" data-d="-1" title="قلّل">${icon('minus')}</button></div></div>
-      <div class="muted" style="font-size:.78rem">الأجهزة بتدخل المخزون من غير IMEI — ولو حبيت تسجّله، بيتسجّل وقت البيع</div></div>
+      <div class="muted" style="font-size:.8rem">الأجهزة بتدخل المخزون من غير IMEI — ولو حبيت تسجّله، بيتسجّل وقت البيع</div></div>
     <button type="button" class="btn primary block" data-act="mRecvSaveQty">${icon('save')} حفظ الاستلام</button>
   </div>`;
   }

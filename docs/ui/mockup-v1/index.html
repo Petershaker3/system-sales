@@ -1,14 +1,16 @@
 <!doctype html>
-<html lang="ar" dir="rtl" data-theme="light" data-font="plex" data-scale="normal">
+<html lang="ar" dir="rtl" data-theme="light" data-look="plate" data-font="auto" data-scale="normal">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>موبايل ستور — نموذج الواجهة</title>
 <script>
-  /* قبل الرسم: الوضع والخط والحجم واللون من الإعدادات المحفوظة — عشان مفيش وميض */
+  /* قبل الرسم: الطابع والوضع والخط والحجم واللون من الإعدادات المحفوظة، عشان مفيش وميض */
   (function () {
     try {
       var s = JSON.parse(localStorage.getItem('mshop.mockup.settings.v1') || '{}'), r = document.documentElement;
+      if (!('look' in s)) { if (s.font === 'plex') delete s.font; if (String(s.accent || '').toLowerCase() === '#2563eb') delete s.accent; }
+      if (s.look === 'plate' || s.look === 'box') r.dataset.look = s.look;
       r.dataset.theme = s.theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : (s.theme || 'light');
       if (s.font) r.dataset.font = s.font;
       if (s.scale) r.dataset.scale = s.scale;
