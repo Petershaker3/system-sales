@@ -424,6 +424,20 @@ await p.evaluate(() => document.querySelector('[data-act="toggleTheme"]').click(
 await shot('33-pos-box-dark'); await checkOverflow('pos-box-dark');
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').click()); await sleep(200);
 await shot('34-dashboard-box-dark'); await checkOverflow('dashboard-box-dark');
+// 24b) العلبة بحجم كلام كبير على 1366 (أضيق حالة)
+await p.evaluate(() => { SET.theme = 'light'; SET.scale = 'large'; applySettings(); render(); }); await sleep(200);
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);
+await shot('35-pos-box-large'); await checkOverflow('pos-box-large');
+await key('F12'); await checkOverflow('pay-box-large'); await key('Escape');
+await p.evaluate(() => ACT.resetSettings()); await sleep(100);
+// 24c) التركيز باين على لوح «لافتة الشارع» (≥ 3:1 قدام لون اللوح)
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(100);
+await p.focus('.rail .nav-btn[data-v="repairs"]'); await p.keyboard.press('Shift'); await sleep(80);
+const fr = await p.evaluate(() => { const el = document.activeElement, cs = getComputedStyle(el); return { vis: el.matches(':focus-visible'), oc: cs.outlineColor, ow: parseFloat(cs.outlineWidth), st: cs.outlineStyle, rail: getComputedStyle(document.querySelector('.rail')).backgroundColor }; });
+const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+const cr = (a, b) => { const x = lum(rgb(a)), y = lum(rgb(b)); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+ok(fr.vis && fr.st !== 'none' && fr.ow >= 2 && cr(fr.oc, fr.rail) >= 3, `keyboard focus ring is visible on the plate rail (${cr(fr.oc, fr.rail).toFixed(1)}:1)`);
 await p.evaluate(() => ACT.resetSettings()); await sleep(100);
 // 25) إعدادات من قبل الطابعين: اللون والخط الافتراضيين القدام بيتغيروا، واللي المالك اختاره بيفضل
 await p.evaluate(() => localStorage.setItem('mshop.mockup.settings.v1', JSON.stringify({ shopName: 'محل قديم', font: 'plex', accent: '#2563eb', theme: 'light' })));

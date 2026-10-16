@@ -1,6 +1,6 @@
 <div dir="rtl">
 
-# نموذج واجهة «موبايل ستور» — النسخة 1.2
+# نموذج واجهة «موبايل ستور» — النسخة 1.3
 
 نموذج **للتصميم بس** (HTML + JavaScript من غير مكتبات) عشان نتفق على الشكل والطريقة قبل كتابة البرنامج الحقيقي.
 البيانات تجريبية، ومفيش قاعدة بيانات: الإعدادات والصور بتتحفظ في المتصفح، والمبيعات بتتمسح لما تعمل تحديث للصفحة.
@@ -29,6 +29,20 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 
 **أرقام سرية للتجربة:** بيتر (المالك) `1111` · يوسف (بيّاع) `2222` · مارينا (بيّاع) `3333`
 
+## الجديد في 1.3 (الشكل — 16 أكتوبر 2026)
+
+طلبك: «الواجهة تبقى كأنها مش معمولة بـ AI، وتبقى أجمل» — بالمهارات المناسبة وعلى مراحل ومراجعة بعد كل مرحلة. التفاصيل والمراجعات: [`docs/ui/REDESIGN.md`](../REDESIGN.md)، ونظام الشكل: [`DESIGN.md`](../../../DESIGN.md).
+
+| طلبك | اللي اتعمل |
+|---|---|
+| «في الإعدادات اعمل واختار بينهم» | **الإعدادات ← الشكل ← الطابع**: «لافتة الشارع» (لون المحل لوح بإطار رفيع جوّه، وخط Changa) أو «علبة الموبايل» (أبيض وحبر وخطوط رفيعة، وشريط بلون المحل، والـ IMEI ستيكر، وخط Vazirmatn). الاتنين فاتح وغامق. |
+| «اللوجو والألوان هختارها من الإعدادات» | أي لون تختاره (الجاهز أو «لون تاني») الكلام عليه وبلونه بيتظبط لوحده عشان يفضل مقروء. ولو اللوجو بنفس لون المحل بيتحط في إطار فاتح. |
+| «الشكل بس» | الأماكن والخطوات والاختصارات زي ما هي بالظبط. |
+| «مش زحمة ومش ممل» | لون واحد قوي في أماكن محددة، والباقي هادي؛ الشخصية من الخط والعلامة المميزة. |
+| علامات الـ AI | اتشالت: الأزرق الافتراضي، والظلال تحت كل كارت، وتدوير كل حاجة بنفس الدرجة، والإطار الملوّن على جنب، والتوهّج، والأيقونة قبل كل عنوان، والكلام المتوصل بـ«·» و«—». كاشف `impeccable`: **صفر** في كل الشاشات (كان 323). |
+
+**وكمان:** مكان QR الإيصال الإلكتروني بقى مقفول افتراضيًا (مفتاحه في الإعدادات ← الإيصال)، ورسالة استلام جهاز الصيانة بقت «اتبعت على واتساب» بدل «بيطبع».
+
 ## الجديد في 1.2 (قرارات الجولة التانية — 16 أكتوبر 2026)
 
 | قرارك | اللي اتعمل في النموذج |
@@ -38,7 +52,7 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 | «واتساب حاليًا فقط» | مفيش طابعة: الإيصال **واتساب** (صورة الإيصال + الرسالة)، وفي شاشة الدفع الاختيار «واتساب» أو «بدون». الفاتورة على عميل ← واتساب على رقمه لوحده. من غير عميل (إكسسوار سريع) ← «بدون» عشان ما نطلبش رقم في كل بيعة، وتقدر تختار واتساب وتكتب الرقم. وبعد الدفع لو العميل طلب الإيصال: «ابعت الإيصال واتساب» واكتب رقمه. فوق مكتوب «الإيصال: واتساب». ولما تجيب طابعة: **الإعدادات ← الأجهزة والطابعة ← عندي طابعة إيصالات**. |
 | «العمولة تتكتب في كل عملية لأنها مش ثابتة، أو تتظبط في الإعدادات» | في الخدمات (F9) خانة **«العمولة»** فاضية: البيّاع بيكتب اللي اتفق عليه (ولو مفيش يكتب 0)، والإجمالي بيتحسب قدامه، ولو نسيها البرنامج بيرجّعه عليها. نفس الكلام لرسوم الفواتير. ولو حبيت: **الإعدادات ← المحافظ والدفع ← العمولة والرسوم ← «محسوبة تلقائي»** (نسبة + أقل عمولة + رسوم الفواتير)، والبيّاع يقدر يغيّرها في العملية. |
 | «الضمان وآخر الإيصال يتظبطوا من الإعدادات» | موجودين في **الإعدادات ← الإيصال والضمان**: شهور ضمان الجديد والمستعمل، والجملة اللي في آخر الإيصال، ورسالة الواتساب. |
-| «انتظار» بدل «تعليق» | زرار **«انتظار F8»** وشريط الاختصارات وتبويب الفاتورة («انتظار · المبلغ») والرسايل. «آجل» و«بيّاع» زي ما هم. |
+| «انتظار» بدل «تعليق» | زرار **«انتظار F8»** وشريط الاختصارات وتبويب الفاتورة («انتظار» والمبلغ جنبها) والرسايل. «آجل» و«بيّاع» زي ما هم. |
 
 ## الجديد في 1.1 (من ملاحظات المالك — 16 أكتوبر 2026)
 
@@ -67,15 +81,15 @@ It is **not** product code: no persistence of sales, mock data only, no security
 | File | Contents |
 |---|---|
 | `index.html` | Pre-paint theme script; loads `icons.js → data.js → app.js → pos.js → views.js` (order matters, plain scripts). |
-| `styles.css` | Design tokens (light/dark), `html[data-theme|data-font|data-scale]`, all components. |
-| `fonts.css`, `fonts/` | 30 woff2 files (IBM Plex Sans Arabic, Cairo, Readex Pro, Tajawal; arabic + latin subsets). Licenses: `fonts/LICENSES.txt` (SIL OFL 1.1). |
+| `styles.css` | Design tokens per look × theme (`html[data-look="plate"|"box"][data-theme]`, plus `data-font|data-scale`), all components, look-specific signature rules at the end. See [`DESIGN.md`](../../../DESIGN.md). |
+| `fonts.css`, `fonts/` | 48 woff2 files (Changa and Vazirmatn = the looks' fonts; IBM Plex Sans Arabic, Cairo, Readex Pro, Tajawal as options; arabic + latin subsets). Licenses: `fonts/LICENSES.txt` (SIL OFL 1.1). |
 | `icons.js` | 133 Lucide icons (ISC), inlined as SVG bodies. |
 | `data.js` | Mock data (seeded PRNG → stable Luhn-valid IMEIs). Category tree (`parent`), phones with `stock` = IMEI units + units received without IMEI. |
 | `app.js` | Helpers, settings (`localStorage: mshop.mockup.settings.v1`), product images (`mshop.mockup.images.v1`), state `S`, render loop, rail/topbar, **user switcher**, delegated events (`data-act` / `data-input` / `data-change`). |
 | `pos.js` | Search (Arabic normalisation, transliterated keywords, last-4 IMEI, SKU), categories bar, cart/invoices/hold, optional-IMEI logic, keyboard map, modals: IMEI, customer, qty, discount (owner PIN over limit), pay (split / credit / instalments / receipt), done + receipt, services (wallets, recharge cards, bills), shift close. |
 | `views.js` | Reports, repairs board + intake, inventory (+ product images), settings (8 tabs incl. *الأصناف والبيع*), lock screen, mobile preview (live today's sales, scanner, lookup, receiving by IMEI or quantity). Startup at the end. |
-| `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 950 KB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
-| `screens/` | Reference screenshots (1366×768). |
+| `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 1.3 MB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
+| `screens/` | Reference screenshots (1366×768), both looks; made by `tools/final.mjs` from the mockup itself (no generated imagery). |
 | `tools/` | Build + QA tooling (below). `node_modules/` is git-ignored. |
 
 ### Key behaviours to carry into the real app
@@ -110,7 +124,9 @@ npm install                 # fonts, icons, puppeteer-core, @sparticuz/chromium 
 node build-assets.mjs ..    # regenerate fonts/, fonts.css, icons.js (offline)
 python3 serve.py --bind 0.0.0.0 --port 4173 --directory ..   # preview server: always 200, no-store, CORS *
 node smoke.mjs              # title / tiles / focus / console errors
-node qa.mjs                 # 92 behaviour checks + layout-overflow detection (1366, 1920, large text, dark); shots → /tmp/shots
+node qa.mjs                 # 99 behaviour checks + layout-overflow detection (1366, 1920, large text, dark, both looks); shots → /tmp/shots
+node snapshots.mjs          # static snapshots: 17 screens × 2 looks × 2 themes → /tmp/snap
+sh detect-snapshots.sh      # impeccable design detector over the snapshots (needs IMPECCABLE + IMPECCABLE_BROWSER)
 node final.mjs              # regenerate screens/
 node build-offline.mjs      # rebuild ../mockup-offline.html after ANY change to the mockup sources
 node offline-check.mjs      # file:// check: zero network requests, Arabic fonts loaded, no console errors
@@ -118,4 +134,5 @@ MOCKUP_URL="file://$(cd .. && pwd)/mockup-offline.html" node qa.mjs   # full QA 
 ```
 
 `launch.mjs` unpacks Chromium's shared libs + fonts to `/tmp/al2023x` on first run (needed on minimal Linux sandboxes).
-Last QA run: **92 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.2).
+Last QA run: **99 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.3).
+Last detector run (`impeccable` 0.1.15): **0 findings** on 68 snapshots.

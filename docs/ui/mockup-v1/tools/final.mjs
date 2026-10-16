@@ -40,6 +40,22 @@ await snap('05-inventory.png');
 // 6) التقارير غامق
 await p.evaluate(() => { SET.theme = 'dark'; applySettings(); S.view = 'dashboard'; render(); });
 await snap('06-dashboard-dark.png');
+// 7–10) الطابعين (docs/ui/REDESIGN.md): نفس الفاتورة في «علبة الموبايل» فاتح وغامق، و«لافتة الشارع» غامق، واختيار الطابع من الإعدادات
+const cartFor = async (look, theme) => {
+  await p.evaluate(() => localStorage.clear()); await p.reload({ waitUntil: 'networkidle0' });
+  await p.evaluate((lk, th) => {
+    SET.look = lk; SET.theme = th; applySettings(); S._imeiHint = true;
+    addPhone(prod('p4')); S.sel = -1; addUnit(DATA.units.find((u) => u.pid === 'p1' && u.status === 'in'));
+    const s = prod('a2'); addItem(s); addItem(s); addItem(prod('a15'));
+    cur().customer = DATA.customers[0]; S.sel = 0; S.cat = 'acc'; render();
+  }, look, theme);
+  await p.focus('#q'); await p.evaluate(() => { document.querySelector('.lines').scrollTop = 0; });
+};
+await cartFor('box', 'light'); await snap('07-pos-box.png');
+await cartFor('box', 'dark'); await snap('08-pos-box-dark.png');
+await cartFor('plate', 'dark'); await snap('09-pos-plate-dark.png');
+await p.evaluate(() => { SET.theme = 'light'; applySettings(); S.view = 'settings'; S.settingsTab = 'look'; render(); });
+await snap('10-settings-look.png');
 await p.evaluate(() => localStorage.clear());
 console.log('screens:', fs.readdirSync(OUT).join(', '));
 console.log('screens ERRORS:', errs.length ? errs.join(' | ') : 'none');

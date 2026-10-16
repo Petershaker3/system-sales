@@ -48,14 +48,15 @@ Built around how an Egyptian phone shop actually works, in its own language: pho
 
 ## Brand Commitments
 
-- The shop has a logo / signboard; the owner will send it, and the palette should come from it (owner, 2026-10-16). **Pending asset.**
+- The owner picks the logo and the colours himself in settings (owner, 2026-10-16: «بالنسبة للوجو والألوان هختارها من الإعدادات»). Every look must work with any colour he picks.
+- Two visual looks, switchable in settings: «لافتة الشارع» and «علبة الموبايل» (owner, 2026-10-16). The visual system is in [`DESIGN.md`](DESIGN.md).
 - The visual result must be neither crowded with colour nor dull (owner, 2026-10-16).
 - Voice: Egyptian colloquial Arabic — short, plain verbs.
 
 ## Evidence on Hand
 
 - Mockup v1.2 in `docs/ui/mockup-v1/` — the incumbent look (evidence, not authority, for the redesign).
-- All products, customers, wallets and numbers in the mockup are demo data. No real shop data and no real product photos; the logo is pending. Do not invent shop facts.
+- All products, customers, wallets and numbers in the mockup are demo data. No real shop data and no real product photos; the logo comes from settings. Do not invent shop facts.
 
 ## Product Principles
 
