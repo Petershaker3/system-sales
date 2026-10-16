@@ -452,7 +452,7 @@ html[data-look="plate"][data-theme="dark"] {
   --border-strong: color-mix(in srgb, var(--accent) 15%, #3c434c);
   --text: color-mix(in srgb, var(--accent) 5%, #edf0f3);
   --text-2: color-mix(in srgb, var(--accent) 6%, #c8cfd7);
-  --muted: color-mix(in srgb, var(--accent) 6%, #9aa3ad);
+  --muted: color-mix(in srgb, var(--accent) 6%, #a6afb9);
   --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
   color-scheme: dark;
@@ -469,7 +469,7 @@ html[data-look="box"] {
 html[data-look="box"][data-theme="dark"] {
   --bg: #151618; --surface: #1d1e20; --surface-2: #222426; --surface-3: #2a2c2f;
   --border: #35373b; --border-strong: #4b4e53;
-  --text: #f0f0ef; --text-2: #cfd0d2; --muted: #a1a4a9;
+  --text: #f0f0ef; --text-2: #cfd0d2; --muted: #abaeb3;
   --ink-line: #e9e9e6; --sticker-bg: #ecebe6; --sticker-ink: #18191b;
   --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
@@ -567,7 +567,7 @@ input, textarea { caret-color: var(--accent-text); }
 .sw-menu {
   position: absolute; top: calc(100% + 8px); inset-inline-end: 0; width: 276px; z-index: 40;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); padding: 8px;
-  box-shadow: 0 18px 44px rgba(15, 23, 42, .22); animation: tin .14s ease-out;
+  box-shadow: var(--shadow); animation: tin .14s ease-out;
 }
 .sw-cur, .sw-item, .sw-pin-h { display: flex; align-items: center; gap: 10px; }
 .sw-cur { padding: 6px 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
@@ -605,7 +605,8 @@ input, textarea { caret-color: var(--accent-text); }
 .btn.lg { height: 52px; font-size: 1.05rem; }
 .btn.block { width: 100%; }
 .btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
-.btn.primary kbd, .btn.danger-solid kbd { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .35); color: inherit; }
+.btn.primary kbd { background: color-mix(in srgb, var(--on-accent) 14%, transparent); border-color: color-mix(in srgb, var(--on-accent) 45%, transparent); color: inherit; }
+.btn.danger-solid kbd { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .45); color: inherit; }
 .icon-btn {
   width: 40px; height: 40px; display: inline-grid; place-items: center; border-radius: var(--r-s); border: 1px solid var(--border);
   background: var(--surface); color: var(--text-2); flex: none; padding: 0;
@@ -703,7 +704,7 @@ input[dir="ltr"] { text-align: left; }
 .svc-btn { height: auto; min-height: 54px; padding: 0 18px; font-size: 1rem; border-radius: var(--r-m); }
 .results {
   position: absolute; top: calc(100% + 6px); inset-inline: 0; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-m); box-shadow: 0 14px 40px rgba(15, 23, 42, .18); z-index: 20; max-height: 430px; overflow: auto; padding: 6px;
+  border-radius: var(--r-m); box-shadow: var(--shadow); z-index: 20; max-height: 430px; overflow: auto; padding: 6px;
 }
 .result { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-m); cursor: pointer; min-width: 0; }
 .result:hover, .result.on { background: var(--accent-weak); }
@@ -804,16 +805,16 @@ kbd .kbd-ar { display: inline-flex; gap: 1px; vertical-align: -2px; }
 kbd .kbd-ar svg.i { width: 12px; height: 12px; }
 
 /* ===== النوافذ ===== */
-.overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: grid; place-items: center; z-index: 100; padding: 20px; }
+.overlay { position: fixed; inset: 0; background: rgba(12, 14, 18, .5); display: grid; place-items: center; z-index: 100; padding: 20px; }
 .modal {
-  background: var(--surface); border-radius: var(--r-l); box-shadow: 0 24px 60px rgba(15, 23, 42, .3); width: 620px; max-width: 100%;
+  background: var(--surface); border-radius: var(--r-l); box-shadow: var(--shadow); width: 620px; max-width: 100%;
   max-height: calc(100vh - 40px); display: flex; flex-direction: column; min-height: 0; animation: tin .14s ease-out;
 }
 .modal.sm { width: 440px; }
 .modal.md { width: 640px; }
 .modal.wide { width: 1000px; }
 .modal-h { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); flex: none; }
-.modal-h h2, .modal-h h3 { margin: 0; font-size: 1.2rem; line-height: 1.3; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.modal-h h2, .modal-h h3 { margin: 0; font-size: 1.2rem; line-height: 1.3; display: grid; gap: 1px; flex: 1; min-width: 0; }
 .modal-h h2 .mt, .modal-h h3 .mt { min-width: 0; overflow-wrap: anywhere; }
 .modal-h h2 small, .modal-h h3 small { color: var(--muted); font-weight: 500; font-size: .82rem; overflow-wrap: anywhere; }
 .modal-b { padding: 16px 18px; overflow: auto; min-height: 0; flex: 1; }
@@ -1076,17 +1077,19 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 
 /* ===== رسائل التنبيه ===== */
 #toasts { position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
-body.has-modal #toasts { bottom: auto; top: 14px; }
+/* والنافذة مفتوحة: الرسايل فوق على جنب، عشان ما تغطيش كلام النافذة */
+body.has-modal #toasts { bottom: auto; top: 14px; left: auto; transform: none; inset-inline-start: 16px; align-items: flex-start; max-width: 340px; }
+body.has-modal .toast { max-width: 340px; }
 .toast {
-  background: #0f172a; color: #fff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: 0 10px 30px rgba(15, 23, 42, .3);
+  background: #1b1d21; color: #ffffff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: var(--shadow);
   display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: .9rem; max-width: 440px; animation: tin .18s ease-out; transition: opacity .3s, transform .3s;
 }
-.toast svg.i { color: #4ade80; }
-.toast.err { background: #991b1b; }
+.toast svg.i { color: #5ad19a; }
+.toast.err { background: #8f1d14; }
 .toast.err svg.i { color: #fecaca; }
-.toast.info svg.i { color: #93c5fd; }
-html[data-theme="dark"] .toast { background: #1f2b47; border: 1px solid #33446a; }
-html[data-theme="dark"] .toast.err { background: #7f1d1d; }
+.toast.info svg.i { color: #9cc2ff; }
+html[data-theme="dark"] .toast { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
+html[data-theme="dark"] .toast.err { background: #7a1a12; color: #ffffff; border-color: #a3291e; }
 .toast.out { opacity: 0; transform: translateY(6px); }
 @keyframes tin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -1103,6 +1106,53 @@ html[data-scale="large"] .cart-actions .btn:not(.btn-pay) kbd { display: none; }
   .settings, .pay, .done-wrap, .shift, .intake, .preview-pair { grid-template-columns: minmax(0, 1fr); }
   .s-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* ===== شاشة البيع في الطابعين (المرحلة 2 — docs/ui/REDESIGN.md) ===== */
+/* الشريط العلوي: اسم المحل والحالة كلام هادي بفواصل رفيعة، مش حبّايات */
+.topbar .shop { padding-inline-start: 12px; border-inline-start: 1px solid var(--border); line-height: 1.2; }
+.status { background: transparent; border: 0; border-radius: 0; padding: 2px 12px; border-inline-start: 1px solid var(--border); color: var(--text-2); }
+.status svg.i { color: var(--muted); }
+/* الأصناف: مربعات مسطحة، والأيقونة صغيرة وهادية من غير مربع ملوّن */
+.tile .ico:not(.img) { width: 22px; height: 22px; background: transparent; color: var(--muted); }
+.tile .ico:not(.img) svg.i { width: 20px; height: 20px; }
+.result .ico:not(.img) { background: var(--surface-3); color: var(--text-2); }
+.tile .price { font-size: 1.07rem; }
+/* الفاتورة: سطور بفواصل رفيعة بدل كروت، والتفاصيل كلام هادي — الـ IMEI بس اللي في إطار */
+.lines { padding: 2px 12px; }
+.line { border: 0; border-radius: 0; border-bottom: 1px solid var(--border); margin: 0; padding: 10px 6px; }
+.line.sel { background: var(--accent-weak); border-bottom-color: var(--border); }
+.line .meta { gap: 4px 10px; }
+.line .meta .tag:not(.imei-tag):not(.imei-add):not(.warn) { background: transparent; padding: 0; color: var(--muted); font-weight: 500; }
+.line .meta .tag.ok { color: var(--ok); }
+.imei-tag .k { font-size: .72em; font-weight: 700; opacity: .8; }
+.inv-tab .ta { color: var(--muted); font-weight: 500; margin-inline-start: 4px; }
+.inv-tab.on .ta { color: inherit; }
+.cust-row .cb { margin-inline-start: 8px; color: var(--warn); font-weight: 600; }
+.totals .grand { font-size: 1.8rem; }
+
+/* «لافتة الشارع»: الشريط الجانبي لوح بلون المحل بإطار رفيع جوّه، وزرار الدفع لوح تاني */
+html[data-look="plate"] .rail { background: var(--accent-fill); border-inline-end: 0; position: relative; }
+html[data-look="plate"] .rail::after, html[data-look="plate"] .btn-pay::after {
+  content: ''; position: absolute; inset: 5px; border: 1.5px solid color-mix(in srgb, var(--on-accent) 55%, transparent);
+  border-radius: var(--r-xs); pointer-events: none;
+}
+html[data-look="plate"] .nav-btn { width: 64px; color: var(--on-accent); }
+html[data-look="plate"] .nav-btn:hover { background: color-mix(in srgb, var(--on-accent) 14%, transparent); color: var(--on-accent); }
+html[data-look="plate"] .nav-btn.active { background: var(--surface); color: var(--accent-text); }
+html[data-look="plate"] .nav-btn .lock-badge { background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
+/* اللوجو على اللوح في إطار فاتح: لو لونه زي لون المحل ما يختفيش */
+html[data-look="plate"] .rail .logo { background: var(--surface); color: var(--accent-text); width: 46px; height: 46px; }
+html[data-look="plate"] .btn-pay { position: relative; }
+html[data-look="plate"] .btn-pay:disabled::after { display: none; }
+
+/* «علبة الموبايل»: شريط بلون المحل فوق الشاشة، والباقي أبيض وحبر، والـ IMEI ستيكر */
+html[data-look="box"] body::before { content: ''; position: fixed; inset: 0 0 auto 0; height: 4px; background: var(--accent-fill); z-index: 60; pointer-events: none; }
+html[data-look="box"] .nav-btn.active { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--ink-line); }
+html[data-look="box"] .nav-btn.active svg.i { color: var(--accent-text); }
+html[data-look="box"] .imei-tag { background: var(--sticker-bg); color: var(--sticker-ink); border: 1px solid var(--sticker-ink); border-radius: var(--r-xs); padding: 1px 6px; font-weight: 600; }
+html[data-look="box"] .imei-tag svg.i { color: var(--sticker-ink); }
+html[data-look="box"] .inv-tab.on { background: var(--surface); color: var(--text); border-color: var(--ink-line); }
+html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 
 </style>
 </head>
@@ -1477,7 +1527,9 @@ const DEFAULTS = {
   shopName: 'موبايل ستور', phone: '01000000000', address: '12 شارع شبرا، القاهرة', logo: '',
   // الطابع: «plate» = لافتة الشارع · «box» = علبة الموبايل (docs/ui/REDESIGN.md). الخط «auto» = خط الطابع
   theme: 'light', look: 'plate', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin',
-  paper: '80', footer: 'شكرًا لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة', showQR: true, receiptMode: 'wa',
+  paper: '80', footer: 'شكرًا لزيارتكم. الاستبدال خلال 14 يوم بالفاتورة والعلبة.', receiptMode: 'wa',
+  // مكان QR الإيصال الإلكتروني: مقفول (المالك: «تجاهل موضوع المحاسب»)، والمفتاح فاضل في الإعدادات ← الإيصال
+  showQR: false,
   waTemplate: 'أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.',
   warrantyNew: 12, warrantyUsed: 1, feePct: 1, feeMin: 5, billFee: 5, discountLimit: 5,
   // العمولة: «manual» = البيّاع بيكتبها في كل عملية لأنها مش ثابتة · «auto» = بتتحسب من النسبة والحد الأدنى وتفضل قابلة للتعديل
@@ -1511,6 +1563,7 @@ function loadSettings() {
   if (!('look' in saved)) {
     if (saved.font === 'plex') delete saved.font;
     if (String(saved.accent || '').toLowerCase() === '#2563eb') delete saved.accent;
+    if (saved.showQR === true) delete saved.showQR;
   }
   return {
     ...DEFAULTS, ...saved,
@@ -1522,7 +1575,7 @@ function loadSettings() {
 }
 let SET = loadSettings();
 function saveSettings() {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SET)); return true; } catch { toast('مساحة التخزين مش كفاية — جرّب لوجو أصغر', 'err'); return false; }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SET)); return true; } catch { toast('مساحة التخزين مش كفاية. جرّب لوجو أصغر', 'err'); return false; }
 }
 /* ===== الإيصال: واتساب بس دلوقتي — الطباعة بترجع لما تتفعّل الطابعة من الإعدادات ===== */
 const hasPrinter = () => SET.printer === true;
@@ -1564,9 +1617,12 @@ function accentTokens(hex, dark) {
   // لون المحل ككلام: مقروء على كل الأسطح. والتظليل بيتعمل منه (مش من اللون الخام) عشان يبان حتى لو اللون فاتح جدًا أو غامق جدًا
   const toward = dark ? WHITE : BLACK;
   let text = fitOn(a, grounds, toward);
-  const weak = mixRgb(grounds[1], text, dark ? 0.22 : 0.12);
+  const weak = mixRgb(grounds[1], text, dark ? 0.18 : 0.12);
   if (ratio(text, weak) < 4.5) text = fitOn(text, [...grounds, weak], toward);
-  return { '--accent-fill': hexOf(fill), '--on-accent': hexOf(on), '--accent-text': hexOf(text), '--accent-weak': hexOf(weak) };
+  // الكلام الباهت كمان: لون المحل الفاتح بيفتّح الأسطح والتظليل في الغامق، فبنظبطه من قيمة الطابع الأصلية
+  document.documentElement.style.removeProperty('--muted');
+  const muted = fitOn(cssColor('--muted'), [...grounds, weak], toward);
+  return { '--accent-fill': hexOf(fill), '--on-accent': hexOf(on), '--accent-text': hexOf(text), '--accent-weak': hexOf(weak), '--muted': hexOf(muted) };
 }
 function applySettings() {
   const r = document.documentElement;
@@ -1693,7 +1749,8 @@ function closeModal() {
   S.modal = null; render(); focusSearch();
 }
 function modalHTML() { const def = MODALS[S.modal.type]; return def ? `<div class="overlay" data-act="overlay">${def.html(S.modal)}</div>` : ''; }
-const modalHead = (ic, title, sub = '') => `<div class="modal-h"><h3>${icon(ic)} <span class="mt">${title}</span>${sub ? ` <small>${sub}</small>` : ''}</h3><button type="button" class="icon-btn sm" data-act="closeModal" title="إغلاق (Esc)">${icon('x')}</button></div>`;
+// عنوان النافذة: h2 من غير أيقونة قبل العنوان، والتفصيلة سطر صغير تحته
+const modalHead = (title, sub = '') => `<div class="modal-h"><h2><span class="mt">${title}</span>${sub ? `<small>${sub}</small>` : ''}</h2><button type="button" class="icon-btn sm" data-act="closeModal" title="إغلاق (Esc)">${icon('x')}</button></div>`;
 
 /* ===== الهيكل: الشريط الجانبي والعلوي ===== */
 const NAV = [
@@ -1714,7 +1771,7 @@ function rail() {
     ${logoHTML()}
     ${NAV.map((n) => {
       const locked = n.owner && !isOwner();
-      return `<button type="button" class="nav-btn ${S.view === n.id ? 'active' : ''}" data-act="nav" data-v="${n.id}" title="${n.label}${locked ? ' — للمالك بس' : ''}">${icon(n.icon)}<span>${n.label}</span>${locked ? `<span class="lock-badge">${icon('lock')}</span>` : ''}</button>`;
+      return `<button type="button" class="nav-btn ${S.view === n.id ? 'active' : ''}" data-act="nav" data-v="${n.id}" title="${n.label}${locked ? ' (للمالك بس)' : ''}">${icon(n.icon)}<span>${n.label}</span>${locked ? `<span class="lock-badge">${icon('lock')}</span>` : ''}</button>`;
     }).join('')}
     <div class="sp"></div>
     <button type="button" class="nav-btn" data-act="toggleTheme" title="فاتح / غامق">${icon(dark ? 'sun' : 'moon')}<span>${dark ? 'فاتح' : 'غامق'}</span></button>
@@ -1724,10 +1781,10 @@ function rail() {
 function topbar() {
   const u = S.user;
   return `<header class="topbar">
-    <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">· ${esc(SET.shopName)}</span>
+    <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">${esc(SET.shopName)}</span>
     <div class="sp"></div>
-    <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة · من ${dg(DATA.shift.opened)}</span>
-    ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة — الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
+    <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة من ${dg(DATA.shift.opened)}</span>
+    ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة. الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
     <span class="status hide-sm" title="الموبايلات المتصلة بشبكة المحل"><span class="dot"></span>${icon('smartphone')} ${num(DATA.devices.filter((d) => d.online).length)} موبايل متصل</span>
     <span class="status num" id="clock">${fmtTime()}</span>
     <button type="button" class="btn sm" data-act="shiftClose">${icon('calculator')} تقفيل الوردية</button>
@@ -1744,7 +1801,7 @@ function swMenuHTML() {
   if (!sw.user) {
     const others = DATA.users.filter((x) => x.id !== me.id);
     return `<div class="sw-menu" role="menu" aria-label="تبديل البيّاع">
-      <div class="sw-cur">${avatar(me)}<span class="t"><b>${esc(me.name)}</b><small>${roleName(me)} · شغّال دلوقتي</small></span></div>
+      <div class="sw-cur">${avatar(me)}<span class="t"><b>${esc(me.name)}</b><small>${roleName(me)}، شغّال دلوقتي</small></span></div>
       <div class="sw-h">بدّل لـ</div>
       ${others.map((x) => `<button type="button" class="sw-item" role="menuitem" data-act="swPick" data-id="${x.id}">${avatar(x)}<span class="t"><b>${esc(x.name)}</b><small>${roleName(x)}</small></span>${icon('chevron-left')}</button>`).join('')}
       <div class="sw-sep"></div>
@@ -1787,7 +1844,7 @@ function swPress(k) {
   sw.pin += k; sw.err = '';
   if (sw.pin.length === 4) {
     if (sw.pin === sw.user.pin) { switchUser(sw.user); return; }
-    sw.err = 'الرقم السري غلط — جرّب تاني'; sw.pin = ''; beep();
+    sw.err = 'الرقم السري غلط. جرّب تاني'; sw.pin = ''; beep();
   }
   swSync();
 }
@@ -1797,7 +1854,7 @@ function switchUser(u) {
   const n = NAV.find((x) => x.id === S.view);
   if (n && n.owner && u.role !== 'owner') S.view = 'pos';
   render(); focusSearch();
-  toast(`بقيت شغّال باسم ${u.name}${keep ? ' — الفاتورة المفتوحة زي ما هي' : ''}`);
+  toast(`بقيت شغّال باسم ${u.name}${keep ? '، والفاتورة المفتوحة زي ما هي' : ''}`);
 }
 // بيرجّع true لو الزرار اتعامل معاه هنا
 function swKey(e) {
@@ -1840,7 +1897,7 @@ document.addEventListener('mousemove', swHover);
 /* ===== أفعال عامة ===== */
 ACT.nav = (d) => {
   const n = NAV.find((x) => x.id === d.v);
-  if (n.owner && !isOwner()) { toast('الصفحة دي للمالك بس — بدّل لحساب المالك من فوق', 'err'); beep(); return; }
+  if (n.owner && !isOwner()) { toast('الصفحة دي للمالك بس. بدّل لحساب المالك من فوق', 'err'); beep(); return; }
   S.view = d.v; S.modal = null; render();
 };
 ACT.toggleTheme = () => { SET.theme = curTheme() === 'dark' ? 'light' : 'dark'; saveSettings(); applySettings(); render(); };
@@ -1886,7 +1943,7 @@ function normalize(s) {
 const catById = (id) => SET.cats.find((c) => c.id === id);
 const catName = (id) => (catById(id) || {}).name || '';
 const mainOf = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
-const catFull = (id) => { const c = catById(id); return !c ? '' : c.parent ? `${catName(c.parent)} · ${c.name}` : c.name; };
+const catFull = (id) => { const c = catById(id); return !c ? '' : c.parent ? `${catName(c.parent)} / ${c.name}` : c.name; };
 const mainCats = () => SET.cats.filter((c) => !c.parent && !c.hidden);
 const subCats = (mainId) => SET.cats.filter((c) => c.parent === mainId && !c.hidden);
 const inCat = (p, id) => p.cat === id || mainOf(p.cat) === id;
@@ -1918,7 +1975,7 @@ const luhnOk = (s) => /^\d{15}$/.test(s) && DATA.luhnDigit(s.slice(0, 14)) === s
 const imeiHTML = (imei) => `<bdi dir="ltr" class="mono">${imei.slice(0, -4)}<b>${imei.slice(-4)}</b></bdi>`;
 const methodName = (id) => (DATA.payMethods.find((x) => x.id === id) || {}).name || id;
 const methodIcon = (id) => (DATA.payMethods.find((x) => x.id === id) || {}).icon || 'wallet';
-const payName = (p) => methodName(p.method) + (p.provider ? ` · ${p.provider}` : '');
+const payName = (p) => methodName(p.method) + (p.provider ? ` (${p.provider})` : '');
 const payLabel = (ps) => ps.map(payName).join(' + ');
 
 function searchAll(q) {
@@ -1948,7 +2005,7 @@ function searchAll(q) {
 function resultsHTML() {
   if (!S.q.trim()) return '';
   const res = S._res || [];
-  if (!res.length) return `<div class="results"><div class="no-res">${icon('search')} مفيش نتيجة لـ «${esc(S.q)}» — ${dg('جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI')}</div></div>`;
+  if (!res.length) return `<div class="results"><div class="no-res">${icon('search')} مفيش نتيجة لـ «${esc(S.q)}». ${dg('جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI')}</div></div>`;
   return `<div class="results" data-scroll="results">${res.map((r, i) => resultRow(r, i)).join('')}</div>`;
 }
 function resultRow(r, i) {
@@ -1981,7 +2038,7 @@ function pickResult(i) {
 function notFound() {
   const qn = toLatin(S.q).replace(/\s/g, '');
   beep();
-  if (/^\d{15}$/.test(qn)) toast(luhnOk(qn) ? 'الـ IMEI ده مش متسجّل — لو الجهاز اتسلّم من غير IMEI: ضيف الموبايل ودوس «سجّل IMEI» في السطر' : 'الرقم ده مش IMEI صحيح (رقم المراجعة غلط) — راجع الرقم', 'err', 4200);
+  if (/^\d{15}$/.test(qn)) toast(luhnOk(qn) ? 'الـ IMEI ده مش متسجّل. لو الجهاز اتسلّم من غير IMEI، ضيف الموبايل ودوس «سجّل IMEI» في السطر' : 'الرقم ده مش IMEI صحيح: رقم المراجعة غلط. راجع الرقم', 'err', 4200);
   else toast(`مفيش صنف بالاسم أو الكود «${S.q}»`, 'err');
 }
 INPUT.q = (el) => { S.q = el.value; S.qi = 0; S._res = searchAll(S.q); refreshResults(); };
@@ -2026,7 +2083,7 @@ function addPhone(p) {
   inv.lines.push(phoneLine(p));
   S.sel = inv.lines.length - 1; S._scrollSel = true;
   render(); focusSearch();
-  if (!S._imeiHint) { S._imeiHint = true; toast('اتضاف الموبايل — الـ IMEI اختياري: دوس «سجّل IMEI» في السطر أو امسح العلبة لو حبيت', 'info', 4500); }
+  if (!S._imeiHint) { S._imeiHint = true; toast('اتضاف الموبايل. الـ IMEI اختياري: دوس «سجّل IMEI» في السطر أو امسح العلبة لو حبيت', 'info', 4500); }
 }
 function addUnit(u) {
   if (!u) return;
@@ -2039,7 +2096,7 @@ function addUnit(u) {
   inv.lines.push({ ...phoneLine(p), cost: u.cost, imei: u.imei, color: u.color });
   S.sel = inv.lines.length - 1; S._scrollSel = true;
   render(); focusSearch();
-  toast(`اتضاف ${p.name} — IMEI …${u.imei.slice(-4)}`);
+  toast(`اتضاف ${p.name}، والـ IMEI آخره ${u.imei.slice(-4)}`);
 }
 function attachUnit(i, u) {
   const l = cur().lines[i]; if (!l || !u) return;
@@ -2078,11 +2135,11 @@ function moveSel(d) {
 }
 function holdInvoice() {
   const inv = cur();
-  if (!inv.lines.length) { toast('الفاتورة فاضية — مفيش حاجة تتحط في الانتظار', 'info'); return; }
+  if (!inv.lines.length) { toast('الفاتورة فاضية، مفيش حاجة تتحط في الانتظار', 'info'); return; }
   inv.held = true;
   S.invoices.push(newInvoice()); S.active = S.invoices.length - 1; S.sel = -1;
   render(); focusSearch();
-  toast(`الفاتورة اتحطت في الانتظار${inv.customer ? ` — ${inv.customer.name}` : ''}. ترجعلها من التبويبات فوق الفاتورة`);
+  toast(`${inv.customer ? `فاتورة ${inv.customer.name}` : 'الفاتورة'} اتحطت في الانتظار. ترجعلها من التبويبات فوق الفاتورة`);
 }
 function switchInvoice(i) {
   if (i === S.active) return;
@@ -2099,7 +2156,7 @@ function tilesHTML() {
   let list = DATA.products;
   if (S.cat === 'top') list = [...list].sort((a, b) => b.sold - a.sold).slice(0, 12);
   else if (S.cat !== 'all') list = list.filter((p) => inCat(p, S.cat)).sort((a, b) => b.sold - a.sold);
-  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزون — وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
+  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزون. وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
   return list.map(tileHTML).join('');
 }
 function tileHTML(p) {
@@ -2114,8 +2171,8 @@ function tileHTML(p) {
 }
 function lineHTML(l, i) {
   const meta = [];
-  if (l.imei) meta.push(`<span class="tag accent imei-tag">${icon('scan-barcode')} IMEI ${imeiHTML(l.imei)}</span>`);
-  else if (l.kind === 'unit') meta.push(`<button type="button" class="tag imei-add" data-act="lineImei" data-i="${i}" title="اختياري — للضمان والمرتجع">${icon('scan-barcode')} سجّل IMEI</button>`);
+  if (l.imei) meta.push(`<span class="tag accent imei-tag">${icon('scan-barcode')}<span class="k">IMEI</span>${imeiHTML(l.imei)}</span>`);
+  else if (l.kind === 'unit') meta.push(`<button type="button" class="tag imei-add" data-act="lineImei" data-i="${i}" title="اختياري، للضمان والمرتجع">${icon('scan-barcode')} سجّل IMEI</button>`);
   if (l.color) meta.push(`<span class="tag">${esc(l.color)}</span>`);
   if (l.used) meta.push('<span class="tag warn">مستعمل</span>');
   if (l.warranty) meta.push(`<span class="tag ok">${icon('shield-check')} ضمان ${monthsTxt(l.warranty)}</span>`);
@@ -2137,7 +2194,7 @@ const emptyCart = () => `<div class="empty"><div class="big-i">${icon('shopping-
   <div class="keys"><span><kbd>/</kbd> بحث</span><span><kbd>F9</kbd> خدمات</span><span><kbd>F4</kbd> عميل</span></div></div>`;
 function invTab(x, i) {
   const t = totals(x), on = i === S.active;
-  const label = on ? (x.customer ? esc(x.customer.name) : 'الفاتورة الحالية') : `${x.customer ? esc(x.customer.name) : 'انتظار'} · ${money(t.total)}`;
+  const label = on ? (x.customer ? esc(x.customer.name) : 'الفاتورة الحالية') : `${x.customer ? esc(x.customer.name) : 'انتظار'} <span class="ta num">${money(t.total)}</span>`;
   return `<button type="button" class="inv-tab ${on ? 'on' : ''} ${x.held ? 'held' : ''}" data-act="invTab" data-i="${i}">${icon(on ? 'receipt' : 'pause')}<span class="tl">${label}</span>${on ? '' : `<span class="x" data-act="dropInv" data-i="${i}" title="إلغاء فاتورة الانتظار">${icon('x')}</span>`}</button>`;
 }
 function viewPOS() {
@@ -2160,13 +2217,13 @@ function viewPOS() {
       <div class="inv-tabs">${S.invoices.map(invTab).join('')}<button type="button" class="inv-tab" data-act="newInv" title="فاتورة جديدة">${icon('plus')}</button></div>
       <button type="button" class="cust-row ${c ? 'set' : ''}" data-act="customer">
         <span class="ci">${icon(c ? 'user-round' : 'user-plus')}</span>
-        <span class="t">${c ? `<b>${esc(c.name)}</b><small><bdi dir="ltr" class="mono">${c.phone}</bdi>${c.balance ? ` · عليه ${money(c.balance)} آجل` : ''}</small>` : '<b>عميل نقدي</b><small>اختار عميل عشان الضمان والواتساب والآجل</small>'}</span>
+        <span class="t">${c ? `<b>${esc(c.name)}</b><small><bdi dir="ltr" class="mono">${c.phone}</bdi>${c.balance ? `<span class="cb">عليه ${money(c.balance)} آجل</span>` : ''}</small>` : '<b>عميل نقدي</b><small>اختار عميل عشان الضمان والواتساب والآجل</small>'}</span>
         <kbd>F4</kbd>
       </button>
       <div class="lines" data-scroll="lines">${empty ? emptyCart() : inv.lines.map(lineHTML).join('')}</div>
       <div class="totals">
         <div class="r"><span>الإجمالي <small class="muted">(${num(t.count)} قطعة)</small></span><span class="num">${money(t.sub)}</span></div>
-        ${t.disc ? `<div class="r disc"><span>خصم${inv.discount.type === 'pct' ? ` ${num(inv.discount.value)}%` : ''}${inv.discount.by === 'المالك' ? ' · بموافقة المالك' : ''}</span><span class="num">− ${money(t.disc)}</span></div>` : ''}
+        ${t.disc ? `<div class="r disc"><span>خصم${inv.discount.type === 'pct' ? ` ${num(inv.discount.value)}%` : ''}${inv.discount.by === 'المالك' ? '، بموافقة المالك' : ''}</span><span class="num">− ${money(t.disc)}</span></div>` : ''}
         <div class="r grand"><span>المطلوب</span><span class="num">${money(t.total)}</span></div>
         ${isOwner() && !empty ? `<div class="r profit"><button type="button" class="reveal" data-act="toggleProfit">${icon(S.showProfit ? 'eye-off' : 'eye')} ربح الفاتورة (للمالك بس)</button><span class="num">${S.showProfit ? money(t.profit) : '****'}</span></div>` : ''}
       </div>
@@ -2266,14 +2323,14 @@ function imeiUnits(m) { const f = toLatin(m.f).replace(/\D/g, ''); return unitsF
 function newImeiState(m) {
   const f = toLatin(m.f).replace(/\D/g, '');
   if (f.length !== 15 || imeiUnits(m).length) return null;
-  if (!luhnOk(f)) return { ok: false, msg: 'الرقم ده مش IMEI صحيح (رقم المراجعة غلط) — راجع الرقم' };
+  if (!luhnOk(f)) return { ok: false, msg: 'الرقم ده مش IMEI صحيح: رقم المراجعة غلط. راجع الرقم' };
   const other = DATA.units.find((u) => u.imei === f || u.imei2 === f);
   if (other) {
     if (other.pid !== m.pid) return { ok: false, msg: `الـ IMEI ده متسجّل على «${prod(other.pid).name}»` };
     return { ok: false, msg: other.status !== 'in' ? 'الجهاز ده اتباع قبل كده' : 'الجهاز ده في فاتورة تانية' };
   }
   const p = prod(m.pid);
-  if (unitsIn(p.id).length >= p.stock) return { ok: false, msg: 'كل أجهزة الصنف ده متسجّلة بالـ IMEI — اختار من القايمة' };
+  if (unitsIn(p.id).length >= p.stock) return { ok: false, msg: 'كل أجهزة الصنف ده متسجّلة بالـ IMEI. اختار من القايمة' };
   return { ok: true, imei: f };
 }
 function unitRow(u, on) {
@@ -2291,13 +2348,13 @@ MODALS.imei = {
     m.hi = clamp(m.hi, 0, Math.max(0, list.length - 1));
     const canGo = list.length || (nw && nw.ok);
     return `<div class="modal md" role="dialog" aria-label="${att ? 'تسجيل IMEI' : 'اختيار الجهاز'}">
-      ${modalHead('scan-barcode', `${att ? 'سجّل الـ IMEI' : 'اختار الجهاز'} — <bdi dir="rtl">${esc(p.name)}</bdi>`, att ? 'اختياري' : money(p.price))}
+      ${modalHead(att ? 'سجّل الـ IMEI' : 'اختار الجهاز', `<bdi dir="rtl">${esc(p.name)}</bdi> ${att ? '(اختياري)' : money(p.price)}`)}
       <div class="modal-b stack">
         <label class="inline-search">${icon('search')}<input id="imei-f" data-input="imeiF" data-autofocus inputmode="numeric" value="${esc(m.f)}" placeholder="${dg('آخر 4 أرقام من الـ IMEI أو الرقم كله (15 رقم)')}" autocomplete="off"></label>
-        ${nw ? (nw.ok ? `<div class="result on new-imei" data-act="imeiNew"><div class="ico">${icon('circle-plus')}</div><div class="t"><div class="n">IMEI جديد ${imeiHTML(nw.imei)}</div><div class="s"><span>هيتسجّل للجهاز ده دلوقتي — من اللي اتسلموا من غير IMEI</span></div></div><span class="enter"><kbd>Enter</kbd></span></div>` : `<div class="err-msg">${esc(nw.msg)}</div>`) : ''}
-        <div class="cust-list">${list.length ? list.map((u, i) => unitRow(u, i === m.hi)).join('') : nw ? '' : `<div class="no-res">${m.f ? 'مفيش جهاز متسجّل بالرقم ده' : 'مفيش أجهزة متسجّلة بالـ IMEI من الصنف ده'}${unreg ? ' — اكتب الـ IMEI كامل (15 رقم) عشان يتسجّل' : ''}</div>`}</div>
-        ${unreg ? `<div class="note">${icon('info')} ${num(unreg)} من الصنف ده اتسلموا بالعدد من غير IMEI — لو الجهاز اللي في إيدك منهم، اكتب الـ IMEI بتاعه كامل وهيتسجّل.</div>` : ''}
-        <div class="note">${icon('smartphone')} أو امسح الـ IMEI من على العلبة بكاميرا الموبايل — بيتحدد هنا على طول.</div>
+        ${nw ? (nw.ok ? `<div class="result on new-imei" data-act="imeiNew"><div class="ico">${icon('circle-plus')}</div><div class="t"><div class="n">IMEI جديد ${imeiHTML(nw.imei)}</div><div class="s"><span>هيتسجّل للجهاز ده دلوقتي، من اللي اتسلموا من غير IMEI</span></div></div><span class="enter"><kbd>Enter</kbd></span></div>` : `<div class="err-msg">${esc(nw.msg)}</div>`) : ''}
+        <div class="cust-list">${list.length ? list.map((u, i) => unitRow(u, i === m.hi)).join('') : nw ? '' : `<div class="no-res">${m.f ? 'مفيش جهاز متسجّل بالرقم ده' : 'مفيش أجهزة متسجّلة بالـ IMEI من الصنف ده'}${unreg ? '. اكتب الـ IMEI كامل (15 رقم) عشان يتسجّل' : ''}</div>`}</div>
+        ${unreg ? `<div class="note">${icon('info')} ${num(unreg)} من الصنف ده اتسلموا بالعدد من غير IMEI. لو الجهاز اللي في إيدك منهم، اكتب الـ IMEI بتاعه كامل وهيتسجّل.</div>` : ''}
+        <div class="note">${icon('smartphone')} أو امسح الـ IMEI من على العلبة بكاميرا الموبايل، وهيتحدد هنا على طول.</div>
       </div>
       <div class="modal-f"><span class="muted">${num(list.length)} جهاز متسجّل متاح</span><span class="sp"></span>
         ${att ? '<button type="button" class="btn ghost" data-act="closeModal">من غير IMEI</button>' : ''}
@@ -2341,7 +2398,7 @@ MODALS.customer = {
   html(m) {
     if (m.adding) {
       return `<div class="modal sm" role="dialog" aria-label="عميل جديد">
-        ${modalHead('user-plus', 'عميل جديد')}
+        ${modalHead('عميل جديد')}
         <div class="modal-b stack">
           <div class="field"><label for="cust-phone">موبايل العميل</label><input id="cust-phone" data-input="custF2" data-k="phone" data-autofocus dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>
           <div class="field"><label for="cust-name">الاسم</label><input id="cust-name" data-input="custF2" data-k="name" value="${esc(m.name)}" autocomplete="off"></div>
@@ -2352,10 +2409,10 @@ MODALS.customer = {
     }
     const list = custList(m); m.hi = clamp(m.hi, 0, Math.max(0, list.length - 1));
     return `<div class="modal md" role="dialog" aria-label="العميل">
-      ${modalHead('user-round', 'اختار العميل', 'عشان الضمان والواتساب والآجل')}
+      ${modalHead('اختار العميل', 'عشان الضمان والواتساب والآجل')}
       <div class="modal-b stack">
         <label class="inline-search">${icon('search')}<input id="cust-f" data-input="custF" data-autofocus value="${esc(m.f)}" placeholder="اسم العميل أو رقم موبايله…" autocomplete="off"></label>
-        <div class="cust-list">${list.length ? list.map((c, i) => custRow(c, i === m.hi)).join('') : '<div class="no-res">مفيش عميل بالاسم أو الرقم ده — سجّله كعميل جديد</div>'}</div>
+        <div class="cust-list">${list.length ? list.map((c, i) => custRow(c, i === m.hi)).join('') : '<div class="no-res">مفيش عميل بالاسم أو الرقم ده. سجّله كعميل جديد</div>'}</div>
       </div>
       <div class="modal-f"><button type="button" class="btn ghost" data-act="custAdd">${icon('user-plus')} عميل جديد</button>${cur().customer ? '<button type="button" class="btn ghost danger" data-act="custClear">خليه عميل نقدي</button>' : ''}<span class="sp"></span>
         <button type="button" class="btn primary" data-act="custPickHi" ${list.length ? '' : 'disabled'}>${icon('check')} اختار <kbd>Enter</kbd></button></div>
@@ -2398,14 +2455,14 @@ function openQty() {
   const inv = cur(); if (!inv.lines.length) { toast('الفاتورة فاضية', 'info'); return; }
   if (S.sel < 0) S.sel = inv.lines.length - 1;
   const l = inv.lines[S.sel];
-  if (l.kind !== 'item') { toast(l.kind === 'unit' ? 'كل موبايل في سطر لوحده — دوس + عشان تضيف واحد كمان' : 'السطر ده كميته 1', 'info'); return; }
+  if (l.kind !== 'item') { toast(l.kind === 'unit' ? 'كل موبايل في سطر لوحده. دوس + عشان تضيف واحد كمان' : 'السطر ده كميته 1', 'info'); return; }
   openModal({ type: 'qty', i: S.sel, v: String(l.qty), err: '' });
 }
 MODALS.qty = {
   html(m) {
     const l = cur().lines[m.i], p = prod(l.pid);
     return `<div class="modal sm" role="dialog" aria-label="الكمية">
-      ${modalHead('hash', 'الكمية', `<bdi dir="rtl">${esc(l.name)}</bdi>`)}
+      ${modalHead('الكمية', `<bdi dir="rtl">${esc(l.name)}</bdi>`)}
       <div class="modal-b stack"><div class="field"><label for="qty-v">الكمية (المتاح ${num(p.stock)})</label><input id="qty-v" class="big-in num" data-input="qtyV" data-autofocus dir="ltr" inputmode="numeric" value="${esc(m.v)}" autocomplete="off"></div>
         <div class="err-msg">${esc(m.err)}</div></div>
       <div class="modal-f"><span class="sp"></span><button type="button" class="btn primary" data-act="qtyApply">${icon('check')} تمام <kbd>Enter</kbd></button></div>
@@ -2437,12 +2494,12 @@ MODALS.discount = {
   html(m) {
     const c = discCalc(m);
     return `<div class="modal sm" role="dialog" aria-label="خصم">
-      ${modalHead('badge-percent', 'خصم على الفاتورة')}
+      ${modalHead('خصم على الفاتورة')}
       <div class="modal-b stack">
         <div class="seg"><button type="button" class="${m.mode === 'pct' ? 'on' : ''}" data-act="discMode" data-id="pct">نسبة %</button><button type="button" class="${m.mode === 'amt' ? 'on' : ''}" data-act="discMode" data-id="amt">مبلغ ج.م</button></div>
         <div class="field"><label for="disc-v">${m.mode === 'pct' ? 'نسبة الخصم %' : 'مبلغ الخصم (ج.م)'}</label><input id="disc-v" class="big-in num" data-input="discV" data-autofocus dir="ltr" inputmode="decimal" value="${esc(m.v)}" autocomplete="off"></div>
         <div class="sum-box"><div class="r"><span>الإجمالي</span><span class="num">${money(c.sub)}</span></div><div class="r"><span>الخصم</span><span class="num">− ${money(c.disc)}</span></div><div class="r grand"><span>بعد الخصم</span><b class="num">${money(c.total)}</b></div></div>
-        ${c.needPin ? `<div class="note warn">${icon('lock')} الخصم أكبر من ${num(SET.discountLimit)}% — محتاج الرقم السري بتاع المالك</div>
+        ${c.needPin ? `<div class="note warn">${icon('lock')} الخصم أكبر من ${num(SET.discountLimit)}%، فمحتاج الرقم السري بتاع المالك</div>
           <div class="field"><label for="disc-pin">PIN المالك</label><input id="disc-pin" type="password" class="num" data-input="discPin" dir="ltr" inputmode="numeric" maxlength="4" value="${esc(m.pin)}" autocomplete="off"></div>` : ''}
         <div class="err-msg">${esc(m.err)}</div>
       </div>
@@ -2478,7 +2535,7 @@ Object.assign(ACT, {
 /* ===== نافذة: مسح الفاتورة ===== */
 MODALS.confirmClear = {
   html: () => `<div class="modal sm" role="dialog" aria-label="مسح الفاتورة">
-    ${modalHead('trash-2', 'تمسح الفاتورة كلها؟')}
+    ${modalHead('تمسح الفاتورة كلها؟')}
     <div class="modal-b"><div class="muted">هتتشال كل السطور (${num(cur().lines.length)}) من الفاتورة دي.</div></div>
     <div class="modal-f"><span class="sp"></span><button type="button" class="btn ghost" data-act="closeModal">لأ <kbd>Esc</kbd></button><button type="button" class="btn danger-solid" data-act="clearDo">${icon('trash-2')} امسح <kbd>Enter</kbd></button></div>
   </div>`,
@@ -2511,7 +2568,7 @@ function payFormHTML(m) {
   const methods = DATA.payMethods.filter((x) => x.id === 'cash' || SET.methods[x.id] !== false);
   const needCust = m.method === 'credit' && !inv.customer;
   return `<div class="modal wide" role="dialog" aria-label="الدفع">
-    ${modalHead('banknote', 'الدفع', `المطلوب ${money(c.total)}`)}
+    ${modalHead('الدفع', `المطلوب ${money(c.total)}`)}
     <div class="modal-b"><div class="pay">
       <div class="stack">
         <div class="methods">${methods.map((x) => `<button type="button" class="method ${m.method === x.id ? 'on' : ''}" data-act="payMethod" data-id="${x.id}">${icon(x.icon)}<span>${x.name}</span></button>`).join('')}</div>
@@ -2542,7 +2599,7 @@ function payFormHTML(m) {
 function payPartial() {
   const m = S.modal, c = payCalc(m);
   if (!c.canPartial) return;
-  if (m.method === 'credit' && !cur().customer) { m.err = 'الآجل لازم يكون على عميل — اختار عميل (F4)'; beep(); render(); return; }
+  if (m.method === 'credit' && !cur().customer) { m.err = 'الآجل لازم يكون على عميل. اختار عميل (F4)'; beep(); render(); return; }
   const p = { method: m.method, amount: c.v, provider: m.method === 'install' ? m.provider : null };
   if (m.method === 'cash') p.received = c.v;
   m.payments.push(p);
@@ -2550,8 +2607,8 @@ function payPartial() {
 }
 function payConfirm() {
   const m = S.modal, inv = cur(), c = payCalc(m);
-  if (m.method === 'credit' && !inv.customer) { m.err = 'الآجل لازم يكون على عميل — اختار عميل (F4)'; beep(); render(); return; }
-  if (m.method === 'cash' && c.short) { m.err = `المبلغ أقل من المطلوب بـ ${money(c.short)} — كمّل أو اعمل دفع جزئي`; beep(); render(); return; }
+  if (m.method === 'credit' && !inv.customer) { m.err = 'الآجل لازم يكون على عميل. اختار عميل (F4)'; beep(); render(); return; }
+  if (m.method === 'cash' && c.short) { m.err = `المبلغ أقل من المطلوب بـ ${money(c.short)}. كمّل المبلغ أو اعمل دفع جزئي`; beep(); render(); return; }
   if (m.method !== 'cash' && c.canPartial) { payPartial(); return; }
   const wa = toLatin(m.wa).replace(/\D/g, '');
   if ((m.receipt === 'wa' || m.receipt === 'both') && !/^01\d{9}$/.test(wa)) { m.err = 'اكتب رقم واتساب صحيح أو غيّر طريقة الإيصال'; beep(); render(); return; }
@@ -2605,13 +2662,13 @@ function receiptHTML(sale) {
   const lines = sale.lines.map((l) => `<div class="it">
       <div class="r"><span><bdi dir="rtl">${esc(l.name)}</bdi>${l.qty > 1 ? ` <bdi dir="ltr">×${l.qty}</bdi>` : ''}</span><span>${num(l.price * l.qty)}</span></div>
       ${l.imei ? `<div class="s">IMEI: <bdi dir="ltr">${l.imei}</bdi></div>` : ''}
-      ${l.warranty ? `<div class="s">ضمان ${monthsTxt(l.warranty)} — لحد ${fmtDate(addMonths(sale.at, l.warranty))}</div>` : ''}
+      ${l.warranty ? `<div class="s">ضمان ${monthsTxt(l.warranty)} لحد ${fmtDate(addMonths(sale.at, l.warranty))}</div>` : ''}
     </div>`).join('');
   return `<div class="receipt ${SET.paper === '58' ? 'w58' : ''}">
     <div class="c">${SET.logo ? `<div class="rc-logo"><img src="${SET.logo}" alt=""></div>` : ''}<div class="rc-name">${esc(SET.shopName)}</div>
       <div class="s">${esc(SET.address)}</div><div class="s">تليفون: <bdi dir="ltr">${esc(SET.phone)}</bdi></div></div>
     <hr>
-    <div class="r s"><span>فاتورة رقم ${dg(sale.no)}</span><span>${fmtDate(sale.at)} · ${fmtTime(sale.at)}</span></div>
+    <div class="r s"><span>فاتورة رقم ${dg(sale.no)}</span><span>${fmtDate(sale.at)} الساعة ${fmtTime(sale.at)}</span></div>
     <div class="r s"><span>البيّاع: ${esc(sale.seller.name)}</span><span>${sale.customer ? `العميل: ${esc(sale.customer.name)}` : 'عميل نقدي'}</span></div>
     <hr>${lines}<hr>
     <div class="r"><span>الإجمالي</span><span>${num(sale.sub)}</span></div>
@@ -2626,7 +2683,7 @@ function receiptHTML(sale) {
 function payDoneHTML(m) {
   const s = m.sale, rm = { print: 'اتطبع', wa: 'اتبعت على واتساب', both: 'اتطبع واتبعت واتساب', none: 'من غير إيصال' }[s.receiptMode] || '';
   return `<div class="modal wide" role="dialog" aria-label="تم البيع">
-    ${modalHead('circle-check', `تم البيع — فاتورة رقم ${dg(s.no)}`)}
+    ${modalHead('تم البيع', `فاتورة رقم ${dg(s.no)}`)}
     <div class="modal-b"><div class="done-wrap">
       <div class="stack">
         <div class="done-hero">${icon('circle-check')}<div><b class="num">${money(s.total)}</b><small>${esc(payLabel(s.payments))}</small></div></div>
@@ -2699,7 +2756,7 @@ function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send
 function svcWallet(m) {
   const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ok = !isNaN(a) && a > 0;
   const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), over = ok && w.limitDay && w.usedToday + a > w.limitDay;
-  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}% · أقل حاجة ${money(SET.feeMin)} — تقدر تغيّرها` : 'مش ثابتة — اكتبها';
+  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}%، وأقل حاجة ${money(SET.feeMin)}. تقدر تغيّرها` : 'مش ثابتة، اكتبها';
   return `<div class="seg">${[['send', 'تحويل لرقم', 'arrow-up-from-line'], ['withdraw', 'سحب كاش', 'arrow-down-to-line']].map(([id, l, ic]) => `<button type="button" class="${m.op === id ? 'on' : ''}" data-act="svcOp" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div>
     <div class="wallets">${DATA.wallets.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${x.name}</b><small class="num">${money(x.balance)}</small></span></button>`).join('')}</div>
     <div class="grid2">
@@ -2717,7 +2774,7 @@ function svcCards(m) {
 }
 function svcBills(m) {
   const a = parseNum(m.billAmt), ok = !isNaN(a) && a > 0, fee = svcFee(m, +SET.billFee);
-  const hint = feeAuto() ? `من الإعدادات ${money(SET.billFee)} — تقدر تغيّرها` : 'مش ثابتة — اكتبها';
+  const hint = feeAuto() ? `من الإعدادات ${money(SET.billFee)}. تقدر تغيّرها` : 'مش ثابتة، اكتبها';
   return `<div class="wallets">${DATA.billTypes.map((b) => `<button type="button" class="wallet ${m.bill === b.id ? 'on' : ''}" data-act="svcBill" data-id="${b.id}">${icon(b.icon)}<span class="t"><b>${b.name}</b></span></button>`).join('')}</div>
     <div class="grid2">
       <div class="field"><label for="bill-amt">مبلغ الفاتورة</label><input id="bill-amt" class="big-in num" data-input="svc" data-k="billAmt" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.billAmt)}" autocomplete="off"></div>
@@ -2728,7 +2785,7 @@ function svcBills(m) {
 MODALS.services = {
   html(m) {
     return `<div class="modal md" role="dialog" aria-label="خدمات سريعة">
-      ${modalHead('wallet', 'خدمات سريعة', 'محافظ · كروت شحن · فواتير')}
+      ${modalHead('خدمات سريعة', 'محافظ وكروت شحن وفواتير')}
       <div class="modal-b stack">
         <div class="seg tabs">${[['wallet', 'wallet', 'محافظ'], ['cards', 'signal', 'كروت شحن'], ['bills', 'receipt', 'فواتير']].map(([id, ic, l]) => `<button type="button" class="${m.tab === id ? 'on' : ''}" data-act="svcTab" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div>
         ${m.tab === 'wallet' ? svcWallet(m) : m.tab === 'cards' ? svcCards(m) : svcBills(m)}
@@ -2746,22 +2803,22 @@ function recordWallet(m) {
   if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
   if (!/^01\d{9}$/.test(ph)) { m.err = 'رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01'; beep(); render(); return; }
   const fee = svcFee(m, walletFee(a));
-  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة — لو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
+  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة، ولو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
   if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
   const cash = m.op === 'send' ? a + fee : a - fee;
   if (m.op === 'send') { w.balance -= a; DATA.shift.servicesIn += cash; } else { w.balance += a; DATA.shift.servicesOut += cash; }
   w.usedToday += a; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
   S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, phone: ph, amount: a, fee, at: new Date(), by: S.user.name });
-  toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name} — حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)} — ادفع للعميل ${money(cash)}`);
+  toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name}. حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)}. ادفع للعميل ${money(cash)}`);
   Object.assign(m, { amount: '', phone: '', err: '', ...svcReset, _mounted: false }); render();
 }
 function recordBill(m) {
   const a = parseNum(m.billAmt), fee = svcFee(m, +SET.billFee), b = DATA.billTypes.find((x) => x.id === m.bill);
   if (!(a > 0)) { m.err = 'اكتب مبلغ الفاتورة'; beep(); render(); return; }
-  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب رسوم الخدمة — لو مفيش رسوم اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
+  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب رسوم الخدمة، ولو مفيش رسوم اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
   DATA.shift.servicesIn += a + fee; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
   S.services.push({ kind: 'bill', bill: b.id, acct: m.acct, amount: a, fee, at: new Date(), by: S.user.name });
-  toast(`اتسجّل دفع فاتورة ${b.name} — حصّل ${money(a + fee)}`);
+  toast(`اتسجّل دفع فاتورة ${b.name}. حصّل ${money(a + fee)}`);
   Object.assign(m, { billAmt: '', acct: '', err: '', ...svcReset, _mounted: false }); render();
 }
 INPUT.svc = (el) => { S.modal[el.dataset.k] = el.value; S.modal.err = ''; render(); };
@@ -2796,7 +2853,7 @@ MODALS.shift = {
     const c = shiftCalc(m), s = DATA.shift;
     const rows = [['رصيد أول الوردية', s.opening], ['مبيعات كاش', s.cashSales], ['خدمات داخلة كاش', s.servicesIn], ['خدمات خارجة كاش', -s.servicesOut], ...s.expenses.map((e) => [`مصروف: ${e.name}`, -e.amount]), ['سحب المالك', -s.ownerDraw]];
     return `<div class="modal wide" role="dialog" aria-label="تقفيل الوردية">
-      ${modalHead('calculator', `تقفيل الوردية #${num(s.no)}`, `من ${dg(s.opened)} · فتحها ${esc(s.by)}`)}
+      ${modalHead(`تقفيل الوردية #${num(s.no)}`, `فتحها ${esc(s.by)} الساعة ${dg(s.opened)}`)}
       <div class="modal-b"><div class="shift">
         <div class="stack"><b>عدّ الفلوس اللي في الدرج</b>
           <div class="denoms">${DENOMS.map((d, i) => `<div class="denom"><span class="dv num">${money(d)}</span><input id="den-${i}" class="num" data-input="den" data-i="${i}" dir="ltr" inputmode="numeric" value="${esc(m.counts[i])}" placeholder="0" ${i === 0 ? 'data-autofocus' : ''} autocomplete="off" aria-label="عدد فئة ${d}"><span class="ds num">${money(d * (parseNum(m.counts[i]) || 0))}</span></div>`).join('')}</div></div>
@@ -2804,7 +2861,7 @@ MODALS.shift = {
           <div class="sum-box">${rows.map(([l, v]) => `<div class="r"><span>${esc(l)}</span><span class="num ${v < 0 ? 'danger-t' : ''}">${v < 0 ? '− ' : ''}${money(Math.abs(v))}</span></div>`).join('')}
             <div class="r grand"><span>المفروض في الدرج</span><b class="num">${money(c.exp)}</b></div>
             <div class="r"><span>اللي اتعدّ</span><b class="num">${money(c.counted)}</b></div></div>
-          ${c.any ? `<div class="change-box ${c.diff < 0 ? 'short' : ''}"><span>${c.diff === 0 ? 'مظبوط' : c.diff < 0 ? 'عجز' : 'زيادة'}</span><b class="num">${money(Math.abs(c.diff))}</b></div>` : '<div class="muted">اكتب عدد كل فئة — والفرق بيظهر لوحده</div>'}
+          ${c.any ? `<div class="change-box ${c.diff < 0 ? 'short' : ''}"><span>${c.diff === 0 ? 'مظبوط' : c.diff < 0 ? 'عجز' : 'زيادة'}</span><b class="num">${money(Math.abs(c.diff))}</b></div>` : '<div class="muted">اكتب عدد كل فئة، والفرق بيظهر لوحده</div>'}
         </div>
       </div></div>
       <div class="modal-f"><button type="button" class="btn ghost" data-act="soon">${hasPrinter() ? `${icon('printer')} اطبع تقرير الوردية` : `${icon('message-circle')} ابعت التقرير للمالك واتساب`}</button><span class="sp"></span><button type="button" class="btn primary" data-act="shiftDo" ${c.any ? '' : 'disabled'}>${icon('check')} قفّل الوردية</button></div>
@@ -2812,7 +2869,7 @@ MODALS.shift = {
   },
 };
 INPUT.den = (el) => { S.modal.counts[+el.dataset.i] = el.value; render(); };
-ACT.shiftDo = () => { const c = shiftCalc(S.modal); S.modal = null; render(); toast(c.diff === 0 ? 'اتقفلت الوردية — الدرج مظبوط' : `اتقفلت الوردية — ${c.diff < 0 ? 'عجز' : 'زيادة'} ${money(Math.abs(c.diff))} اتسجّل`, c.diff === 0 ? 'ok' : 'info'); };
+ACT.shiftDo = () => { const c = shiftCalc(S.modal); S.modal = null; render(); toast(c.diff === 0 ? 'اتقفلت الوردية، والدرج مظبوط' : `اتقفلت الوردية. ${c.diff < 0 ? 'عجز' : 'زيادة'} ${money(Math.abs(c.diff))} اتسجّل`, c.diff === 0 ? 'ok' : 'info'); };
 
 </script>
 <script>/* views.js */
@@ -2888,7 +2945,7 @@ MODALS.intake = {
   html(m) {
     const ACC = ['شاحن', 'جراب', 'شريحة', 'ميموري', 'علبة'];
     return `<div class="modal wide" role="dialog" aria-label="استلام جهاز صيانة">
-      ${modalHead('package-plus', 'استلام جهاز صيانة', `تذكرة R-${nextRepairNo()}`)}
+      ${modalHead('استلام جهاز صيانة', `تذكرة R-${nextRepairNo()}`)}
       <div class="modal-b"><div class="intake">
         <div class="stack">
           <div class="field"><label for="in-phone">موبايل العميل</label><input id="in-phone" data-input="inF" data-k="phone" data-autofocus dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"><span class="hint">لو العميل متسجّل، اسمه بيظهر لوحده</span></div>

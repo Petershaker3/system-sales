@@ -38,7 +38,7 @@ html[data-look="plate"][data-theme="dark"] {
   --border-strong: color-mix(in srgb, var(--accent) 15%, #3c434c);
   --text: color-mix(in srgb, var(--accent) 5%, #edf0f3);
   --text-2: color-mix(in srgb, var(--accent) 6%, #c8cfd7);
-  --muted: color-mix(in srgb, var(--accent) 6%, #9aa3ad);
+  --muted: color-mix(in srgb, var(--accent) 6%, #a6afb9);
   --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
   color-scheme: dark;
@@ -55,7 +55,7 @@ html[data-look="box"] {
 html[data-look="box"][data-theme="dark"] {
   --bg: #151618; --surface: #1d1e20; --surface-2: #222426; --surface-3: #2a2c2f;
   --border: #35373b; --border-strong: #4b4e53;
-  --text: #f0f0ef; --text-2: #cfd0d2; --muted: #a1a4a9;
+  --text: #f0f0ef; --text-2: #cfd0d2; --muted: #abaeb3;
   --ink-line: #e9e9e6; --sticker-bg: #ecebe6; --sticker-ink: #18191b;
   --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
   --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
@@ -153,7 +153,7 @@ input, textarea { caret-color: var(--accent-text); }
 .sw-menu {
   position: absolute; top: calc(100% + 8px); inset-inline-end: 0; width: 276px; z-index: 40;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); padding: 8px;
-  box-shadow: 0 18px 44px rgba(15, 23, 42, .22); animation: tin .14s ease-out;
+  box-shadow: var(--shadow); animation: tin .14s ease-out;
 }
 .sw-cur, .sw-item, .sw-pin-h { display: flex; align-items: center; gap: 10px; }
 .sw-cur { padding: 6px 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
@@ -191,7 +191,8 @@ input, textarea { caret-color: var(--accent-text); }
 .btn.lg { height: 52px; font-size: 1.05rem; }
 .btn.block { width: 100%; }
 .btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
-.btn.primary kbd, .btn.danger-solid kbd { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .35); color: inherit; }
+.btn.primary kbd { background: color-mix(in srgb, var(--on-accent) 14%, transparent); border-color: color-mix(in srgb, var(--on-accent) 45%, transparent); color: inherit; }
+.btn.danger-solid kbd { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .45); color: inherit; }
 .icon-btn {
   width: 40px; height: 40px; display: inline-grid; place-items: center; border-radius: var(--r-s); border: 1px solid var(--border);
   background: var(--surface); color: var(--text-2); flex: none; padding: 0;
@@ -289,7 +290,7 @@ input[dir="ltr"] { text-align: left; }
 .svc-btn { height: auto; min-height: 54px; padding: 0 18px; font-size: 1rem; border-radius: var(--r-m); }
 .results {
   position: absolute; top: calc(100% + 6px); inset-inline: 0; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-m); box-shadow: 0 14px 40px rgba(15, 23, 42, .18); z-index: 20; max-height: 430px; overflow: auto; padding: 6px;
+  border-radius: var(--r-m); box-shadow: var(--shadow); z-index: 20; max-height: 430px; overflow: auto; padding: 6px;
 }
 .result { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-m); cursor: pointer; min-width: 0; }
 .result:hover, .result.on { background: var(--accent-weak); }
@@ -390,16 +391,16 @@ kbd .kbd-ar { display: inline-flex; gap: 1px; vertical-align: -2px; }
 kbd .kbd-ar svg.i { width: 12px; height: 12px; }
 
 /* ===== النوافذ ===== */
-.overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: grid; place-items: center; z-index: 100; padding: 20px; }
+.overlay { position: fixed; inset: 0; background: rgba(12, 14, 18, .5); display: grid; place-items: center; z-index: 100; padding: 20px; }
 .modal {
-  background: var(--surface); border-radius: var(--r-l); box-shadow: 0 24px 60px rgba(15, 23, 42, .3); width: 620px; max-width: 100%;
+  background: var(--surface); border-radius: var(--r-l); box-shadow: var(--shadow); width: 620px; max-width: 100%;
   max-height: calc(100vh - 40px); display: flex; flex-direction: column; min-height: 0; animation: tin .14s ease-out;
 }
 .modal.sm { width: 440px; }
 .modal.md { width: 640px; }
 .modal.wide { width: 1000px; }
 .modal-h { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); flex: none; }
-.modal-h h2, .modal-h h3 { margin: 0; font-size: 1.2rem; line-height: 1.3; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.modal-h h2, .modal-h h3 { margin: 0; font-size: 1.2rem; line-height: 1.3; display: grid; gap: 1px; flex: 1; min-width: 0; }
 .modal-h h2 .mt, .modal-h h3 .mt { min-width: 0; overflow-wrap: anywhere; }
 .modal-h h2 small, .modal-h h3 small { color: var(--muted); font-weight: 500; font-size: .82rem; overflow-wrap: anywhere; }
 .modal-b { padding: 16px 18px; overflow: auto; min-height: 0; flex: 1; }
@@ -662,17 +663,19 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 
 /* ===== رسائل التنبيه ===== */
 #toasts { position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
-body.has-modal #toasts { bottom: auto; top: 14px; }
+/* والنافذة مفتوحة: الرسايل فوق على جنب، عشان ما تغطيش كلام النافذة */
+body.has-modal #toasts { bottom: auto; top: 14px; left: auto; transform: none; inset-inline-start: 16px; align-items: flex-start; max-width: 340px; }
+body.has-modal .toast { max-width: 340px; }
 .toast {
-  background: #0f172a; color: #fff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: 0 10px 30px rgba(15, 23, 42, .3);
+  background: #1b1d21; color: #ffffff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: var(--shadow);
   display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: .9rem; max-width: 440px; animation: tin .18s ease-out; transition: opacity .3s, transform .3s;
 }
-.toast svg.i { color: #4ade80; }
-.toast.err { background: #991b1b; }
+.toast svg.i { color: #5ad19a; }
+.toast.err { background: #8f1d14; }
 .toast.err svg.i { color: #fecaca; }
-.toast.info svg.i { color: #93c5fd; }
-html[data-theme="dark"] .toast { background: #1f2b47; border: 1px solid #33446a; }
-html[data-theme="dark"] .toast.err { background: #7f1d1d; }
+.toast.info svg.i { color: #9cc2ff; }
+html[data-theme="dark"] .toast { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
+html[data-theme="dark"] .toast.err { background: #7a1a12; color: #ffffff; border-color: #a3291e; }
 .toast.out { opacity: 0; transform: translateY(6px); }
 @keyframes tin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -689,3 +692,50 @@ html[data-scale="large"] .cart-actions .btn:not(.btn-pay) kbd { display: none; }
   .settings, .pay, .done-wrap, .shift, .intake, .preview-pair { grid-template-columns: minmax(0, 1fr); }
   .s-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* ===== شاشة البيع في الطابعين (المرحلة 2 — docs/ui/REDESIGN.md) ===== */
+/* الشريط العلوي: اسم المحل والحالة كلام هادي بفواصل رفيعة، مش حبّايات */
+.topbar .shop { padding-inline-start: 12px; border-inline-start: 1px solid var(--border); line-height: 1.2; }
+.status { background: transparent; border: 0; border-radius: 0; padding: 2px 12px; border-inline-start: 1px solid var(--border); color: var(--text-2); }
+.status svg.i { color: var(--muted); }
+/* الأصناف: مربعات مسطحة، والأيقونة صغيرة وهادية من غير مربع ملوّن */
+.tile .ico:not(.img) { width: 22px; height: 22px; background: transparent; color: var(--muted); }
+.tile .ico:not(.img) svg.i { width: 20px; height: 20px; }
+.result .ico:not(.img) { background: var(--surface-3); color: var(--text-2); }
+.tile .price { font-size: 1.07rem; }
+/* الفاتورة: سطور بفواصل رفيعة بدل كروت، والتفاصيل كلام هادي — الـ IMEI بس اللي في إطار */
+.lines { padding: 2px 12px; }
+.line { border: 0; border-radius: 0; border-bottom: 1px solid var(--border); margin: 0; padding: 10px 6px; }
+.line.sel { background: var(--accent-weak); border-bottom-color: var(--border); }
+.line .meta { gap: 4px 10px; }
+.line .meta .tag:not(.imei-tag):not(.imei-add):not(.warn) { background: transparent; padding: 0; color: var(--muted); font-weight: 500; }
+.line .meta .tag.ok { color: var(--ok); }
+.imei-tag .k { font-size: .72em; font-weight: 700; opacity: .8; }
+.inv-tab .ta { color: var(--muted); font-weight: 500; margin-inline-start: 4px; }
+.inv-tab.on .ta { color: inherit; }
+.cust-row .cb { margin-inline-start: 8px; color: var(--warn); font-weight: 600; }
+.totals .grand { font-size: 1.8rem; }
+
+/* «لافتة الشارع»: الشريط الجانبي لوح بلون المحل بإطار رفيع جوّه، وزرار الدفع لوح تاني */
+html[data-look="plate"] .rail { background: var(--accent-fill); border-inline-end: 0; position: relative; }
+html[data-look="plate"] .rail::after, html[data-look="plate"] .btn-pay::after {
+  content: ''; position: absolute; inset: 5px; border: 1.5px solid color-mix(in srgb, var(--on-accent) 55%, transparent);
+  border-radius: var(--r-xs); pointer-events: none;
+}
+html[data-look="plate"] .nav-btn { width: 64px; color: var(--on-accent); }
+html[data-look="plate"] .nav-btn:hover { background: color-mix(in srgb, var(--on-accent) 14%, transparent); color: var(--on-accent); }
+html[data-look="plate"] .nav-btn.active { background: var(--surface); color: var(--accent-text); }
+html[data-look="plate"] .nav-btn .lock-badge { background: color-mix(in srgb, var(--on-accent) 22%, transparent); color: var(--on-accent); }
+/* اللوجو على اللوح في إطار فاتح: لو لونه زي لون المحل ما يختفيش */
+html[data-look="plate"] .rail .logo { background: var(--surface); color: var(--accent-text); width: 46px; height: 46px; }
+html[data-look="plate"] .btn-pay { position: relative; }
+html[data-look="plate"] .btn-pay:disabled::after { display: none; }
+
+/* «علبة الموبايل»: شريط بلون المحل فوق الشاشة، والباقي أبيض وحبر، والـ IMEI ستيكر */
+html[data-look="box"] body::before { content: ''; position: fixed; inset: 0 0 auto 0; height: 4px; background: var(--accent-fill); z-index: 60; pointer-events: none; }
+html[data-look="box"] .nav-btn.active { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--ink-line); }
+html[data-look="box"] .nav-btn.active svg.i { color: var(--accent-text); }
+html[data-look="box"] .imei-tag { background: var(--sticker-bg); color: var(--sticker-ink); border: 1px solid var(--sticker-ink); border-radius: var(--r-xs); padding: 1px 6px; font-weight: 600; }
+html[data-look="box"] .imei-tag svg.i { color: var(--sticker-ink); }
+html[data-look="box"] .inv-tab.on { background: var(--surface); color: var(--text); border-color: var(--ink-line); }
+html[data-look="box"] .tile:hover { border-color: var(--ink-line); }

@@ -18,7 +18,9 @@ const DEFAULTS = {
   shopName: 'موبايل ستور', phone: '01000000000', address: '12 شارع شبرا، القاهرة', logo: '',
   // الطابع: «plate» = لافتة الشارع · «box» = علبة الموبايل (docs/ui/REDESIGN.md). الخط «auto» = خط الطابع
   theme: 'light', look: 'plate', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin',
-  paper: '80', footer: 'شكرًا لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة', showQR: true, receiptMode: 'wa',
+  paper: '80', footer: 'شكرًا لزيارتكم. الاستبدال خلال 14 يوم بالفاتورة والعلبة.', receiptMode: 'wa',
+  // مكان QR الإيصال الإلكتروني: مقفول (المالك: «تجاهل موضوع المحاسب»)، والمفتاح فاضل في الإعدادات ← الإيصال
+  showQR: false,
   waTemplate: 'أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.',
   warrantyNew: 12, warrantyUsed: 1, feePct: 1, feeMin: 5, billFee: 5, discountLimit: 5,
   // العمولة: «manual» = البيّاع بيكتبها في كل عملية لأنها مش ثابتة · «auto» = بتتحسب من النسبة والحد الأدنى وتفضل قابلة للتعديل
@@ -52,6 +54,7 @@ function loadSettings() {
   if (!('look' in saved)) {
     if (saved.font === 'plex') delete saved.font;
     if (String(saved.accent || '').toLowerCase() === '#2563eb') delete saved.accent;
+    if (saved.showQR === true) delete saved.showQR;
   }
   return {
     ...DEFAULTS, ...saved,
@@ -63,7 +66,7 @@ function loadSettings() {
 }
 let SET = loadSettings();
 function saveSettings() {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SET)); return true; } catch { toast('مساحة التخزين مش كفاية — جرّب لوجو أصغر', 'err'); return false; }
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SET)); return true; } catch { toast('مساحة التخزين مش كفاية. جرّب لوجو أصغر', 'err'); return false; }
 }
 /* ===== الإيصال: واتساب بس دلوقتي — الطباعة بترجع لما تتفعّل الطابعة من الإعدادات ===== */
 const hasPrinter = () => SET.printer === true;
@@ -105,9 +108,12 @@ function accentTokens(hex, dark) {
   // لون المحل ككلام: مقروء على كل الأسطح. والتظليل بيتعمل منه (مش من اللون الخام) عشان يبان حتى لو اللون فاتح جدًا أو غامق جدًا
   const toward = dark ? WHITE : BLACK;
   let text = fitOn(a, grounds, toward);
-  const weak = mixRgb(grounds[1], text, dark ? 0.22 : 0.12);
+  const weak = mixRgb(grounds[1], text, dark ? 0.18 : 0.12);
   if (ratio(text, weak) < 4.5) text = fitOn(text, [...grounds, weak], toward);
-  return { '--accent-fill': hexOf(fill), '--on-accent': hexOf(on), '--accent-text': hexOf(text), '--accent-weak': hexOf(weak) };
+  // الكلام الباهت كمان: لون المحل الفاتح بيفتّح الأسطح والتظليل في الغامق، فبنظبطه من قيمة الطابع الأصلية
+  document.documentElement.style.removeProperty('--muted');
+  const muted = fitOn(cssColor('--muted'), [...grounds, weak], toward);
+  return { '--accent-fill': hexOf(fill), '--on-accent': hexOf(on), '--accent-text': hexOf(text), '--accent-weak': hexOf(weak), '--muted': hexOf(muted) };
 }
 function applySettings() {
   const r = document.documentElement;
@@ -234,7 +240,8 @@ function closeModal() {
   S.modal = null; render(); focusSearch();
 }
 function modalHTML() { const def = MODALS[S.modal.type]; return def ? `<div class="overlay" data-act="overlay">${def.html(S.modal)}</div>` : ''; }
-const modalHead = (ic, title, sub = '') => `<div class="modal-h"><h3>${icon(ic)} <span class="mt">${title}</span>${sub ? ` <small>${sub}</small>` : ''}</h3><button type="button" class="icon-btn sm" data-act="closeModal" title="إغلاق (Esc)">${icon('x')}</button></div>`;
+// عنوان النافذة: h2 من غير أيقونة قبل العنوان، والتفصيلة سطر صغير تحته
+const modalHead = (title, sub = '') => `<div class="modal-h"><h2><span class="mt">${title}</span>${sub ? `<small>${sub}</small>` : ''}</h2><button type="button" class="icon-btn sm" data-act="closeModal" title="إغلاق (Esc)">${icon('x')}</button></div>`;
 
 /* ===== الهيكل: الشريط الجانبي والعلوي ===== */
 const NAV = [
@@ -255,7 +262,7 @@ function rail() {
     ${logoHTML()}
     ${NAV.map((n) => {
       const locked = n.owner && !isOwner();
-      return `<button type="button" class="nav-btn ${S.view === n.id ? 'active' : ''}" data-act="nav" data-v="${n.id}" title="${n.label}${locked ? ' — للمالك بس' : ''}">${icon(n.icon)}<span>${n.label}</span>${locked ? `<span class="lock-badge">${icon('lock')}</span>` : ''}</button>`;
+      return `<button type="button" class="nav-btn ${S.view === n.id ? 'active' : ''}" data-act="nav" data-v="${n.id}" title="${n.label}${locked ? ' (للمالك بس)' : ''}">${icon(n.icon)}<span>${n.label}</span>${locked ? `<span class="lock-badge">${icon('lock')}</span>` : ''}</button>`;
     }).join('')}
     <div class="sp"></div>
     <button type="button" class="nav-btn" data-act="toggleTheme" title="فاتح / غامق">${icon(dark ? 'sun' : 'moon')}<span>${dark ? 'فاتح' : 'غامق'}</span></button>
@@ -265,10 +272,10 @@ function rail() {
 function topbar() {
   const u = S.user;
   return `<header class="topbar">
-    <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">· ${esc(SET.shopName)}</span>
+    <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">${esc(SET.shopName)}</span>
     <div class="sp"></div>
-    <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة · من ${dg(DATA.shift.opened)}</span>
-    ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة — الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
+    <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة من ${dg(DATA.shift.opened)}</span>
+    ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة. الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
     <span class="status hide-sm" title="الموبايلات المتصلة بشبكة المحل"><span class="dot"></span>${icon('smartphone')} ${num(DATA.devices.filter((d) => d.online).length)} موبايل متصل</span>
     <span class="status num" id="clock">${fmtTime()}</span>
     <button type="button" class="btn sm" data-act="shiftClose">${icon('calculator')} تقفيل الوردية</button>
@@ -285,7 +292,7 @@ function swMenuHTML() {
   if (!sw.user) {
     const others = DATA.users.filter((x) => x.id !== me.id);
     return `<div class="sw-menu" role="menu" aria-label="تبديل البيّاع">
-      <div class="sw-cur">${avatar(me)}<span class="t"><b>${esc(me.name)}</b><small>${roleName(me)} · شغّال دلوقتي</small></span></div>
+      <div class="sw-cur">${avatar(me)}<span class="t"><b>${esc(me.name)}</b><small>${roleName(me)}، شغّال دلوقتي</small></span></div>
       <div class="sw-h">بدّل لـ</div>
       ${others.map((x) => `<button type="button" class="sw-item" role="menuitem" data-act="swPick" data-id="${x.id}">${avatar(x)}<span class="t"><b>${esc(x.name)}</b><small>${roleName(x)}</small></span>${icon('chevron-left')}</button>`).join('')}
       <div class="sw-sep"></div>
@@ -328,7 +335,7 @@ function swPress(k) {
   sw.pin += k; sw.err = '';
   if (sw.pin.length === 4) {
     if (sw.pin === sw.user.pin) { switchUser(sw.user); return; }
-    sw.err = 'الرقم السري غلط — جرّب تاني'; sw.pin = ''; beep();
+    sw.err = 'الرقم السري غلط. جرّب تاني'; sw.pin = ''; beep();
   }
   swSync();
 }
@@ -338,7 +345,7 @@ function switchUser(u) {
   const n = NAV.find((x) => x.id === S.view);
   if (n && n.owner && u.role !== 'owner') S.view = 'pos';
   render(); focusSearch();
-  toast(`بقيت شغّال باسم ${u.name}${keep ? ' — الفاتورة المفتوحة زي ما هي' : ''}`);
+  toast(`بقيت شغّال باسم ${u.name}${keep ? '، والفاتورة المفتوحة زي ما هي' : ''}`);
 }
 // بيرجّع true لو الزرار اتعامل معاه هنا
 function swKey(e) {
@@ -381,7 +388,7 @@ document.addEventListener('mousemove', swHover);
 /* ===== أفعال عامة ===== */
 ACT.nav = (d) => {
   const n = NAV.find((x) => x.id === d.v);
-  if (n.owner && !isOwner()) { toast('الصفحة دي للمالك بس — بدّل لحساب المالك من فوق', 'err'); beep(); return; }
+  if (n.owner && !isOwner()) { toast('الصفحة دي للمالك بس. بدّل لحساب المالك من فوق', 'err'); beep(); return; }
   S.view = d.v; S.modal = null; render();
 };
 ACT.toggleTheme = () => { SET.theme = curTheme() === 'dark' ? 'light' : 'dark'; saveSettings(); applySettings(); render(); };

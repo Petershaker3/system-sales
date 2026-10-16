@@ -355,7 +355,7 @@ const cx = await p.evaluate(() => {
     Object.assign(SET, { accent, look, theme }); applySettings();
     const grounds = ['--bg', '--surface', '--surface-2', '--surface-3', '--accent-weak'].map(col), t = col('--accent-text');
     const acc = Math.min(...grounds.map((g) => R(t, g))), on = R(col('--on-accent'), col('--accent-fill'));
-    const body = Math.min(R(col('--text'), col('--bg')), R(col('--text'), col('--surface-3')), R(col('--muted'), col('--surface-3')), R(col('--muted'), col('--bg')));
+    const body = Math.min(R(col('--text'), col('--bg')), R(col('--text'), col('--surface-3')), R(col('--muted'), col('--surface-3')), R(col('--muted'), col('--bg')), R(col('--muted'), col('--accent-weak')), R(col('--text'), col('--accent-weak')));
     if (acc < 4.5 || on < 4.5 || body < 4.5) bad.push(`${accent}/${look}/${theme}: accent-text ${acc.toFixed(2)} on-accent ${on.toFixed(2)} body ${body.toFixed(2)}`);
   }
   Object.assign(SET, keep); applySettings(); return bad;

@@ -70,7 +70,7 @@ MODALS.intake = {
   html(m) {
     const ACC = ['شاحن', 'جراب', 'شريحة', 'ميموري', 'علبة'];
     return `<div class="modal wide" role="dialog" aria-label="استلام جهاز صيانة">
-      ${modalHead('package-plus', 'استلام جهاز صيانة', `تذكرة R-${nextRepairNo()}`)}
+      ${modalHead('استلام جهاز صيانة', `تذكرة R-${nextRepairNo()}`)}
       <div class="modal-b"><div class="intake">
         <div class="stack">
           <div class="field"><label for="in-phone">موبايل العميل</label><input id="in-phone" data-input="inF" data-k="phone" data-autofocus dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"><span class="hint">لو العميل متسجّل، اسمه بيظهر لوحده</span></div>
