@@ -2,12 +2,12 @@
 version: 1
 slug: "docs-ui-mockup-v1-index-html"
 primary_target: "docs/ui/mockup-v1/index.html"
-related_targets: ["docs/ui/mockup-v1/styles.css","docs/ui/mockup-v1/app.js","docs/ui/mockup-v1/pos.js","docs/ui/mockup-v1/views.js"]
+related_targets: ["docs/ui/mockup-v1/styles.css","docs/ui/mockup-v1/app.js","docs/ui/mockup-v1/analytics.js","docs/ui/mockup-v1/pos.js","docs/ui/mockup-v1/views/"]
 ---
 
 # Surface brief — mobile-shop POS mockup (desktop till)
 
-Scope: every screen of `docs/ui/mockup-v1/` (sales, services, pay, reports, inventory, repairs, settings, lock, phone preview). Mode: **Operate**. Build path: code-led (Operate surface).
+Scope: every screen of `docs/ui/mockup-v1/` (sales, services, pay, reports with the month report, the sales screen, inventory with shortages and the receiving window, repairs, settings, lock, phone preview). Mode: **Operate**. Build path: code-led (Operate surface).
 
 Audience and job: the seller at one Cairo phone-shop counter (owner + 1–2 sellers), keyboard + mouse, the customer waiting; only staff see the screen. Rings up accessories, phones (IMEI optional), wallets, cards, bills and repairs; closes the shift.
 

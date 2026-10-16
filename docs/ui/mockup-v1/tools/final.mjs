@@ -63,7 +63,16 @@ await p.evaluate(() => { ACT.svRange({ id: 'week' }); ACT.svView({ id: 'cat' });
 await snap('12-sales-categories.png');
 await p.evaluate(() => { S.view = 'inventory'; S.inv.tab = 'short'; render(); });
 await snap('13-shortages.png');
-await p.evaluate(() => localStorage.clear());
+// 14–17) الشهور في المبيعات، وتقرير الشهر، وآخر 12 شهر، والاستلام من الكمبيوتر (docs/ui/MONTHS-REPORTS-RECEIVING.md)
+await p.evaluate(() => { S.inv.tab = 'items'; S.view = 'sales'; S.salesv = null; render(); ACT.svRange({ id: 'month' }); svShift(-1); ACT.svView({ id: 'day' }); });
+await snap('14-sales-month-days.png');
+await p.evaluate(() => { S.view = 'dashboard'; S.rep = { tab: 'month', month: monthStart(new Date()) }; render(); });
+await snap('15-reports-month.png');
+await p.evaluate(() => { const c = document.querySelector('.content'); c.scrollTop = c.scrollHeight; });
+await snap('16-reports-12-months.png');
+await p.evaluate(() => { S.view = 'inventory'; S.rep = null; render(); ACT.recvOpen(); rcAdd('a7'); Object.assign(S.modal.lines[0], { qty: 20, qtyT: '20', cost: 85, costT: '85' }); rcAdd('p1'); ACT.rcPhone({ i: '1' }); ACT.rcPhone({ i: '1' }); S.modal.supplier = 'النور للتوزيع'; render(); });
+await snap('17-receive.png');
+await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); localStorage.clear(); });
 console.log('screens:', fs.readdirSync(OUT).join(', '));
 console.log('screens ERRORS:', errs.length ? errs.join(' | ') : 'none');
 await b.close();

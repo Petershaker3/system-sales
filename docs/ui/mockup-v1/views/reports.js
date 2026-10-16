@@ -129,8 +129,10 @@ function repMonth(st) {
     return `<button type="button" class="bar-col" data-act="repMonthPick" data-m="${m.key}" title="${fmtMonth(m.from)}: ${money(m.sales)}${extra ? ` — المتوقع ${money(R.projection)}` : ''}" aria-label="${fmtMonth(m.from)}: ${money(m.sales)}"><span class="bv num">${kShort(m.live && R.projection ? R.projection : m.sales)}</span>
       <div class="bar-stack" style="height:${Math.max(3, Math.round(((m.sales + extra) / maxM) * 100))}%">${extra ? `<div class="bar ghost" style="flex:${extra}"></div>` : ''}<div class="bar ${on ? 'today' : ''}" style="flex:${m.sales || 1}"></div></div><span class="bl">${monthName(m.from)}</span></button>`;
   }).join('');
-  const rowsM = R.months.slice().reverse().map((m, i, arr) => {
-    const prevM = arr[i + 1], ch = prevM && !m.live ? pct(m.sales, prevM.sales) : m.live ? chSales : null;
+  // «عن اللي قبله» من السجل كله، عشان أقدم شهر في الجدول يتقارن هو كمان لو الشهر اللي قبله موجود
+  const allM = byMonth(DATA.history), prevOf = new Map(allM.map((m, i) => [m.key, allM[i - 1]]));
+  const rowsM = R.months.slice().reverse().map((m) => {
+    const prevM = prevOf.get(m.key), ch = m.live ? chSales : prevM ? pct(m.sales, prevM.sales) : null;
     return `<tr class="hov click ${m.key === monthKey(R.from) ? 'on' : ''}" data-act="repMonthPick" data-m="${m.key}"><td>${fmtMonth(m.from)}${m.live ? ' <span class="muted">(لحد النهارده)</span>' : ''}</td><td class="ta-n num"><b>${money(m.sales)}</b></td><td class="ta-n">${prevM || m.live ? chgCell(ch) : '<span class="muted">—</span>'}</td><td class="ta-n num">${money(m.profit)}</td><td class="ta-n num">${num(m.sales ? Math.round((m.profit / m.sales) * 100) : 0)}%</td><td class="ta-n num">${num(m.invoices)}</td><td class="ta-n num">${money(m.perDay)}</td></tr>`;
   }).join('');
   const year = `<div class="card"><h3>آخر ${nMonths(R.months.length)}</h3><div class="bars months">${mBars}</div>

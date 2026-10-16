@@ -1,6 +1,6 @@
 <div dir="rtl">
 
-# نموذج واجهة «موبايل ستور» — النسخة 1.4
+# نموذج واجهة «موبايل ستور» — النسخة 1.5
 
 نموذج **للتصميم بس** (HTML + JavaScript من غير مكتبات) عشان نتفق على الشكل والطريقة قبل كتابة البرنامج الحقيقي.
 البيانات تجريبية، ومفيش قاعدة بيانات: الإعدادات والصور بتتحفظ في المتصفح، والمبيعات بتتمسح لما تعمل تحديث للصفحة.
@@ -28,6 +28,21 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 > رابط المعاينة اللي بيتبعت في المحادثة بيشتغل **بس والجلسة شغالة**؛ لما الجلسة تقف الرابط يقف. الملف الواحد ده هو النسخة الدايمة.
 
 **أرقام سرية للتجربة:** بيتر (المالك) `1111` · يوسف (بيّاع) `2222` · مارينا (بيّاع) `3333`
+
+## الجديد في 1.5 (الشهور والتقارير والاستلام — 16 أكتوبر 2026)
+
+التفاصيل والمراجعة بعد كل مرحلة: [`docs/ui/MONTHS-REPORTS-RECEIVING.md`](../MONTHS-REPORTS-RECEIVING.md).
+
+| طلبك | اللي اتعمل |
+|---|---|
+| «هو اضافة مخزون بيتم عن طريق الموبايل فقط ولا السيستم كمان» | **الاتنين.** الخطة والبرنامج الحقيقي فيهم الاستلام من الكمبيوتر، لكن النموذج كان بيوديك على الموبايل بس. دلوقتي **المخزون ← «استلام بضاعة»** بيفتح نافذة على الكمبيوتر:<ul><li>المورد (اختياري)، والأصناف بالبحث أو الباركود، والعدد، وتكلفة الوحدة (للمالك بس).</li><li>«التكلفة بعد الاستلام» بالمتوسط المرجح بتبان قبل الحفظ.</li><li>الموبايل بيروح على خانة الـ IMEI على طول، وتمسح بالماسح أو «امسح بالموبايل».</li><li>الصنف اللي في النواقص بيتشال لما يوصل، ولو فيه عميل مستنيه السيستم بيقولك اسمه ورقمه.</li></ul> |
+| «عاوز في المبيعات اقدر اشوف مبيعات الشهور الاخري مش ايام فقط» | في **المبيعات**:<ul><li>قايمة **«اختار شهر»** فيها كل الشهور اللي ليها مبيعات، والسهمين بيقلّبوا شهر شهر.</li><li>عرض جديد **«الأيام»**: كل يوم في الشهر في صف، و«أعلى يوم» متعلّم، ولو دوست على أي يوم يفتح فواتيره.</li><li>البيانات التجريبية بقت **14 شهر** بمواسم السوق المصري (العيدين، ورمضان، والمدارس، والجمعة البيضا، ونتيجة الثانوية).</li></ul> |
+| «وفي التقارير عاوز تقارير عن الشهر الحالي والشهور الاخري وتقييمات عنها» | **التقارير ← «الشهر»**:<ul><li>أي شهر: المبيعات قصاد الشهر اللي فات وقصاد نفس الشهر السنة اللي فاتت، والربح، والفواتير، والموبايلات، والمتوقع لآخر الشهر.</li><li>**التقييم:** حكم على الشهر (ترتيبه في آخر 12 شهر)، وملاحظات من الأرقام نفسها، كل واحدة «كويس» أو «خلي بالك» أو «معلومة».</li><li>يوم بيوم، والتصنيفات والبيّاعين والأصناف وطرق الدفع بتغيّرهم، وآخر 12 شهر.</li></ul> |
+| «عاوزك وانت بتعمل السيستم تعمله يكون جاهز للتطوير والتغييرات بسهولة» | <ul><li>الكود بقى ملف لكل شاشة.</li><li>كل الأرقام بتتحسب في مكان واحد، فالرقم بيطلع هو هو في كل شاشة.</li><li>فحوص بتشتغل مع كل تغيير: 53 قاعدة سريعة و157 فحص للشاشات.</li><li>دليل للمطوّر: [`docs/ENGINEERING.md`](../../ENGINEERING.md).</li></ul> |
+
+**وكمان:**
+- **أي مقارنة فيها النهارده بقت لحد نفس الساعة.** قبل كده، النهارده الساعة 10 الصبح كان بيتقارن بامبارح كله، فيطلع خسارة مش حقيقية.
+- **البحث برقم الفاتورة** بقى يجيب الفاتورة دي بس، و**الأرقام العربي** (١٢٣) بقت شغالة في البحث.
 
 ## الجديد في 1.4 (المبيعات والنواقص — 16 أكتوبر 2026)
 
@@ -92,15 +107,17 @@ It is **not** product code: no persistence of sales, mock data only, no security
 
 | File | Contents |
 |---|---|
-| `index.html` | Pre-paint theme script; loads `icons.js → data.js → app.js → pos.js → views.js` (order matters, plain scripts). |
+| `index.html` | Pre-paint theme script; loads `icons.js → data.js → app.js → analytics.js → pos.js → views/*.js → boot.js` (order matters, plain scripts; the guide is [`docs/ENGINEERING.md`](../../ENGINEERING.md)). |
 | `styles.css` | Design tokens per look × theme (`html[data-look="plate"|"box"][data-theme]`, plus `data-font|data-scale`), all components, look-specific signature rules at the end. See [`DESIGN.md`](../../../DESIGN.md). |
 | `fonts.css`, `fonts/` | 48 woff2 files (Changa and Vazirmatn = the looks' fonts; IBM Plex Sans Arabic, Cairo, Readex Pro, Tajawal as options; arabic + latin subsets). Licenses: `fonts/LICENSES.txt` (SIL OFL 1.1). |
 | `icons.js` | 133 Lucide icons (ISC), inlined as SVG bodies. |
-| `data.js` | Mock data (seeded PRNG → stable Luhn-valid IMEIs). **`history`**: 60 days of demo invoices with lines (own PRNG), the single source for reports, the phone view and the sales screen. Category tree (`parent`), phones with `stock` = IMEI units + units received without IMEI. |
+| `data.js` | Mock data (seeded PRNG → stable Luhn-valid IMEIs). **`history`**: 14 months of demo invoices with lines (own PRNG; from the 1st, 13 months back; growth over the year and Egyptian seasons, both Eids by year; numbered from 1001), the single source for reports, the phone view and the sales screen. **`receipts`**: demo receipts with supplier labels. Category tree (`parent`), phones with `stock` = IMEI units + units received without IMEI. |
 | `app.js` | Helpers, settings (`localStorage: mshop.mockup.settings.v1`), product images (`mshop.mockup.images.v1`), state `S`, render loop, rail/topbar, **user switcher**, delegated events (`data-act` / `data-input` / `data-change`). |
 | `pos.js` | Search (Arabic normalisation, transliterated keywords, last-4 IMEI, SKU), categories bar, cart/invoices/hold, optional-IMEI logic, keyboard map, modals: IMEI, customer, qty, discount (owner PIN over limit), pay (split / credit / instalments / receipt), done + receipt, services (wallets, recharge cards, bills), shift close. |
-| `views.js` | Reports, **sales screen** (days, filters, invoice/product/category views, invoice window), repairs board + intake, inventory (+ product images, **shortages tab**), settings (8 tabs incl. *الأصناف والبيع*), lock screen, mobile preview (live today's sales, scanner, lookup, receiving by IMEI or quantity). Startup at the end. |
-| `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 1.3 MB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
+| `analytics.js` | **The one computation layer**: dates and periods, comparisons (`prevPeriod`, `comparePeriod` up to the same time, `yearAgo`), grouping (`totalsOf`, `byProduct`, `byCategory`, `bySeller`, `byMethod`, `byDay`, `byMonth`, `withChange`), `monthReport` (totals, comparisons, projection, rank, evaluation), `refreshDash`, `histRecord`, and `receiveCost` (moving average). Pure functions, checked by `tools/unit.mjs`. |
+| `views/*.js` | One screen per file: `reports` (today + month report), `repairs`, `inventory`, `receive` (receiving window + `applyReceipt`, also used by the phone), `shortages`, `settings`, `lock`, `mobile`, `sales` (days and months, filters, invoice/day/product/category views, invoice window). |
+| `boot.js` | Last file: applies the settings and draws the first screen. (`views.js` was split into `views/` + `boot.js` in v1.5 with no behaviour change, `84a748c`.) |
+| `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 1.4 MB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
 | `screens/` | Reference screenshots (1366×768), both looks; made by `tools/final.mjs` from the mockup itself (no generated imagery). |
 | `tools/` | Build + QA tooling (below). `node_modules/` is git-ignored. |
 
@@ -117,7 +134,11 @@ It is **not** product code: no persistence of sales, mock data only, no security
   and attributed to whoever completes it. Menu updates without full re-render (`swSync`) so outside clicks are never lost.
 - **Mobile "today's sales":** owner sees shop total, profit, per-seller split, latest invoices; sellers see only their own.
 - **Product images:** optional; centre-crop 192×192 JPEG ≈ 10–20 KB; can be hidden globally.
-- **Sales record (v1.4):** `DATA.history` holds every invoice (demo + session). `refreshDash()` (pos.js) derives the reports
+- **Months and month report (v1.5):** the sales screen picks any month (list + month arrows, stops at the first month) and has a «الأيام» view; the reports have a «الشهر» tab built on `monthReport()`. Evaluation thresholds live in `TH` (sales ±3%, average invoice ±5%, margin ±1 point, category ±10%); discount and credit are judged by their share of sales; no judgement without a month before.
+- **Comparison rule (v1.5):** a period that includes today is compared with the period before **up to the same clock time** (`comparePeriod`, `inSpan`), on every screen. Today vs yesterday uses `refreshDash().today.vsYesterday` (null when yesterday had no sales).
+- **Receiving (v1.5):** `views/receive.js`. Lines `{pid, qty, cost, imeis}`; unit cost for the owner only (a seller receives at the last cost, so the average stays); `receiveCost` = ceil((stock × avg + qty × cost) / (stock + qty)); IMEI units keep their own cost; IMEI checks = 15 digits + Luhn + not registered + not twice; `imeiMode: required` blocks a short line; shortages with that product close and name the waiting customer. `applyReceipt()` is the single path for the computer and the phone. Modals may define `canClose(m)`; the receiving window warns on the first close with unsaved lines.
+- **Search ranking:** `rankProducts()` (pos.js) is shared by the sales search and the receiving window (name starts with the first word, then the whole phrase, then best sellers). An exact invoice number wins in the sales screen; Arabic-Indic digits are converted first.
+- **Sales record (v1.4):** `DATA.history` holds every invoice (demo + session). `refreshDash()` (analytics.js since v1.5) derives the reports
   and the phone view from it; `completeSale` appends via `histRecord()`. With a product/category filter the sales screen counts
   matching lines only (gross, before invoice discount) and says so.
 - **Shortages (v1.4):** `localStorage: mshop.mockup.shortages.v1`; manual entries (product or free text, qty, note, waiting
@@ -142,15 +163,16 @@ npm install                 # fonts, icons, puppeteer-core, @sparticuz/chromium 
 node build-assets.mjs ..    # regenerate fonts/, fonts.css, icons.js (offline)
 python3 serve.py --bind 0.0.0.0 --port 4173 --directory ..   # preview server: always 200, no-store, CORS *
 node smoke.mjs              # title / tiles / focus / console errors
-node qa.mjs                 # 129 behaviour checks + layout-overflow detection (1366, 1920, large text, dark, both looks); shots → /tmp/shots
-node snapshots.mjs          # static snapshots: 17 screens × 2 looks × 2 themes → /tmp/snap
+npm run unit                # 53 rules for analytics.js + data.js, no browser, < 1 s (incl. 'every top-level name declared once')
+node qa.mjs                 # 157 behaviour checks + layout-overflow detection (1366, 1920, large text, dark, both looks); shots → /tmp/shots
+node snapshots.mjs          # static snapshots: 24 screens × 2 looks × 2 themes → /tmp/snap
 sh detect-snapshots.sh      # impeccable design detector over the snapshots (needs IMPECCABLE + IMPECCABLE_BROWSER)
-node final.mjs              # regenerate screens/
+node final.mjs              # regenerate screens/ (17 screenshots)
 node build-offline.mjs      # rebuild ../mockup-offline.html after ANY change to the mockup sources
 node offline-check.mjs      # file:// check: zero network requests, Arabic fonts loaded, no console errors
 MOCKUP_URL="file://$(cd .. && pwd)/mockup-offline.html" node qa.mjs   # full QA against the single file
 ```
 
 `launch.mjs` unpacks Chromium's shared libs + fonts to `/tmp/al2023x` on first run (needed on minimal Linux sandboxes).
-Last QA run: **129 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.4).
-Last detector run (`impeccable` 0.1.15): **0 findings** on 80 snapshots (20 screens × 2 looks × 2 themes).
+Last QA run: **157 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.5). Unit: **53 passed**.
+Last detector run (`impeccable` 0.1.15): **0 findings** on 96 snapshots (24 screens × 2 looks × 2 themes). Single file: 1,419 KB, zero network requests.

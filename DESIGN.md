@@ -1,6 +1,6 @@
 # DESIGN.md — Mobile Shop System UI
 
-> The visual system of the approved mockup (`docs/ui/mockup-v1/`, v1.3), written at the end of the 2026-10-16 redesign.
+> The visual system of the approved mockup (`docs/ui/mockup-v1/`, v1.3), written at the end of the 2026-10-16 redesign, and extended for the screens added in v1.4 and v1.5.
 > Product facts: [`PRODUCT.md`](PRODUCT.md). Plan of record: [`docs/PLAN.md`](docs/PLAN.md). How it was built and reviewed, phase by phase: [`docs/ui/REDESIGN.md`](docs/ui/REDESIGN.md).
 > The source of truth for values is `docs/ui/mockup-v1/styles.css` (tokens at the top) and `accentTokens()` in `app.js`. The real app (items 1.6 and 1.13) should port these, not re-invent them.
 
@@ -70,6 +70,9 @@ Contrast is tested **after rounding** to hex. Coloured buttons and chips get a b
 - **Receipt preview:** white paper with dashed tear lines top and bottom (it stands for the WhatsApp receipt image).
 - **Toasts:** ink box in light themes, layered surface in dark; beside an open window, never over its text.
 - **Sales screen:** day navigator (older on the right, newer on the left, as Arabic reads) with the native date picker under the label, and quick ranges; one filter row; the totals strip; three views as a segmented control. With a product or category filter the amounts are for the matching lines, and the screen says so.
+- **Sales screen, months (v1.5):** a «اختار شهر» list beside the quick ranges (a jump menu: it always reads «اختار شهر», the title says where you are, the shown month is marked «المعروض» inside); month arrows; a «الأيام» view with one row per day, the best day tagged, a share bar relative to the best day, and a click that opens the day.
+- **Month report (v1.5):** tabs «النهارده | الشهر» in the page head. KPIs strip with up to two change lines (vs last month, vs the same month last year). An evaluation card: a verdict line (icon + bold sentence + a muted basis line), then one row per observation with a fixed-width tag column («كويس» = `ok`, «خلي بالك» = `warn`, «معلومة» = neutral). Daily bars for the whole month: days still to come are dashed empty ghosts, the best day is `--accent-fill` with its value, the other values live in the bar's title; every bar is a button that opens that day. Twelve-month bars with the live month's projection as a dashed segment on top, and a table under them. Tables show change as arrow + %, zero muted without an arrow, and a huge change on a tiny base as a multiple («×79»).
+- **Receiving window (v1.5):** a wide modal: supplier (with suggestions) beside the product search, results as the sales-search rows, then a table with inline number inputs (count, unit cost for the owner) and the cost after receiving. A phone line has an IMEI row on `--surface-2`: the scan box, «امسح بالموبايل», the count «2 من 2 بالـ IMEI», an inline error, and IMEI chips with a remove button. The footer sums pieces and cost; closing with unsaved lines warns first.
 - **Shortages:** an add row with labelled fields (quantity, note, waiting customer) and inventory matches under the name; the list with a «ناقص / اتطلب» segment and «وصل»; suggestions with a suggested quantity.
 - **Motion:** 150–250ms state changes only; `prefers-reduced-motion` turns animation off.
 
@@ -79,6 +82,10 @@ Contrast is tested **after rounding** to hex. Coloured buttons and chips get a b
 - **No joins with « · » or « — ».** Two ideas = two sentences; a detail = «،» or a subtitle line; a list = «و».
 - Errors say what happened and how to fix it: «الرقم ده مش IMEI صحيح: رقم المراجعة غلط. راجع الرقم».
 - An action keeps its name through the flow (the button «ادفع» → the screen «تم البيع»).
+- **Counts agree with the number** (`pcsWord`): «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة».
+- **Short figures over bars** are words, not «k»: «2.37 مليون»، «171.5 ألف».
+- **Comparisons say against what:** «عن امبارح لنفس الساعة»، «عن نفس الوقت من سبتمبر»، «عن أكتوبر 2025». A category inside a sentence goes in «» («مبيعات «مستعمل» قلّت 28%»).
+- **The evaluation states facts from the figures, never opinions,** and gives the reason only when the figures show it («لأن الموبايلات بقت 87% من المبيعات»).
 
 ## Do not (from the skills used)
 
@@ -86,6 +93,6 @@ Default palettes (Tailwind blue, slate greys) · identical rounded cards with so
 
 ## Verification
 
-- `tools/qa.mjs`: 129 behaviour checks, including contrast with 6 hard shop colours × 2 looks × 2 themes, visible focus on the plate rail, the payment split bar, overflow in both looks, migration of old settings.
-- `tools/snapshots.mjs` + `tools/detect-snapshots.sh`: 20 screens × 2 looks × 2 themes through the `impeccable` detector. Result at v1.4: **0 findings** on 80 snapshots (the old design had 323 per look on its 17 screens).
+- `tools/qa.mjs`: 157 behaviour checks, including contrast with 6 hard shop colours × 2 looks × 2 themes, visible focus on the plate rail, the payment split bar, overflow in both looks, migration of old settings.
+- `tools/snapshots.mjs` + `tools/detect-snapshots.sh`: 24 screens × 2 looks × 2 themes through the `impeccable` detector. Result at v1.5: **0 findings** on 96 snapshots (the old design had 323 per look on its 17 screens). At v1.5 it caught dimmed day numbers (opacity, 2.4:1) under the month chart; they now keep the muted colour.
 - Rasters: everything in `screens/` is a screenshot of the mockup itself made by `tools/final.mjs`. No generated imagery ships with the mockup.

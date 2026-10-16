@@ -42,7 +42,9 @@ Built around how an Egyptian phone shop actually works, in its own language: pho
 - **Layout is agreed** (owner: «زي ماهي في html»). The visual redesign changes **the look only** — colours, type, buttons, spacing. Positions, steps and shortcuts stay (owner, 2026-10-16).
 - Light and dark themes with a toggle. Shop name, logo, accent colour, font, text size and digits (Latin or Arabic-Indic) are adjustable in settings.
 - Optional product images (192 px).
-- A sales screen («المبيعات»): day by day or a range, filtered by product, category, seller and payment, viewed by invoice, product or category; sellers see only their own sales (owner request, 2026-10-16).
+- A sales screen («المبيعات»): day by day, month by month or a range, filtered by product, category, seller and payment, viewed by invoice, day, product or category; sellers see only their own sales (owner requests, 2026-10-16).
+- Month reports with an evaluation: any month against the month before and the same month last year, a month-end projection, the month's rank among the last 12, and observations taken from the figures only (owner request, 2026-10-16: «تقارير عن الشهر الحالي والشهور الاخري وتقييمات عنها»). A period that includes today is compared up to the same time of day.
+- Receiving on the computer as well as on the phone, under the same rules: optional supplier label, unit cost for the owner only, moving-average cost, IMEI typed or scanned (owner question, 2026-10-16).
 - Manual shortages next to the system's reorder suggestions, also addable from the sales search (owner request, 2026-10-16).
 - Terminology: «انتظار» (hold), «آجل» (credit), «بيّاع» (seller).
 - The mockup must keep working as one offline HTML file; fonts are self-hosted. The real app is a Tauri desktop app (Vue).

@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ملف مُولَّد — لا تعدّله بإيدك. المصدر: index.html + fonts.css + styles.css + icons.js + data.js + app.js + pos.js + views.js.
+  ملف مُولَّد — لا تعدّله بإيدك. المصدر: index.html + fonts.css + styles.css + icons.js + data.js + app.js + analytics.js + pos.js + views/reports.js + views/repairs.js + views/inventory.js + views/receive.js + views/shortages.js + views/settings.js + views/lock.js + views/mobile.js + views/sales.js + boot.js.
   إعادة البناء: cd docs/ui/mockup-v1/tools && node build-offline.mjs
   Generated single-file build of the UI mockup: opens from disk with no server and no internet.
 -->
@@ -1203,6 +1203,53 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .sv-empty svg.i { width: 34px; height: 34px; }
 .sv-empty b { color: var(--text); font-size: 1.05rem; }
 .sv-more { align-self: center; }
+.sv-month { min-width: 168px; }
+/* التقارير: الشهر — التقييم، والأعمدة بتتداس، والأيام اللي لسه ماجتش، والمتوقع متقطّع */
+.day-pick.static { cursor: default; }
+.rep-more { margin-top: 10px; width: 100%; justify-content: center; }
+.rep-hint { font-size: .8rem; font-weight: 400; }
+.ch { display: inline-flex; align-items: center; gap: 3px; font-size: .86rem; font-variant-numeric: tabular-nums; }
+.ch svg.i { width: 14px; height: 14px; }
+.ev-verdict { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0 12px; border-bottom: 1px solid var(--border); }
+.ev-verdict > svg.i { width: 22px; height: 22px; flex: none; margin-top: 2px; color: var(--muted); }
+.ev-verdict.good > svg.i { color: var(--ok); } .ev-verdict.warn > svg.i { color: var(--warn); }
+.ev-verdict b { display: block; font-size: 1.05rem; }
+.ev-verdict small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.ev-li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .92rem; }
+.ev-li:last-child { border-bottom: 0; }
+.ev-li .tag { justify-self: start; }
+.bars.dense { gap: 3px; height: 190px; }
+.bars.months { height: 170px; margin-bottom: 12px; }
+.bars button.bar-col { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; border-radius: var(--r-xs); }
+.bars button.bar-col:hover .bar:not(.ghost):not(.today) { background: color-mix(in srgb, var(--accent-text) 52%, var(--surface)); }
+.bars button.bar-col:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.bar.ghost { background: transparent; border: 1px dashed var(--border-strong); border-bottom: 0; }
+.bar-stack { width: 100%; max-width: 46px; display: flex; flex-direction: column; }
+.bar-stack .bar { max-width: none; border-radius: 0; }
+.bar-stack .bar:first-child { border-radius: var(--r-xs) var(--r-xs) 0 0; }
+.sv-t tr.on td { background: var(--accent-weak); }
+.page .card .sv-t td.ta-n { white-space: nowrap; }
+.card.narrow .sv-share { width: 54px; }
+.card.narrow .sv-t td { white-space: nowrap; }
+/* الاستلام */
+.rc-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 12px; align-items: end; }
+.rc-res { display: grid; gap: 2px; border: 1px solid var(--border); border-radius: var(--r-m); padding: 4px; max-height: 300px; overflow: auto; }
+.rc-none { padding: 12px; }
+.rc-t td small { display: block; font-size: .8rem; }
+.rc-in { width: 96px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 8px; background: var(--surface); color: var(--text); text-align: end; font: inherit; }
+.rc-in:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.rc-t tr.rc-imrow td { background: var(--surface-2); padding-top: 8px; padding-bottom: 10px; }
+.rc-imei { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rc-imei .inline-search.rc-ims { height: 40px; min-width: 300px; flex: 0 1 340px; }
+.rc-cnt, .rc-err { font-size: .86rem; display: inline-flex; align-items: center; gap: 4px; }
+.rc-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.rc-chips .tag { gap: 6px; }
+.rc-x { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-inline-start: 2px; border: 0; border-radius: var(--r-xs); background: transparent; color: inherit; cursor: pointer; }
+.rc-x:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+.rc-x:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.rc-x svg.i { width: 14px; height: 14px; }
+.sv-days tr.zero td, .sv-days tr.zero b { color: var(--muted); font-weight: 400; }
+.sv-days .tag { margin-inline-start: 6px; }
 .sv-cust { display: flex; align-items: center; gap: 8px; }
 .sv-cust svg.i { color: var(--muted); }
 .sv-meta { margin-top: 4px; font-size: .85rem; }
@@ -1567,7 +1614,6 @@ const DATA = (() => {
       ['اسكرينة زجاج 9D', 31, 3100], ['جراب سيليكون شفاف', 24, 2880], ['كابل تايب سي لتايب سي', 12, 1800],
       ['Redmi 14C 128GB', 3, 18897], ['Samsung Galaxy A16 128GB', 2, 18500],
     ],
-    month: { label: 'سبتمبر 2026', phones: 166140, accessories: 80305, ops: 1240 },
     recent: [
       { no: 10452, at: '12:41 م', seller: 'يوسف', sellerId: 'u2', customer: 'نقدي', method: 'كاش', total: 270 },
       { no: 10451, at: '12:18 م', seller: 'مارينا', sellerId: 'u3', customer: 'سارة أحمد', method: 'إنستاباي', total: 10999 },
@@ -1582,9 +1628,16 @@ const DATA = (() => {
     { name: 'موبايل يوسف', model: 'Redmi Note 14', online: true, last: 'متصل دلوقتي' },
   ];
 
-  /* ===== سجل المبيعات (تجريبي): فواتير آخر 60 يوم بأصنافها =====
-     التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده، والبيعات الجديدة بتتضاف عليه (app.js: refreshDash).
-     مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي. */
+  /* ===== سجل المبيعات (تجريبي): فواتير 14 شهر بأصنافها (من أول الشهر من 13 شهر لحد النهارده) =====
+     التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده (analytics.js)، والبيعات الجديدة بتتضاف عليه.
+     مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي.
+     فيه نمو على السنة ومواسم السوق المصري، عشان مقارنات الشهور يبقى ليها معنى. */
+  // آخر الاستلامات (تجريبي). المورد اسم بيكتبه المحل من غير سجل موردين، زي البرنامج الحقيقي (receive_stock)
+  const receipts = [
+    { no: 41, at: new Date(Date.now() - 9 * 864e5), supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
+    { no: 42, at: new Date(Date.now() - 5 * 864e5), supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
+    { no: 43, at: new Date(Date.now() - 2 * 864e5), supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
+  ];
   const history = (() => {
     let hs = 20261016;
     const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
@@ -1596,17 +1649,35 @@ const DATA = (() => {
     const unitLine = (p) => ({ pid: p.id, name: p.name, cat: p.cat, qty: 1, price: p.price, cost: p.cost, imei: imeiOf(p.tac), warranty: p.warranty });
     const itemLine = (p, qty = 1) => ({ pid: p.id, name: p.name, cat: p.cat, qty, price: p.price, cost: p.cost, imei: null, warranty: p.warranty });
     const out = [], now = new Date(), OPEN = 9 * 60, CLOSE = 23 * 60;
-    for (let back = 59; back >= 0; back--) {
+    const first = new Date(now.getFullYear(), now.getMonth() - 13, 1), DAYS = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - first) / 864e5);
+    // المواسم: [عدد الفواتير، نسبة الموبايلات]. العيدين بتواريخهم لكل سنة، والباقي بيتكرر كل سنة بنفس الأيام
+    const FITR = ['2025-03-30', '2026-03-20', '2027-03-09', '2028-02-26'], ADHA = ['2025-06-06', '2026-05-27', '2027-05-16', '2028-05-05'];
+    const near = (day, list) => { let best = 999; for (const e of list) { const [y, m, dd] = e.split('-').map(Number); const k = Math.round((day - new Date(y, m - 1, dd)) / 864e5); if (Math.abs(k) < Math.abs(best)) best = k; } return best; };
+    const season = (day) => {
+      const f = near(day, FITR), a = near(day, ADHA), md = (day.getMonth() + 1) * 100 + day.getDate();
+      if (f >= -10 && f <= 2) return [1.3, 1.7];        // قبل عيد الفطر والعيد: هدايا وعيدية
+      if (f >= -30 && f < -10) return [0.93, 0.9];      // رمضان
+      if (f > 2 && f <= 20) return [0.88, 0.8];         // بعد العيد
+      if (a >= -10 && a <= 2) return [1.18, 1.3];       // عيد الأضحى
+      if (md >= 912 && md <= 1003) return [1.12, 1];    // المدارس
+      if (md >= 1120 && md <= 1130) return [1.15, 1.3]; // الجمعة البيضا
+      if (md >= 1224 || md <= 107) return [1.06, 1.1];  // راس السنة وعيد الميلاد
+      if (md >= 801 && md <= 820) return [1.1, 1.4];    // نتيجة الثانوية العامة
+      return [1, 1];
+    };
+    for (let back = DAYS; back >= 0; back--) {
       const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
       const end = back === 0 ? Math.min(CLOSE, now.getHours() * 60 + now.getMinutes()) : CLOSE;
       if (end <= OPEN) continue;
       const busy = day.getDay() === 4 || day.getDay() === 5 ? 9 : 0;
-      const n = Math.round((34 + Math.floor(hr() * 15) + busy) * (end - OPEN) / (CLOSE - OPEN));
-      const mins = Array.from({ length: n }, () => OPEN + Math.floor(hr() * (end - OPEN))).sort((a, b) => a - b);
-      for (const m of mins) {
+      const [rush, gift] = season(day), grow = 0.86 + 0.14 * (1 - back / DAYS); // المحل بيكبر: من 86% أول السجل لحد 100% النهارده
+      const n = Math.round((34 + Math.floor(hr() * 15) + busy) * rush * grow * (end - OPEN) / (CLOSE - OPEN));
+      // الوقت بالثانية ومترتّب بالثانية: الرقم الأكبر عمره ما يبقى قبل الأصغر
+      const secs = Array.from({ length: n }, () => OPEN * 60 + Math.floor(hr() * (end - OPEN) * 60)).sort((a, b) => a - b);
+      for (const sec of secs) {
         const lines = [], r = hr();
-        if (r < 0.1) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
-        else if (r < 0.13) lines.push(unitLine(weighted(usedPhones)));
+        if (r < 0.1 * gift) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
+        else if (r < 0.1 * gift + 0.03) lines.push(unitLine(weighted(usedPhones)));
         else { const k = hr() < 0.7 ? 1 : hr() < 0.8 ? 2 : 3; for (let i = 0; i < k; i++) { const p = weighted(accs); const ex = lines.find((l) => l.pid === p.id); if (ex) ex.qty++; else lines.push(itemLine(p, hr() < 0.15 ? 2 : 1)); } }
         const phone = lines.some((l) => l.imei);
         const sub = lines.reduce((a, l) => a + l.price * l.qty, 0);
@@ -1617,18 +1688,18 @@ const DATA = (() => {
         if (method === 'cash' && cust && hr() < 0.06) method = 'credit';
         const payments = [{ method, amount: total, provider: method === 'install' ? installProviders[Math.floor(hr() * installProviders.length)] : '' }];
         if (method === 'cash' && total >= 1000 && hr() < 0.08) { const part = Math.round((total * (0.3 + hr() * 0.4)) / 10) * 10; payments[0].amount = total - part; payments.push({ method: 'vf', amount: part, provider: '' }); }
-        const at = new Date(day); at.setHours(Math.floor(m / 60), m % 60, Math.floor(hr() * 60));
+        const at = new Date(day); at.setHours(Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60);
         out.push({ no: 0, at, sellerId: sellerOf(), customerId: cust, lines, disc, total, profit, payments });
       }
     }
-    // الترقيم بالترتيب، وآخر فاتورة 10452 (أول فاتورة في الجلسة 10453)
-    out.forEach((x, i) => { x.no = 10452 - (out.length - 1 - i); });
+    // الترقيم بالترتيب من 1001، وأول فاتورة في الجلسة بعد آخر واحدة (app.js: S.nextNo)
+    out.forEach((x, i) => { x.no = 1001 + i; });
     return out;
   })();
 
   return {
     users, categories, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
-    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, makeImei, luhnDigit,
+    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
   };
 })();
 
@@ -1779,6 +1850,11 @@ const money = (n) => `${num(Math.round(n * 100) / 100)} ج.م`;
 const locale = () => (SET.digits === 'arabic' ? 'ar-EG' : 'ar-EG-u-nu-latn');
 const fmtTime = (d = new Date()) => new Intl.DateTimeFormat(locale(), { hour: 'numeric', minute: '2-digit' }).format(d);
 const fmtDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
+// «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة»
+const pcsWord = (n) => (n === 1 ? 'قطعة' : n === 2 ? 'قطعتين' : n <= 10 ? `${num(n)} قطع` : `${num(n)} قطعة`);
+const fmtMonth = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
+const monthName = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
+const fmtDayDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
 const fmtLong = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 const fmtDay = (d) => new Intl.DateTimeFormat(locale(), { weekday: 'long' }).format(d);
 const addMonths = (d, m) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
@@ -1825,7 +1901,7 @@ const S = {
   view: 'pos', modal: null,
   invoices: [newInvoice()], active: 0, sel: -1,
   q: '', qi: 0, cat: 'top', _res: [],
-  nextNo: 10453, sales: [], services: [], showProfit: false,
+  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], services: [], showProfit: false,
   inv: { q: '', cat: 'all', tab: 'items', open: {} },
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },
@@ -1874,6 +1950,9 @@ function render() {
 function focusSearch() { const q = $('#q'); if (q && !S.modal && !S.locked && !(S.sw && S.sw.user)) q.focus({ preventScroll: true }); }
 function openModal(m) { S.sw = null; S.modal = m; render(); }
 function closeModal() {
+  // نافذة فيها شغل لسه ماتحفظش (زي الاستلام) بتطلب تأكيد الأول بدل ما تقفل وتضيّعه
+  const def = S.modal && MODALS[S.modal.type];
+  if (def && def.canClose && !def.canClose(S.modal)) return;
   const prev = S.modal && S.modal.prev;
   if (prev) { prev._mounted = false; S.modal = prev; render(); return; }
   S.modal = null; render(); focusSearch();
@@ -2057,9 +2136,228 @@ document.addEventListener('keydown', (e) => {
   if (S.modal) { modalKey(e); return; }
   if (S.view === 'pos') posKey(e);
   else if (S.view === 'sales') salesKey(e);
+  else if (S.view === 'dashboard') reportsKey(e);
 });
 setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(); }, 15000);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (SET.theme === 'auto') { applySettings(); render(); } });
+
+</script>
+<script>/* analytics.js */
+'use strict';
+/* ===== طبقة الحسابات: كل أرقام المبيعات بتتحسب هنا بس =====
+   التقارير وشاشة المبيعات والموبايل بيعرضوا بس، والأرقام كلها من سجل الفواتير DATA.history. وتكلفة الاستلام (المتوسط المرجح) هنا كمان.
+   الدوال دي من غير رسم ولا DOM، فبتتفحص من غير متصفح (tools/unit.mjs). الدليل: docs/ENGINEERING.md */
+
+/* --- التواريخ --- */
+const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const sameDay = (a, b) => dayStart(a).getTime() === dayStart(b).getTime();
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const monthStart = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+const monthEnd = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+const sameMonth = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+const daysIn = (from, to) => Math.round((dayStart(to) - dayStart(from)) / 864e5) + 1;
+// نسبة التغيير (٪) — null لو مفيش أساس للمقارنة
+const pct = (now, before) => (before ? Math.round(((now - before) / before) * 100) : null);
+// الفواتير في فترة، والطرفين محسوبين (من أول يوم from لآخر يوم to)
+function inRange(list, from, to) { const a = dayStart(from).getTime(), b = addDays(to, 1).getTime(); return list.filter((x) => { const t = x.at.getTime(); return t >= a && t < b; }); }
+// الفترة اللي بنقارن بيها. الشهر: الشهر اللي قبله، ولو الشهر لسه ماخلصش فبنفس عدد الأيام من أوله
+// (16 يوم من الشهر ده قصاد أول 16 يوم من اللي قبله). غير كده: نفس الطول على طول قبلها
+function prevPeriod(from, to, month = false) {
+  const len = daysIn(from, to);
+  if (!month) return { from: addDays(from, -len), to: addDays(to, -len), partial: false };
+  const pf = new Date(from.getFullYear(), from.getMonth() - 1, 1), pe = monthEnd(pf);
+  const partial = dayStart(to).getTime() < monthEnd(from).getTime(), last = partial ? addDays(pf, len - 1) : pe;
+  return { from: pf, to: last > pe ? pe : last, partial };
+}
+const catMain = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
+const svCatName = (id) => (id === 'svc' ? 'خدمات وصيانة' : catName(id) || id);
+
+/* --- التجميع: الصف = { x: الفاتورة، lines: السطور المطابقة، lineLevel: هل الفلتر على السطور } --- */
+const asRows = (list) => list.map((x) => ({ x, lines: x.lines, lineLevel: false }));
+const rowAmount = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + l.price * l.qty, 0) : r.x.total);
+const rowProfit = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + (l.price - l.cost) * l.qty, 0) : r.x.profit);
+function totalsOf(rows) {
+  const sales = rows.reduce((a, r) => a + rowAmount(r), 0), profit = rows.reduce((a, r) => a + rowProfit(r), 0);
+  const pcs = rows.reduce((a, r) => a + r.lines.reduce((b, l) => b + l.qty, 0), 0);
+  return { sales, profit, pcs, invoices: rows.length, avg: rows.length ? Math.round(sales / rows.length) : 0, partial: rows.some((r) => r.lineLevel) };
+}
+function byProduct(rows) {
+  const m = new Map();
+  for (const r of rows) for (const l of r.lines) {
+    const k = l.pid || l.name, e = m.get(k) || { name: l.name, cat: l.cat, qty: 0, sales: 0, profit: 0 };
+    e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e);
+  }
+  return [...m.values()].sort((a, b) => b.sales - a.sales);
+}
+function byCategory(rows) {
+  const m = new Map(), add = (k, l) => { const e = m.get(k) || { id: k, qty: 0, sales: 0, profit: 0, subs: new Map() }; e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e); return e; };
+  for (const r of rows) for (const l of r.lines) {
+    const main = add(catMain(l.cat), l);
+    if (main.id !== l.cat) { const s = main.subs.get(l.cat) || { id: l.cat, qty: 0, sales: 0, profit: 0 }; s.qty += l.qty; s.sales += l.price * l.qty; s.profit += (l.price - l.cost) * l.qty; main.subs.set(l.cat, s); }
+  }
+  return [...m.values()].sort((a, b) => b.sales - a.sales);
+}
+// يوم بيوم في الفترة، والأيام اللي من غير مبيعات بصفر — بنفس تعريف totalsOf
+function byDay(rows, from, to) {
+  const out = [], idx = new Map();
+  for (let d = dayStart(from); d <= to; d = addDays(d, 1)) { const e = { day: d, sales: 0, profit: 0, invoices: 0, pcs: 0 }; idx.set(isoDay(d), e); out.push(e); }
+  for (const r of rows) { const e = idx.get(isoDay(r.x.at)); if (!e) continue; e.sales += rowAmount(r); e.profit += rowProfit(r); e.invoices++; e.pcs += r.lines.reduce((a, l) => a + l.qty, 0); }
+  return out;
+}
+// الشهور اللي فيها مبيعات بالترتيب (الأقدم الأول): { key، from، sales، profit، invoices، pcs }
+function byMonth(list) {
+  const m = new Map();
+  for (const x of list) {
+    const k = monthKey(x.at); let e = m.get(k);
+    if (!e) m.set(k, (e = { key: k, from: monthStart(x.at), sales: 0, profit: 0, invoices: 0, pcs: 0 }));
+    e.sales += x.total; e.profit += x.profit; e.invoices++; e.pcs += x.lines.reduce((a, l) => a + l.qty, 0);
+  }
+  return [...m.values()].sort((a, b) => a.from - b.from);
+}
+
+/* --- المقارنة: لو الفترة فيها النهارده، بنقارن لحد نفس الساعة (النهارده لسه ماخلصش) --- */
+// الفواتير من أول يوم from لحد لحظة end (end نفسها مش داخلة)
+function inSpan(list, from, end) { const a = dayStart(from).getTime(), b = end.getTime(); return list.filter((x) => { const t = x.at.getTime(); return t >= a && t < b; }); }
+// آخر لحظة في فترة المقارنة: آخر اليوم، أو لحد نفس الساعة لو الفترة الحالية فيها النهارده
+const spanEnd = (to, live, now) => (live ? new Date(dayStart(to).getTime() + (now - dayStart(now))) : addDays(to, 1));
+function comparePeriod(from, to, month = false, now = new Date()) {
+  const p = prevPeriod(from, to, month), live = sameDay(to, now);
+  return { from: p.from, to: p.to, partial: p.partial, live, end: spanEnd(p.to, live, now) };
+}
+// نفس الفترة السنة اللي فاتت (ولحد نفس اليوم والساعة لو الفترة فيها النهارده)
+function yearAgo(from, to, now = new Date()) {
+  const f = new Date(from.getFullYear() - 1, from.getMonth(), from.getDate());
+  let t = new Date(to.getFullYear() - 1, to.getMonth(), to.getDate());
+  if (t.getMonth() !== to.getMonth()) t = monthEnd(new Date(to.getFullYear() - 1, to.getMonth(), 1)); // 29 فبراير
+  const live = sameDay(to, now);
+  return { from: f, to: t, live, end: spanEnd(t, live, now) };
+}
+
+/* --- البيّاعين وطرق الدفع، وكل عنصر بتغيّره --- */
+function bySeller(rows) {
+  const m = new Map();
+  for (const r of rows) { const k = r.x.sellerId, e = m.get(k) || { id: k, sales: 0, profit: 0, invoices: 0 }; e.sales += rowAmount(r); e.profit += rowProfit(r); e.invoices++; m.set(k, e); }
+  return [...m.values()].map((e) => ({ ...e, avg: Math.round(e.sales / e.invoices) })).sort((a, b) => b.sales - a.sales);
+}
+// من مدفوعات الفاتورة نفسها (الفاتورة ممكن تتدفع بطريقتين)، فالمجموع = إجمالي الفواتير
+function byMethod(rows) {
+  const m = new Map();
+  for (const r of rows) for (const p of r.x.payments) { const e = m.get(p.method) || { id: p.method, amount: 0, count: 0 }; e.amount += p.amount; e.count++; m.set(p.method, e); }
+  return [...m.values()].sort((a, b) => b.amount - a.amount);
+}
+// before = قيمته في الفترة اللي قبلها، وch = التغيير٪ (null لو ماكانش موجود)
+function withChange(now, before, key = 'id', val = 'sales') {
+  const m = new Map(before.map((e) => [e[key], e]));
+  return now.map((e) => { const b = m.get(e[key]); return { ...e, before: b ? b[val] : 0, ch: b ? pct(e[val], b[val]) : null }; });
+}
+
+/* --- تقرير الشهر والتقييم --- */
+const TH = { sales: 3, avg: 5, margin: 1, cat: 10 }; // حدود «كويس / خلي بالك» (٪، والهامش بالنقطة)
+const toneOf = (ch, th) => (ch === null ? 'info' : ch >= th ? 'good' : ch <= -th ? 'warn' : 'info');
+// تقرير شهر من السجل: الإجماليات، والمقارنة بالشهر اللي فات وبنفس الشهر السنة اللي فاتت، والمتوقع،
+// ويوم بيوم، والتصنيفات والأصناف والبيّاعين وطرق الدفع بتغيّرهم، وآخر 12 شهر، والتقييم. الشاشة بتعرض بس
+function monthReport(list, month, now = new Date()) {
+  const from = monthStart(month), last = monthEnd(month), today = dayStart(now);
+  const to = last > today ? today : last, live = sameDay(to, now);
+  const rows = asRows(inRange(list, from, to)), T = totalsOf(rows);
+  const P = comparePeriod(from, to, true, now), pRows = asRows(inSpan(list, P.from, P.end)), PT = totalsOf(pRows);
+  const Y = yearAgo(from, to, now), yRows = asRows(inSpan(list, Y.from, Y.end)), YT = yRows.length ? totalsOf(yRows) : null;
+  const days = byDay(rows, from, to), done = live ? days.slice(0, -1) : days;
+  const doneSales = done.reduce((a, d) => a + d.sales, 0), perDay = done.length ? Math.round(doneSales / done.length) : 0;
+  const projection = live && done.length ? perDay * daysIn(from, last) : null;
+  const units = (rs, cat) => rs.reduce((a, r) => a + r.lines.filter((l) => l.imei && (!cat || l.cat === cat)).reduce((b, l) => b + l.qty, 0), 0);
+  const phones = { all: units(rows), fresh: units(rows, 'phones'), used: units(rows, 'used'), before: units(pRows) };
+  const cats = withChange(byCategory(rows).map(({ subs, ...e }) => e), byCategory(pRows).map(({ subs, ...e }) => e));
+  const products = withChange(byProduct(rows), byProduct(pRows), 'name');
+  const sellers = withChange(bySeller(rows), bySeller(pRows));
+  const methods = withChange(byMethod(rows), byMethod(pRows), 'id', 'amount');
+  // آخر 12 شهر لحد الشهر ده. الترتيب بمتوسط اليوم، عشان الشهر اللي لسه ماخلصش والشهور القصيرة يتقارنوا صح
+  const key = monthKey(from), months = byMonth(list).filter((m) => m.from <= from).slice(-12)
+    .map((m) => ({ ...m, perDay: m.key === key ? perDay : Math.round(m.sales / daysIn(m.from, monthEnd(m.from))), live: m.key === key && live }));
+  const rank = done.length ? 1 + months.filter((m) => m.key !== key && m.perDay > perDay).length : null;
+  // التقييم: حقائق من الأرقام، كل واحدة كويسة أو محتاجة انتباه أو معلومة
+  const notes = [], add = (k, tone, data = {}) => notes.push({ key: k, tone, ...data });
+  const chSales = PT.sales ? pct(T.sales, PT.sales) : null;
+  add('sales', toneOf(chSales, TH.sales), { ch: chSales });
+  if (YT) { const ch = pct(T.sales, YT.sales); add('yoy', toneOf(ch, TH.sales), { ch }); }
+  const mNow = T.sales ? (T.profit / T.sales) * 100 : 0, mBefore = PT.sales ? (PT.profit / PT.sales) * 100 : 0;
+  // نسبة الموبايلات من المبيعات: لو اتغيرت كتير فهي غالبًا سبب تغيّر الهامش (هامش الموبايل أقل من الإكسسوار)
+  const phoneShare = (rs, t) => (t.sales ? Math.round((rs.reduce((a, r) => a + r.lines.filter((l) => l.imei).reduce((b, l) => b + l.price * l.qty, 0), 0) / t.sales) * 100) : 0);
+  const mix = { now: phoneShare(rows, T), before: phoneShare(pRows, PT) };
+  if (PT.sales && Math.abs(mNow - mBefore) >= TH.margin) {
+    const down = mNow < mBefore, why = (down && mix.now - mix.before >= 5) || (!down && mix.before - mix.now >= 5);
+    add('margin', down ? 'warn' : 'good', { now: Math.round(mNow), before: Math.round(mBefore), mix: why ? mix : null });
+  }
+  const chAvg = PT.avg ? pct(T.avg, PT.avg) : null;
+  if (chAvg !== null && Math.abs(chAvg) >= TH.avg) add('avg', chAvg > 0 ? 'good' : 'warn', { ch: chAvg, now: T.avg });
+  const movers = cats.filter((c) => c.ch !== null && c.before >= Math.max(1000, PT.sales * 0.02));
+  const up = movers.reduce((a, c) => (!a || c.ch > a.ch ? c : a), null), down = movers.reduce((a, c) => (!a || c.ch < a.ch ? c : a), null);
+  if (up && up.ch >= TH.cat) add('catUp', 'good', { id: up.id, ch: up.ch });
+  if (down && down.ch <= -TH.cat) add('catDown', 'warn', { id: down.id, ch: down.ch });
+  // الخصم والآجل بنسبتهم من المبيعات، مش بالمبلغ: شهر فيه موبايلات أكتر طبيعي خصوماته تزيد. ومن غير شهر قبله مفيش حكم
+  const disc = rows.reduce((a, r) => a + r.x.disc, 0), discBefore = pRows.reduce((a, r) => a + r.x.disc, 0);
+  const rate = (v, t) => (t.sales ? (v / t.sales) * 100 : 0);
+  if (PT.sales && disc - discBefore >= 500 && rate(disc, T) - rate(discBefore, PT) >= 0.3) add('disc', 'warn', { now: disc, before: discBefore });
+  const credit = (methods.find((m) => m.id === 'credit') || { amount: 0, before: 0 });
+  if (PT.sales && credit.amount >= T.sales * 0.02 && rate(credit.amount, T) - rate(credit.before, PT) >= 0.5) add('credit', 'warn', { now: credit.amount, before: credit.before });
+  if (products.length) add('top', 'info', { name: products[0].name, qty: products[0].qty, sales: products[0].sales });
+  const best = days.reduce((a, d) => (d.sales > a.sales ? d : a), days[0]);
+  if (best && best.sales) add('bestDay', 'info', { day: best.day, sales: best.sales });
+  const wd = [0, 0, 0, 0, 0, 0, 0]; for (const d of days) wd[d.day.getDay()] += d.sales;
+  const top2 = wd.map((v, i) => [i, v]).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  if (T.sales && days.length >= 14) add('weekdays', 'info', { days: top2.map(([i]) => i), share: Math.round(((top2[0][1] + top2[1][1]) / T.sales) * 100) });
+  if (sellers.length > 1 && T.sales) add('seller', 'info', { id: sellers[0].id, share: Math.round((sellers[0].sales / T.sales) * 100) });
+  const of = months.length;
+  const verdict = rank === null ? { key: 'early', tone: 'info' } : of < 3 ? { key: 'few', tone: 'info' } : rank === 1 ? { key: 'best', tone: 'good' } : rank <= 3 ? { key: 'top3', tone: 'good' } : of >= 6 && rank > of - 3 ? { key: 'low3', tone: 'warn' } : { key: 'mid', tone: 'info' };
+  return { from, to, last, live, rows, T, P, PT, Y, YT, days, done: done.length, perDay, projection, phones, mix, cats, products, sellers, methods, months, rank, of, verdict, notes, disc };
+}
+
+/* --- المخزون: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
+// (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق زي البرنامج الحقيقي (domain/costing/moving_average.rs):
+// تقريب لفوق بيقلّل الربح قرش ولا يعمل ربح وهمي. الرصيد بالسالب بيتحسب صفر
+function receiveCost(stock, avg, qty, unitCost) {
+  const q0 = Math.max(0, stock), q = q0 + qty;
+  return q > 0 ? Math.ceil((q0 * avg + qty * unitCost) / q) : unitCost;
+}
+
+/* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */
+// البيعة اللي خلصت ← سطر في السجل بنفس شكل الفواتير التجريبية (والخدمات زي تسليم الصيانة تصنيفها «svc»)
+function histRecord(sale) {
+  return {
+    no: sale.no, at: sale.at, sellerId: sale.seller.id, customerId: sale.customer ? sale.customer.id : null, session: true,
+    lines: sale.lines.map((l) => { const p = l.pid ? prod(l.pid) : null; return { pid: p ? p.id : null, name: l.name, cat: p ? p.cat : 'svc', qty: l.qty || 1, price: l.price, cost: p ? p.cost : 0, imei: l.imei || null, warranty: l.warranty || 0 }; }),
+    disc: sale.disc || 0, total: sale.total, profit: sale.profit, payments: sale.payments.map((x) => ({ method: x.method, amount: x.amount, provider: x.provider || '' })),
+  };
+}
+// أرقام التقارير والموبايل بتتحسب من السجل (عدادات الخدمات زي ما هي: مش فواتير بيع)
+function refreshDash() {
+  const D = DATA.dash, now = new Date(), today = dayStart(now);
+  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: D.today.services, servicesFee: D.today.servicesFee };
+  const week = [0, 0, 0, 0, 0, 0, 0], pay = {}, top = {}, todays = [];
+  const ySame = spanEnd(addDays(today, -1), true, now); // امبارح لحد نفس الساعة: النهارده لسه ماخلصش
+  for (const x of DATA.history) {
+    const back = Math.round((today - dayStart(x.at)) / 864e5);
+    if (back >= 0 && back < 7) week[6 - back] += x.total;
+    if (back === 1 && x.at < ySame) t.yesterday += x.total;
+    if (back !== 0) continue;
+    todays.push(x); t.sales += x.total; t.invoices++; t.profit += x.profit;
+    t.bySeller[x.sellerId] = (t.bySeller[x.sellerId] || 0) + x.total; t.countBySeller[x.sellerId] = (t.countBySeller[x.sellerId] || 0) + 1;
+    for (const p of x.payments) { const n = methodName(p.method); pay[n] = (pay[n] || 0) + p.amount; }
+    for (const l of x.lines) { const r = top[l.name] || (top[l.name] = [l.name, 0, 0]); r[1] += l.qty; r[2] += l.price * l.qty; }
+  }
+  const paySum = Object.values(pay).reduce((a, v) => a + v, 0);
+  const split = Object.entries(pay).sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, v: paySum ? Math.round((v / paySum) * 100) : 0 }));
+  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
+  Object.assign(D, {
+    today: { ...t, vsYesterday: t.yesterday ? pct(t.sales, t.yesterday) : null }, week, pay: split, top: Object.values(top).sort((a, b) => b[1] - a[1] || b[2] - a[2]).slice(0, 5),
+    recent: todays.slice().reverse().slice(0, 8).map((x) => {
+      const u = DATA.users.find((y) => y.id === x.sellerId), c = DATA.customers.find((y) => y.id === x.customerId);
+      return { no: x.no, at: fmtTime(x.at), seller: u ? u.name : '', sellerId: x.sellerId, customer: c ? c.name : 'نقدي', method: payLabel(x.payments), total: x.total, fresh: !!x.session };
+    }),
+  });
+}
 
 </script>
 <script>/* pos.js */
@@ -2122,8 +2420,12 @@ function searchAll(q) {
     DATA.products.filter((p) => p.sku && p.sku.includes(digits)).slice(0, 4).forEach((p) => out.push({ type: 'prod', p }));
     if (out.length) return out;
   }
-  const toks = qn.split(' ');
-  const scored = [];
+  return rankProducts(qn).map((p) => ({ type: 'prod', p }));
+}
+// الأصناف بالاسم (شاشة البيع والاستلام): كل كلمة لازم تكون موجودة، واللي اسمه بيبدأ بأول كلمة الأول،
+// بعده اللي اسمه فيه الجملة كلها، وبعدها الأكتر بيعًا. qn متطبّع بـ normalize
+function rankProducts(qn, limit = 8) {
+  const toks = qn.split(' '), scored = [];
   for (const p of DATA.products) {
     if (!toks.every((t) => p._hay.includes(t))) continue;
     let sc = p.sold;
@@ -2132,7 +2434,7 @@ function searchAll(q) {
     scored.push([sc, p]);
   }
   scored.sort((a, b) => b[0] - a[0]);
-  return scored.slice(0, 8).map(([, p]) => ({ type: 'prod', p }));
+  return scored.slice(0, limit).map(([, p]) => p);
 }
 function resultsHTML() {
   if (!S.q.trim()) return '';
@@ -2355,7 +2657,7 @@ function viewPOS() {
       </button>
       <div class="lines" data-scroll="lines">${empty ? emptyCart() : inv.lines.map(lineHTML).join('')}</div>
       <div class="totals">
-        <div class="r"><span>الإجمالي <small class="muted">(${num(t.count)} قطعة)</small></span><span class="num">${money(t.sub)}</span></div>
+        <div class="r"><span>الإجمالي <small class="muted">(${pcsWord(t.count)})</small></span><span class="num">${money(t.sub)}</span></div>
         ${t.disc ? `<div class="r disc"><span>خصم${inv.discount.type === 'pct' ? ` ${num(inv.discount.value)}%` : ''}${inv.discount.by === 'المالك' ? '، بموافقة المالك' : ''}</span><span class="num">− ${money(t.disc)}</span></div>` : ''}
         <div class="r grand"><span>المطلوب</span><span class="num">${money(t.total)}</span></div>
         ${isOwner() && !empty ? `<div class="r profit"><button type="button" class="reveal" data-act="toggleProfit">${icon(S.showProfit ? 'eye-off' : 'eye')} ربح الفاتورة (للمالك بس)</button><span class="num">${S.showProfit ? money(t.profit) : '****'}</span></div>` : ''}
@@ -2758,46 +3060,6 @@ function exactCash() {
   S.modal = { type: 'pay', step: 'pay', method: 'cash', payments: [], amount: '', provider: 'valU', receipt: mode, wa: inv.customer ? inv.customer.phone : '', err: '' };
   completeSale([{ method: 'cash', amount: t.total, received: t.total }], 0, mode, S.modal.wa);
 }
-/* ===== سجل المبيعات: مصدر واحد للتقارير والموبايل وشاشة المبيعات ===== */
-const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const sameDay = (a, b) => dayStart(a).getTime() === dayStart(b).getTime();
-// البيعة اللي خلصت ← سطر في السجل بنفس شكل الفواتير التجريبية (والخدمات زي تسليم الصيانة تصنيفها «svc»)
-function histRecord(sale) {
-  return {
-    no: sale.no, at: sale.at, sellerId: sale.seller.id, customerId: sale.customer ? sale.customer.id : null, session: true,
-    lines: sale.lines.map((l) => { const p = l.pid ? prod(l.pid) : null; return { pid: p ? p.id : null, name: l.name, cat: p ? p.cat : 'svc', qty: l.qty || 1, price: l.price, cost: p ? p.cost : 0, imei: l.imei || null, warranty: l.warranty || 0 }; }),
-    disc: sale.disc || 0, total: sale.total, profit: sale.profit, payments: sale.payments.map((x) => ({ method: x.method, amount: x.amount, provider: x.provider || '' })),
-  };
-}
-// أرقام التقارير والموبايل بتتحسب من السجل (عدادات الخدمات زي ما هي: مش فواتير بيع)
-function refreshDash() {
-  const D = DATA.dash, now = new Date(), today = dayStart(now);
-  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: D.today.services, servicesFee: D.today.servicesFee };
-  const week = [0, 0, 0, 0, 0, 0, 0], pay = {}, top = {}, todays = [], month = { phones: 0, accessories: 0 };
-  const pm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  for (const x of DATA.history) {
-    const back = Math.round((today - dayStart(x.at)) / 864e5);
-    if (back >= 0 && back < 7) week[6 - back] += x.total;
-    if (back === 1) t.yesterday += x.total;
-    if (x.at.getFullYear() === pm.getFullYear() && x.at.getMonth() === pm.getMonth()) for (const l of x.lines) { if (l.cat === 'phones' || l.cat === 'used') month.phones += l.price * l.qty; else if (l.cat !== 'svc') month.accessories += l.price * l.qty; }
-    if (back !== 0) continue;
-    todays.push(x); t.sales += x.total; t.invoices++; t.profit += x.profit;
-    t.bySeller[x.sellerId] = (t.bySeller[x.sellerId] || 0) + x.total; t.countBySeller[x.sellerId] = (t.countBySeller[x.sellerId] || 0) + 1;
-    for (const p of x.payments) { const n = methodName(p.method); pay[n] = (pay[n] || 0) + p.amount; }
-    for (const l of x.lines) { const r = top[l.name] || (top[l.name] = [l.name, 0, 0]); r[1] += l.qty; r[2] += l.price * l.qty; }
-  }
-  const paySum = Object.values(pay).reduce((a, v) => a + v, 0);
-  const split = Object.entries(pay).sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, v: paySum ? Math.round((v / paySum) * 100) : 0 }));
-  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
-  Object.assign(D, {
-    today: t, week, pay: split, top: Object.values(top).sort((a, b) => b[1] - a[1] || b[2] - a[2]).slice(0, 5),
-    month: { label: new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(pm), phones: month.phones, accessories: month.accessories, ops: D.month.ops },
-    recent: todays.slice().reverse().slice(0, 8).map((x) => {
-      const u = DATA.users.find((y) => y.id === x.sellerId), c = DATA.customers.find((y) => y.id === x.customerId);
-      return { no: x.no, at: fmtTime(x.at), seller: u ? u.name : '', sellerId: x.sellerId, customer: c ? c.name : 'نقدي', method: payLabel(x.payments), total: x.total, fresh: !!x.session };
-    }),
-  });
-}
 function completeSale(payments, change, receiptMode, wa) {
   const inv = cur(), t = totals(inv);
   const sale = { no: S.nextNo++, at: new Date(), seller: S.user, customer: inv.customer, lines: inv.lines.map((l) => ({ ...l })), ...t, discount: inv.discount, payments, change, receiptMode, wa };
@@ -3042,26 +3304,51 @@ INPUT.den = (el) => { S.modal.counts[+el.dataset.i] = el.value; render(); };
 ACT.shiftDo = () => { const c = shiftCalc(S.modal); S.modal = null; render(); toast(c.diff === 0 ? 'اتقفلت الوردية، والدرج مظبوط' : `اتقفلت الوردية. ${c.diff < 0 ? 'عجز' : 'زيادة'} ${money(Math.abs(c.diff))} اتسجّل`, c.diff === 0 ? 'ok' : 'info'); };
 
 </script>
-<script>/* views.js */
+<script>/* views/reports.js */
 'use strict';
-/* ===== التقارير (للمالك) ===== */
+// شاشة «التقارير». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== التقارير (للمالك): «النهارده»، و«الشهر» بمقارناته وتقييمه (docs/ui/MONTHS-REPORTS-RECEIVING.md) =====
+   الأرقام كلها من طبقة الحسابات (analytics.js: refreshDash و monthReport). هنا عرض بس. */
 const kpi = (label, value, sub) => `<div class="card kpi"><div class="label">${label}</div><div class="value num">${value}</div>${sub}</div>`;
+const repState = () => S.rep || (S.rep = { tab: 'today', month: monthStart(new Date()) });
+// التغيير: سهم ولون ونسبة، و«عن إيه». مفيش أساس للمقارنة = مفيش سطر
+const chgLine = (ch, what) => (ch === null ? '' : `<div class="sub ${ch >= 0 ? 'ok-t' : 'danger-t'}">${icon(ch >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(ch))}% عن ${what}</div>`);
+// في الجداول: صفر من غير سهم، وزيادة كبيرة على أساس صغير بالأضعاف (×79) بدل ٪ مالهاش معنى
+const chgCell = (ch) => (ch === null ? '<span class="muted">جديد</span>' : ch === 0 ? '<span class="ch muted">0%</span>'
+  : `<span class="ch ${ch > 0 ? 'ok-t' : 'danger-t'}">${icon(ch > 0 ? 'trending-up' : 'trending-down')}${ch >= 300 ? `×${num(Math.round(ch / 100 + 1))}` : `${num(Math.abs(ch))}%`}</span>`);
+// «آخر 7 شهور» و«آخر 12 شهر»
+const nMonths = (n) => `${num(n)} ${n >= 3 && n <= 10 ? 'شهور' : 'شهر'}`;
+// فوق الأعمدة: «2.37 مليون» و«171.5 ألف»
+const kShort = (v) => (v >= 1e6 ? `${num(Math.round(v / 1e4) / 100)} مليون` : v >= 1e3 ? `${num(Math.round(v / 100) / 10)} ألف` : num(v));
+const userName = (id) => { const u = DATA.users.find((x) => x.id === id); return u ? u.name : ''; };
+const weekdayName = (i) => fmtDay(new Date(2024, 0, 7 + i)); // 7 يناير 2024 كان حد
+
 function viewDashboard() {
-  const d = DATA.dash, t = d.today, vsY = Math.round(((t.sales - t.yesterday) / t.yesterday) * 100), maxW = Math.max(...d.week);
-  const days = d.week.map((v, i) => { const dt = new Date(); dt.setDate(dt.getDate() - (6 - i)); return [i === 6 ? 'النهارده' : fmtDay(dt), v]; });
+  const st = repState();
   return `<div class="page">
-    <div class="page-h"><h2>التقارير</h2><span class="sub">${fmtLong()}</span><span class="sp"></span>
+    <div class="page-h"><h2>التقارير</h2>
+      <div class="seg" role="tablist" aria-label="نوع التقرير">${[['today', 'النهارده'], ['month', 'الشهر']].map(([id, l]) => `<button type="button" role="tab" aria-selected="${st.tab === id}" class="${st.tab === id ? 'on' : ''}" data-act="repTab" data-id="${id}">${l}</button>`).join('')}</div>
+      <span class="sub">${st.tab === 'today' ? fmtLong() : 'الشهر كله ومقارنته وتقييمه'}</span><span class="sp"></span>
       <button type="button" class="btn" data-act="soon">${icon('download')} تصدير Excel</button><button type="button" class="btn" data-act="soon">${icon('printer')} طباعة</button></div>
-    <div class="cards">
-      ${kpi('مبيعات النهارده', money(t.sales), `<div class="sub ${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح</div>`)}
-      ${kpi('عدد الفواتير', num(t.invoices), `<div class="sub muted">متوسط الفاتورة ${money(Math.round(t.sales / t.invoices))}</div>`)}
-      ${kpi('الربح', money(t.profit), `<div class="sub muted">هامش ${num(Math.round((t.profit / t.sales) * 100))}%</div>`)}
+    ${st.tab === 'month' ? repMonth(st) : repToday()}
+  </div>`;
+}
+
+/* --- النهارده --- */
+function repToday() {
+  const d = DATA.dash, t = d.today, maxW = Math.max(1, ...d.week), M = monthReport(DATA.history, new Date());
+  const days = d.week.map((v, i) => { const dt = new Date(); dt.setDate(dt.getDate() - (6 - i)); return [i === 6 ? 'النهارده' : fmtDay(dt), v]; });
+  const vsM = M.PT.sales ? pct(M.T.sales, M.PT.sales) : null;
+  return `<div class="cards">
+      ${kpi('مبيعات النهارده', money(t.sales), chgLine(t.vsYesterday, 'امبارح لنفس الساعة'))}
+      ${kpi('عدد الفواتير', num(t.invoices), `<div class="sub muted">متوسط الفاتورة ${money(t.invoices ? Math.round(t.sales / t.invoices) : 0)}</div>`)}
+      ${kpi('الربح', money(t.profit), `<div class="sub muted">هامش ${num(t.sales ? Math.round((t.profit / t.sales) * 100) : 0)}%</div>`)}
       ${kpi('خدمات المحافظ والفواتير', num(t.services), `<div class="sub muted">عمولات ${money(t.servicesFee)}</div>`)}
       ${kpi('المفروض في الدرج', money(expectedCash()), `<div class="sub muted">وردية #${num(DATA.shift.no)}</div>`)}
     </div>
     <div class="dash-grid">
       <div class="card"><h3>المبيعات آخر 7 أيام</h3>
-        <div class="bars">${days.map(([l, v], i) => `<div class="bar-col"><span class="bv num">${num(Math.round(v / 100) / 10)}k</span><div class="bar ${i === 6 ? 'today' : ''}" style="height:${Math.max(4, Math.round((v / maxW) * 100))}%"></div><span class="bl">${l}</span></div>`).join('')}</div></div>
+        <div class="bars">${days.map(([l, v], i) => `<div class="bar-col"><span class="bv num">${kShort(v)}</span><div class="bar ${i === 6 ? 'today' : ''}" style="height:${Math.max(4, Math.round((v / maxW) * 100))}%"></div><span class="bl">${l}</span></div>`).join('')}</div></div>
       <div class="card"><h3>طرق الدفع النهارده</h3>
         <div class="split">${d.pay.map((p, i) => `<i style="width:${p.v}%;background:var(--c${i})"></i>`).join('')}</div>
         ${d.pay.map((p, i) => `<div class="li"><span class="dot" style="background:var(--c${i})"></span>${p.name}<span class="sp"></span><b class="num">${num(p.v)}%</b></div>`).join('')}</div>
@@ -3071,17 +3358,143 @@ function viewDashboard() {
         <div class="table-wrap" style="border:0"><table class="t"><thead><tr><th>رقم</th><th>الوقت</th><th>البيّاع</th><th>العميل</th><th>الدفع</th><th>المبلغ</th></tr></thead>
         <tbody>${d.recent.slice(0, 7).map((r) => `<tr class="hov"><td class="num">${dg(r.no)}</td><td>${dg(r.at)}</td><td>${esc(r.seller)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td><td><b class="num">${money(r.total)}</b></td></tr>`).join('')}</tbody></table></div></div>
       <div class="stack">
-        <div class="card"><h3>الأكثر مبيعًا النهارده</h3>${d.top.map(([n, q, v], i) => `<div class="li"><span class="rank">${num(i + 1)}</span><bdi dir="rtl" class="ell">${esc(n)}</bdi><span class="sp"></span><span class="muted num">${num(q)} قطعة</span><b class="num">${money(v)}</b></div>`).join('')}</div>
-        <div class="card"><h3>${d.month.label}</h3>
-          <div class="li">موبايلات جديدة<span class="sp"></span><b class="num">${money(d.month.phones)}</b></div>
-          <div class="li">إكسسوارات<span class="sp"></span><b class="num">${money(d.month.accessories)}</b></div>
-          <div class="li">عدد العمليات<span class="sp"></span><b class="num">${num(d.month.ops)}</b></div></div>
+        <div class="card"><h3>الأكثر مبيعًا النهارده</h3>${d.top.map(([n, q, v], i) => `<div class="li"><span class="rank">${num(i + 1)}</span><bdi dir="rtl" class="ell">${esc(n)}</bdi><span class="sp"></span><span class="muted num">${pcsWord(q)}</span><b class="num">${money(v)}</b></div>`).join('')}</div>
+        <div class="card"><h3>${esc(fmtMonth(M.from))} لحد النهارده</h3>
+          <div class="li">المبيعات<span class="sp"></span><b class="num">${money(M.T.sales)}</b></div>
+          <div class="li">عن نفس الوقت من ${esc(monthName(M.P.from))}<span class="sp"></span>${chgCell(vsM)}</div>
+          <div class="li">المتوقع لآخر الشهر<span class="sp"></span><b class="num">${M.projection ? money(M.projection) : '—'}</b></div>
+          <button type="button" class="btn ghost rep-more" data-act="repTab" data-id="month">${icon('chart-column')} تقرير الشهر كامل</button></div>
       </div>
-    </div>
-  </div>`;
+    </div>`;
 }
+
+/* --- الشهر --- */
+function repMonth(st) {
+  const R = monthReport(DATA.history, st.month), T = R.T, today = dayStart(new Date());
+  const firstMonth = DATA.history.length ? monthStart(DATA.history[0].at) : monthStart(today);
+  const atFirst = R.from.getTime() <= firstMonth.getTime(), atLast = sameMonth(R.from, today);
+  const vsPrev = R.P.live ? `نفس الوقت من ${monthName(R.P.from)}` : monthName(R.P.from);
+  const vsYear = R.Y.live ? `نفس الوقت من ${fmtMonth(R.Y.from)}` : fmtMonth(R.Y.from);
+  const chSales = R.PT.sales ? pct(T.sales, R.PT.sales) : null, mrg = T.sales ? Math.round((T.profit / T.sales) * 100) : 0;
+  const months = byMonth(DATA.history).reverse();
+  const monthSel = `<select class="sv-sel sv-month" data-change="repMonth" aria-label="اختار شهر"><option value="" selected>اختار شهر</option>${months.map((m) => `<option value="${m.key}">${fmtMonth(m.from)}${monthKey(R.from) === m.key ? ' (المعروض)' : ''}</option>`).join('')}</select>`;
+  const title = `${fmtMonth(R.from)}${R.live ? ' (لحد النهارده)' : ''}`;
+
+  // التقييم
+  const V = { best: `أحسن شهر في آخر ${nMonths(R.of)}`, top3: `من أحسن 3 شهور في آخر ${nMonths(R.of)}: ترتيبه ${num(R.rank)}`, low3: `من أضعف 3 شهور في آخر ${nMonths(R.of)}: ترتيبه ${num(R.rank)}`,
+    mid: `شهر متوسط: ترتيبه ${num(R.rank)} من ${num(R.of)}`, early: 'لسه بدري نحكم على الشهر ده', few: 'مفيش شهور كفاية قبله نقارن بيها' }[R.verdict.key];
+  const near = (ch) => Math.abs(ch) < TH.sales;
+  const text = (n) => {
+    switch (n.key) {
+      case 'sales': return n.ch === null ? 'مفيش شهر قبله في السجل نقارن بيه' : near(n.ch) ? `المبيعات قريبة من ${vsPrev}` : `المبيعات ${n.ch > 0 ? 'زادت' : 'قلّت'} ${num(Math.abs(n.ch))}% عن ${vsPrev}`;
+      case 'yoy': return near(n.ch) ? `قريبة من ${vsYear}` : `${n.ch > 0 ? 'وزادت' : 'وقلّت'} ${num(Math.abs(n.ch))}% عن ${vsYear}`;
+      case 'margin': return `هامش الربح ${n.now > n.before ? 'طلع' : 'نزل'} من ${num(n.before)}% لـ ${num(n.now)}%${n.mix ? `، لأن الموبايلات بقت ${num(n.mix.now)}% من المبيعات (كانت ${num(n.mix.before)}%)` : ''}`;
+      case 'avg': return `متوسط الفاتورة ${n.ch > 0 ? 'زاد' : 'قلّ'} ${num(Math.abs(n.ch))}%: بقى ${money(n.now)}`;
+      case 'catUp': return `مبيعات «${esc(svCatName(n.id))}» زادت ${num(n.ch)}%`;
+      case 'catDown': return `مبيعات «${esc(svCatName(n.id))}» قلّت ${num(Math.abs(n.ch))}%`;
+      case 'disc': return `الخصومات زادت: ${money(n.now)} (كانت ${money(n.before)})`;
+      case 'credit': return `الآجل زاد: ${money(n.now)} (كان ${money(n.before)})، يعني فلوس لسه برّه المحل`;
+      case 'top': return `أكتر صنف جاب فلوس: <bdi dir="rtl">${esc(n.name)}</bdi> (${pcsWord(n.qty)}، ${money(n.sales)})`;
+      case 'bestDay': return `أعلى يوم: ${fmtDayDate(n.day)} (${money(n.sales)})`;
+      case 'weekdays': return `${weekdayName(n.days[0])} و${weekdayName(n.days[1])} عملوا ${num(n.share)}% من المبيعات`;
+      case 'seller': return `${esc(userName(n.id))} عمل ${num(n.share)}% من المبيعات`;
+      default: return '';
+    }
+  };
+  const toneTag = (tone) => (tone === 'good' ? '<span class="tag ok">كويس</span>' : tone === 'warn' ? '<span class="tag warn">خلي بالك</span>' : '<span class="tag">معلومة</span>');
+  const evaluation = `<div class="card ev"><h3>التقييم</h3>
+      <div class="ev-verdict ${R.verdict.tone}">${icon(R.verdict.tone === 'good' ? 'trending-up' : R.verdict.tone === 'warn' ? 'trending-down' : 'chart-column')}<div><b>${V}</b>${R.rank ? `<small>الترتيب بمتوسط مبيعات اليوم${R.live ? '، من غير النهارده' : ''}</small>` : ''}</div></div>
+      ${R.notes.map((n) => `<div class="ev-li" data-note="${n.key}" data-tone="${n.tone}">${toneTag(n.tone)}<span>${text(n)}</span></div>`).join('')}</div>`;
+
+  // يوم بيوم: الشهر كله، والأيام اللي لسه ماجتش فاضية
+  const byIso = new Map(R.days.map((x) => [isoDay(x.day), x])), maxD = Math.max(1, ...R.days.map((x) => x.sales));
+  const best = R.days.reduce((a, x) => (x.sales > a.sales ? x : a), R.days[0]);
+  const cols = [];
+  for (let d = R.from; d <= R.last; d = addDays(d, 1)) {
+    const x = byIso.get(isoDay(d));
+    cols.push(x ? `<button type="button" class="bar-col" data-act="repDay" data-d="${isoDay(d)}" title="${fmtDayDate(d)}: ${money(x.sales)} — افتح فواتيره" aria-label="${fmtDayDate(d)}: ${money(x.sales)}"><span class="bv num">${x === best && x.sales ? kShort(x.sales) : ''}</span><div class="bar ${x === best && x.sales ? 'today' : ''}" style="height:${Math.max(2, Math.round((x.sales / maxD) * 100))}%"></div><span class="bl num">${num(d.getDate())}</span></button>`
+      : `<div class="bar-col later" aria-hidden="true"><span class="bv"></span><div class="bar ghost" style="height:6%"></div><span class="bl num">${num(d.getDate())}</span></div>`);
+  }
+  const daily = `<div class="card"><h3>يوم بيوم<span class="sp"></span><span class="muted rep-hint">دوس على أي يوم تشوف فواتيره</span></h3><div class="bars dense">${cols.join('')}</div></div>`;
+
+  // التفاصيل بتغيّرها عن الشهر اللي فات
+  const share = (v, tot) => { const s = tot ? Math.round((v / tot) * 100) : 0; return `<span class="sv-share"><i style="width:${s}%"></i></span><span class="num">${num(s)}%</span>`; };
+  const tbl = (head, body) => `<div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  const cats = `<div class="card narrow"><h3>التصنيفات</h3>${tbl('<th>التصنيف</th><th class="ta-n">المبيعات</th><th>النسبة</th><th class="ta-n">التغيير</th>',
+    R.cats.map((c) => `<tr><td>${esc(svCatName(c.id))}</td><td class="ta-n num"><b>${money(c.sales)}</b></td><td>${share(c.sales, R.cats.reduce((a, e) => a + e.sales, 0))}</td><td class="ta-n">${chgCell(c.ch)}</td></tr>`).join(''))}</div>`;
+  const prods = `<div class="card"><h3>الأصناف الأكتر مبيعًا</h3>${tbl('<th>الصنف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th class="ta-n">التغيير</th>',
+    R.products.slice(0, 8).map((p) => `<tr><td><bdi dir="rtl">${esc(p.name)}</bdi></td><td class="ta-n num">${num(p.qty)}</td><td class="ta-n num"><b>${money(p.sales)}</b></td><td class="ta-n">${chgCell(p.ch)}</td></tr>`).join(''))}</div>`;
+  const sellers = `<div class="card narrow"><h3>البيّاعين</h3>${tbl('<th>البيّاع</th><th class="ta-n">الفواتير</th><th class="ta-n">المبيعات</th><th class="ta-n">متوسط الفاتورة</th><th class="ta-n">التغيير</th>',
+    R.sellers.map((u) => `<tr><td>${esc(userName(u.id))}</td><td class="ta-n num">${num(u.invoices)}</td><td class="ta-n num"><b>${money(u.sales)}</b></td><td class="ta-n num">${money(u.avg)}</td><td class="ta-n">${chgCell(u.ch)}</td></tr>`).join(''))}</div>`;
+  const methods = `<div class="card narrow"><h3>طرق الدفع</h3>${tbl('<th>الطريقة</th><th class="ta-n">المبلغ</th><th>النسبة</th><th class="ta-n">التغيير</th>',
+    R.methods.map((m) => `<tr><td>${esc(methodName(m.id))}</td><td class="ta-n num"><b>${money(m.amount)}</b></td><td>${share(m.amount, T.sales)}</td><td class="ta-n">${chgCell(m.ch)}</td></tr>`).join(''))}</div>`;
+
+  // آخر 12 شهر: أعمدة، والشهر اللي لسه ماخلصش عليه المتوقع متقطّع، وجدول
+  const maxM = Math.max(1, ...R.months.map((m) => (m.live && R.projection ? R.projection : m.sales)));
+  const mBars = R.months.map((m) => {
+    const on = m.key === monthKey(R.from), extra = m.live && R.projection ? Math.max(0, R.projection - m.sales) : 0;
+    return `<button type="button" class="bar-col" data-act="repMonthPick" data-m="${m.key}" title="${fmtMonth(m.from)}: ${money(m.sales)}${extra ? ` — المتوقع ${money(R.projection)}` : ''}" aria-label="${fmtMonth(m.from)}: ${money(m.sales)}"><span class="bv num">${kShort(m.live && R.projection ? R.projection : m.sales)}</span>
+      <div class="bar-stack" style="height:${Math.max(3, Math.round(((m.sales + extra) / maxM) * 100))}%">${extra ? `<div class="bar ghost" style="flex:${extra}"></div>` : ''}<div class="bar ${on ? 'today' : ''}" style="flex:${m.sales || 1}"></div></div><span class="bl">${monthName(m.from)}</span></button>`;
+  }).join('');
+  // «عن اللي قبله» من السجل كله، عشان أقدم شهر في الجدول يتقارن هو كمان لو الشهر اللي قبله موجود
+  const allM = byMonth(DATA.history), prevOf = new Map(allM.map((m, i) => [m.key, allM[i - 1]]));
+  const rowsM = R.months.slice().reverse().map((m) => {
+    const prevM = prevOf.get(m.key), ch = m.live ? chSales : prevM ? pct(m.sales, prevM.sales) : null;
+    return `<tr class="hov click ${m.key === monthKey(R.from) ? 'on' : ''}" data-act="repMonthPick" data-m="${m.key}"><td>${fmtMonth(m.from)}${m.live ? ' <span class="muted">(لحد النهارده)</span>' : ''}</td><td class="ta-n num"><b>${money(m.sales)}</b></td><td class="ta-n">${prevM || m.live ? chgCell(ch) : '<span class="muted">—</span>'}</td><td class="ta-n num">${money(m.profit)}</td><td class="ta-n num">${num(m.sales ? Math.round((m.profit / m.sales) * 100) : 0)}%</td><td class="ta-n num">${num(m.invoices)}</td><td class="ta-n num">${money(m.perDay)}</td></tr>`;
+  }).join('');
+  const year = `<div class="card"><h3>آخر ${nMonths(R.months.length)}</h3><div class="bars months">${mBars}</div>
+    ${tbl('<th>الشهر</th><th class="ta-n">المبيعات</th><th class="ta-n">عن اللي قبله</th><th class="ta-n">الربح</th><th class="ta-n">الهامش</th><th class="ta-n">الفواتير</th><th class="ta-n">متوسط اليوم</th>', rowsM)}</div>`;
+
+  return `<div class="sv-bar">
+      <div class="day-nav">
+        <button type="button" class="icon-btn" data-act="repShift" data-d="-1" ${atFirst ? 'disabled' : ''} title="الشهر اللي قبله (السهم يمين)" aria-label="الشهر اللي قبله">${icon('chevron-right')}</button>
+        <span class="day-pick static">${icon('calendar')}<span class="dl">${title}</span></span>
+        <button type="button" class="icon-btn" data-act="repShift" data-d="1" ${atLast ? 'disabled' : ''} title="الشهر اللي بعده (السهم شمال)" aria-label="الشهر اللي بعده">${icon('chevron-left')}</button>
+      </div>
+      ${monthSel}<span class="sp"></span>
+      <button type="button" class="btn ghost" data-act="repSales">${icon('receipt-text')} فواتير الشهر</button>
+    </div>
+    <div class="cards">
+      ${kpi('المبيعات', money(T.sales), chgLine(chSales, vsPrev) + (R.YT ? chgLine(pct(T.sales, R.YT.sales), vsYear) : ''))}
+      ${kpi('الربح', money(T.profit), `<div class="sub muted">هامش ${num(mrg)}%</div>${chgLine(R.PT.profit ? pct(T.profit, R.PT.profit) : null, vsPrev)}`)}
+      ${kpi('عدد الفواتير', num(T.invoices), `<div class="sub muted">متوسط الفاتورة ${money(T.avg)}</div>`)}
+      ${kpi('الموبايلات', num(R.phones.all), `<div class="sub muted">جديد ${num(R.phones.fresh)} · مستعمل ${num(R.phones.used)}</div>`)}
+      ${R.live ? kpi('المتوقع لآخر الشهر', R.projection ? money(R.projection) : '—', `<div class="sub muted">${R.projection ? `لو فضل متوسط اليوم ${money(R.perDay)}` : 'بيبان بعد أول يوم'}</div>`)
+        : kpi('متوسط اليوم', money(R.perDay), `<div class="sub muted">في ${num(R.days.length)} يوم</div>`)}
+    </div>
+    <div class="dash-grid">${evaluation}<div class="stack">${cats}${sellers}</div></div>
+    ${daily}
+    <div class="dash-grid">${prods}${methods}</div>
+    ${year}`;
+}
+
+/* --- التنقل --- */
+function repSetMonth(d) {
+  const st = repState(), t = new Date(), first = DATA.history.length ? monthStart(DATA.history[0].at) : monthStart(t), m = monthStart(d);
+  st.month = m > monthStart(t) ? monthStart(t) : m < first ? first : m; st.tab = 'month'; render();
+}
+function reportsKey(e) {
+  const tg = e.target, typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'SELECT' || tg.tagName === 'TEXTAREA');
+  if (typing || e.ctrlKey || e.metaKey || e.altKey || repState().tab !== 'month') return;
+  const m = repState().month;
+  if (e.key === 'ArrowRight') { e.preventDefault(); repSetMonth(new Date(m.getFullYear(), m.getMonth() - 1, 1)); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); repSetMonth(new Date(m.getFullYear(), m.getMonth() + 1, 1)); }
+}
+Object.assign(ACT, {
+  repTab: (d) => { repState().tab = d.id; render(); },
+  repShift: (d) => { const m = repState().month; repSetMonth(new Date(m.getFullYear(), m.getMonth() + Number(d.d), 1)); },
+  repMonthPick: (d) => { const [y, m] = d.m.split('-').map(Number); repSetMonth(new Date(y, m - 1, 1)); },
+  // من التقرير لفواتير اليوم أو الشهر في شاشة المبيعات
+  repDay: (d) => { const [y, m, dd] = d.d.split('-').map(Number); S.view = 'sales'; S.salesv = null; svSetDay(new Date(y, m - 1, dd)); },
+  repSales: () => { S.view = 'sales'; S.salesv = null; svSetMonth(repState().month); },
+});
+CHANGE.repMonth = (el) => { const [y, m] = el.value.split('-').map(Number); if (y) repSetMonth(new Date(y, m - 1, 1)); };
 VIEWS.dashboard = viewDashboard;
 
+</script>
+<script>/* views/repairs.js */
+'use strict';
+// شاشة «الصيانة». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الصيانة: لوحة بالمراحل + استلام جهاز ===== */
 const nextRepairNo = () => 1 + Math.max(...S.repairs.map((r) => +r.no.replace(/\D/g, '')));
 function ticketHTML(r) {
@@ -3177,6 +3590,10 @@ Object.assign(ACT, {
   },
 });
 
+</script>
+<script>/* views/inventory.js */
+'use strict';
+// شاشة «المخزون». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== المخزون ===== */
 // قيمة المخزون بالتكلفة: الأجهزة المتسجّلة بتكلفتها الفعلية، واللي من غير IMEI بتكلفة الصنف
 function stockValue(p) {
@@ -3210,7 +3627,7 @@ function viewInventory() {
   const tabs = `<div class="seg inv-seg"><button type="button" class="${I.tab !== 'short' ? 'on' : ''}" data-act="invView" data-id="items">الأصناف</button><button type="button" class="${I.tab === 'short' ? 'on' : ''}" data-act="invView" data-id="short">النواقص <span class="cnt num">${num(SHORT.length)}</span></button></div>`;
   if (I.tab === 'short') return `<div class="page">
     <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">اكتب الناقص بإيدك، أو ضيفه من اقتراحات السيستم</span><span class="sp"></span>
-      <button type="button" class="btn" data-act="goMobileRecv">${icon('package-plus')} استلام بضاعة</button></div>
+      <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
     ${shortView()}
   </div>`;
   const qd = toLatin(I.q).replace(/\D/g, '');
@@ -3221,7 +3638,7 @@ function viewInventory() {
   return `<div class="page">
     <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">${num(DATA.products.length)} صنف و${num(DATA.units.filter((u) => u.status === 'in').length)} جهاز بالـ IMEI</span>${own ? `<span class="tag accent">قيمة المخزون بالتكلفة ${money(value)}</span>` : ''}<span class="sp"></span>
       <label class="inline-search">${icon('search')}<input id="inv-q" data-input="invQ" value="${esc(I.q)}" placeholder="اسم أو كود أو IMEI…" autocomplete="off"></label>
-      <button type="button" class="btn" data-act="goMobileRecv">${icon('package-plus')} استلام بضاعة</button>
+      <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button>
       <button type="button" class="btn" data-act="soon">${icon('tag')} طباعة ملصقات</button></div>
     ${catChipsHTML(I.cat, 'invCat')}
     <div class="table-wrap"><table class="t">
@@ -3264,9 +3681,272 @@ Object.assign(ACT, {
   invOpen: (d) => { S.inv.open[d.id] = !S.inv.open[d.id]; render(); },
   imgPick: (d) => { S._imgFor = d.id; const f = $('#img-file'); if (f) f.click(); },
   imgDel: (d) => { delete IMGS[d.id]; saveImages(); render(); toast('اتشالت الصورة، والصنف رجع بالأيقونة', 'info'); },
-  goMobileRecv: () => { S.view = 'mobile'; render(); toast('الاستلام بيتعمل من الموبايل، بالـ IMEI أو بالعدد', 'info'); },
 });
 
+</script>
+<script>/* views/receive.js */
+'use strict';
+// نافذة «استلام بضاعة» من الكمبيوتر. الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== الاستلام (docs/ui/MONTHS-REPORTS-RECEIVING.md، المرحلة 4) =====
+   زي البرنامج الحقيقي (commands/inventory.rs: receive_stock): الصنف والعدد وتكلفة الوحدة، والمورد اسم اختياري.
+   - التكلفة بالمتوسط المرجح (ADR-002، receiveCost في analytics.js)، والجهاز اللي بالـ IMEI بيحتفظ بتكلفته هو.
+   - تكلفة الوحدة بتظهر وتتكتب للمالك بس. البيّاع بيستلم بآخر تكلفة، فالمتوسط ما يتغيرش.
+   - الـ IMEI اختياري أو إجباري حسب الإعدادات، ويتكتب أو يتمسح بالماسح أو بالموبايل.
+   - الصنف اللي في «النواقص» بيتشال لوحده لما يوصل، ولو فيه عميل مستنيه بيتقال اسمه ورقمه.
+   السرعة: الاسم ← Enter ← العدد ← Enter ← التكلفة ← Enter ← اللي بعده. والموبايل: كل علبة تتمسح ← Enter. */
+const rcOpen = () => openModal({ type: 'receive', supplier: '', q: '', hi: 0, lines: [], err: '', imErr: null, confirmClose: false });
+// البحث: الباركود بالأرقام، أو الاسم بنفس ترتيب شاشة البيع (rankProducts في pos.js)
+function rcResults(m) {
+  const raw = toLatin(m.q).trim(), qn = normalize(raw), digits = raw.replace(/\s/g, '');
+  if (!qn) return [];
+  if (/^\d{6,}$/.test(digits)) return DATA.products.filter((p) => p.sku && p.sku.includes(digits)).slice(0, 6);
+  return rankProducts(qn, 6);
+}
+const rcFocus = (id) => { const el = document.getElementById(id); if (el) { el.focus({ preventScroll: false }); if (el.select) el.select(); } };
+const rcTotals = (m) => ({ qty: m.lines.reduce((a, l) => a + l.qty, 0), cost: m.lines.reduce((a, l) => a + l.qty * l.cost, 0) });
+function rcAdd(pid) {
+  const m = S.modal, p = prod(pid);
+  if (!p) return;
+  let i = m.lines.findIndex((l) => l.pid === pid);
+  if (i < 0) { m.lines.push({ pid, qty: 1, qtyT: '1', cost: p.cost, costT: String(p.cost), imeis: [], imQ: '' }); i = m.lines.length - 1; }
+  Object.assign(m, { q: '', hi: 0, err: '', confirmClose: false });
+  render(); rcFocus(p.serial ? `rc-im-${i}` : `rc-qty-${i}`);
+}
+// IMEI: 15 رقم ورقم المراجعة صح، ومش متسجّل قبل كده ولا مكتوب مرتين في الاستلام ده. والعدد بيزيد لوحده
+function rcImei(i, raw) {
+  const m = S.modal, l = m.lines[i], f = toLatin(raw).replace(/\D/g, '');
+  const fail = (msg) => { m.imErr = { i, msg }; render(); rcFocus(`rc-im-${i}`); };
+  if (f.length !== 15) return fail('الـ IMEI لازم يكون 15 رقم');
+  if (!luhnOk(f)) return fail('الرقم ده مش IMEI صحيح: رقم المراجعة غلط');
+  const other = DATA.units.find((u) => u.imei === f || u.imei2 === f);
+  if (other) return fail(`الـ IMEI ده متسجّل قبل كده على «${prod(other.pid).name}»`);
+  if (m.lines.some((x) => x.imeis.includes(f))) return fail('الـ IMEI ده اتكتب في الاستلام ده قبل كده');
+  l.imeis.push(f); l.imQ = '';
+  if (l.imeis.length > l.qty) { l.qty = l.imeis.length; l.qtyT = String(l.qty); }
+  m.imErr = null; m.err = ''; render(); rcFocus(`rc-im-${i}`);
+}
+function rcLineHTML(m, l, i, own) {
+  const p = prod(l.pid), cols = own ? 7 : 4, need = imeiRequired() && l.imeis.length < l.qty;
+  const after = p.serial ? '<span class="muted">كل جهاز بتكلفته</span>' : money(receiveCost(p.stock, p.cost, l.qty, l.cost));
+  let html = `<tr><td><bdi dir="rtl">${esc(p.name)}</bdi><small class="muted">${esc(catFull(p.cat))}</small></td><td class="ta-n num">${num(stockOf(p))}</td>
+    <td class="ta-n"><input id="rc-qty-${i}" class="rc-in num" data-input="rcQty" data-i="${i}" value="${esc(l.qtyT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="عدد «${esc(p.name)}»"></td>
+    ${own ? `<td class="ta-n"><input id="rc-cost-${i}" class="rc-in num" data-input="rcCost" data-i="${i}" value="${esc(l.costT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="تكلفة الوحدة «${esc(p.name)}»"></td>
+      <td class="ta-n num">${money(l.qty * l.cost)}</td><td class="ta-n num" title="بالمتوسط المرجح: (قيمة المخزون + قيمة الاستلام) ÷ العدد الجديد">${after}</td>` : ''}
+    <td class="ta-n"><button type="button" class="icon-btn sm danger" data-act="rcDel" data-i="${i}" title="شيل الصنف ده" aria-label="شيل «${esc(p.name)}»">${icon('x')}</button></td></tr>`;
+  if (p.serial) {
+    html += `<tr class="rc-imrow"><td colspan="${cols}"><div class="rc-imei">
+      <label class="inline-search rc-ims">${icon('scan-barcode')}<input id="rc-im-${i}" data-input="rcImQ" data-i="${i}" value="${esc(l.imQ)}" placeholder="اكتب أو امسح الـ IMEI ودوس Enter" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="IMEI «${esc(p.name)}»"></label>
+      <button type="button" class="btn sm" data-act="rcPhone" data-i="${i}" title="افتح الموبايل على «استلام» وامسح العلب: الأرقام بتنزل هنا على طول">${icon('smartphone')} امسح بالموبايل</button>
+      <span class="rc-cnt ${need ? 'warn-t' : 'muted'}">${num(l.imeis.length)} من ${num(l.qty)} بالـ IMEI${!imeiRequired() && l.imeis.length < l.qty ? '، والباقي بالعدد' : ''}</span>
+      ${m.imErr && m.imErr.i === i ? `<span class="danger-t rc-err" role="alert">${icon('alert-triangle')} ${esc(m.imErr.msg)}</span>` : ''}
+      ${l.imeis.length ? `<div class="rc-chips">${l.imeis.map((im, k) => `<span class="tag accent">${imeiHTML(im)}<button type="button" class="rc-x" data-act="rcImDel" data-i="${i}" data-k="${k}" title="شيل الـ IMEI ده" aria-label="شيل الـ IMEI اللي آخره ${im.slice(-4)}">${icon('x')}</button></span>`).join('')}</div>` : ''}
+    </div></td></tr>`;
+  }
+  return html;
+}
+MODALS.receive = {
+  html: (m) => {
+    const own = isOwner(), L = m.lines, T = rcTotals(m), res = rcResults(m), last = DATA.receipts[DATA.receipts.length - 1];
+    const sups = [...new Set(DATA.receipts.map((r) => r.supplier).filter(Boolean))];
+    return `<div class="modal wide" role="dialog" aria-label="استلام بضاعة">
+      ${modalHead('استلام بضاعة', last ? `آخر استلام ${fmtDate(last.at)}${last.supplier ? ` من «${esc(last.supplier)}»` : ''}` : 'البضاعة اللي وصلت المحل')}
+      <div class="modal-b stack">
+        <div class="rc-top">
+          <div class="field rc-sup"><label for="rc-sup">المورد <span class="muted">(اختياري)</span></label><input id="rc-sup" data-input="rcSup" list="rc-sups" value="${esc(m.supplier)}" placeholder="مين اللي جاب البضاعة" autocomplete="off"><datalist id="rc-sups">${sups.map((s) => `<option value="${esc(s)}"></option>`).join('')}</datalist></div>
+          <div class="field rc-find"><label for="rc-q">ضيف صنف</label><label class="inline-search">${icon('search')}<input id="rc-q" data-input="rcQ" data-autofocus value="${esc(m.q)}" placeholder="اسم الصنف أو الباركود…" autocomplete="off" aria-controls="rc-res"></label></div>
+        </div>
+        ${m.q ? `<div class="rc-res" id="rc-res" role="listbox" aria-label="الأصناف">${res.length ? res.map((p, i) => `<div class="result ${i === m.hi ? 'on' : ''}" role="option" aria-selected="${i === m.hi}" data-act="rcAdd" data-id="${p.id}">
+            <div class="ico">${icon(p.serial ? 'smartphone' : 'package')}</div>
+            <div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div><div class="s"><span>${esc(catFull(p.cat))}</span><span>المتاح ${num(stockOf(p))}</span>${p.serial ? '<span>بالـ IMEI</span>' : ''}</div></div>
+            ${own ? `<div class="p muted num">آخر تكلفة ${money(p.cost)}</div>` : ''}</div>`).join('')
+          : '<div class="muted rc-none">مفيش صنف بالاسم ده. اتأكد من الاسم، أو دوّر بالباركود</div>'}</div>` : ''}
+        ${L.length ? `<div class="table-wrap"><table class="t rc-t"><thead><tr><th>الصنف</th><th class="ta-n">المتاح دلوقتي</th><th class="ta-n">العدد</th>${own ? '<th class="ta-n">تكلفة الوحدة</th><th class="ta-n">الإجمالي</th><th class="ta-n">التكلفة بعد الاستلام</th>' : ''}<th aria-hidden="true"></th></tr></thead>
+          <tbody>${L.map((l, i) => rcLineHTML(m, l, i, own)).join('')}</tbody></table></div>`
+        : `<div class="sv-empty">${icon('package-plus')}<b>لسه مفيش أصناف</b><span>دوّر على الصنف اللي وصل وضيفه، وبعدين اكتب العدد${own ? ' وتكلفة الوحدة' : ''}. الموبايلات تتمسح علبها بالماسح أو بالموبايل.</span></div>`}
+        ${m.err ? `<div class="note warn" role="alert">${icon('alert-triangle')} ${esc(m.err)}</div>` : ''}
+      </div>
+      <div class="modal-f"><span class="muted">${L.length ? `${pcsWord(T.qty)} من ${num(L.length)} صنف${own ? `، التكلفة ${money(T.cost)}` : ''}` : (own ? 'تكلفة الوحدة بتتحسب بالمتوسط المرجح' : 'التكلفة بيكتبها المالك')}</span><span class="sp"></span>
+        <button type="button" class="btn ghost" data-act="closeModal">إلغاء <kbd>Esc</kbd></button>
+        <button type="button" class="btn primary" data-act="rcSave" ${L.length ? '' : 'disabled'}>${icon('save')} حفظ الاستلام <kbd>Ctrl+Enter</kbd></button></div>
+    </div>`;
+  },
+  key: (e, m) => {
+    const t = e.target, id = (t && t.id) || '';
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ACT.rcSave(); return true; }
+    if (id === 'rc-q') {
+      const res = rcResults(m);
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && res.length) { e.preventDefault(); m.hi = (m.hi + (e.key === 'ArrowDown' ? 1 : res.length - 1)) % res.length; render(); return true; }
+      if (e.key === 'Enter') { e.preventDefault(); if (res[m.hi]) rcAdd(res[m.hi].id); return true; }
+    }
+    if (e.key !== 'Enter') return false;
+    const n = (pre) => Number(id.slice(pre.length)), serial = (i) => prod(m.lines[i].pid).serial;
+    if (id.startsWith('rc-im-')) { e.preventDefault(); if (t.value.trim()) rcImei(n('rc-im-'), t.value); else rcFocus('rc-q'); return true; }
+    if (id.startsWith('rc-qty-')) { e.preventDefault(); const i = n('rc-qty-'); rcFocus(isOwner() ? `rc-cost-${i}` : serial(i) ? `rc-im-${i}` : 'rc-q'); return true; }
+    if (id.startsWith('rc-cost-')) { e.preventDefault(); const i = n('rc-cost-'); rcFocus(serial(i) ? `rc-im-${i}` : 'rc-q'); return true; }
+    return false;
+  },
+  // فيه أصناف لسه ماتحفظتش: أول قفل بينبّه، والتاني بيقفل
+  canClose: (m) => {
+    if (m.saved || !m.lines.length || m.confirmClose) return true;
+    m.confirmClose = true; m.err = 'فيه أصناف لسه ماتحفظتش. لو عايز تقفل من غير حفظ دوس «إلغاء» أو Esc تاني'; render();
+    return false;
+  },
+};
+// الاستلام نفسه، من الكمبيوتر ومن الموبايل: المخزون، والتكلفة بالمتوسط المرجح، والأجهزة بالـ IMEI بتكلفتها،
+// والسجل، والنواقص. lines: [{ pid, qty, cost, imeis }]، وcost هي تكلفة الوحدة (اللي بيكتبها المالك، وغير كده آخر تكلفة).
+// بترجّع النواقص اللي اتقفلت عشان الشاشة تقول عليها
+function applyReceipt(supplier, lines) {
+  const today = isoDay(new Date());
+  for (const l of lines) {
+    const p = prod(l.pid);
+    if (p.serial) {
+      // الجهاز اللي بالـ IMEI بتكلفته هو، واللي بالعدد بيدخل في متوسط الأجهزة اللي من غير IMEI
+      const unreg = Math.max(0, p.stock - unitsIn(p.id).length), byCount = l.qty - l.imeis.length;
+      l.imeis.forEach((im, k) => DATA.units.push({ imei: im, imei2: DATA.makeImei(p.tac), pid: p.id, color: p.colors && p.colors.length ? p.colors[k % p.colors.length] : null, storage: p.storage, condition: p.cat === 'used' ? 'مستعمل' : 'جديد', battery: null, customs: null, cost: l.cost, received: today, status: 'in' }));
+      if (byCount > 0) p.cost = receiveCost(unreg, p.cost, byCount, l.cost);
+    } else p.cost = receiveCost(p.stock, p.cost, l.qty, l.cost);
+    p.stock += l.qty;
+  }
+  const last = DATA.receipts[DATA.receipts.length - 1];
+  DATA.receipts.push({ no: last ? last.no + 1 : 1, at: new Date(), supplier, by: S.user.id, lines: lines.map((l) => ({ pid: l.pid, qty: l.qty, cost: l.cost, imeis: [...l.imeis] })) });
+  const arrived = SHORT.filter((x) => x.pid && lines.some((l) => l.pid === x.pid));
+  if (arrived.length) { for (const x of arrived) SHORT.splice(SHORT.indexOf(x), 1); saveShort(); }
+  return arrived;
+}
+const arrivedToasts = (arrived) => arrived.forEach((x) => toast(x.cust ? `«${x.name}» وصل، و${x.cust.name} مستنيه: ${x.cust.phone}` : `«${x.name}» وصل واتشال من النواقص`, 'info'));
+const rcNum = (v) => { const n = parseInt(toLatin(v).replace(/[^\d]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
+Object.assign(INPUT, {
+  rcSup: (el) => { S.modal.supplier = el.value; },
+  rcQ: (el) => { Object.assign(S.modal, { q: el.value, hi: 0 }); render(); },
+  rcQty: (el) => { const l = S.modal.lines[+el.dataset.i]; l.qtyT = el.value; l.qty = rcNum(el.value); S.modal.confirmClose = false; render(); },
+  rcCost: (el) => { const l = S.modal.lines[+el.dataset.i]; l.costT = el.value; l.cost = rcNum(el.value); render(); },
+  rcImQ: (el) => { S.modal.lines[+el.dataset.i].imQ = el.value; },
+});
+Object.assign(ACT, {
+  recvOpen: () => rcOpen(),
+  rcAdd: (d) => rcAdd(d.id),
+  rcDel: (d) => { const m = S.modal; m.lines.splice(+d.i, 1); m.imErr = null; render(); rcFocus('rc-q'); },
+  rcImDel: (d) => { const l = S.modal.lines[+d.i]; l.imeis.splice(+d.k, 1); render(); },
+  // الموبايل بيمسح العلبة والرقم بينزل هنا (في المعاينة: رقم تجريبي صحيح)
+  rcPhone: (d) => { const i = +d.i, im = DATA.makeImei(prod(S.modal.lines[i].pid).tac); rcImei(i, im); toast(`الموبايل مسح IMEI …${im.slice(-4)}`, 'info'); },
+  rcSave: () => {
+    const m = S.modal;
+    if (!m || m.type !== 'receive') return;
+    const own = isOwner(), L = m.lines.filter((l) => l.qty > 0);
+    const bad = (msg) => { m.err = msg; render(); };
+    if (!L.length) return bad('اكتب عدد صنف واحد على الأقل');
+    const less = m.lines.find((l) => l.qty < l.imeis.length);
+    if (less) return bad(`عدد «${prod(less.pid).name}» أقل من الـ IMEI المكتوبة (${num(less.imeis.length)})`);
+    if (imeiRequired()) { const miss = L.find((l) => prod(l.pid).serial && l.imeis.length < l.qty); if (miss) return bad(`الإعدادات بتقول IMEI لكل جهاز: «${prod(miss.pid).name}» ناقصه ${num(miss.qty - miss.imeis.length)}`); }
+    // البيّاع بيستلم بآخر تكلفة، فالمتوسط ما يتغيرش
+    const lines = L.map((l) => ({ pid: l.pid, qty: l.qty, cost: own ? l.cost : prod(l.pid).cost, imeis: l.imeis })), T = rcTotals({ lines });
+    const arrived = applyReceipt(m.supplier.trim(), lines);
+    m.saved = true; closeModal();
+    toast(`اتاستلم ${pcsWord(T.qty)} من ${num(L.length)} صنف${own ? `، التكلفة ${money(T.cost)}` : ''}`);
+    arrivedToasts(arrived);
+  },
+});
+
+</script>
+<script>/* views/shortages.js */
+'use strict';
+// شاشة «النواقص». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== النواقص: اللي بتكتبه بإيدك + اقتراحات السيستم (docs/ui/SALES-SHORTAGES.md) =====
+   بتتحفظ في المتصفح زي الإعدادات. أول مرة: 3 أمثلة. نفس الصنف مرتين ← الكمية بتزيد بدل سطر جديد. */
+const SHORT_KEY = 'mshop.mockup.shortages.v1';
+let SHORT = (() => {
+  try { const v = JSON.parse(localStorage.getItem(SHORT_KEY) || 'null'); if (Array.isArray(v)) return v; } catch { /* أول مرة */ }
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  return [
+    { id: 'sh1', pid: null, name: 'جراب Samsung A16 أسود', qty: 3, note: 'اتسأل عليه مرتين النهارده', cust: null, status: 'open', by: 'u2', at: ago(3) },
+    { id: 'sh2', pid: 'a7', name: 'كابل لايتنينج للآيفون', qty: 10, note: '', cust: null, status: 'ordered', by: 'u1', at: ago(26) },
+    { id: 'sh3', pid: null, name: 'شاحن 65 وات تايب سي', qty: 1, note: '', cust: { name: 'كريم مصطفى', phone: '01011122233' }, status: 'open', by: 'u3', at: ago(50) },
+  ];
+})();
+const saveShort = () => { try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
+// الكمية المقترحة: توصّل الصنف لضعف أقل حد
+const suggestQty = (p) => Math.max(1, p.min * 2 - stockOf(p));
+const shortSuggest = () => DATA.products.filter((p) => stockOf(p) <= p.min && !SHORT.some((x) => x.pid === p.id)).sort((a, b) => stockOf(a) - stockOf(b));
+function shortAdd({ pid = null, name = '', qty = 1, note = '', cust = null }) {
+  const p = pid ? prod(pid) : null, nm = p ? p.name : String(name).trim();
+  if (!nm) return false;
+  const ex = SHORT.find((x) => (p && x.pid === p.id) || (!p && !x.pid && normalize(x.name) === normalize(nm)));
+  if (ex) { ex.qty += qty; saveShort(); toast(`«${nm}» موجود في النواقص، والكمية بقت ${num(ex.qty)}`, 'info'); return true; }
+  SHORT.unshift({ id: `sh${Date.now()}${Math.floor(Math.random() * 1000)}`, pid: p ? p.id : null, name: nm, qty, note: note.trim(), cust, status: 'open', by: S.user.id, at: new Date().toISOString() });
+  saveShort(); toast(`اتضاف «${nm}» للنواقص`); return true;
+}
+const shortForm = () => S.shortF || (S.shortF = { q: '', pid: null, qty: '1', note: '', cust: '', hi: 0, err: '' });
+function shortMatches() { const F = shortForm(), q = normalize(F.q); return q && !F.pid ? DATA.products.filter((p) => p._hay.includes(q)).slice(0, 6) : []; }
+const whenTxt = (iso) => { const d = new Date(iso); return sameDay(d, new Date()) ? `النهارده ${fmtTime(d)}` : sameDay(d, addDays(dayStart(new Date()), -1)) ? `امبارح ${fmtTime(d)}` : fmtDate(d); };
+function shortView() {
+  const F = shortForm(), sug = shortSuggest(), m = shortMatches(), own = isOwner(), picked = F.pid ? prod(F.pid) : null;
+  const stockTxt = (p) => `<small class="${stockOf(p) <= 0 ? 'danger-t' : stockOf(p) <= p.min ? 'warn-t' : 'muted'}">${stockOf(p) <= 0 ? 'خلصان' : `متاح ${num(stockOf(p))}`}</small>`;
+  return `
+    <section class="sh-add" aria-label="ضيف ناقص">
+      <div class="sh-name">
+        <label class="inline-search">${icon('package-search')}<input id="sh-q" data-input="shQ" value="${esc(F.q)}" placeholder="اسم الصنف، أو اختار من المخزون" autocomplete="off" aria-label="اسم الصنف الناقص"></label>
+        ${m.length ? `<div class="results sh-res">${m.map((p, i) => `<div class="result ${i === F.hi ? 'on' : ''}" data-act="shPick" data-id="${p.id}"><div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div><div class="s"><span>${esc(catFull(p.cat))}</span>${stockTxt(p)}</div></div></div>`).join('')}</div>` : ''}
+      </div>
+      <label class="sh-f sh-qty"><span>الكمية</span><input id="sh-qty" data-input="shQty" value="${esc(F.qty)}" inputmode="numeric" autocomplete="off"></label>
+      <label class="sh-f"><span>ملاحظة</span><input id="sh-note" data-input="shNote" value="${esc(F.note)}" placeholder="اختياري" autocomplete="off"></label>
+      <label class="sh-f"><span>عميل مستني</span><input id="sh-cust" data-input="shCust" value="${esc(F.cust)}" placeholder="اسم أو رقم، اختياري" autocomplete="off"></label>
+      <button type="button" class="btn primary" data-act="shAdd">${icon('plus')} ضيف للنواقص</button>
+    </section>
+    ${picked ? `<div class="sh-picked">${icon('package')} من المخزون: <b><bdi dir="rtl">${esc(picked.name)}</bdi></b> ${stockTxt(picked)}<button type="button" class="icon-btn xs" data-act="shUnpick" title="اكتب اسم تاني">${icon('x')}</button></div>` : ''}
+    ${F.err ? `<div class="err-msg">${esc(F.err)}</div>` : ''}
+    <h3 class="sh-h">النواقص <span class="muted num">${num(SHORT.length)}</span></h3>
+    ${SHORT.length ? `<div class="table-wrap"><table class="t sh-t"><thead><tr><th>الصنف</th><th class="ta-n">الكمية</th><th>ملاحظة</th><th>عميل مستني</th><th>أضافه</th><th>الحالة</th><th></th></tr></thead><tbody>
+      ${SHORT.map((x) => { const p = x.pid ? prod(x.pid) : null, u = DATA.users.find((y) => y.id === x.by), mine = own || x.by === S.user.id;
+        return `<tr data-id="${x.id}"><td><bdi dir="rtl">${esc(x.name)}</bdi> ${p ? stockTxt(p) : '<small class="muted">مش في المخزون</small>'}</td><td class="ta-n num"><b>${num(x.qty)}</b></td><td class="muted">${esc(x.note)}</td>
+          <td>${x.cust ? `${esc(x.cust.name || '')}${x.cust.phone ? ` <bdi dir="ltr" class="mono">${esc(x.cust.phone)}</bdi>` : ''}` : ''}</td><td class="muted">${u ? esc(u.name) : ''}، ${whenTxt(x.at)}</td>
+          <td><div class="seg sh-st"><button type="button" class="${x.status === 'open' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="open" aria-pressed="${x.status === 'open'}">ناقص</button><button type="button" class="${x.status === 'ordered' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="ordered" aria-pressed="${x.status === 'ordered'}">اتطلب</button></div></td>
+          <td class="sh-act"><button type="button" class="btn sm" data-act="shDone" data-id="${x.id}">${icon('check')} وصل</button>${mine ? `<button type="button" class="icon-btn sm danger" data-act="shDel" data-id="${x.id}" title="شيله من النواقص">${icon('trash-2')}</button>` : ''}</td></tr>`; }).join('')}
+    </tbody></table></div>` : `<div class="sv-empty">${icon('clipboard-list')}<b>مفيش نواقص مكتوبة</b><span>ضيف من فوق، أو من الاقتراحات تحت، أو من البحث في شاشة البيع.</span></div>`}
+    <div class="sh-hrow"><h3 class="sh-h">اقتراحات السيستم <span class="muted">الأصناف اللي وصلت لأقل حد أو خلصت</span></h3>${sug.length > 1 ? `<button type="button" class="btn sm" data-act="shSugAll">${icon('plus')} ضيف الكل (${num(sug.length)})</button>` : ''}</div>
+    ${sug.length ? `<div class="table-wrap"><table class="t sh-t"><thead><tr><th>الصنف</th><th>التصنيف</th><th class="ta-n">المتاح</th><th class="ta-n">أقل حد</th><th class="ta-n">الكمية المقترحة</th><th></th></tr></thead><tbody>
+      ${sug.map((p) => `<tr data-pid="${p.id}"><td><bdi dir="rtl">${esc(p.name)}</bdi></td><td class="muted">${esc(catFull(p.cat))}</td><td class="ta-n num ${stockOf(p) <= 0 ? 'danger-t' : 'warn-t'}">${stockOf(p) <= 0 ? 'خلصان' : num(stockOf(p))}</td><td class="ta-n num">${num(p.min)}</td><td class="ta-n num">${num(suggestQty(p))}</td><td class="sh-act"><button type="button" class="btn sm" data-act="shSug" data-id="${p.id}">${icon('plus')} ضيفه للنواقص</button></td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="muted sh-none">كل الأصناف فوق أقل حد.</div>'}`;
+}
+function shAddNow() {
+  const F = shortForm(), qty = parseInt(toLatin(F.qty), 10);
+  if (!F.pid && !F.q.trim()) { F.err = 'اكتب اسم الصنف أو اختاره من المخزون'; render(); return; }
+  if (!qty || qty < 1) { F.err = 'الكمية لازم تبقى رقم 1 أو أكتر'; render(); return; }
+  const c = F.cust.trim(), digits = toLatin(c).replace(/\D/g, '');
+  const cust = c ? (digits.length >= 8 ? { name: c.replace(/[\d\s+]+/g, ' ').trim(), phone: digits } : { name: c, phone: '' }) : null;
+  if (shortAdd({ pid: F.pid, name: F.q, qty, note: F.note, cust })) { S.shortF = null; render(); }
+}
+Object.assign(ACT, {
+  // تبويب المخزون (الأصناف / النواقص) — اسم مختلف عن invTab بتاع تبويبات الفواتير في شاشة البيع
+  invView: (d) => { S.inv.tab = d.id === 'short' ? 'short' : 'items'; render(); },
+  shPick: (d) => { const F = shortForm(), p = prod(d.id); if (p) { Object.assign(F, { pid: p.id, q: p.name, hi: 0, err: '' }); if (F.qty === '1') F.qty = String(suggestQty(p)); render(); } },
+  shUnpick: () => { Object.assign(shortForm(), { pid: null, q: '', qty: '1' }); render(); },
+  shAdd: () => shAddNow(),
+  shStatus: (d) => { const x = SHORT.find((y) => y.id === d.id); if (x) { x.status = d.s === 'ordered' ? 'ordered' : 'open'; saveShort(); render(); } },
+  shDone: (d) => { const i = SHORT.findIndex((y) => y.id === d.id); if (i >= 0) { const [x] = SHORT.splice(i, 1); saveShort(); render(); toast(`«${x.name}» وصل واتشال من النواقص`); } },
+  shDel: (d) => { const i = SHORT.findIndex((y) => y.id === d.id); if (i >= 0) { const [x] = SHORT.splice(i, 1); saveShort(); render(); toast(`اتشال «${x.name}» من النواقص`, 'info'); } },
+  shSug: (d) => { const p = prod(d.id); if (p && shortAdd({ pid: p.id, qty: suggestQty(p) })) render(); },
+  shSugAll: () => { const list = shortSuggest(); for (const p of list) SHORT.unshift({ id: `sh${Date.now()}${p.id}`, pid: p.id, name: p.name, qty: suggestQty(p), note: '', cust: null, status: 'open', by: S.user.id, at: new Date().toISOString() }); saveShort(); render(); toast(`اتضاف ${num(list.length)} صنف للنواقص`); },
+  // من شاشة البيع: البحث ما لقاش الصنف، أو الصنف خلصان
+  shortQuick: (d) => { if (shortAdd({ pid: d.id || null, name: d.name || '' })) render(); },
+});
+INPUT.shQ = (el) => { Object.assign(shortForm(), { q: el.value, pid: null, hi: 0, err: '' }); render(); };
+INPUT.shQty = (el) => { const F = shortForm(); F.qty = el.value; if (F.err) { F.err = ''; render(); } };
+INPUT.shNote = (el) => { shortForm().note = el.value; };
+INPUT.shCust = (el) => { shortForm().cust = el.value; };
+document.addEventListener('keydown', (e) => {
+  const id = e.target && e.target.id;
+  if (!id || !id.startsWith('sh-') || S.view !== 'inventory') return;
+  const F = shortForm(), m = shortMatches();
+  if (id === 'sh-q' && m.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); F.hi = (F.hi + (e.key === 'ArrowDown' ? 1 : m.length - 1)) % m.length; render(); return; }
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (id === 'sh-q' && m.length) ACT.shPick({ id: m[F.hi].id }); else shAddNow();
+});
+
+</script>
+<script>/* views/settings.js */
+'use strict';
+// شاشة «الإعدادات». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الإعدادات ===== */
 function sampleSale() {
   const p = prod('p1'), u = DATA.units.find((x) => x.pid === 'p1');
@@ -3275,7 +3955,7 @@ function sampleSale() {
     { kind: 'item', name: 'جراب سيليكون شفاف', price: 120, qty: 2, warranty: 0 },
   ];
   const sub = p.price + 240, got = Math.ceil(sub / 100) * 100;
-  return { no: 10452, at: new Date(), seller: S.user, customer: DATA.customers[0], lines, sub, disc: 0, total: sub, payments: [{ method: 'cash', amount: sub, received: got }], change: got - sub };
+  return { no: S.nextNo, at: new Date(), seller: S.user, customer: DATA.customers[0], lines, sub, disc: 0, total: sub, payments: [{ method: 'cash', amount: sub, received: got }], change: got - sub };
 }
 const setField = (k, label, attrs = '') => `<div class="field"><label for="set-${k}">${label}</label><input id="set-${k}" data-input="set" data-k="${k}" value="${esc(SET[k])}" ${attrs}></div>`;
 function setShop() {
@@ -3489,6 +4169,10 @@ Object.assign(ACT, {
   testPrint: () => toast('بيطبع صفحة تجربة على XP-80', 'info'),
 });
 
+</script>
+<script>/* views/lock.js */
+'use strict';
+// شاشة «شاشة القفل». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== شاشة القفل: اختيار المستخدم ثم PIN من 4 أرقام ===== */
 function viewLock() {
   const u = S.lockUser;
@@ -3544,6 +4228,10 @@ Object.assign(ACT, {
   lockBack: () => { S.lockUser = null; S.pin = ''; S.pinErr = ''; render(); },
 });
 
+</script>
+<script>/* views/mobile.js */
+'use strict';
+// شاشة «معاينة تطبيق الموبايل». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== معاينة تطبيق الموبايل (مساعد جوه المحل على الـ Wi-Fi) ===== */
 function phoneFrame(cap, ic, sub, screen) {
   return `<div class="phone-wrap"><div class="cap">${icon(ic)} ${cap}</div>
@@ -3554,13 +4242,13 @@ function phoneFrame(cap, ic, sub, screen) {
 function salesScreen() {
   const d = DATA.dash.today, own = isOwner(), me = S.user;
   const total = own ? d.sales : (d.bySeller[me.id] || 0), count = own ? d.invoices : (d.countBySeller[me.id] || 0);
-  const vsY = Math.round(((d.sales - d.yesterday) / d.yesterday) * 100);
+  const vsY = d.vsYesterday; // امبارح لنفس الساعة، ومحسوب في analytics.js
   const recent = DATA.dash.recent.filter((r) => own || r.sellerId === me.id).slice(0, own ? 3 : 4);
   const maxV = Math.max(1, ...DATA.users.map((u) => d.bySeller[u.id] || 0));
   return `<div class="ph-head"><b>${own ? 'مبيعات النهارده' : 'مبيعاتك النهارده'}</b><span class="tag ok"><span class="dot"></span> مباشر</span></div>
     <div class="ph-body">
       <div class="ph-card ph-total"><span class="muted">${own ? 'إجمالي المحل' : `مبيعات ${esc(me.name)}`}</span><b class="num big">${money(total)}</b>
-        <div class="r"><span class="muted">${num(count)} فاتورة</span>${own ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح</span>` : ''}</div>
+        <div class="r"><span class="muted">${num(count)} فاتورة</span>${own && vsY !== null ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح لنفس الساعة</span>` : ''}</div>
         ${own ? `<div class="r"><span class="muted">الربح (للمالك بس)</span><b class="num">${money(d.profit)}</b></div>` : ''}</div>
       ${own ? `<div class="ph-card"><span class="muted" style="font-size:.8rem">مين باع كام</span>${DATA.users.map((u) => { const v = d.bySeller[u.id] || 0; return `<div class="seller-bar"><span class="nm">${esc(u.name)}</span><span class="bar-track"><i style="width:${Math.round((v / maxV) * 100)}%;background:${u.color}"></i></span><b class="num">${money(v)}</b></div>`; }).join('')}</div>` : ''}
       <div class="ph-list">${recent.map((r) => `<div class="ph-sale ${r.fresh ? 'fresh' : ''}"><div class="r"><b class="num">فاتورة ${dg(r.no)}</b><b class="num">${money(r.total)}</b></div><div class="r muted"><span>${dg(r.at)}، ${esc(r.seller)}</span>${r.fresh ? '<span class="tag accent">جديدة</span>' : `<span>${esc(r.method)}</span>`}</div></div>`).join('') || '<div class="muted" style="font-size:.85rem;text-align:center">لسه مفيش مبيعات</div>'}</div>
@@ -3574,7 +4262,7 @@ function scanScreen() {
       <button type="button" class="btn primary block" data-act="mScan">${icon('scan-barcode')} امسح علبة موبايل</button>
       <button type="button" class="btn block" data-act="mScanAcc">${icon('scan-line')} امسح باركود إكسسوار</button>
       ${last ? `<div class="ph-card"><div class="r"><b><bdi dir="rtl">${esc(last.name)}</bdi></b><span class="ok-t">${icon('circle-check')}</span></div>${last.imei ? `<div class="muted" style="font-size:.8rem">IMEI ${imeiHTML(last.imei)}</div>` : ''}<div class="muted" style="font-size:.8rem">اتبعت لشاشة البيع</div></div>` : ''}
-      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.8rem">${num(t.count)} قطعة</div></div>
+      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.8rem">${pcsWord(t.count)}</div></div>
     </div>`;
 }
 function lookupScreen() {
@@ -3642,127 +4330,37 @@ Object.assign(ACT, {
   mRecvQty: (d) => { S.mobile.recvQty = clamp(S.mobile.recvQty + +d.d, 1, 99); render(); },
   mRecvSaveQty: () => {
     const M = S.mobile, p = prod(M.recvPid), n = M.recvQty;
-    p.stock += n; M.recvQty = 1; render();
-    toast(`اتضاف ${num(n)} جهاز «${p.name}» للمخزون من غير IMEI`);
+    const arrived = applyReceipt('', [{ pid: p.id, qty: n, cost: p.cost, imeis: [] }]); // نفس استلام الكمبيوتر (views/receive.js)
+    M.recvQty = 1; render();
+    toast(`اتضاف ${num(n)} جهاز «${p.name}» للمخزون من غير IMEI`); arrivedToasts(arrived);
   },
   mRecvScan: () => { const M = S.mobile, im = DATA.makeImei(prod(M.recvPid).tac); M.recv.push(im); render(); toast(`اتمسح IMEI …${im.slice(-4)}`); },
   mRecvSave: () => {
-    const M = S.mobile, p = prod(M.recvPid), today = new Date().toISOString().slice(0, 10);
-    M.recv.forEach((im, i) => DATA.units.push({ imei: im, imei2: DATA.makeImei(p.tac), pid: p.id, color: p.colors[i % p.colors.length], storage: p.storage, condition: 'جديد', battery: null, customs: null, cost: p.cost, received: today, status: 'in' }));
-    p.stock += M.recv.length;
-    toast(`اتضاف ${num(M.recv.length)} جهاز «${p.name}» للمخزون`);
+    const M = S.mobile, p = prod(M.recvPid);
+    const arrived = applyReceipt('', [{ pid: p.id, qty: M.recv.length, cost: p.cost, imeis: [...M.recv] }]); // نفس استلام الكمبيوتر (views/receive.js)
+    toast(`اتضاف ${num(M.recv.length)} جهاز «${p.name}» للمخزون`); arrivedToasts(arrived);
     M.recv = []; render();
   },
 });
 
-/* ===== النواقص: اللي بتكتبه بإيدك + اقتراحات السيستم (docs/ui/SALES-SHORTAGES.md) =====
-   بتتحفظ في المتصفح زي الإعدادات. أول مرة: 3 أمثلة. نفس الصنف مرتين ← الكمية بتزيد بدل سطر جديد. */
-const SHORT_KEY = 'mshop.mockup.shortages.v1';
-let SHORT = (() => {
-  try { const v = JSON.parse(localStorage.getItem(SHORT_KEY) || 'null'); if (Array.isArray(v)) return v; } catch { /* أول مرة */ }
-  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
-  return [
-    { id: 'sh1', pid: null, name: 'جراب Samsung A16 أسود', qty: 3, note: 'اتسأل عليه مرتين النهارده', cust: null, status: 'open', by: 'u2', at: ago(3) },
-    { id: 'sh2', pid: 'a7', name: 'كابل لايتنينج للآيفون', qty: 10, note: '', cust: null, status: 'ordered', by: 'u1', at: ago(26) },
-    { id: 'sh3', pid: null, name: 'شاحن 65 وات تايب سي', qty: 1, note: '', cust: { name: 'كريم مصطفى', phone: '01011122233' }, status: 'open', by: 'u3', at: ago(50) },
-  ];
-})();
-const saveShort = () => { try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
-// الكمية المقترحة: توصّل الصنف لضعف أقل حد
-const suggestQty = (p) => Math.max(1, p.min * 2 - stockOf(p));
-const shortSuggest = () => DATA.products.filter((p) => stockOf(p) <= p.min && !SHORT.some((x) => x.pid === p.id)).sort((a, b) => stockOf(a) - stockOf(b));
-function shortAdd({ pid = null, name = '', qty = 1, note = '', cust = null }) {
-  const p = pid ? prod(pid) : null, nm = p ? p.name : String(name).trim();
-  if (!nm) return false;
-  const ex = SHORT.find((x) => (p && x.pid === p.id) || (!p && !x.pid && normalize(x.name) === normalize(nm)));
-  if (ex) { ex.qty += qty; saveShort(); toast(`«${nm}» موجود في النواقص، والكمية بقت ${num(ex.qty)}`, 'info'); return true; }
-  SHORT.unshift({ id: `sh${Date.now()}${Math.floor(Math.random() * 1000)}`, pid: p ? p.id : null, name: nm, qty, note: note.trim(), cust, status: 'open', by: S.user.id, at: new Date().toISOString() });
-  saveShort(); toast(`اتضاف «${nm}» للنواقص`); return true;
-}
-const shortForm = () => S.shortF || (S.shortF = { q: '', pid: null, qty: '1', note: '', cust: '', hi: 0, err: '' });
-function shortMatches() { const F = shortForm(), q = normalize(F.q); return q && !F.pid ? DATA.products.filter((p) => p._hay.includes(q)).slice(0, 6) : []; }
-const whenTxt = (iso) => { const d = new Date(iso); return sameDay(d, new Date()) ? `النهارده ${fmtTime(d)}` : sameDay(d, addDays(dayStart(new Date()), -1)) ? `امبارح ${fmtTime(d)}` : fmtDate(d); };
-function shortView() {
-  const F = shortForm(), sug = shortSuggest(), m = shortMatches(), own = isOwner(), picked = F.pid ? prod(F.pid) : null;
-  const stockTxt = (p) => `<small class="${stockOf(p) <= 0 ? 'danger-t' : stockOf(p) <= p.min ? 'warn-t' : 'muted'}">${stockOf(p) <= 0 ? 'خلصان' : `متاح ${num(stockOf(p))}`}</small>`;
-  return `
-    <section class="sh-add" aria-label="ضيف ناقص">
-      <div class="sh-name">
-        <label class="inline-search">${icon('package-search')}<input id="sh-q" data-input="shQ" value="${esc(F.q)}" placeholder="اسم الصنف، أو اختار من المخزون" autocomplete="off" aria-label="اسم الصنف الناقص"></label>
-        ${m.length ? `<div class="results sh-res">${m.map((p, i) => `<div class="result ${i === F.hi ? 'on' : ''}" data-act="shPick" data-id="${p.id}"><div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div><div class="s"><span>${esc(catFull(p.cat))}</span>${stockTxt(p)}</div></div></div>`).join('')}</div>` : ''}
-      </div>
-      <label class="sh-f sh-qty"><span>الكمية</span><input id="sh-qty" data-input="shQty" value="${esc(F.qty)}" inputmode="numeric" autocomplete="off"></label>
-      <label class="sh-f"><span>ملاحظة</span><input id="sh-note" data-input="shNote" value="${esc(F.note)}" placeholder="اختياري" autocomplete="off"></label>
-      <label class="sh-f"><span>عميل مستني</span><input id="sh-cust" data-input="shCust" value="${esc(F.cust)}" placeholder="اسم أو رقم، اختياري" autocomplete="off"></label>
-      <button type="button" class="btn primary" data-act="shAdd">${icon('plus')} ضيف للنواقص</button>
-    </section>
-    ${picked ? `<div class="sh-picked">${icon('package')} من المخزون: <b><bdi dir="rtl">${esc(picked.name)}</bdi></b> ${stockTxt(picked)}<button type="button" class="icon-btn xs" data-act="shUnpick" title="اكتب اسم تاني">${icon('x')}</button></div>` : ''}
-    ${F.err ? `<div class="err-msg">${esc(F.err)}</div>` : ''}
-    <h3 class="sh-h">النواقص <span class="muted num">${num(SHORT.length)}</span></h3>
-    ${SHORT.length ? `<div class="table-wrap"><table class="t sh-t"><thead><tr><th>الصنف</th><th class="ta-n">الكمية</th><th>ملاحظة</th><th>عميل مستني</th><th>أضافه</th><th>الحالة</th><th></th></tr></thead><tbody>
-      ${SHORT.map((x) => { const p = x.pid ? prod(x.pid) : null, u = DATA.users.find((y) => y.id === x.by), mine = own || x.by === S.user.id;
-        return `<tr data-id="${x.id}"><td><bdi dir="rtl">${esc(x.name)}</bdi> ${p ? stockTxt(p) : '<small class="muted">مش في المخزون</small>'}</td><td class="ta-n num"><b>${num(x.qty)}</b></td><td class="muted">${esc(x.note)}</td>
-          <td>${x.cust ? `${esc(x.cust.name || '')}${x.cust.phone ? ` <bdi dir="ltr" class="mono">${esc(x.cust.phone)}</bdi>` : ''}` : ''}</td><td class="muted">${u ? esc(u.name) : ''}، ${whenTxt(x.at)}</td>
-          <td><div class="seg sh-st"><button type="button" class="${x.status === 'open' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="open" aria-pressed="${x.status === 'open'}">ناقص</button><button type="button" class="${x.status === 'ordered' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="ordered" aria-pressed="${x.status === 'ordered'}">اتطلب</button></div></td>
-          <td class="sh-act"><button type="button" class="btn sm" data-act="shDone" data-id="${x.id}">${icon('check')} وصل</button>${mine ? `<button type="button" class="icon-btn sm danger" data-act="shDel" data-id="${x.id}" title="شيله من النواقص">${icon('trash-2')}</button>` : ''}</td></tr>`; }).join('')}
-    </tbody></table></div>` : `<div class="sv-empty">${icon('clipboard-list')}<b>مفيش نواقص مكتوبة</b><span>ضيف من فوق، أو من الاقتراحات تحت، أو من البحث في شاشة البيع.</span></div>`}
-    <div class="sh-hrow"><h3 class="sh-h">اقتراحات السيستم <span class="muted">الأصناف اللي وصلت لأقل حد أو خلصت</span></h3>${sug.length > 1 ? `<button type="button" class="btn sm" data-act="shSugAll">${icon('plus')} ضيف الكل (${num(sug.length)})</button>` : ''}</div>
-    ${sug.length ? `<div class="table-wrap"><table class="t sh-t"><thead><tr><th>الصنف</th><th>التصنيف</th><th class="ta-n">المتاح</th><th class="ta-n">أقل حد</th><th class="ta-n">الكمية المقترحة</th><th></th></tr></thead><tbody>
-      ${sug.map((p) => `<tr data-pid="${p.id}"><td><bdi dir="rtl">${esc(p.name)}</bdi></td><td class="muted">${esc(catFull(p.cat))}</td><td class="ta-n num ${stockOf(p) <= 0 ? 'danger-t' : 'warn-t'}">${stockOf(p) <= 0 ? 'خلصان' : num(stockOf(p))}</td><td class="ta-n num">${num(p.min)}</td><td class="ta-n num">${num(suggestQty(p))}</td><td class="sh-act"><button type="button" class="btn sm" data-act="shSug" data-id="${p.id}">${icon('plus')} ضيفه للنواقص</button></td></tr>`).join('')}
-    </tbody></table></div>` : '<div class="muted sh-none">كل الأصناف فوق أقل حد.</div>'}`;
-}
-function shAddNow() {
-  const F = shortForm(), qty = parseInt(toLatin(F.qty), 10);
-  if (!F.pid && !F.q.trim()) { F.err = 'اكتب اسم الصنف أو اختاره من المخزون'; render(); return; }
-  if (!qty || qty < 1) { F.err = 'الكمية لازم تبقى رقم 1 أو أكتر'; render(); return; }
-  const c = F.cust.trim(), digits = toLatin(c).replace(/\D/g, '');
-  const cust = c ? (digits.length >= 8 ? { name: c.replace(/[\d\s+]+/g, ' ').trim(), phone: digits } : { name: c, phone: '' }) : null;
-  if (shortAdd({ pid: F.pid, name: F.q, qty, note: F.note, cust })) { S.shortF = null; render(); }
-}
-Object.assign(ACT, {
-  // تبويب المخزون (الأصناف / النواقص) — اسم مختلف عن invTab بتاع تبويبات الفواتير في شاشة البيع
-  invView: (d) => { S.inv.tab = d.id === 'short' ? 'short' : 'items'; render(); },
-  shPick: (d) => { const F = shortForm(), p = prod(d.id); if (p) { Object.assign(F, { pid: p.id, q: p.name, hi: 0, err: '' }); if (F.qty === '1') F.qty = String(suggestQty(p)); render(); } },
-  shUnpick: () => { Object.assign(shortForm(), { pid: null, q: '', qty: '1' }); render(); },
-  shAdd: () => shAddNow(),
-  shStatus: (d) => { const x = SHORT.find((y) => y.id === d.id); if (x) { x.status = d.s === 'ordered' ? 'ordered' : 'open'; saveShort(); render(); } },
-  shDone: (d) => { const i = SHORT.findIndex((y) => y.id === d.id); if (i >= 0) { const [x] = SHORT.splice(i, 1); saveShort(); render(); toast(`«${x.name}» وصل واتشال من النواقص`); } },
-  shDel: (d) => { const i = SHORT.findIndex((y) => y.id === d.id); if (i >= 0) { const [x] = SHORT.splice(i, 1); saveShort(); render(); toast(`اتشال «${x.name}» من النواقص`, 'info'); } },
-  shSug: (d) => { const p = prod(d.id); if (p && shortAdd({ pid: p.id, qty: suggestQty(p) })) render(); },
-  shSugAll: () => { const list = shortSuggest(); for (const p of list) SHORT.unshift({ id: `sh${Date.now()}${p.id}`, pid: p.id, name: p.name, qty: suggestQty(p), note: '', cust: null, status: 'open', by: S.user.id, at: new Date().toISOString() }); saveShort(); render(); toast(`اتضاف ${num(list.length)} صنف للنواقص`); },
-  // من شاشة البيع: البحث ما لقاش الصنف، أو الصنف خلصان
-  shortQuick: (d) => { if (shortAdd({ pid: d.id || null, name: d.name || '' })) render(); },
-});
-INPUT.shQ = (el) => { Object.assign(shortForm(), { q: el.value, pid: null, hi: 0, err: '' }); render(); };
-INPUT.shQty = (el) => { const F = shortForm(); F.qty = el.value; if (F.err) { F.err = ''; render(); } };
-INPUT.shNote = (el) => { shortForm().note = el.value; };
-INPUT.shCust = (el) => { shortForm().cust = el.value; };
-document.addEventListener('keydown', (e) => {
-  const id = e.target && e.target.id;
-  if (!id || !id.startsWith('sh-') || S.view !== 'inventory') return;
-  const F = shortForm(), m = shortMatches();
-  if (id === 'sh-q' && m.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); F.hi = (F.hi + (e.key === 'ArrowDown' ? 1 : m.length - 1)) % m.length; render(); return; }
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  if (id === 'sh-q' && m.length) ACT.shPick({ id: m[F.hi].id }); else shAddNow();
-});
-
+</script>
+<script>/* views/sales.js */
+'use strict';
+// شاشة «المبيعات». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== المبيعات: الأيام والفلترة، والعرض بالفواتير أو الأصناف أو التصنيفات (docs/ui/SALES-SHORTAGES.md) ===== */
-const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const catMain = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
-const svCatName = (id) => (id === 'svc' ? 'خدمات وصيانة' : catName(id) || id);
 function salesState() {
   if (!S.salesv) { const t = dayStart(new Date()); S.salesv = { from: t, to: t, range: 'today', q: '', cat: '', seller: '', method: '', view: 'inv', limit: 150 }; }
   return S.salesv;
 }
 // الفواتير المطابقة في الفترة. فلتر التصنيف أو البحث باسم صنف أو IMEI بيخلّي المطابق هو السطور مش الفاتورة كلها (lineLevel)
-function salesRows(from, to) {
-  const v = salesState(), own = isOwner(), q = normalize(v.q), qd = v.q.replace(/\D/g, '');
-  const a = from.getTime(), b = addDays(to, 1).getTime(), out = [];
-  for (const x of DATA.history) {
-    const t = x.at.getTime();
-    if (t < a || t >= b) continue;
+// end (اختياري): لحظة النهاية للمقارنة لحد نفس الساعة (analytics.js: comparePeriod)
+function salesRows(from, to, end = null) {
+  // الأرقام العربي (١٢٣) بتتحوّل الأول، عشان رقم الفاتورة والـ IMEI والتليفون يتلاقوا بأي أرقام
+  const v = salesState(), own = isOwner(), raw = toLatin(v.q), q = normalize(raw), qd = raw.replace(/\D/g, '');
+  const out = [], list = end ? inSpan(DATA.history, from, end) : inRange(DATA.history, from, to);
+  // رقم فاتورة بالظبط بيكسب: الفاتورة دي بس، من غير أجهزة أو تليفونات فيها نفس الأرقام
+  const exact = qd && /^\d+$/.test(raw.trim()) ? list.find((x) => String(x.no) === qd) : null;
+  for (const x of exact ? [exact] : list) {
     if (!own && x.sellerId !== S.user.id) continue;
     if (own && v.seller && x.sellerId !== v.seller) continue;
     if (v.method && !x.payments.some((p) => p.method === v.method)) continue;
@@ -3777,58 +4375,45 @@ function salesRows(from, to) {
   }
   return out;
 }
-const rowAmount = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + l.price * l.qty, 0) : r.x.total);
-const rowProfit = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + (l.price - l.cost) * l.qty, 0) : r.x.profit);
-function salesTotals(rows) {
-  const sales = rows.reduce((a, r) => a + rowAmount(r), 0), profit = rows.reduce((a, r) => a + rowProfit(r), 0);
-  const pcs = rows.reduce((a, r) => a + r.lines.reduce((b, l) => b + l.qty, 0), 0);
-  return { sales, profit, pcs, invoices: rows.length, avg: rows.length ? Math.round(sales / rows.length) : 0, partial: rows.some((r) => r.lineLevel) };
-}
-function salesByProduct(rows) {
-  const m = new Map();
-  for (const r of rows) for (const l of r.lines) {
-    const k = l.pid || l.name, e = m.get(k) || { name: l.name, cat: l.cat, qty: 0, sales: 0, profit: 0 };
-    e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e);
-  }
-  return [...m.values()].sort((a, b) => b.sales - a.sales);
-}
-function salesByCategory(rows) {
-  const m = new Map(), add = (k, l) => { const e = m.get(k) || { id: k, qty: 0, sales: 0, profit: 0, subs: new Map() }; e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e); return e; };
-  for (const r of rows) for (const l of r.lines) {
-    const main = add(catMain(l.cat), l);
-    if (main.id !== l.cat) { const s = main.subs.get(l.cat) || { id: l.cat, qty: 0, sales: 0, profit: 0 }; s.qty += l.qty; s.sales += l.price * l.qty; s.profit += (l.price - l.cost) * l.qty; main.subs.set(l.cat, s); }
-  }
-  return [...m.values()].sort((a, b) => b.sales - a.sales);
-}
 // «وصنف كمان»، «وصنفين كمان»، «و3 أصناف كمان»
 const moreItems = (k) => (k === 1 ? 'وصنف كمان' : k === 2 ? 'وصنفين كمان' : `و${num(k)} ${k <= 10 ? 'أصناف' : 'صنف'} كمان`);
 const itemsSummary = (lines) => { const n = lines.length; return `<bdi dir="rtl">${esc(lines[0].name)}</bdi>${n > 1 ? ` <span class="muted">${moreItems(n - 1)}</span>` : ''}`; };
 function viewSales() {
   const v = salesState(), own = isOwner(), today = dayStart(new Date());
-  const rows = salesRows(v.from, v.to), T = salesTotals(rows);
-  const len = Math.round((v.to - v.from) / 864e5) + 1;
-  const prev = own ? salesTotals(salesRows(addDays(v.from, -len), addDays(v.to, -len))) : null;
-  const pct = prev && prev.sales ? Math.round(((T.sales - prev.sales) / prev.sales) * 100) : null;
-  const atToday = v.to.getTime() >= today.getTime();
-  const label = len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
+  const rows = salesRows(v.from, v.to), T = totalsOf(rows);
+  const len = daysIn(v.from, v.to), isMonth = v.range === 'month' || v.range === 'month-x';
+  const P = comparePeriod(v.from, v.to, isMonth), prev = own ? totalsOf(salesRows(P.from, P.to, P.end)) : null;
+  const ch = prev ? pct(T.sales, prev.sales) : null;
+  const atToday = v.to.getTime() >= today.getTime(), atFirst = v.from.getTime() <= svFirstDay().getTime();
+  const label = isMonth ? `${fmtMonth(v.from)}${v.range === 'month' ? ' (لحد النهارده)' : ''}` : len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
+  // لو الفترة فيها النهارده فالمقارنة لحد نفس الساعة (زي التقارير بالظبط)
+  const vsWhat = len === 1 ? (P.live ? 'امبارح لنفس الساعة' : 'اليوم اللي قبله') : isMonth ? (P.live ? `نفس الوقت من ${monthName(P.from)}` : monthName(P.from)) : 'الفترة اللي قبلها';
+  const months = byMonth(DATA.history).reverse();
+  // قايمة للنقل بس: العنوان هو اللي بيقول إنت فين، فالقايمة بتفضل «اختار شهر» من غير ما تكرر اسم الشهر
+  const monthSel = `<select class="sv-sel sv-month" data-change="svMonth" aria-label="اختار شهر"><option value="" selected>اختار شهر</option>${months.map((m) => `<option value="${m.key}">${fmtMonth(m.from)}${isMonth && monthKey(v.from) === m.key ? ' (المعروض)' : ''}</option>`).join('')}</select>`;
   const ranges = [['today', 'النهارده'], ['yesterday', 'امبارح'], ['week', 'آخر 7 أيام'], ['month', 'الشهر ده']];
   const filtered = !!(v.q || v.cat || v.seller || v.method);
   const mains = SET.cats.filter((c) => !c.parent);
   const catOpts = mains.map((c) => { const subs = SET.cats.filter((s) => s.parent === c.id); return subs.length
     ? `<optgroup label="${esc(c.name)}"><option value="${c.id}" ${v.cat === c.id ? 'selected' : ''}>كل ${esc(c.name)}</option>${subs.map((s) => `<option value="${s.id}" ${v.cat === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`
     : `<option value="${c.id}" ${v.cat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`; }).join('') + `<option value="svc" ${v.cat === 'svc' ? 'selected' : ''}>خدمات وصيانة</option>`;
-  const sub = pct === null ? '' : `<div class="sub ${pct >= 0 ? 'ok-t' : 'danger-t'}">${icon(pct >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(pct))}% عن ${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}</div>`;
+  const sub = ch === null ? '' : `<div class="sub ${ch >= 0 ? 'ok-t' : 'danger-t'}">${icon(ch >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(ch))}% عن ${vsWhat}</div>`;
   let table;
   if (!rows.length) {
-    table = `<div class="sv-empty">${icon('receipt-text')}<b>${filtered ? 'مفيش مبيعات بالفلاتر دي' : len === 1 ? 'مفيش مبيعات في اليوم ده' : 'مفيش مبيعات في الفترة دي'}</b>
+    table = `<div class="sv-empty">${icon('receipt-text')}<b>${filtered ? 'مفيش مبيعات بالفلاتر دي' : len === 1 ? 'مفيش مبيعات في اليوم ده' : isMonth ? 'مفيش مبيعات في الشهر ده' : 'مفيش مبيعات في الفترة دي'}</b>
       <span>${filtered ? 'شيل فلتر أو جرّب يوم تاني.' : 'جرّب يوم تاني بالأسهم أو اختار تاريخ.'}</span>${filtered ? `<button type="button" class="btn sm" data-act="svClear">${icon('x')} مسح الفلاتر</button>` : ''}</div>`;
+  } else if (v.view === 'day' && len > 1) {
+    const days = byDay(rows, v.from, v.to), top = days.reduce((a, d) => (d.sales > a.sales ? d : a), days[0]), max = top.sales || 1;
+    table = `<div class="table-wrap"><table class="t sv-t sv-days"><thead><tr><th>اليوم</th><th class="ta-n">الفواتير</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th aria-hidden="true"></th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
+      ${days.map((d) => `<tr class="hov click ${d.invoices ? '' : 'zero'}" data-act="svDay" data-d="${isoDay(d.day)}" title="افتح اليوم ده"><td>${fmtDayDate(d.day)}${d === top && d.sales ? ' <span class="tag ok">أعلى يوم</span>' : ''}</td><td class="ta-n num">${num(d.invoices)}</td><td class="ta-n num">${num(d.pcs)}</td><td class="ta-n num"><b>${money(d.sales)}</b></td><td aria-hidden="true"><span class="sv-share"><i style="width:${Math.round((d.sales / max) * 100)}%"></i></span></td>${own ? `<td class="ta-n num">${money(d.profit)}</td>` : ''}</tr>`).join('')}
+    </tbody></table></div>`;
   } else if (v.view === 'prod') {
-    const list = salesByProduct(rows);
+    const list = byProduct(rows);
     table = `<div class="table-wrap"><table class="t sv-t"><thead><tr><th>الصنف</th><th>التصنيف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
       ${list.map((e) => `<tr class="hov click" data-act="svProd" data-name="${esc(e.name)}" title="اعرض فواتيره"><td><bdi dir="rtl">${esc(e.name)}</bdi></td><td class="muted">${esc(svCatName(e.cat))}</td><td class="ta-n num">${num(e.qty)}</td><td class="ta-n num"><b>${money(e.sales)}</b></td>${own ? `<td class="ta-n num">${money(e.profit)}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>`;
   } else if (v.view === 'cat') {
-    const list = salesByCategory(rows), tot = list.reduce((a, e) => a + e.sales, 0) || 1;
+    const list = byCategory(rows), tot = list.reduce((a, e) => a + e.sales, 0) || 1;
     const row = (e, subRow) => { const share = Math.round((e.sales / tot) * 100); return `<tr class="hov click ${subRow ? 'sub' : ''}" data-act="svCatPick" data-id="${e.id}" title="اعرض أصنافه"><td>${esc(svCatName(e.id))}</td><td class="ta-n num">${num(e.qty)}</td><td class="ta-n num"><b>${money(e.sales)}</b></td><td><span class="sv-share"><i style="width:${share}%"></i></span><span class="num">${num(share)}%</span></td>${own ? `<td class="ta-n num">${money(e.profit)}</td>` : ''}</tr>`; };
     table = `<div class="table-wrap"><table class="t sv-t"><thead><tr><th>التصنيف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th>النسبة</th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
       ${list.map((e) => row(e, false) + [...e.subs.values()].sort((a, b) => b.sales - a.sales).map((s) => row(s, true)).join('')).join('')}
@@ -3845,11 +4430,12 @@ function viewSales() {
       <button type="button" class="btn" data-act="soon">${icon('download')} تصدير Excel</button></div>
     <div class="sv-bar">
       <div class="day-nav">
-        <button type="button" class="icon-btn" data-act="svShift" data-d="-1" title="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'} (السهم يمين)" aria-label="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}">${icon('chevron-right')}</button>
-        <label class="day-pick" title="اختار يوم">${icon('calendar')}<span class="dl">${label}</span><input type="date" data-change="svDate" value="${isoDay(v.to)}" max="${isoDay(today)}" aria-label="اختار يوم"></label>
+        <button type="button" class="icon-btn" data-act="svShift" data-d="-1" ${atFirst ? 'disabled' : ''} title="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'} (السهم يمين)" aria-label="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}">${icon('chevron-right')}</button>
+        <label class="day-pick" title="اختار يوم">${icon('calendar')}<span class="dl">${label}</span><input type="date" data-change="svDate" value="${isoDay(v.to)}" min="${isoDay(svFirstDay())}" max="${isoDay(today)}" aria-label="اختار يوم"></label>
         <button type="button" class="icon-btn" data-act="svShift" data-d="1" ${atToday ? 'disabled' : ''} title="${len === 1 ? 'اليوم اللي بعده' : 'الفترة اللي بعدها'} (السهم شمال)" aria-label="${len === 1 ? 'اليوم اللي بعده' : 'الفترة اللي بعدها'}">${icon('chevron-left')}</button>
       </div>
       <div class="seg">${ranges.map(([id, l]) => `<button type="button" class="${v.range === id ? 'on' : ''}" data-act="svRange" data-id="${id}">${l}</button>`).join('')}</div>
+      ${monthSel}
     </div>
     <div class="sv-filters">
       <label class="inline-search">${icon('search')}<input id="sv-q" data-input="svQ" value="${esc(v.q)}" placeholder="صنف، رقم فاتورة، IMEI، عميل أو رقمه" autocomplete="off" aria-label="بحث في المبيعات"></label>
@@ -3864,22 +4450,27 @@ function viewSales() {
       ${kpi('القطع', num(T.pcs), `<div class="sub muted">${len === 1 ? 'في اليوم ده' : `في ${num(len)} يوم`}</div>`)}
       ${own ? kpi('الربح', money(T.profit), `<div class="sub muted">هامش ${num(T.sales ? Math.round((T.profit / T.sales) * 100) : 0)}%</div>`) : ''}
     </div>
-    <div class="sv-head"><div class="seg">${[['inv', 'الفواتير'], ['prod', 'الأصناف'], ['cat', 'التصنيفات']].map(([id, l]) => `<button type="button" class="${v.view === id ? 'on' : ''}" data-act="svView" data-id="${id}">${l}</button>`).join('')}</div>
+    <div class="sv-head"><div class="seg">${[['inv', 'الفواتير'], ...(len > 1 ? [['day', 'الأيام']] : []), ['prod', 'الأصناف'], ['cat', 'التصنيفات']].map(([id, l]) => `<button type="button" class="${v.view === id ? 'on' : ''}" data-act="svView" data-id="${id}">${l}</button>`).join('')}</div>
       ${T.partial ? '<span class="muted sv-note">المبالغ للأصناف المطابقة بس، قبل خصم الفاتورة</span>' : ''}</div>
     ${table}
   </div>`;
 }
 VIEWS.sales = viewSales;
 // يوم واحد: اليوم اللي قبله أو بعده. فترة: نفس طولها. الشهر: الشهر اللي قبله أو بعده. ومفيش بعد النهارده
-function svSetDay(d) { const v = salesState(), t = dayStart(new Date()), x = d > t ? t : d; v.from = x; v.to = x; v.range = x.getTime() === t.getTime() ? 'today' : x.getTime() === addDays(t, -1).getTime() ? 'yesterday' : ''; v.limit = 150; render(); }
+function svSetDay(d) { const v = salesState(), t = dayStart(new Date()), x = d > t ? t : d; if (v.view === 'day') v.view = 'inv'; v.from = x; v.to = x; v.range = x.getTime() === t.getTime() ? 'today' : x.getTime() === addDays(t, -1).getTime() ? 'yesterday' : ''; v.limit = 150; render(); }
+// أول يوم فيه مبيعات: السهم والتاريخ ما يرجعوش قبله
+const svFirstDay = () => (DATA.history.length ? dayStart(DATA.history[0].at) : dayStart(new Date()));
+// شهر كامل، أو الشهر الحالي لحد النهارده
+function svSetMonth(f) { const v = salesState(), t = dayStart(new Date()), e = monthEnd(f); v.from = monthStart(f); v.to = e > t ? t : e; v.range = sameMonth(f, t) ? 'month' : 'month-x'; v.limit = 150; render(); }
 function svShift(dir) {
-  const v = salesState(), t = dayStart(new Date()), len = Math.round((v.to - v.from) / 864e5) + 1;
+  const v = salesState(), t = dayStart(new Date()), len = daysIn(v.from, v.to);
   if (dir > 0 && v.to.getTime() >= t.getTime()) return;
+  if (dir < 0 && v.from.getTime() <= svFirstDay().getTime()) return;
   if (len === 1) { svSetDay(addDays(v.from, dir)); return; }
-  if (v.range === 'month' || v.range === 'month-x') {
-    const f = new Date(v.from.getFullYear(), v.from.getMonth() + dir, 1), e = new Date(f.getFullYear(), f.getMonth() + 1, 0);
-    v.from = f; v.to = e > t ? t : e; v.range = v.to.getTime() === t.getTime() ? 'month' : 'month-x';
-  } else { v.from = addDays(v.from, dir * len); v.to = addDays(v.to, dir * len); if (v.to > t) { v.to = t; v.from = addDays(t, -(len - 1)); } v.range = v.to.getTime() === t.getTime() && len === 7 ? 'week' : ''; }
+  if (v.range === 'month' || v.range === 'month-x') { svSetMonth(new Date(v.from.getFullYear(), v.from.getMonth() + dir, 1)); return; }
+  v.from = addDays(v.from, dir * len); v.to = addDays(v.to, dir * len);
+  if (v.to > t) { v.to = t; v.from = addDays(t, -(len - 1)); }
+  v.range = v.to.getTime() === t.getTime() && len === 7 ? 'week' : '';
   v.limit = 150; render();
 }
 function salesKey(e) {
@@ -3892,8 +4483,10 @@ Object.assign(ACT, {
   svRange: (d) => {
     const v = salesState(), t = dayStart(new Date());
     if (d.id === 'today') svSetDay(t); else if (d.id === 'yesterday') svSetDay(addDays(t, -1));
-    else { v.from = d.id === 'week' ? addDays(t, -6) : new Date(t.getFullYear(), t.getMonth(), 1); v.to = t; v.range = d.id; v.limit = 150; render(); }
+    else if (d.id === 'month') svSetMonth(t);
+    else { v.from = addDays(t, -6); v.to = t; v.range = d.id; v.limit = 150; render(); }
   },
+  svDay: (d) => { const [y, m, dd] = d.d.split('-').map(Number); salesState().view = 'inv'; svSetDay(new Date(y, m - 1, dd)); },
   svView: (d) => { salesState().view = d.id; render(); },
   svClear: () => { Object.assign(salesState(), { q: '', cat: '', seller: '', method: '', limit: 150 }); render(); },
   svMore: () => { salesState().limit += 150; render(); },
@@ -3903,6 +4496,7 @@ Object.assign(ACT, {
   svResend: () => { const x = DATA.history.find((y) => y.no === S.modal.no), c = x && DATA.customers.find((y) => y.id === x.customerId); if (c) toast(`اتبعت الإيصال تاني على واتساب ${c.phone} (صورة الإيصال + رسالة)`); },
 });
 INPUT.svQ = (el) => { Object.assign(salesState(), { q: el.value, limit: 150 }); render(); };
+CHANGE.svMonth = (el) => { const [y, m] = el.value.split('-').map(Number); if (y) svSetMonth(new Date(y, m - 1, 1)); };
 CHANGE.svDate = (el) => { const [y, m, d] = el.value.split('-').map(Number); if (y) svSetDay(new Date(y, m - 1, d)); };
 CHANGE.svCat = (el) => { Object.assign(salesState(), { cat: el.value, limit: 150 }); render(); };
 CHANGE.svSeller = (el) => { Object.assign(salesState(), { seller: el.value, limit: 150 }); render(); };
@@ -3935,6 +4529,10 @@ MODALS.saleView = {
   },
 };
 
+</script>
+<script>/* boot.js */
+'use strict';
+// التشغيل: آخر ملف بيتحمّل في index.html (بعد كل الشاشات). الدليل: docs/ENGINEERING.md
 /* ===== تشغيل ===== */
 S.mobile.recv = [DATA.makeImei(prod('p5').tac), DATA.makeImei(prod('p5').tac)];
 applySettings();
