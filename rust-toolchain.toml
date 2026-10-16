@@ -1,0 +1,20 @@
+[toolchain]
+# Pinned to the exact toolchain proven with Tauri 2.12.0 in the
+# reference spike (D:\Dev\_spikes\tauri-spike). ADR-008 defers the pin
+# until real dependency resolution; that resolution happened in Gate C.
+#
+# Rationale for an exact channel rather than "stable": ADR-008 forbids
+# automatic major/minor upgrades. A floating channel would silently move
+# the compiler underneath a locked Cargo.lock.
+channel = "1.98.1"
+
+# Targets required by the V1 scope: both Android and Windows are full POS
+# clients (ADR-008). arm64 is the primary Android target proven on the
+# SM-N976N; the 32-bit Android targets are NOT installed because V1 has
+# not decided whether it needs them.
+targets = [
+    "aarch64-linux-android",
+    "x86_64-pc-windows-msvc",
+]
+
+profile = "minimal"

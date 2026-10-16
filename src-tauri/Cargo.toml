@@ -1,0 +1,138 @@
+[package]
+name = "mobile-shop-system"
+version = "0.1.0"
+description = "Offline-first mobile shop POS. Android and Windows are both full POS clients; each device owns its local SQLite database."
+authors = []
+edition = "2021"
+rust-version = "1.98.1"
+
+# The lib target is required: Tauri builds a mobile entry point against the
+# library, and without it `crate-type` the Android target cannot link.
+[lib]
+name = "mobile_shop_system_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Optional recovery build (plan R1, Design B). The single-use manager-password
+# recovery path exists ONLY when this feature is enabled. Production builds
+# must never enable it; an architecture test pins the command inventory with
+# and without the flag.
+[features]
+recovery = []
+
+[build-dependencies]
+tauri-build = { version = "=2.7.0", features = [] }
+
+[dependencies]
+# Pinned exactly. ADR-008 forbids automatic major/minor upgrades, so the
+# leading `=` is deliberate, not decoration: a floating "2" is what let the
+# reference spike drift without notice.
+tauri = { version = "=2.12.0", features = [] }
+
+# Persistence lives under src-tauri/src/data/repositories/ and is the ONLY
+# place SQLx may appear. src-tauri/src/domain/ must not depend on it.
+# `migrate` for the Migrator type and `macros` for the `migrate!` macro that
+# embeds migration SQL into the binary. Embedding at compile time matters on
+# Android, where there is no migrations directory to read at runtime.
+sqlx = { version = "=0.9.0", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros"] }
+
+libsqlite3-sys = { version = "~0.37.0", features = ["bundled"] }
+serde = { version = "~1.0.229", features = ["derive"] }
+serde_json = "~1.0.145"
+tokio = { version = "~1.53.1", features = ["macros", "rt-multi-thread"] }
+
+# ---------------------------------------------------------------------------
+# IDENTITY SLICE (ADR-009)
+#
+# Every version here was verified against the crates.io registry on 2026-10-03
+# and confirmed MIT OR Apache-2.0 (BSD-3-Clause for `subtle`). No copyleft.
+# Re-verify against the resolved tree after any change; see README.
+# ---------------------------------------------------------------------------
+
+# Argon2id password hashing. plan:151 requires a secure verifier and forbids a
+# plaintext PIN/password. Parameters live inside the PHC string, so cost can be
+# raised later without invalidating existing verifiers.
+argon2 = { version = "=0.6.0", features = ["alloc"] }
+password-hash = { version = "=0.6.1", features = ["alloc"] }
+
+# UUID v7. spec:109 forbids deriving ids from storage location or a per-device
+# counter; v7 satisfies that and adds time ordering. ADR-009.
+uuid = { version = "=1.27.0", features = ["v7", "serde"] }
+
+# SHA-256 of the session token. SQLite stores the hash, never the token
+# (ADR-009), so a copy of the database file yields no usable session.
+sha2 = "=0.11.0"
+
+# OS CSPRNG for session token generation. 32 bytes per token; a token is never
+# derived from anything reproducible.
+getrandom = "=0.4.3"
+
+# NOTE: the plan also listed `subtle` for constant-time comparison. Reading the
+# argon2 0.6 source shows the comparison inside `verify_password` is already
+# constant-time, and there is no other secret comparison in the system: the
+# token digest is not secret (it is in the database) and the verifier is only
+# ever read by argon2. An unused direct dependency is liability, not defence,
+# so it was dropped. `subtle` still arrives transitively where it is needed.
+
+# OS credential store for the session token. Called from Rust only: no Tauri
+# plugin permission is added, so the WebView gains no new IPC surface
+# (plan:157). `keyring-core` alone ships only mock/sample stores, which its own
+# docs describe as "not warranted to be either secure or robust"; a real
+# platform store must be installed via `set_default_store` at startup.
+keyring-core = "=1.0.0"
+
+# ---------------------------------------------------------------------------
+# ENCRYPTED BACKUP SLICE (ADR-003)
+#
+# Versions verified against the crates.io registry on 2026-10-14 and confirmed
+# `Apache-2.0 OR MIT` (no copyleft). Re-verify against the resolved tree after
+# any change; the evidence is recorded in docs/backup-dependency-licenses.md.
+# ---------------------------------------------------------------------------
+
+# XChaCha20-Poly1305 AEAD for the backup envelope. Pure Rust, no OpenSSL, so it
+# does not add a native dependency to the already-fragile Android cross-build.
+# `default-features = false` drops the crate's own RNG: nonces and salts come
+# from the project's single `getrandom` path so there is one CSPRNG (§ ADR-003).
+# `alloc` keeps the one-shot `Aead::encrypt`/`decrypt` helpers for the payload.
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
+
+# Bounds the lifetime of derived keys and raw password bytes. The whole point of
+# a KDF is that the key does not linger in memory after use.
+zeroize = "=1.9.0"
+
+# Target-gated so each build links only its own native backend. Neither pulls
+# OpenSSL, which matters because the Android cross-build is already fragile.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "=1.1.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "=1.0.0"
+
+[dev-dependencies]
+# Real SQLite databases in a temp dir for integration tests. spec:138 requires
+# atomicity to be proven against real SQLite/SQLx, not mocks.
+tempfile = "=3.24.0"
+
+# ---------------------------------------------------------------------------
+# DELIBERATELY ABSENT — do not add without an approved decision.
+#
+#   tauri-plugin-barcode-scanner .. Barcode architecture is BLOCKED.
+#   barcoders, code128 ............. label GENERATORS, not decoders; label
+#                                   scope is an OPEN product decision.
+#   printpdf, rustybuzz, unicode-bidi  printer model is OPEN; ADR-004 keeps
+#                                   this as spike evidence only.
+#   rdev ........................... Windows HID. Barcode BLOCKED, and its
+#                                   presence in the spike is NOT evidence of
+#                                   a V1 need (Gate C finding).
+#   tauri-plugin-opener ............ demo plugin, not a product need.
+#   any sync/outbox/cursor crate ... sync is OUT OF SCOPE in V1 (ADR-008).
+#   @supabase/supabase-js .......... removed from package.json; not an
+#                                   approved backend.
+# ---------------------------------------------------------------------------
+
+# See https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

@@ -1,4 +1,13 @@
 # Historical Reference Snapshot — خطة التنفيذ
+> 
+> ## SUPERSEDED — خارج نطاق المنتج الحالي
+> 
+> **قرار Product Owner بتاريخ 2026-10-02:** النظام الجديد مستقل تمامًا ويُصمَّم من أول المبادئ، والنظام القديم مادة أرشيفية خارج المعمارية. انظر `docs/decisions/ADR-007-independent-new-system.md`.
+> 
+> **لماذا أُلغي:** كل مهام هذه الخطة (ملف الموارد، وحدة `historical.rs`، `resolve_month()`، وطبقة الفصل عن الـLive) **خارج النطاق** ولا تُنفَّذ. لا يُنشأ scaffold ولا crate مستقل لتجاوزه.
+> 
+> يُحفظ هذا المستند كأثر تخطيطي تاريخي. لا تُنفَّذ أي مهمة فيه، ولا تُشتق منه قاعدة عمل، ولا يُستشهد به كشرط قبول لأي شريحة في النظام الجديد.
+>
 
 > **لمنفذي الوكلاء:** تُنفذ كل شريحة بعد مراجعة المواصفة المعتمدة في `docs/superpowers/specs/2026-10-02-historical-reference-snapshot-design.md`، وبموافقة صريحة جديدة من المالك. **لا يُنفَّذ أي كود من هذه الخطة قبل ذلك.**
 
@@ -519,8 +528,8 @@ git commit -m "feat: bound reports layer to historical reference boundary"
 **تطابق الأنواع:** `MonthSource` متطابق بين Task 2 وTask 5 ✅ · `FIRST_LIVE_MONTH` مُعرَّف في Task 2 ومستخدم في Task 3 ✅ · `historical_month()` مُعرَّفة في Task 2 ومسمّاة في Task 3 ✅ · `ReportMonthSource` جديد في Task 5 فقط ولا يُعيد تصدير `MonthSource` للواجهة ✅.
 
 **اسم `src-tauri/tests/historical_tests.rs`:** المشروع يفضل `tests/integration/` (spec:63) — لكن اختبارات هذا الملف unit-tests لوحدةRust بلا SQLite، فـ`src-tauri/tests/` هو موقع Rust القياسي. **موثّق كـdeviation مقصود.**
-
-**Placeholders:** لا يوجد `TBD`/`TODO`. Task 3 Step 4 **محدّد عمدًا كمراجعة يدوية** لا كاختبار Rust — `grep` في الـPR بدل reflection على أسماء الدوال، لأن reflection تعقيد بلا فائدة في مشروع بهذا الحجم.
+**Placeholders:** لا توجد قيم نائبة. Task 3 Step 4 **محدّد عمدًا كمراجعة يدوية** لا كاختبار Rust — فحص grep في الـPR بدل reflection على أسماء الدوال، لأن reflection تعقيد بلا فائدة في مشروع بهذا الحجم.
+**Placeholders:** لا توجد قيم نائبة في الخطة. Task 3 Step 4 **محدّد عمدًا كمراجعة يدوية** لا كاختبار Rust — فحص grep في الـPR بدل reflection على أسماء الدوال، لأن reflection تعقيد بلا فائدة في مشروع بهذا الحجم.
 
 **عيوب معروفة في الخطة (مقصودة ومش مؤجلة):**
 - `serde` يُضاف كـdependency لـ**وقت البناء** (`serde_json` لـ`include_str!` parsing). حجم اعتماد كبير لـطبقة read-only — مقبول لأن البيانات immutable، لكن لو كبر الملف يُعاد التقييم لاستخدام `no_std` parsing أو build script.
