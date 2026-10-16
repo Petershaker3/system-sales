@@ -10,11 +10,22 @@ const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const monthStart = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const monthEnd = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+const sameMonth = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const daysIn = (from, to) => Math.round((dayStart(to) - dayStart(from)) / 864e5) + 1;
 // نسبة التغيير (٪) — null لو مفيش أساس للمقارنة
 const pct = (now, before) => (before ? Math.round(((now - before) / before) * 100) : null);
 // الفواتير في فترة، والطرفين محسوبين (من أول يوم from لآخر يوم to)
 function inRange(list, from, to) { const a = dayStart(from).getTime(), b = addDays(to, 1).getTime(); return list.filter((x) => { const t = x.at.getTime(); return t >= a && t < b; }); }
+// الفترة اللي بنقارن بيها. الشهر: الشهر اللي قبله، ولو الشهر لسه ماخلصش فبنفس عدد الأيام من أوله
+// (16 يوم من الشهر ده قصاد أول 16 يوم من اللي قبله). غير كده: نفس الطول على طول قبلها
+function prevPeriod(from, to, month = false) {
+  const len = daysIn(from, to);
+  if (!month) return { from: addDays(from, -len), to: addDays(to, -len), partial: false };
+  const pf = new Date(from.getFullYear(), from.getMonth() - 1, 1), pe = monthEnd(pf);
+  const partial = dayStart(to).getTime() < monthEnd(from).getTime(), last = partial ? addDays(pf, len - 1) : pe;
+  return { from: pf, to: last > pe ? pe : last, partial };
+}
 const catMain = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
 const svCatName = (id) => (id === 'svc' ? 'خدمات وصيانة' : catName(id) || id);
 
@@ -42,6 +53,23 @@ function byCategory(rows) {
     if (main.id !== l.cat) { const s = main.subs.get(l.cat) || { id: l.cat, qty: 0, sales: 0, profit: 0 }; s.qty += l.qty; s.sales += l.price * l.qty; s.profit += (l.price - l.cost) * l.qty; main.subs.set(l.cat, s); }
   }
   return [...m.values()].sort((a, b) => b.sales - a.sales);
+}
+// يوم بيوم في الفترة، والأيام اللي من غير مبيعات بصفر — بنفس تعريف totalsOf
+function byDay(rows, from, to) {
+  const out = [], idx = new Map();
+  for (let d = dayStart(from); d <= to; d = addDays(d, 1)) { const e = { day: d, sales: 0, profit: 0, invoices: 0, pcs: 0 }; idx.set(isoDay(d), e); out.push(e); }
+  for (const r of rows) { const e = idx.get(isoDay(r.x.at)); if (!e) continue; e.sales += rowAmount(r); e.profit += rowProfit(r); e.invoices++; e.pcs += r.lines.reduce((a, l) => a + l.qty, 0); }
+  return out;
+}
+// الشهور اللي فيها مبيعات بالترتيب (الأقدم الأول): { key، from، sales، profit، invoices، pcs }
+function byMonth(list) {
+  const m = new Map();
+  for (const x of list) {
+    const k = monthKey(x.at); let e = m.get(k);
+    if (!e) m.set(k, (e = { key: k, from: monthStart(x.at), sales: 0, profit: 0, invoices: 0, pcs: 0 }));
+    e.sales += x.total; e.profit += x.profit; e.invoices++; e.pcs += x.lines.reduce((a, l) => a + l.qty, 0);
+  }
+  return [...m.values()].sort((a, b) => a.from - b.from);
 }
 
 /* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */

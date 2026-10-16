@@ -97,8 +97,9 @@ await shot('07-done-receipt');
 // سجل المبيعات: البيعة اتضافت للسجل، وإجمالي النهارده في التقارير = مجموع فواتير النهارده في السجل
 ok(await p.evaluate(() => { const no = S.modal.sale.no, now = new Date(); const td = DATA.history.filter((x) => x.at.toDateString() === now.toDateString());
   return DATA.history.some((x) => x.no === no && x.session) && DATA.dash.today.sales === td.reduce((a, x) => a + x.total, 0) && DATA.dash.today.invoices === td.length; }), 'sale goes into the sales record; today in reports = sum of today\'s invoices');
-ok(await p.evaluate(() => { const h = DATA.history, days = new Set(h.map((x) => x.at.toDateString())).size;
-  return h.length > 1500 && days >= 59 && h.every((x, i) => i === 0 || x.no === h[i - 1].no + 1) && h.filter((x) => !x.session).pop().no === 10452; }), 'sales record: 60 days of invoices, numbered in order, last demo invoice 10452');
+ok(await p.evaluate(() => { const h = DATA.history.filter((x) => !x.session), first = DATA.history.find((x) => x.session);
+  return h.length > 10000 && byMonth(h).length === 14 && h[0].no === 1001 && DATA.history.every((x, i) => i === 0 || (x.no === DATA.history[i - 1].no + 1 && x.at >= DATA.history[i - 1].at))
+    && first.no === h[h.length - 1].no + 1; }), 'sales record: 14 months in time order, numbered from 1001 with no gaps; the first sale of the session follows the last one');
 await checkOverflow('done');
 await key('Enter');
 ok((await lines()) === 0 && !(await p.$('.modal')), 'Enter on done → fresh invoice');
@@ -450,6 +451,8 @@ await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="inv"
 const probe = await p.evaluate((src) => { const x = eval(src).filter((y) => y.lines.some((l) => l.imei)).pop(); return { no: x.no, im: x.lines.find((l) => l.imei).imei.slice(-6) }; }, inRange(6));
 await p.focus('#sv-q'); await type(String(probe.no));
 ok(await p.evaluate((no) => { const r = [...document.querySelectorAll('.sv-t tbody tr')]; return r.length === 1 && r[0].dataset.no === String(no); }, probe.no), 'search by invoice number finds exactly that invoice');
+await p.evaluate(() => { const i = document.querySelector('#sv-q'); i.select(); }); await type(String(probe.no).replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[d]));
+ok(await p.evaluate((no) => { const r = [...document.querySelectorAll('.sv-t tbody tr')]; return r.length === 1 && r[0].dataset.no === String(no); }, probe.no), 'the invoice number typed in Arabic digits finds it too');
 await p.evaluate(() => { const i = document.querySelector('#sv-q'); i.select(); }); await type(probe.im);
 ok(await p.evaluate((no) => [...document.querySelectorAll('.sv-t tbody tr')].some((r) => r.dataset.no === String(no)), probe.no), 'search by part of an IMEI finds the invoice');
 await p.evaluate((no) => document.querySelector(`.sv-t tbody tr[data-no="${no}"]`).click(), probe.no); await sleep(150);
@@ -466,7 +469,28 @@ ok(await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; render(); A
   svShift(1); return prevOk && S.salesv.from.getTime() === new Date(t.getFullYear(), t.getMonth(), 1).getTime() && S.salesv.to.getTime() === t.getTime() && S.salesv.range === 'month'; }), 'month range: previous month in full, then back to this month up to today');
 ok(await p.evaluate(() => { ACT.svRange({ id: 'week' }); const t = dayStart(new Date()); svShift(-1); const a = S.salesv.from.getTime() === addDays(t, -13).getTime() && S.salesv.to.getTime() === addDays(t, -7).getTime();
   svShift(1); return a && S.salesv.range === 'week' && S.salesv.to.getTime() === t.getTime(); }), 'week range moves back 7 days and returns');
-await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; svSetDay(addDays(dayStart(new Date()), -75)); }); await sleep(120);
+// الشهور: القايمة، وشهر من السنة اللي فاتت، والأيام، والمقارنة، وأول شهر
+await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; render(); ACT.svRange({ id: 'month' }); }); await sleep(150);
+ok(await p.evaluate(() => { const o = [...document.querySelectorAll('[data-change="svMonth"] option')], t = new Date(), pm = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+  const sub = document.querySelector('.cards .kpi .sub').textContent;
+  return o.length === 15 && o[0].value === '' && o[0].selected && o[1].value === monthKey(t) && o[1].textContent.includes('المعروض') && o[14].value === monthKey(new Date(t.getFullYear(), t.getMonth() - 13, 1))
+    && document.querySelector('.day-pick .dl').textContent.includes('لحد النهارده') && sub.includes(`أول ${num(Math.min(t.getDate(), monthEnd(pm).getDate()))} يوم من ${monthName(pm)}`); }), 'months list: 14 months, newest first; this month is compared with the same days of last month');
+await p.evaluate(() => { const el = document.querySelector('[data-change="svMonth"]'), t = new Date(); el.value = monthKey(new Date(t.getFullYear() - 1, t.getMonth(), 1)); el.dispatchEvent(new Event('change', { bubbles: true })); }); await sleep(150);
+ok(await p.evaluate(() => { const t = new Date(), f = new Date(t.getFullYear() - 1, t.getMonth(), 1), e = monthEnd(f), list = DATA.history.filter((x) => x.at >= f && x.at < addDays(e, 1));
+  return S.salesv.range === 'month-x' && document.querySelector('.cards .kpi .value').textContent.trim() === money(list.reduce((a, x) => a + x.total, 0))
+    && document.querySelectorAll('.cards .kpi .value')[1].textContent.trim() === num(list.length) && document.querySelector('.day-pick .dl').textContent.trim() === fmtMonth(f)
+    && !document.querySelector('[data-act="svShift"][data-d="1"]').disabled; }), 'a month from last year opens from the list, and its totals match the record');
+await shot('39a-sales-month'); await checkOverflow('sales-month');
+await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="day"]').click()); await sleep(150);
+ok(await p.evaluate(() => { const v = S.salesv, rows = document.querySelectorAll('.sv-days tbody tr'), list = DATA.history.filter((x) => x.at >= v.from && x.at < addDays(v.to, 1));
+  const best = Math.max(...byDay(asRows(list), v.from, v.to).map((d) => d.sales));
+  return rows.length === daysIn(v.from, v.to) && document.querySelectorAll('.sv-days .tag').length === 1 && document.querySelector('.sv-days .tag').closest('tr').querySelector('td:nth-child(4)').textContent.trim() === money(best); }), 'days view: one row per day of the month, and the best day is marked once');
+await checkOverflow('sales-days');
+await p.evaluate(() => document.querySelectorAll('.sv-days tbody tr')[9].click()); await sleep(150);
+ok(await p.evaluate(() => { const v = S.salesv, d = addDays(monthStart(v.from), 0); return daysIn(v.from, v.to) === 1 && v.from.getDate() === 10 && v.view === 'inv' && !!document.querySelector('.sv-t tbody tr[data-no]') && !document.querySelector('[data-act="svView"][data-id="day"]'); }), 'clicking a day opens that day with its invoices');
+ok(await p.evaluate(() => { ACT.svRange({ id: 'month' }); for (let i = 0; i < 20; i++) svShift(-1); const v = S.salesv, first = DATA.history[0].at;
+  return sameMonth(v.from, first) && document.querySelector('[data-act="svShift"][data-d="-1"]').disabled; }), 'month arrows stop at the first month with sales');
+await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; svSetDay(addDays(svFirstDay(), -1)); }); await sleep(120);
 ok(await p.evaluate(() => !!document.querySelector('.sv-empty') && document.querySelector('.sv-empty b').textContent.includes('اليوم ده')), 'a day without sales says so');
 await p.evaluate(() => { S.salesv = null; S.view = 'pos'; render(); });
 // 23c) النواقص: بإيدك، ومن اقتراحات السيستم، والحالة، ومن شاشة البيع

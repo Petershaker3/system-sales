@@ -199,9 +199,10 @@ const DATA = (() => {
     { name: 'موبايل يوسف', model: 'Redmi Note 14', online: true, last: 'متصل دلوقتي' },
   ];
 
-  /* ===== سجل المبيعات (تجريبي): فواتير آخر 60 يوم بأصنافها =====
-     التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده، والبيعات الجديدة بتتضاف عليه (app.js: refreshDash).
-     مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي. */
+  /* ===== سجل المبيعات (تجريبي): فواتير 14 شهر بأصنافها (من أول الشهر من 13 شهر لحد النهارده) =====
+     التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده (analytics.js)، والبيعات الجديدة بتتضاف عليه.
+     مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي.
+     فيه نمو على السنة ومواسم السوق المصري، عشان مقارنات الشهور يبقى ليها معنى. */
   const history = (() => {
     let hs = 20261016;
     const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
@@ -213,18 +214,35 @@ const DATA = (() => {
     const unitLine = (p) => ({ pid: p.id, name: p.name, cat: p.cat, qty: 1, price: p.price, cost: p.cost, imei: imeiOf(p.tac), warranty: p.warranty });
     const itemLine = (p, qty = 1) => ({ pid: p.id, name: p.name, cat: p.cat, qty, price: p.price, cost: p.cost, imei: null, warranty: p.warranty });
     const out = [], now = new Date(), OPEN = 9 * 60, CLOSE = 23 * 60;
-    for (let back = 59; back >= 0; back--) {
+    const first = new Date(now.getFullYear(), now.getMonth() - 13, 1), DAYS = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - first) / 864e5);
+    // المواسم: [عدد الفواتير، نسبة الموبايلات]. العيدين بتواريخهم لكل سنة، والباقي بيتكرر كل سنة بنفس الأيام
+    const FITR = ['2025-03-30', '2026-03-20', '2027-03-09', '2028-02-26'], ADHA = ['2025-06-06', '2026-05-27', '2027-05-16', '2028-05-05'];
+    const near = (day, list) => { let best = 999; for (const e of list) { const [y, m, dd] = e.split('-').map(Number); const k = Math.round((day - new Date(y, m - 1, dd)) / 864e5); if (Math.abs(k) < Math.abs(best)) best = k; } return best; };
+    const season = (day) => {
+      const f = near(day, FITR), a = near(day, ADHA), md = (day.getMonth() + 1) * 100 + day.getDate();
+      if (f >= -10 && f <= 2) return [1.3, 1.7];        // قبل عيد الفطر والعيد: هدايا وعيدية
+      if (f >= -30 && f < -10) return [0.93, 0.9];      // رمضان
+      if (f > 2 && f <= 20) return [0.88, 0.8];         // بعد العيد
+      if (a >= -10 && a <= 2) return [1.18, 1.3];       // عيد الأضحى
+      if (md >= 912 && md <= 1003) return [1.12, 1];    // المدارس
+      if (md >= 1120 && md <= 1130) return [1.15, 1.3]; // الجمعة البيضا
+      if (md >= 1224 || md <= 107) return [1.06, 1.1];  // راس السنة وعيد الميلاد
+      if (md >= 801 && md <= 820) return [1.1, 1.4];    // نتيجة الثانوية العامة
+      return [1, 1];
+    };
+    for (let back = DAYS; back >= 0; back--) {
       const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
       const end = back === 0 ? Math.min(CLOSE, now.getHours() * 60 + now.getMinutes()) : CLOSE;
       if (end <= OPEN) continue;
       const busy = day.getDay() === 4 || day.getDay() === 5 ? 9 : 0;
-      const n = Math.round((34 + Math.floor(hr() * 15) + busy) * (end - OPEN) / (CLOSE - OPEN));
+      const [rush, gift] = season(day), grow = 0.86 + 0.14 * (1 - back / DAYS); // المحل بيكبر: من 86% أول السجل لحد 100% النهارده
+      const n = Math.round((34 + Math.floor(hr() * 15) + busy) * rush * grow * (end - OPEN) / (CLOSE - OPEN));
       // الوقت بالثانية ومترتّب بالثانية: الرقم الأكبر عمره ما يبقى قبل الأصغر
       const secs = Array.from({ length: n }, () => OPEN * 60 + Math.floor(hr() * (end - OPEN) * 60)).sort((a, b) => a - b);
       for (const sec of secs) {
         const lines = [], r = hr();
-        if (r < 0.1) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
-        else if (r < 0.13) lines.push(unitLine(weighted(usedPhones)));
+        if (r < 0.1 * gift) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
+        else if (r < 0.1 * gift + 0.03) lines.push(unitLine(weighted(usedPhones)));
         else { const k = hr() < 0.7 ? 1 : hr() < 0.8 ? 2 : 3; for (let i = 0; i < k; i++) { const p = weighted(accs); const ex = lines.find((l) => l.pid === p.id); if (ex) ex.qty++; else lines.push(itemLine(p, hr() < 0.15 ? 2 : 1)); } }
         const phone = lines.some((l) => l.imei);
         const sub = lines.reduce((a, l) => a + l.price * l.qty, 0);
@@ -239,8 +257,8 @@ const DATA = (() => {
         out.push({ no: 0, at, sellerId: sellerOf(), customerId: cust, lines, disc, total, profit, payments });
       }
     }
-    // الترقيم بالترتيب، وآخر فاتورة 10452 (أول فاتورة في الجلسة 10453)
-    out.forEach((x, i) => { x.no = 10452 - (out.length - 1 - i); });
+    // الترقيم بالترتيب من 1001، وأول فاتورة في الجلسة بعد آخر واحدة (app.js: S.nextNo)
+    out.forEach((x, i) => { x.no = 1001 + i; });
     return out;
   })();
 

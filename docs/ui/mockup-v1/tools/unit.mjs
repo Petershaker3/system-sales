@@ -70,6 +70,35 @@ ok(!td.length || sum(D.pay.map((p) => p.v)) === 100, 'reports: payment split add
 ok(D.recent.every((r, i) => i === 0 || r.no < D.recent[i - 1].no), 'reports: latest invoices newest first');
 ok(D.top.every((e, i) => i === 0 || e[1] <= D.top[i - 1][1]), 'reports: best sellers by quantity');
 
+// 5) الشهور: 14 شهر، والأيام، والمقارنة بالشهر اللي فات
+const D0 = (y, m, d) => new Date(y, m - 1, d), iso = run('isoDay');
+const months = run('byMonth')(h);
+const now = new Date(), firstMonth = new Date(now.getFullYear(), now.getMonth() - 13, 1);
+ok(months.length === 14, `history covers 14 months (${months.length})`);
+ok(h[0].no === 1001 && iso(h[0].at) === iso(firstMonth), 'history starts on the 1st, 13 months back, at invoice 1001');
+ok(sum(months.map((m) => m.sales)) === sum(h.map((x) => x.total)) && sum(months.map((m) => m.invoices)) === h.length, 'months add up to the whole history');
+ok(months.every((m, i) => i === 0 || m.from > months[i - 1].from), 'months in order, oldest first');
+const mFrom = run('monthStart')(today), mRows = run('asRows')(run('inRange')(h, mFrom, today)), days = run('byDay')(mRows, mFrom, today);
+ok(days.length === run('daysIn')(mFrom, today), 'by day: one row per day, including days with no sales');
+ok(sum(days.map((d) => d.sales)) === run('totalsOf')(mRows).sales && sum(days.map((d) => d.invoices)) === mRows.length, 'by day adds up to the period totals');
+const pp = run('prevPeriod'), same = (r, a, b) => iso(r.from) === iso(a) && iso(r.to) === iso(b);
+ok(same(pp(D0(2026, 10, 16), D0(2026, 10, 16)), D0(2026, 10, 15), D0(2026, 10, 15)), 'compare: one day with the day before');
+ok(same(pp(D0(2026, 10, 10), D0(2026, 10, 16)), D0(2026, 10, 3), D0(2026, 10, 9)), 'compare: 7 days with the 7 days before');
+const p1 = pp(D0(2026, 10, 1), D0(2026, 10, 16), true);
+ok(same(p1, D0(2026, 9, 1), D0(2026, 9, 16)) && p1.partial, 'compare: month to date with the same days of last month');
+ok(same(pp(D0(2026, 3, 1), D0(2026, 3, 31), true), D0(2026, 2, 1), D0(2026, 2, 28)), 'compare: a full month with the whole month before');
+ok(same(pp(D0(2026, 3, 1), D0(2026, 3, 30), true), D0(2026, 2, 1), D0(2026, 2, 28)), 'compare: 30 days of March stop at the end of February');
+const mk = (y, m) => months.find((e) => e.key === `${y}-${String(m).padStart(2, '0')}`);
+ok(!mk(2026, 2) || !mk(2026, 3) || mk(2026, 3).sales > mk(2026, 2).sales, 'seasons: Eid al-Fitr month (March 2026) sells more than February');
+
+// 6) كل اسم متعرّف في ملف واحد (اسم متكرر بين ملفين = الصفحة كلها تقف)
+const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const files = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), seen = new Map(), dups = [];
+for (const f of files) for (const m of fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+  if (seen.has(m[1])) dups.push(`${m[1]} (${seen.get(m[1])} + ${f})`); else seen.set(m[1], f);
+}
+ok(files.length >= 13 && !dups.length, `every top-level name is declared once across ${files.length} files${dups.length ? `: ${dups.join(', ')}` : ''}`);
+
 console.log(`UNIT PASSED: ${pass}`);
 console.log('UNIT FAILS:', fails.length ? `\n${fails.join('\n')}` : 'none');
 process.exit(fails.length ? 1 : 0);

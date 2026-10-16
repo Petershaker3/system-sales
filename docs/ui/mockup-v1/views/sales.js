@@ -7,9 +7,12 @@ function salesState() {
 }
 // الفواتير المطابقة في الفترة. فلتر التصنيف أو البحث باسم صنف أو IMEI بيخلّي المطابق هو السطور مش الفاتورة كلها (lineLevel)
 function salesRows(from, to) {
-  const v = salesState(), own = isOwner(), q = normalize(v.q), qd = v.q.replace(/\D/g, '');
-  const out = [];
-  for (const x of inRange(DATA.history, from, to)) {
+  // الأرقام العربي (١٢٣) بتتحوّل الأول، عشان رقم الفاتورة والـ IMEI والتليفون يتلاقوا بأي أرقام
+  const v = salesState(), own = isOwner(), raw = toLatin(v.q), q = normalize(raw), qd = raw.replace(/\D/g, '');
+  const out = [], list = inRange(DATA.history, from, to);
+  // رقم فاتورة بالظبط بيكسب: الفاتورة دي بس، من غير أجهزة أو تليفونات فيها نفس الأرقام
+  const exact = qd && /^\d+$/.test(raw.trim()) ? list.find((x) => String(x.no) === qd) : null;
+  for (const x of exact ? [exact] : list) {
     if (!own && x.sellerId !== S.user.id) continue;
     if (own && v.seller && x.sellerId !== v.seller) continue;
     if (v.method && !x.payments.some((p) => p.method === v.method)) continue;
@@ -30,22 +33,31 @@ const itemsSummary = (lines) => { const n = lines.length; return `<bdi dir="rtl"
 function viewSales() {
   const v = salesState(), own = isOwner(), today = dayStart(new Date());
   const rows = salesRows(v.from, v.to), T = totalsOf(rows);
-  const len = Math.round((v.to - v.from) / 864e5) + 1;
-  const prev = own ? totalsOf(salesRows(addDays(v.from, -len), addDays(v.to, -len))) : null;
-  const pct = prev && prev.sales ? Math.round(((T.sales - prev.sales) / prev.sales) * 100) : null;
-  const atToday = v.to.getTime() >= today.getTime();
-  const label = len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
+  const len = daysIn(v.from, v.to), isMonth = v.range === 'month' || v.range === 'month-x';
+  const P = prevPeriod(v.from, v.to, isMonth), prev = own ? totalsOf(salesRows(P.from, P.to)) : null;
+  const ch = prev ? pct(T.sales, prev.sales) : null;
+  const atToday = v.to.getTime() >= today.getTime(), atFirst = v.from.getTime() <= svFirstDay().getTime();
+  const label = isMonth ? `${fmtMonth(v.from)}${v.range === 'month' ? ' (لحد النهارده)' : ''}` : len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
+  const vsWhat = len === 1 ? 'اليوم اللي قبله' : isMonth ? (P.partial ? `أول ${num(daysIn(P.from, P.to))} يوم من ${monthName(P.from)}` : monthName(P.from)) : 'الفترة اللي قبلها';
+  const months = byMonth(DATA.history).reverse();
+  // قايمة للنقل بس: العنوان هو اللي بيقول إنت فين، فالقايمة بتفضل «اختار شهر» من غير ما تكرر اسم الشهر
+  const monthSel = `<select class="sv-sel sv-month" data-change="svMonth" aria-label="اختار شهر"><option value="" selected>اختار شهر</option>${months.map((m) => `<option value="${m.key}">${fmtMonth(m.from)}${isMonth && monthKey(v.from) === m.key ? ' (المعروض)' : ''}</option>`).join('')}</select>`;
   const ranges = [['today', 'النهارده'], ['yesterday', 'امبارح'], ['week', 'آخر 7 أيام'], ['month', 'الشهر ده']];
   const filtered = !!(v.q || v.cat || v.seller || v.method);
   const mains = SET.cats.filter((c) => !c.parent);
   const catOpts = mains.map((c) => { const subs = SET.cats.filter((s) => s.parent === c.id); return subs.length
     ? `<optgroup label="${esc(c.name)}"><option value="${c.id}" ${v.cat === c.id ? 'selected' : ''}>كل ${esc(c.name)}</option>${subs.map((s) => `<option value="${s.id}" ${v.cat === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</optgroup>`
     : `<option value="${c.id}" ${v.cat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`; }).join('') + `<option value="svc" ${v.cat === 'svc' ? 'selected' : ''}>خدمات وصيانة</option>`;
-  const sub = pct === null ? '' : `<div class="sub ${pct >= 0 ? 'ok-t' : 'danger-t'}">${icon(pct >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(pct))}% عن ${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}</div>`;
+  const sub = ch === null ? '' : `<div class="sub ${ch >= 0 ? 'ok-t' : 'danger-t'}">${icon(ch >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(ch))}% عن ${vsWhat}</div>`;
   let table;
   if (!rows.length) {
-    table = `<div class="sv-empty">${icon('receipt-text')}<b>${filtered ? 'مفيش مبيعات بالفلاتر دي' : len === 1 ? 'مفيش مبيعات في اليوم ده' : 'مفيش مبيعات في الفترة دي'}</b>
+    table = `<div class="sv-empty">${icon('receipt-text')}<b>${filtered ? 'مفيش مبيعات بالفلاتر دي' : len === 1 ? 'مفيش مبيعات في اليوم ده' : isMonth ? 'مفيش مبيعات في الشهر ده' : 'مفيش مبيعات في الفترة دي'}</b>
       <span>${filtered ? 'شيل فلتر أو جرّب يوم تاني.' : 'جرّب يوم تاني بالأسهم أو اختار تاريخ.'}</span>${filtered ? `<button type="button" class="btn sm" data-act="svClear">${icon('x')} مسح الفلاتر</button>` : ''}</div>`;
+  } else if (v.view === 'day' && len > 1) {
+    const days = byDay(rows, v.from, v.to), top = days.reduce((a, d) => (d.sales > a.sales ? d : a), days[0]), max = top.sales || 1;
+    table = `<div class="table-wrap"><table class="t sv-t sv-days"><thead><tr><th>اليوم</th><th class="ta-n">الفواتير</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th aria-hidden="true"></th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
+      ${days.map((d) => `<tr class="hov click ${d.invoices ? '' : 'zero'}" data-act="svDay" data-d="${isoDay(d.day)}" title="افتح اليوم ده"><td>${fmtDayDate(d.day)}${d === top && d.sales ? ' <span class="tag ok">أعلى يوم</span>' : ''}</td><td class="ta-n num">${num(d.invoices)}</td><td class="ta-n num">${num(d.pcs)}</td><td class="ta-n num"><b>${money(d.sales)}</b></td><td aria-hidden="true"><span class="sv-share"><i style="width:${Math.round((d.sales / max) * 100)}%"></i></span></td>${own ? `<td class="ta-n num">${money(d.profit)}</td>` : ''}</tr>`).join('')}
+    </tbody></table></div>`;
   } else if (v.view === 'prod') {
     const list = byProduct(rows);
     table = `<div class="table-wrap"><table class="t sv-t"><thead><tr><th>الصنف</th><th>التصنيف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
@@ -69,11 +81,12 @@ function viewSales() {
       <button type="button" class="btn" data-act="soon">${icon('download')} تصدير Excel</button></div>
     <div class="sv-bar">
       <div class="day-nav">
-        <button type="button" class="icon-btn" data-act="svShift" data-d="-1" title="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'} (السهم يمين)" aria-label="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}">${icon('chevron-right')}</button>
-        <label class="day-pick" title="اختار يوم">${icon('calendar')}<span class="dl">${label}</span><input type="date" data-change="svDate" value="${isoDay(v.to)}" max="${isoDay(today)}" aria-label="اختار يوم"></label>
+        <button type="button" class="icon-btn" data-act="svShift" data-d="-1" ${atFirst ? 'disabled' : ''} title="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'} (السهم يمين)" aria-label="${len === 1 ? 'اليوم اللي قبله' : 'الفترة اللي قبلها'}">${icon('chevron-right')}</button>
+        <label class="day-pick" title="اختار يوم">${icon('calendar')}<span class="dl">${label}</span><input type="date" data-change="svDate" value="${isoDay(v.to)}" min="${isoDay(svFirstDay())}" max="${isoDay(today)}" aria-label="اختار يوم"></label>
         <button type="button" class="icon-btn" data-act="svShift" data-d="1" ${atToday ? 'disabled' : ''} title="${len === 1 ? 'اليوم اللي بعده' : 'الفترة اللي بعدها'} (السهم شمال)" aria-label="${len === 1 ? 'اليوم اللي بعده' : 'الفترة اللي بعدها'}">${icon('chevron-left')}</button>
       </div>
       <div class="seg">${ranges.map(([id, l]) => `<button type="button" class="${v.range === id ? 'on' : ''}" data-act="svRange" data-id="${id}">${l}</button>`).join('')}</div>
+      ${monthSel}
     </div>
     <div class="sv-filters">
       <label class="inline-search">${icon('search')}<input id="sv-q" data-input="svQ" value="${esc(v.q)}" placeholder="صنف، رقم فاتورة، IMEI، عميل أو رقمه" autocomplete="off" aria-label="بحث في المبيعات"></label>
@@ -88,22 +101,27 @@ function viewSales() {
       ${kpi('القطع', num(T.pcs), `<div class="sub muted">${len === 1 ? 'في اليوم ده' : `في ${num(len)} يوم`}</div>`)}
       ${own ? kpi('الربح', money(T.profit), `<div class="sub muted">هامش ${num(T.sales ? Math.round((T.profit / T.sales) * 100) : 0)}%</div>`) : ''}
     </div>
-    <div class="sv-head"><div class="seg">${[['inv', 'الفواتير'], ['prod', 'الأصناف'], ['cat', 'التصنيفات']].map(([id, l]) => `<button type="button" class="${v.view === id ? 'on' : ''}" data-act="svView" data-id="${id}">${l}</button>`).join('')}</div>
+    <div class="sv-head"><div class="seg">${[['inv', 'الفواتير'], ...(len > 1 ? [['day', 'الأيام']] : []), ['prod', 'الأصناف'], ['cat', 'التصنيفات']].map(([id, l]) => `<button type="button" class="${v.view === id ? 'on' : ''}" data-act="svView" data-id="${id}">${l}</button>`).join('')}</div>
       ${T.partial ? '<span class="muted sv-note">المبالغ للأصناف المطابقة بس، قبل خصم الفاتورة</span>' : ''}</div>
     ${table}
   </div>`;
 }
 VIEWS.sales = viewSales;
 // يوم واحد: اليوم اللي قبله أو بعده. فترة: نفس طولها. الشهر: الشهر اللي قبله أو بعده. ومفيش بعد النهارده
-function svSetDay(d) { const v = salesState(), t = dayStart(new Date()), x = d > t ? t : d; v.from = x; v.to = x; v.range = x.getTime() === t.getTime() ? 'today' : x.getTime() === addDays(t, -1).getTime() ? 'yesterday' : ''; v.limit = 150; render(); }
+function svSetDay(d) { const v = salesState(), t = dayStart(new Date()), x = d > t ? t : d; if (v.view === 'day') v.view = 'inv'; v.from = x; v.to = x; v.range = x.getTime() === t.getTime() ? 'today' : x.getTime() === addDays(t, -1).getTime() ? 'yesterday' : ''; v.limit = 150; render(); }
+// أول يوم فيه مبيعات: السهم والتاريخ ما يرجعوش قبله
+const svFirstDay = () => (DATA.history.length ? dayStart(DATA.history[0].at) : dayStart(new Date()));
+// شهر كامل، أو الشهر الحالي لحد النهارده
+function svSetMonth(f) { const v = salesState(), t = dayStart(new Date()), e = monthEnd(f); v.from = monthStart(f); v.to = e > t ? t : e; v.range = sameMonth(f, t) ? 'month' : 'month-x'; v.limit = 150; render(); }
 function svShift(dir) {
-  const v = salesState(), t = dayStart(new Date()), len = Math.round((v.to - v.from) / 864e5) + 1;
+  const v = salesState(), t = dayStart(new Date()), len = daysIn(v.from, v.to);
   if (dir > 0 && v.to.getTime() >= t.getTime()) return;
+  if (dir < 0 && v.from.getTime() <= svFirstDay().getTime()) return;
   if (len === 1) { svSetDay(addDays(v.from, dir)); return; }
-  if (v.range === 'month' || v.range === 'month-x') {
-    const f = new Date(v.from.getFullYear(), v.from.getMonth() + dir, 1), e = new Date(f.getFullYear(), f.getMonth() + 1, 0);
-    v.from = f; v.to = e > t ? t : e; v.range = v.to.getTime() === t.getTime() ? 'month' : 'month-x';
-  } else { v.from = addDays(v.from, dir * len); v.to = addDays(v.to, dir * len); if (v.to > t) { v.to = t; v.from = addDays(t, -(len - 1)); } v.range = v.to.getTime() === t.getTime() && len === 7 ? 'week' : ''; }
+  if (v.range === 'month' || v.range === 'month-x') { svSetMonth(new Date(v.from.getFullYear(), v.from.getMonth() + dir, 1)); return; }
+  v.from = addDays(v.from, dir * len); v.to = addDays(v.to, dir * len);
+  if (v.to > t) { v.to = t; v.from = addDays(t, -(len - 1)); }
+  v.range = v.to.getTime() === t.getTime() && len === 7 ? 'week' : '';
   v.limit = 150; render();
 }
 function salesKey(e) {
@@ -116,8 +134,10 @@ Object.assign(ACT, {
   svRange: (d) => {
     const v = salesState(), t = dayStart(new Date());
     if (d.id === 'today') svSetDay(t); else if (d.id === 'yesterday') svSetDay(addDays(t, -1));
-    else { v.from = d.id === 'week' ? addDays(t, -6) : new Date(t.getFullYear(), t.getMonth(), 1); v.to = t; v.range = d.id; v.limit = 150; render(); }
+    else if (d.id === 'month') svSetMonth(t);
+    else { v.from = addDays(t, -6); v.to = t; v.range = d.id; v.limit = 150; render(); }
   },
+  svDay: (d) => { const [y, m, dd] = d.d.split('-').map(Number); salesState().view = 'inv'; svSetDay(new Date(y, m - 1, dd)); },
   svView: (d) => { salesState().view = d.id; render(); },
   svClear: () => { Object.assign(salesState(), { q: '', cat: '', seller: '', method: '', limit: 150 }); render(); },
   svMore: () => { salesState().limit += 150; render(); },
@@ -127,6 +147,7 @@ Object.assign(ACT, {
   svResend: () => { const x = DATA.history.find((y) => y.no === S.modal.no), c = x && DATA.customers.find((y) => y.id === x.customerId); if (c) toast(`اتبعت الإيصال تاني على واتساب ${c.phone} (صورة الإيصال + رسالة)`); },
 });
 INPUT.svQ = (el) => { Object.assign(salesState(), { q: el.value, limit: 150 }); render(); };
+CHANGE.svMonth = (el) => { const [y, m] = el.value.split('-').map(Number); if (y) svSetMonth(new Date(y, m - 1, 1)); };
 CHANGE.svDate = (el) => { const [y, m, d] = el.value.split('-').map(Number); if (y) svSetDay(new Date(y, m - 1, d)); };
 CHANGE.svCat = (el) => { Object.assign(salesState(), { cat: el.value, limit: 150 }); render(); };
 CHANGE.svSeller = (el) => { Object.assign(salesState(), { seller: el.value, limit: 150 }); render(); };

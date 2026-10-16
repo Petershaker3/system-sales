@@ -789,6 +789,9 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .sv-empty svg.i { width: 34px; height: 34px; }
 .sv-empty b { color: var(--text); font-size: 1.05rem; }
 .sv-more { align-self: center; }
+.sv-month { min-width: 168px; }
+.sv-days tr.zero td, .sv-days tr.zero b { color: var(--muted); font-weight: 400; }
+.sv-days .tag { margin-inline-start: 6px; }
 .sv-cust { display: flex; align-items: center; gap: 8px; }
 .sv-cust svg.i { color: var(--muted); }
 .sv-meta { margin-top: 4px; font-size: .85rem; }

@@ -143,6 +143,9 @@ const money = (n) => `${num(Math.round(n * 100) / 100)} ج.م`;
 const locale = () => (SET.digits === 'arabic' ? 'ar-EG' : 'ar-EG-u-nu-latn');
 const fmtTime = (d = new Date()) => new Intl.DateTimeFormat(locale(), { hour: 'numeric', minute: '2-digit' }).format(d);
 const fmtDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
+const fmtMonth = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
+const monthName = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
+const fmtDayDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
 const fmtLong = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 const fmtDay = (d) => new Intl.DateTimeFormat(locale(), { weekday: 'long' }).format(d);
 const addMonths = (d, m) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
@@ -189,7 +192,7 @@ const S = {
   view: 'pos', modal: null,
   invoices: [newInvoice()], active: 0, sel: -1,
   q: '', qi: 0, cat: 'top', _res: [],
-  nextNo: 10453, sales: [], services: [], showProfit: false,
+  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], services: [], showProfit: false,
   inv: { q: '', cat: 'all', tab: 'items', open: {} },
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },

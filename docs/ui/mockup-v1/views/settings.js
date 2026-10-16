@@ -8,7 +8,7 @@ function sampleSale() {
     { kind: 'item', name: 'جراب سيليكون شفاف', price: 120, qty: 2, warranty: 0 },
   ];
   const sub = p.price + 240, got = Math.ceil(sub / 100) * 100;
-  return { no: 10452, at: new Date(), seller: S.user, customer: DATA.customers[0], lines, sub, disc: 0, total: sub, payments: [{ method: 'cash', amount: sub, received: got }], change: got - sub };
+  return { no: S.nextNo, at: new Date(), seller: S.user, customer: DATA.customers[0], lines, sub, disc: 0, total: sub, payments: [{ method: 'cash', amount: sub, received: got }], change: got - sub };
 }
 const setField = (k, label, attrs = '') => `<div class="field"><label for="set-${k}">${label}</label><input id="set-${k}" data-input="set" data-k="${k}" value="${esc(SET[k])}" ${attrs}></div>`;
 function setShop() {

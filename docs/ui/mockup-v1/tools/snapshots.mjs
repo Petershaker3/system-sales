@@ -46,6 +46,7 @@ for (const look of ['plate', 'box']) {
     await p.evaluate(() => { S.inv.tab = 'items'; render(); });
     await nav('sales'); await sleep(200); await save(`${t}-sales`);
     await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await save(`${t}-sales-cat`);
+    await p.evaluate(() => { ACT.svRange({ id: 'month' }); svShift(-1); salesState().view = 'day'; render(); }); await sleep(150); await save(`${t}-sales-days`);
     await nav('settings'); await sleep(150);
     for (const tab of ['shop', 'look', 'catalog', 'pay', 'receipt', 'devices']) {
       await p.evaluate((id) => document.querySelector(`.s-nav [data-id="${id}"]`).click(), tab); await save(`${t}-settings-${tab}`);
