@@ -69,6 +69,8 @@ Contrast is tested **after rounding** to hex. Coloured buttons and chips get a b
 - **Repairs:** columns are headers with a rule, not cards; status is the column (no coloured side borders); delivered tickets use a quieter ground, never opacity.
 - **Receipt preview:** white paper with dashed tear lines top and bottom (it stands for the WhatsApp receipt image).
 - **Toasts:** ink box in light themes, layered surface in dark; beside an open window, never over its text.
+- **Sales screen:** day navigator (older on the right, newer on the left, as Arabic reads) with the native date picker under the label, and quick ranges; one filter row; the totals strip; three views as a segmented control. With a product or category filter the amounts are for the matching lines, and the screen says so.
+- **Shortages:** an add row with labelled fields (quantity, note, waiting customer) and inventory matches under the name; the list with a «ناقص / اتطلب» segment and «وصل»; suggestions with a suggested quantity.
 - **Motion:** 150–250ms state changes only; `prefers-reduced-motion` turns animation off.
 
 ## Writing
@@ -84,6 +86,6 @@ Default palettes (Tailwind blue, slate greys) · identical rounded cards with so
 
 ## Verification
 
-- `tools/qa.mjs`: 99 behaviour checks, including contrast with 6 hard shop colours × 2 looks × 2 themes, visible focus on the plate rail, the payment split bar, overflow in both looks, migration of old settings.
-- `tools/snapshots.mjs` + `tools/detect-snapshots.sh`: 17 screens × 2 looks × 2 themes through the `impeccable` detector. Result at v1.3: **0 findings** (the old design had 323 per look).
+- `tools/qa.mjs`: 129 behaviour checks, including contrast with 6 hard shop colours × 2 looks × 2 themes, visible focus on the plate rail, the payment split bar, overflow in both looks, migration of old settings.
+- `tools/snapshots.mjs` + `tools/detect-snapshots.sh`: 20 screens × 2 looks × 2 themes through the `impeccable` detector. Result at v1.4: **0 findings** on 80 snapshots (the old design had 323 per look on its 17 screens).
 - Rasters: everything in `screens/` is a screenshot of the mockup itself made by `tools/final.mjs`. No generated imagery ships with the mockup.

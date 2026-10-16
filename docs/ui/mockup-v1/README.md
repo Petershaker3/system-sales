@@ -1,6 +1,6 @@
 <div dir="rtl">
 
-# نموذج واجهة «موبايل ستور» — النسخة 1.3
+# نموذج واجهة «موبايل ستور» — النسخة 1.4
 
 نموذج **للتصميم بس** (HTML + JavaScript من غير مكتبات) عشان نتفق على الشكل والطريقة قبل كتابة البرنامج الحقيقي.
 البيانات تجريبية، ومفيش قاعدة بيانات: الإعدادات والصور بتتحفظ في المتصفح، والمبيعات بتتمسح لما تعمل تحديث للصفحة.
@@ -28,6 +28,18 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 > رابط المعاينة اللي بيتبعت في المحادثة بيشتغل **بس والجلسة شغالة**؛ لما الجلسة تقف الرابط يقف. الملف الواحد ده هو النسخة الدايمة.
 
 **أرقام سرية للتجربة:** بيتر (المالك) `1111` · يوسف (بيّاع) `2222` · مارينا (بيّاع) `3333`
+
+## الجديد في 1.4 (المبيعات والنواقص — 16 أكتوبر 2026)
+
+التفاصيل والمراجعات: [`docs/ui/SALES-SHORTAGES.md`](../SALES-SHORTAGES.md).
+
+| طلبك | اللي اتعمل |
+|---|---|
+| «واجهة أشوف المبيعات... من حيث المنتج والتاريخ، لأني مش عارف فين دلوقتي» | زرار **«المبيعات»** في الشريط الجانبي تحت «البيع». بحث بالصنف أو رقم الفاتورة أو الـ IMEI أو العميل، وفلترة بالتصنيف والبيّاع وطريقة الدفع، والعرض **بالفواتير أو الأصناف أو التصنيفات**، وشريط الإجماليات بمقارنة باليوم أو الفترة اللي قبلها. الدوسة على الفاتورة بتفتح تفاصيلها، وتقدر تبعت الإيصال تاني واتساب. |
+| «أقدر أشوف الأيام وأقلّب بينها» | سهمين (اليوم اللي قبله واللي بعده) وتاريخ تختاره، واختصارات: النهارده، امبارح، آخر 7 أيام، الشهر ده. وأسهم الكيبورد بتقلّب برضه. |
+| «أضيف ناقص، مش مجرد السيستم يقترح» | **المخزون ← النواقص**: تكتب الصنف (من المخزون أو اسم مش عندك)، والكمية، وملاحظة، وعميل مستني. الحالة «ناقص» ثم «اتطلب»، و«وصل» بيشيله. واقتراحات السيستم تحت بزرار «ضيفه للنواقص». ومن شاشة البيع: لو البحث ما لقاش الصنف أو خلصان، «ضيف للنواقص» من غير ما تسيب الفاتورة. |
+
+**البيّاع** بيشوف مبيعاته هو بس، من غير الربح. **والأرقام** في التقارير والموبايل وشاشة المبيعات بقت من نفس سجل الفواتير، فبتتطابق.
 
 ## الجديد في 1.3 (الشكل — 16 أكتوبر 2026)
 
@@ -84,10 +96,10 @@ It is **not** product code: no persistence of sales, mock data only, no security
 | `styles.css` | Design tokens per look × theme (`html[data-look="plate"|"box"][data-theme]`, plus `data-font|data-scale`), all components, look-specific signature rules at the end. See [`DESIGN.md`](../../../DESIGN.md). |
 | `fonts.css`, `fonts/` | 48 woff2 files (Changa and Vazirmatn = the looks' fonts; IBM Plex Sans Arabic, Cairo, Readex Pro, Tajawal as options; arabic + latin subsets). Licenses: `fonts/LICENSES.txt` (SIL OFL 1.1). |
 | `icons.js` | 133 Lucide icons (ISC), inlined as SVG bodies. |
-| `data.js` | Mock data (seeded PRNG → stable Luhn-valid IMEIs). Category tree (`parent`), phones with `stock` = IMEI units + units received without IMEI. |
+| `data.js` | Mock data (seeded PRNG → stable Luhn-valid IMEIs). **`history`**: 60 days of demo invoices with lines (own PRNG), the single source for reports, the phone view and the sales screen. Category tree (`parent`), phones with `stock` = IMEI units + units received without IMEI. |
 | `app.js` | Helpers, settings (`localStorage: mshop.mockup.settings.v1`), product images (`mshop.mockup.images.v1`), state `S`, render loop, rail/topbar, **user switcher**, delegated events (`data-act` / `data-input` / `data-change`). |
 | `pos.js` | Search (Arabic normalisation, transliterated keywords, last-4 IMEI, SKU), categories bar, cart/invoices/hold, optional-IMEI logic, keyboard map, modals: IMEI, customer, qty, discount (owner PIN over limit), pay (split / credit / instalments / receipt), done + receipt, services (wallets, recharge cards, bills), shift close. |
-| `views.js` | Reports, repairs board + intake, inventory (+ product images), settings (8 tabs incl. *الأصناف والبيع*), lock screen, mobile preview (live today's sales, scanner, lookup, receiving by IMEI or quantity). Startup at the end. |
+| `views.js` | Reports, **sales screen** (days, filters, invoice/product/category views, invoice window), repairs board + intake, inventory (+ product images, **shortages tab**), settings (8 tabs incl. *الأصناف والبيع*), lock screen, mobile preview (live today's sales, scanner, lookup, receiving by IMEI or quantity). Startup at the end. |
 | `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 1.3 MB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
 | `screens/` | Reference screenshots (1366×768), both looks; made by `tools/final.mjs` from the mockup itself (no generated imagery). |
 | `tools/` | Build + QA tooling (below). `node_modules/` is git-ignored. |
@@ -105,6 +117,12 @@ It is **not** product code: no persistence of sales, mock data only, no security
   and attributed to whoever completes it. Menu updates without full re-render (`swSync`) so outside clicks are never lost.
 - **Mobile "today's sales":** owner sees shop total, profit, per-seller split, latest invoices; sellers see only their own.
 - **Product images:** optional; centre-crop 192×192 JPEG ≈ 10–20 KB; can be hidden globally.
+- **Sales record (v1.4):** `DATA.history` holds every invoice (demo + session). `refreshDash()` (pos.js) derives the reports
+  and the phone view from it; `completeSale` appends via `histRecord()`. With a product/category filter the sales screen counts
+  matching lines only (gross, before invoice discount) and says so.
+- **Shortages (v1.4):** `localStorage: mshop.mockup.shortages.v1`; manual entries (product or free text, qty, note, waiting
+  customer, `open|ordered`), system suggestions = stock ≤ `min` (suggested qty up to 2× min), quick add from the sales search.
+- **Registry guard:** `VIEWS / MODALS / ACT / INPUT / CHANGE` log a console error if a name is defined twice (QA fails on it).
 - **Receipts (round 2, ADR-016):** WhatsApp only for now. Setting `printer: false` (default) → pay-modal receipt choices
   are `wa | none`; a customer with a phone pre-selects `wa` with his number; a walk-in pre-selects `none` (no number demanded).
   The done screen can send the receipt afterwards to a typed number. `printer: true` restores `print | both` and the paper
@@ -124,7 +142,7 @@ npm install                 # fonts, icons, puppeteer-core, @sparticuz/chromium 
 node build-assets.mjs ..    # regenerate fonts/, fonts.css, icons.js (offline)
 python3 serve.py --bind 0.0.0.0 --port 4173 --directory ..   # preview server: always 200, no-store, CORS *
 node smoke.mjs              # title / tiles / focus / console errors
-node qa.mjs                 # 99 behaviour checks + layout-overflow detection (1366, 1920, large text, dark, both looks); shots → /tmp/shots
+node qa.mjs                 # 129 behaviour checks + layout-overflow detection (1366, 1920, large text, dark, both looks); shots → /tmp/shots
 node snapshots.mjs          # static snapshots: 17 screens × 2 looks × 2 themes → /tmp/snap
 sh detect-snapshots.sh      # impeccable design detector over the snapshots (needs IMPECCABLE + IMPECCABLE_BROWSER)
 node final.mjs              # regenerate screens/
@@ -134,5 +152,5 @@ MOCKUP_URL="file://$(cd .. && pwd)/mockup-offline.html" node qa.mjs   # full QA 
 ```
 
 `launch.mjs` unpacks Chromium's shared libs + fonts to `/tmp/al2023x` on first run (needed on minimal Linux sandboxes).
-Last QA run: **99 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.3).
-Last detector run (`impeccable` 0.1.15): **0 findings** on 68 snapshots.
+Last QA run: **129 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.4).
+Last detector run (`impeccable` 0.1.15): **0 findings** on 80 snapshots (20 screens × 2 looks × 2 themes).

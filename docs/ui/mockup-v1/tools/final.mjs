@@ -56,6 +56,13 @@ await cartFor('box', 'dark'); await snap('08-pos-box-dark.png');
 await cartFor('plate', 'dark'); await snap('09-pos-plate-dark.png');
 await p.evaluate(() => { SET.theme = 'light'; applySettings(); S.view = 'settings'; S.settingsTab = 'look'; render(); });
 await snap('10-settings-look.png');
+// 11–13) شاشة المبيعات (النهارده، وبالتصنيفات لآخر 7 أيام) والنواقص (docs/ui/SALES-SHORTAGES.md)
+await p.evaluate(() => { S.view = 'sales'; S.salesv = null; render(); });
+await snap('11-sales-today.png');
+await p.evaluate(() => { ACT.svRange({ id: 'week' }); ACT.svView({ id: 'cat' }); });
+await snap('12-sales-categories.png');
+await p.evaluate(() => { S.view = 'inventory'; S.inv.tab = 'short'; render(); });
+await snap('13-shortages.png');
 await p.evaluate(() => localStorage.clear());
 console.log('screens:', fs.readdirSync(OUT).join(', '));
 console.log('screens ERRORS:', errs.length ? errs.join(' | ') : 'none');
