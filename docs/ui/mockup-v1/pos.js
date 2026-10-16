@@ -290,7 +290,7 @@ function viewPOS() {
       </button>
       <div class="lines" data-scroll="lines">${empty ? emptyCart() : inv.lines.map(lineHTML).join('')}</div>
       <div class="totals">
-        <div class="r"><span>الإجمالي <small class="muted">(${num(t.count)} قطعة)</small></span><span class="num">${money(t.sub)}</span></div>
+        <div class="r"><span>الإجمالي <small class="muted">(${pcsWord(t.count)})</small></span><span class="num">${money(t.sub)}</span></div>
         ${t.disc ? `<div class="r disc"><span>خصم${inv.discount.type === 'pct' ? ` ${num(inv.discount.value)}%` : ''}${inv.discount.by === 'المالك' ? '، بموافقة المالك' : ''}</span><span class="num">− ${money(t.disc)}</span></div>` : ''}
         <div class="r grand"><span>المطلوب</span><span class="num">${money(t.total)}</span></div>
         ${isOwner() && !empty ? `<div class="r profit"><button type="button" class="reveal" data-act="toggleProfit">${icon(S.showProfit ? 'eye-off' : 'eye')} ربح الفاتورة (للمالك بس)</button><span class="num">${S.showProfit ? money(t.profit) : '****'}</span></div>` : ''}

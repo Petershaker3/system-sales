@@ -237,6 +237,45 @@ ok(await p.evaluate(() => { const seg = [...document.querySelectorAll('.split i'
   const painted = (el) => { const c = getComputedStyle(el).backgroundColor; return c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; };
   return seg.length >= 3 && seg.every(painted) && dots.length >= 3 && dots.every(painted) && new Set(seg.map((e) => getComputedStyle(e).backgroundColor)).size === seg.length; }), 'payment split bar and legend dots are painted, each segment a distinct shade');
 await checkOverflow('dashboard');
+// 18b) التقارير: الشهر. كل رقم بيتحسب هنا من السجل مباشرة (من غير analytics.js) ويتقارن باللي ظاهر
+ok(await p.evaluate(() => { const t = new Date(), y = addDays(dayStart(t), -1), cut = new Date(y.getTime() + (t - dayStart(t)));
+  const ys = DATA.history.filter((x) => sameDay(x.at, y) && x.at < cut).reduce((a, x) => a + x.total, 0), td = DATA.history.filter((x) => sameDay(x.at, t)).reduce((a, x) => a + x.total, 0);
+  const sub = document.querySelector('.cards .kpi .sub');
+  return !ys ? !sub || !sub.textContent.includes('امبارح') : sub.textContent.includes('امبارح لنفس الساعة') && sub.textContent.includes(`${num(Math.abs(Math.round(((td - ys) / ys) * 100)))}%`); }), 'today is compared with yesterday up to the same time');
+await p.evaluate(() => document.querySelector('[data-act="repTab"][data-id="month"]').click()); await sleep(250);
+ok(await p.evaluate(() => { const t = new Date(), f = new Date(t.getFullYear(), t.getMonth(), 1), list = DATA.history.filter((x) => x.at >= f), cur = list.reduce((a, x) => a + x.total, 0);
+  const pf = new Date(t.getFullYear(), t.getMonth() - 1, 1), pe = new Date(t.getFullYear(), t.getMonth(), 0), d = new Date(pf.getFullYear(), pf.getMonth(), t.getDate());
+  const lastP = d > pe ? pe : d, pEnd = new Date(lastP.getTime() + (t - dayStart(t))), prev = DATA.history.filter((x) => x.at >= pf && x.at < pEnd).reduce((a, x) => a + x.total, 0);
+  const vals = [...document.querySelectorAll('.cards .kpi .value')].map((e) => e.textContent.trim()), first = document.querySelector('.cards .kpi').textContent;
+  return S.rep.tab === 'month' && vals[0] === money(cur) && vals[2] === num(list.length) && first.includes(`${num(Math.abs(Math.round(((cur - prev) / prev) * 100)))}% عن نفس الوقت من ${monthName(pf)}`); }), 'month tab: this month from the record, compared with last month up to the same moment');
+ok(await p.evaluate(() => { const t = dayStart(new Date()), done = []; for (let d = new Date(t.getFullYear(), t.getMonth(), 1); d < t; d = addDays(d, 1)) done.push(DATA.history.filter((x) => sameDay(x.at, d)).reduce((a, x) => a + x.total, 0));
+  if (!done.length) return true; const per = Math.round(done.reduce((a, b) => a + b, 0) / done.length), days = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  return [...document.querySelectorAll('.cards .kpi')].some((k) => k.querySelector('.label').textContent.includes('المتوقع') && k.querySelector('.value').textContent.trim() === money(per * days)); }), 'month tab: projection = average of the finished days × days in the month');
+ok(await p.evaluate(() => { const t = dayStart(new Date()), key = (d) => `${d.getFullYear()}-${d.getMonth()}`, m = new Map();
+  for (const x of DATA.history) { const k = key(x.at); const e = m.get(k) || { f: new Date(x.at.getFullYear(), x.at.getMonth(), 1), s: 0 }; e.s += x.total; m.set(k, e); }
+  const done = DATA.history.filter((x) => x.at >= new Date(t.getFullYear(), t.getMonth(), 1) && x.at < t).reduce((a, x) => a + x.total, 0), per = Math.round(done / (t.getDate() - 1));
+  const others = [...m.values()].filter((e) => key(e.f) !== key(t)).slice(-11).map((e) => Math.round(e.s / new Date(e.f.getFullYear(), e.f.getMonth() + 1, 0).getDate()));
+  const rank = 1 + others.filter((v) => v > per).length, txt = document.querySelector('.ev-verdict b').textContent, notes = document.querySelectorAll('.ev-li');
+  return t.getDate() === 1 || ((rank === 1 ? txt.includes('أحسن شهر') : txt.includes(`ترتيبه ${num(rank)}`)) && notes.length >= 4 && notes[0].dataset.note === 'sales' && [...notes].every((n) => n.querySelector('.tag'))); }), 'evaluation: the rank among the last 12 months is right, and every observation is tagged');
+await shot('16b-reports-month'); await checkOverflow('reports-month');
+await key('ArrowRight'); await sleep(200);
+ok(await p.evaluate(() => { const t = new Date(), pm = new Date(t.getFullYear(), t.getMonth() - 1, 1), e = new Date(t.getFullYear(), t.getMonth(), 1), list = DATA.history.filter((x) => x.at >= pm && x.at < e);
+  return document.querySelector('.day-pick .dl').textContent.trim() === fmtMonth(pm) && document.querySelector('.cards .kpi .value').textContent.trim() === money(list.reduce((a, x) => a + x.total, 0))
+    && [...document.querySelectorAll('.cards .kpi .label')].some((l) => l.textContent.includes('متوسط اليوم')) && !document.querySelector('[data-act="repShift"][data-d="1"]').disabled; }), 'keyboard arrow opens last month in full (average per day instead of a projection)');
+await p.evaluate(() => { const el = document.querySelector('[data-change="repMonth"]'), t = new Date(); el.value = monthKey(new Date(t.getFullYear() - 1, t.getMonth() + 1, 1)); el.dispatchEvent(new Event('change', { bubbles: true })); }); await sleep(200);
+ok(await p.evaluate(() => { const t = new Date(), f = new Date(t.getFullYear() - 1, t.getMonth() + 1, 1), avail = byMonth(DATA.history).filter((m) => m.from <= f).length;
+  const rows = document.querySelectorAll('.bars.months .bar-col').length, trs = [...document.querySelectorAll('[data-act="repMonthPick"]')].filter((e) => e.tagName === 'TR');
+  return document.querySelector('.day-pick .dl').textContent.trim() === fmtMonth(f) && rows === Math.min(12, avail) && trs.length === rows && trs[0].classList.contains('on'); }), 'a month from the list opens with its own last months (bars and table)');
+await p.evaluate(() => [...document.querySelectorAll('tr[data-act="repMonthPick"]')][1].click()); await sleep(200);
+ok(await p.evaluate(() => { const t = new Date(), f = new Date(t.getFullYear() - 1, t.getMonth(), 1); return document.querySelector('.day-pick .dl').textContent.trim() === fmtMonth(f); }), 'clicking a month in the table opens it');
+ok(await p.evaluate(() => { for (let i = 0; i < 20; i++) ACT.repShift({ d: '-1' }); return sameMonth(S.rep.month, DATA.history[0].at) && document.querySelector('[data-act="repShift"][data-d="-1"]').disabled; }), 'month arrows stop at the first month with sales');
+await p.evaluate(() => { S.rep.tab = 'month'; S.rep.month = monthStart(new Date()); render(); }); await sleep(150);
+await p.evaluate(() => document.querySelectorAll('.bars.dense button.bar-col')[4].click()); await sleep(200);
+ok(await p.evaluate(() => { const v = S.salesv, d = new Date(new Date().getFullYear(), new Date().getMonth(), 5), n = DATA.history.filter((x) => sameDay(x.at, d)).length;
+  return S.view === 'sales' && sameDay(v.from, d) && sameDay(v.to, d) && document.querySelectorAll('.cards .kpi .value')[1].textContent.trim() === num(n); }), 'clicking a day in the chart opens its invoices in the sales screen');
+await p.evaluate(() => { S.view = 'dashboard'; render(); document.querySelector('[data-act="repSales"]').click(); }); await sleep(200);
+ok(await p.evaluate(() => S.view === 'sales' && S.salesv.range === 'month' && sameMonth(S.salesv.from, new Date())), '«فواتير الشهر» opens the same month in the sales screen');
+await p.evaluate(() => { S.view = 'dashboard'; render(); });
 // 19) الموبايل: مسح -> الفاتورة
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="mobile"]').click()); await sleep(200);
 const before = await p.evaluate(() => cur().lines.length);
@@ -474,7 +513,7 @@ await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; render(); ACT.
 ok(await p.evaluate(() => { const o = [...document.querySelectorAll('[data-change="svMonth"] option')], t = new Date(), pm = new Date(t.getFullYear(), t.getMonth() - 1, 1);
   const sub = document.querySelector('.cards .kpi .sub').textContent;
   return o.length === 15 && o[0].value === '' && o[0].selected && o[1].value === monthKey(t) && o[1].textContent.includes('المعروض') && o[14].value === monthKey(new Date(t.getFullYear(), t.getMonth() - 13, 1))
-    && document.querySelector('.day-pick .dl').textContent.includes('لحد النهارده') && sub.includes(`أول ${num(Math.min(t.getDate(), monthEnd(pm).getDate()))} يوم من ${monthName(pm)}`); }), 'months list: 14 months, newest first; this month is compared with the same days of last month');
+    && document.querySelector('.day-pick .dl').textContent.includes('لحد النهارده') && sub.includes(`نفس الوقت من ${monthName(pm)}`); }), 'months list: 14 months, newest first; this month is compared with last month up to the same time');
 await p.evaluate(() => { const el = document.querySelector('[data-change="svMonth"]'), t = new Date(); el.value = monthKey(new Date(t.getFullYear() - 1, t.getMonth(), 1)); el.dispatchEvent(new Event('change', { bubbles: true })); }); await sleep(150);
 ok(await p.evaluate(() => { const t = new Date(), f = new Date(t.getFullYear() - 1, t.getMonth(), 1), e = monthEnd(f), list = DATA.history.filter((x) => x.at >= f && x.at < addDays(e, 1));
   return S.salesv.range === 'month-x' && document.querySelector('.cards .kpi .value').textContent.trim() === money(list.reduce((a, x) => a + x.total, 0))

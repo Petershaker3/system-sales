@@ -91,6 +91,33 @@ ok(same(pp(D0(2026, 3, 1), D0(2026, 3, 30), true), D0(2026, 2, 1), D0(2026, 2, 2
 const mk = (y, m) => months.find((e) => e.key === `${y}-${String(m).padStart(2, '0')}`);
 ok(!mk(2026, 2) || !mk(2026, 3) || mk(2026, 3).sales > mk(2026, 2).sales, 'seasons: Eid al-Fitr month (March 2026) sells more than February');
 
+// 7) المقارنة لحد نفس الساعة، وتقرير الشهر والتقييم
+const at = (d, h, m) => { const x = new Date(d); x.setHours(h, m, 0, 0); return x; };
+const nowX = at(D0(2026, 10, 16), 20, 30), cpLive = run('comparePeriod')(D0(2026, 10, 1), D0(2026, 10, 16), true, nowX);
+ok(cpLive.live && cpLive.end.getTime() === at(D0(2026, 9, 16), 20, 30).getTime(), 'compare: a live month stops at the same clock time on the same day of last month');
+const cpPast = run('comparePeriod')(D0(2026, 3, 1), D0(2026, 3, 31), true, nowX);
+ok(!cpPast.live && cpPast.end.getTime() === D0(2026, 3, 1).getTime(), 'compare: a finished month takes the whole month before');
+const ya = run('yearAgo')(D0(2028, 2, 1), D0(2028, 2, 29), nowX);
+ok(iso(ya.from) === '2027-02-01' && iso(ya.to) === '2027-02-28', 'year ago: 29 February falls back to the 28th');
+const R0 = run('monthReport')(h, today), list0 = run('inRange')(h, run('monthStart')(today), today);
+ok(R0.T.sales === sum(list0.map((x) => x.total)) && R0.T.invoices === list0.length, 'month report: totals = the month\'s invoices');
+ok(sum(R0.sellers.map((e) => e.sales)) === R0.T.sales && sum(R0.methods.map((e) => e.amount)) === R0.T.sales, 'month report: sellers and payment methods both add up to sales');
+const prevList = run('inSpan')(h, R0.P.from, R0.P.end);
+ok(R0.PT.sales === sum(prevList.map((x) => x.total)) && prevList.every((x) => x.at < R0.P.end), 'month report: the comparison uses last month up to the same moment');
+const doneDays = R0.days.slice(0, -1);
+ok(!doneDays.length || (R0.perDay === Math.round(sum(doneDays.map((d) => d.sales)) / doneDays.length) && R0.projection === R0.perDay * run('daysIn')(R0.from, R0.last)), 'month report: projection = average of the finished days × days in the month');
+ok(R0.months.length <= 12 && R0.months[R0.months.length - 1].key === run('monthKey')(today) && (R0.rank === null || (R0.rank >= 1 && R0.rank <= R0.of)), 'month report: the last 12 months end with this month, and the rank is within them');
+const vk = R0.rank === null ? 'early' : R0.of < 3 ? 'few' : R0.rank === 1 ? 'best' : R0.rank <= 3 ? 'top3' : R0.of >= 6 && R0.rank > R0.of - 3 ? 'low3' : 'mid';
+ok(R0.verdict.key === vk, `month report: the verdict follows the rank (${R0.verdict.key}, ${R0.rank}/${R0.of})`);
+const sN = R0.notes.find((n) => n.key === 'sales'), chS = run('pct')(R0.T.sales, R0.PT.sales);
+ok(sN && sN.ch === chS && sN.tone === (chS >= 3 ? 'good' : chS <= -3 ? 'warn' : 'info'), 'evaluation: the sales note follows the ±3% rule');
+const Rp = run('monthReport')(h, D0(2026, 3, 1));
+ok(Rp.projection === null && !Rp.live && Rp.days.length === 31, 'a finished month has no projection and all its days');
+const Rf = run('monthReport')(h, h[0].at);
+ok(Rf.PT.sales === 0 && Rf.verdict.key === 'few' && !Rf.notes.some((n) => ['margin', 'avg', 'disc', 'credit', 'catUp', 'catDown'].includes(n.key)), 'the first month has no judgements without a month before it');
+run('refreshDash()'); const yEnd = new Date(run('addDays')(today, -1).getTime() + (Date.now() - today.getTime())), yd = run('DATA.dash.today');
+ok(yd.yesterday === sum(h.filter((x) => run('sameDay')(x.at, run('addDays')(today, -1)) && x.at < yEnd).map((x) => x.total)) && yd.vsYesterday === (yd.yesterday ? run('pct')(yd.sales, yd.yesterday) : null), 'reports: yesterday is counted up to the same time as now');
+
 // 6) كل اسم متعرّف في ملف واحد (اسم متكرر بين ملفين = الصفحة كلها تقف)
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const files = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), seen = new Map(), dups = [];

@@ -10,13 +10,13 @@ function phoneFrame(cap, ic, sub, screen) {
 function salesScreen() {
   const d = DATA.dash.today, own = isOwner(), me = S.user;
   const total = own ? d.sales : (d.bySeller[me.id] || 0), count = own ? d.invoices : (d.countBySeller[me.id] || 0);
-  const vsY = Math.round(((d.sales - d.yesterday) / d.yesterday) * 100);
+  const vsY = d.vsYesterday; // امبارح لنفس الساعة، ومحسوب في analytics.js
   const recent = DATA.dash.recent.filter((r) => own || r.sellerId === me.id).slice(0, own ? 3 : 4);
   const maxV = Math.max(1, ...DATA.users.map((u) => d.bySeller[u.id] || 0));
   return `<div class="ph-head"><b>${own ? 'مبيعات النهارده' : 'مبيعاتك النهارده'}</b><span class="tag ok"><span class="dot"></span> مباشر</span></div>
     <div class="ph-body">
       <div class="ph-card ph-total"><span class="muted">${own ? 'إجمالي المحل' : `مبيعات ${esc(me.name)}`}</span><b class="num big">${money(total)}</b>
-        <div class="r"><span class="muted">${num(count)} فاتورة</span>${own ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح</span>` : ''}</div>
+        <div class="r"><span class="muted">${num(count)} فاتورة</span>${own && vsY !== null ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح لنفس الساعة</span>` : ''}</div>
         ${own ? `<div class="r"><span class="muted">الربح (للمالك بس)</span><b class="num">${money(d.profit)}</b></div>` : ''}</div>
       ${own ? `<div class="ph-card"><span class="muted" style="font-size:.8rem">مين باع كام</span>${DATA.users.map((u) => { const v = d.bySeller[u.id] || 0; return `<div class="seller-bar"><span class="nm">${esc(u.name)}</span><span class="bar-track"><i style="width:${Math.round((v / maxV) * 100)}%;background:${u.color}"></i></span><b class="num">${money(v)}</b></div>`; }).join('')}</div>` : ''}
       <div class="ph-list">${recent.map((r) => `<div class="ph-sale ${r.fresh ? 'fresh' : ''}"><div class="r"><b class="num">فاتورة ${dg(r.no)}</b><b class="num">${money(r.total)}</b></div><div class="r muted"><span>${dg(r.at)}، ${esc(r.seller)}</span>${r.fresh ? '<span class="tag accent">جديدة</span>' : `<span>${esc(r.method)}</span>`}</div></div>`).join('') || '<div class="muted" style="font-size:.85rem;text-align:center">لسه مفيش مبيعات</div>'}</div>
@@ -30,7 +30,7 @@ function scanScreen() {
       <button type="button" class="btn primary block" data-act="mScan">${icon('scan-barcode')} امسح علبة موبايل</button>
       <button type="button" class="btn block" data-act="mScanAcc">${icon('scan-line')} امسح باركود إكسسوار</button>
       ${last ? `<div class="ph-card"><div class="r"><b><bdi dir="rtl">${esc(last.name)}</bdi></b><span class="ok-t">${icon('circle-check')}</span></div>${last.imei ? `<div class="muted" style="font-size:.8rem">IMEI ${imeiHTML(last.imei)}</div>` : ''}<div class="muted" style="font-size:.8rem">اتبعت لشاشة البيع</div></div>` : ''}
-      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.8rem">${num(t.count)} قطعة</div></div>
+      <div class="ph-card"><div class="r"><span class="muted">فاتورة الكاشير دلوقتي</span><b class="num">${money(t.total)}</b></div><div class="muted" style="font-size:.8rem">${pcsWord(t.count)}</div></div>
     </div>`;
 }
 function lookupScreen() {

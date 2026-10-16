@@ -790,6 +790,33 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .sv-empty b { color: var(--text); font-size: 1.05rem; }
 .sv-more { align-self: center; }
 .sv-month { min-width: 168px; }
+/* التقارير: الشهر — التقييم، والأعمدة بتتداس، والأيام اللي لسه ماجتش، والمتوقع متقطّع */
+.day-pick.static { cursor: default; }
+.rep-more { margin-top: 10px; width: 100%; justify-content: center; }
+.rep-hint { font-size: .8rem; font-weight: 400; }
+.ch { display: inline-flex; align-items: center; gap: 3px; font-size: .86rem; font-variant-numeric: tabular-nums; }
+.ch svg.i { width: 14px; height: 14px; }
+.ev-verdict { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0 12px; border-bottom: 1px solid var(--border); }
+.ev-verdict > svg.i { width: 22px; height: 22px; flex: none; margin-top: 2px; color: var(--muted); }
+.ev-verdict.good > svg.i { color: var(--ok); } .ev-verdict.warn > svg.i { color: var(--warn); }
+.ev-verdict b { display: block; font-size: 1.05rem; }
+.ev-verdict small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.ev-li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .92rem; }
+.ev-li:last-child { border-bottom: 0; }
+.ev-li .tag { justify-self: start; }
+.bars.dense { gap: 3px; height: 190px; }
+.bars.months { height: 170px; margin-bottom: 12px; }
+.bars button.bar-col { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; border-radius: var(--r-xs); }
+.bars button.bar-col:hover .bar:not(.ghost):not(.today) { background: color-mix(in srgb, var(--accent-text) 52%, var(--surface)); }
+.bars button.bar-col:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.bar.ghost { background: transparent; border: 1px dashed var(--border-strong); border-bottom: 0; }
+.bar-stack { width: 100%; max-width: 46px; display: flex; flex-direction: column; }
+.bar-stack .bar { max-width: none; border-radius: 0; }
+.bar-stack .bar:first-child { border-radius: var(--r-xs) var(--r-xs) 0 0; }
+.sv-t tr.on td { background: var(--accent-weak); }
+.page .card .sv-t td.ta-n { white-space: nowrap; }
+.card.narrow .sv-share { width: 54px; }
+.card.narrow .sv-t td { white-space: nowrap; }
 .sv-days tr.zero td, .sv-days tr.zero b { color: var(--muted); font-weight: 400; }
 .sv-days .tag { margin-inline-start: 6px; }
 .sv-cust { display: flex; align-items: center; gap: 8px; }

@@ -42,6 +42,9 @@ for (const look of ['plate', 'box']) {
     // الرسايل بتختفي بعد ثواني: قبل باقي الشاشات بنشيل رسايل البيع اللي فاتت (زي ما الوقت يعدّي)، عشان ما تتحسبش على تصميم الصفحة
     await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove()));
     for (const v of ['repairs', 'inventory', 'dashboard', 'mobile']) { await nav(v); await sleep(200); await save(`${t}-${v}`); }
+    await p.evaluate(() => { S.rep = { tab: 'month', month: monthStart(new Date()) }; S.view = 'dashboard'; render(); }); await sleep(200); await save(`${t}-reports-month`);
+    await p.evaluate(() => { S.rep.month = new Date(new Date().getFullYear(), new Date().getMonth() - 7, 1); render(); }); await sleep(200); await save(`${t}-reports-month-past`);
+    await p.evaluate(() => { S.rep = null; });
     await p.evaluate(() => { S.inv.tab = 'short'; S.view = 'inventory'; render(); }); await sleep(150); await save(`${t}-inventory-short`);
     await p.evaluate(() => { S.inv.tab = 'items'; render(); });
     await nav('sales'); await sleep(200); await save(`${t}-sales`);

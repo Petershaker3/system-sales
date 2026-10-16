@@ -143,6 +143,8 @@ const money = (n) => `${num(Math.round(n * 100) / 100)} ج.م`;
 const locale = () => (SET.digits === 'arabic' ? 'ar-EG' : 'ar-EG-u-nu-latn');
 const fmtTime = (d = new Date()) => new Intl.DateTimeFormat(locale(), { hour: 'numeric', minute: '2-digit' }).format(d);
 const fmtDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
+// «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة»
+const pcsWord = (n) => (n === 1 ? 'قطعة' : n === 2 ? 'قطعتين' : n <= 10 ? `${num(n)} قطع` : `${num(n)} قطعة`);
 const fmtMonth = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
 const monthName = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
 const fmtDayDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
@@ -424,6 +426,7 @@ document.addEventListener('keydown', (e) => {
   if (S.modal) { modalKey(e); return; }
   if (S.view === 'pos') posKey(e);
   else if (S.view === 'sales') salesKey(e);
+  else if (S.view === 'dashboard') reportsKey(e);
 });
 setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(); }, 15000);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (SET.theme === 'auto') { applySettings(); render(); } });

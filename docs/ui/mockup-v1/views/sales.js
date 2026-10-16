@@ -6,10 +6,11 @@ function salesState() {
   return S.salesv;
 }
 // الفواتير المطابقة في الفترة. فلتر التصنيف أو البحث باسم صنف أو IMEI بيخلّي المطابق هو السطور مش الفاتورة كلها (lineLevel)
-function salesRows(from, to) {
+// end (اختياري): لحظة النهاية للمقارنة لحد نفس الساعة (analytics.js: comparePeriod)
+function salesRows(from, to, end = null) {
   // الأرقام العربي (١٢٣) بتتحوّل الأول، عشان رقم الفاتورة والـ IMEI والتليفون يتلاقوا بأي أرقام
   const v = salesState(), own = isOwner(), raw = toLatin(v.q), q = normalize(raw), qd = raw.replace(/\D/g, '');
-  const out = [], list = inRange(DATA.history, from, to);
+  const out = [], list = end ? inSpan(DATA.history, from, end) : inRange(DATA.history, from, to);
   // رقم فاتورة بالظبط بيكسب: الفاتورة دي بس، من غير أجهزة أو تليفونات فيها نفس الأرقام
   const exact = qd && /^\d+$/.test(raw.trim()) ? list.find((x) => String(x.no) === qd) : null;
   for (const x of exact ? [exact] : list) {
@@ -34,11 +35,12 @@ function viewSales() {
   const v = salesState(), own = isOwner(), today = dayStart(new Date());
   const rows = salesRows(v.from, v.to), T = totalsOf(rows);
   const len = daysIn(v.from, v.to), isMonth = v.range === 'month' || v.range === 'month-x';
-  const P = prevPeriod(v.from, v.to, isMonth), prev = own ? totalsOf(salesRows(P.from, P.to)) : null;
+  const P = comparePeriod(v.from, v.to, isMonth), prev = own ? totalsOf(salesRows(P.from, P.to, P.end)) : null;
   const ch = prev ? pct(T.sales, prev.sales) : null;
   const atToday = v.to.getTime() >= today.getTime(), atFirst = v.from.getTime() <= svFirstDay().getTime();
   const label = isMonth ? `${fmtMonth(v.from)}${v.range === 'month' ? ' (لحد النهارده)' : ''}` : len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
-  const vsWhat = len === 1 ? 'اليوم اللي قبله' : isMonth ? (P.partial ? `أول ${num(daysIn(P.from, P.to))} يوم من ${monthName(P.from)}` : monthName(P.from)) : 'الفترة اللي قبلها';
+  // لو الفترة فيها النهارده فالمقارنة لحد نفس الساعة (زي التقارير بالظبط)
+  const vsWhat = len === 1 ? (P.live ? 'امبارح لنفس الساعة' : 'اليوم اللي قبله') : isMonth ? (P.live ? `نفس الوقت من ${monthName(P.from)}` : monthName(P.from)) : 'الفترة اللي قبلها';
   const months = byMonth(DATA.history).reverse();
   // قايمة للنقل بس: العنوان هو اللي بيقول إنت فين، فالقايمة بتفضل «اختار شهر» من غير ما تكرر اسم الشهر
   const monthSel = `<select class="sv-sel sv-month" data-change="svMonth" aria-label="اختار شهر"><option value="" selected>اختار شهر</option>${months.map((m) => `<option value="${m.key}">${fmtMonth(m.from)}${isMonth && monthKey(v.from) === m.key ? ' (المعروض)' : ''}</option>`).join('')}</select>`;

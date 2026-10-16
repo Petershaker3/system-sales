@@ -184,7 +184,6 @@ const DATA = (() => {
       ['اسكرينة زجاج 9D', 31, 3100], ['جراب سيليكون شفاف', 24, 2880], ['كابل تايب سي لتايب سي', 12, 1800],
       ['Redmi 14C 128GB', 3, 18897], ['Samsung Galaxy A16 128GB', 2, 18500],
     ],
-    month: { label: 'سبتمبر 2026', phones: 166140, accessories: 80305, ops: 1240 },
     recent: [
       { no: 10452, at: '12:41 م', seller: 'يوسف', sellerId: 'u2', customer: 'نقدي', method: 'كاش', total: 270 },
       { no: 10451, at: '12:18 م', seller: 'مارينا', sellerId: 'u3', customer: 'سارة أحمد', method: 'إنستاباي', total: 10999 },
