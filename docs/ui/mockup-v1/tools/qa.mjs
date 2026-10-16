@@ -755,6 +755,38 @@ await p.evaluate(() => localStorage.setItem('mshop.mockup.settings.v1', JSON.str
 await p.reload({ waitUntil: 'networkidle0' });
 ok(await p.evaluate(() => SET.font === 'cairo' && SET.accent === '#b3261e'), 'a font or colour the owner picked himself survives the migration');
 await p.evaluate(() => ACT.resetSettings());
+// 26) محل فاضي (المالك: «هبدأ من الصفر»): كل الشاشات فاضية من غير أخطاء، ورحلة أول يوم كاملة: تسجيل ← بيع ← تقارير ← رجوع للتجربة
+await p.goto(URL + (URL.includes('?') ? '&' : '?') + 'fresh=1', { waitUntil: 'networkidle0' });
+ok(await p.evaluate(() => DATA.fresh && !DATA.products.length && !DATA.history.length && !DATA.customers.length && !!document.querySelector('.fresh-tag') && !!document.querySelector('[data-act="goStore"]')), 'fresh shop: no goods, invoices or customers, a marker on top, and the sales screen points to the store');
+for (const v of ['sales', 'repairs', 'mobile', 'settings']) { await p.evaluate((x) => { S.view = x; render(); }, v); await sleep(120); }
+await p.evaluate(() => { S.view = 'dashboard'; render(); const t = [...document.querySelectorAll('.seg button')].find((b) => b.textContent.includes('الشهر')); if (t) t.click(); }); await sleep(150);
+ok(await p.evaluate(() => [...document.querySelectorAll('td.muted')].some((td) => td.textContent.includes('لسه مفيش مبيعات'))), 'an empty month says so instead of showing bare tables');
+await shot('50-fresh-month'); await checkOverflow('fresh-month');
+await p.evaluate(() => { S.view = 'inventory'; S.inv.tab = 'items'; render(); }); await sleep(150);
+ok(await p.evaluate(() => document.querySelectorAll('.first-run .ni-kind').length === 3), 'the empty store opens on the first-day steps with the three kinds');
+await shot('51-fresh-store'); await checkOverflow('fresh-store');
+await tap('.first-run [data-act="storeNewKind"][data-v="phone"]'); await sleep(120);
+ok(await p.evaluate(() => S.modal && S.modal.type === 'newItem' && S.modal.kind === 'phone' && S.modal.prev.mode === 'opening'), 'a first-day card opens its form straight away, over a first-time («أول مرة») receipt');
+await tap('[data-act="niBrand"][data-v="Samsung"]'); await p.focus('#ni-model'); await type('Galaxy A16'); await tap('[data-act="niRom"][data-v="128GB"]'); await tap('[data-act="niRam"][data-v="6GB"]');
+await p.focus('#ni-price'); await type('9250'); await p.focus('#ni-cost'); await type('8600'); await key('Enter'); await sleep(120);
+await tap('[data-act="rcPhone"]'); await tap('[data-act="rcPhone"]');
+await p.evaluate(() => ACT.rcNew()); await sleep(120); await key('3');
+await tap('[data-act="niCat"][data-v="screens"]'); await p.focus('#ni-name'); await type('اسكرينة 9D'); await p.focus('#ni-price'); await type('100'); await p.focus('#ni-cost'); await type('25'); await key('Enter'); await sleep(120);
+await p.evaluate(() => { const l = S.modal.lines.at(-1); l.qty = 40; l.qtyT = '40'; render(); });
+await key('Enter', ['Control']); await sleep(150);
+ok(await p.evaluate(() => { const a = DATA.products.find((x) => x.name === 'Samsung Galaxy A16 128GB'), sc = DATA.products.find((x) => x.name === 'اسكرينة 9D');
+  return DATA.products.length === 2 && DATA.receipts.length === 1 && DATA.receipts[0].kind === 'opening' && a.stock === 2 && unitsIn(a.id).length === 2 && sc.stock === 40 && sc.cost === 25; }), 'first-day stock saved as one «opening» receipt: the phone with its 2 IMEIs, and 40 screen protectors at 25');
+await p.evaluate(() => { S.view = 'pos'; S.cat = 'all'; render(); }); await sleep(150);
+await p.focus('#q'); await type('اسكرينه'); await key('Enter'); await type('a16'); await key('Enter');
+await clickText('.btn', 'كاش بالظبط'); await sleep(150);
+ok(await p.evaluate(() => DATA.history.length === 1 && DATA.history[0].total === 9350 && DATA.products.find((x) => x.name === 'اسكرينة 9D').stock === 39), 'the new shop\'s first sale goes through (9,350), and the stock moves');
+await key('Escape'); await sleep(100);
+await p.evaluate(() => { S.view = 'dashboard'; render(); const t = [...document.querySelectorAll('.seg button')].find((b) => b.textContent.includes('النهارده')); if (t) t.click(); }); await sleep(150);
+ok(await p.evaluate(() => document.querySelector('.cards .kpi .value').textContent.trim() === money(9350)), 'today\'s report shows the first sale');
+await shot('52-fresh-report');
+await p.evaluate(() => { S.view = 'settings'; S.settingsTab = 'shop'; render(); }); await sleep(120);
+await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.evaluate(() => document.querySelector('[data-act="freshOff"]').click())]);
+ok(await p.evaluate(() => !DATA.fresh && DATA.products.length > 40 && DATA.history.length > 1000 && !location.search.includes('fresh')), '«رجّع بيانات التجربة» brings the demo data back');
 
 console.log(notes.join('\n'));
 console.log(`\nPASSED: ${notes.length}`);

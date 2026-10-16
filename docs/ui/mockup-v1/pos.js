@@ -242,6 +242,7 @@ function tilesHTML() {
   let list = DATA.products.filter((p) => catKind(p.cat) !== 'used' || stockOf(p) > 0);
   if (S.cat === 'top') list = [...list].sort((a, b) => b.sold - a.sold).slice(0, 12);
   else if (S.cat !== 'all') list = list.filter((p) => inCat(p, S.cat)).sort((a, b) => b.sold - a.sold);
+  if (!DATA.products.length) return `<div class="tiles-empty">${icon('package-plus')}<b>لسه مفيش أصناف في المحل</b><span>أول مرة: سجّل البضاعة اللي عندك من «المخزن»، وبعدها بتظهر هنا على طول.</span><button type="button" class="btn primary" data-act="goStore">${icon('boxes')} روح للمخزن</button></div>`;
   if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزن. وتقدر تغيّر اسمه أو تخفيه من الإعدادات، في «الأصناف والبيع»</span></div>`;
   // الصنف اللي ليه تفرعات بيظهر مربع واحد، والنوع بيتختار بعد الدوسة
   const seen = new Set();
@@ -389,6 +390,7 @@ function modalKey(e) {
 Object.assign(ACT, {
   cat: (d) => { S.cat = chipToggle(S.cat, d.id); render(); },
   tileFam: (d) => openVariantPicker(d.fam),
+  goStore: () => { S.view = 'inventory'; S.inv.tab = 'items'; render(); },
   lineImei: (d) => { const l = cur().lines[+d.i]; if (!l) return; S.sel = +d.i; openImeiPicker(prod(l.pid), +d.i); },
   tile: (d) => pickProduct(prod(d.id)),
   pickRes: (d) => pickResult(+d.i),

@@ -1,7 +1,7 @@
 'use strict';
 // شاشة «الصيانة». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الصيانة: لوحة بالمراحل + استلام جهاز ===== */
-const nextRepairNo = () => 1 + Math.max(...S.repairs.map((r) => +r.no.replace(/\D/g, '')));
+const nextRepairNo = () => 1 + Math.max(1000, ...S.repairs.map((r) => +r.no.replace(/\D/g, '')));
 function ticketHTML(r) {
   const st = DATA.repairStatuses, idx = st.findIndex((s) => s.id === r.status), next = st[idx + 1];
   const left = Math.max(0, r.estimate - r.deposit);

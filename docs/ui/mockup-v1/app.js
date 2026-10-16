@@ -302,6 +302,7 @@ function topbar() {
   const u = S.user;
   return `<header class="topbar">
     <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">${esc(SET.shopName)}</span>
+    ${DATA.fresh ? `<button type="button" class="status fresh-tag" data-act="freshInfo" title="ترجع لبيانات التجربة من الإعدادات، في «المحل»">${icon('store')} محل فاضي للتجربة</button>` : ''}
     <div class="sp"></div>
     <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة من ${dg(DATA.shift.opened)}</span>
     ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة. الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
@@ -428,6 +429,7 @@ ACT.overlay = (d, el, e) => {
   if (S.modal.type === 'pay' && S.modal.step === 'done') finishAfterSale(); else closeModal();
 };
 ACT.soon = () => toast('دي للعرض بس في النموذج', 'info');
+ACT.freshInfo = () => { if (isOwner()) { S.view = 'settings'; S.settingsTab = 'shop'; S.modal = null; render(); } else toast('محل فاضي للتجربة. المالك يرجّع بيانات التجربة من الإعدادات', 'info'); };
 
 /* ===== الأحداث ===== */
 document.addEventListener('click', (e) => {

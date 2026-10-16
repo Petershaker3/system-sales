@@ -917,6 +917,14 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .br-row { grid-template-columns: minmax(0, 1fr) 130px 96px auto auto auto 32px; }
 .br-type { height: 36px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 8px; background: var(--surface); color: var(--text); font: inherit; }
 .cat-add.br-add { grid-template-columns: minmax(0, 1fr) 160px auto; }
+/* المحل الفاضي: خطوات أول يوم في المخزن، وعلامة فوق إنه محل تجربة */
+.first-run { display: grid; gap: 12px; }
+.first-run p { margin: 0; }
+.fr-kinds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fr-kinds .ni-kind { align-items: flex-start; }
+.fr-steps { margin: 0; padding-inline-start: 22px; display: grid; gap: 6px; color: var(--text-2); }
+.fr-steps b { color: var(--text); }
+.status.fresh-tag { border: 1px dashed var(--accent-text); color: var(--accent-text); background: transparent; cursor: pointer; font: inherit; }
 
 /* ===== الحركة: لو الجهاز متظبط على «تقليل الحركة» — من غير ظهور تدريجي ولا هزّة ولا خط الكاميرا ===== */
 @media (prefers-reduced-motion: reduce) {

@@ -50,6 +50,19 @@ function viewInventory() {
       <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
     ${shortView()}
   </div>`;
+  // المحل لسه فاضي (أول يوم): خطوات التسجيل بدل الجدول
+  if (!DATA.products.length) return `<div class="page">
+    <div class="page-h"><h2>المخزن</h2>${tabs}<span class="sp"></span><button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
+    <div class="card first-run"><h3>أول مرة؟ سجّل البضاعة اللي في المحل</h3>
+      <p class="muted">كل صنف بيتسجّل مرة واحدة بتفاصيله، وبعدها بيتباع ويتدوّر عليه على طول. والعدد والتكلفة بيتكتبوا في نفس الشاشة${isOwner() ? ' كـ«بضاعة موجودة عندي (أول مرة)»، يعني مش مشتريات' : ''}.</p>
+      <div class="ni-kinds fr-kinds">${NI_KINDS.map(([id, ic, t, d]) => `<button type="button" class="ni-kind" data-act="storeNewKind" data-v="${id}"><span class="t-ico">${icon(ic)}</span><span class="t"><b>${t}</b><small>${d}</small></span></button>`).join('')}</div>
+      <ol class="fr-steps">
+        <li><b>الشركات والتصنيفات جاهزين</b>، وتقدر تغيّرهم من الإعدادات، في «الأصناف والبيع».</li>
+        <li><b>سجّل كل صنف:</b> الموبايل بشركته وموديله ومساحته، والمستعمل جهاز جهاز، والإكسسوار بتفرعاته.</li>
+        <li><b>اكتب العدد والتكلفة</b>، وامسح الـ IMEI لو حابب، ودوس «${isOwner() ? 'سجّل البضاعة' : 'حفظ الاستلام'}».</li>
+      </ol>
+    </div>
+  </div>`;
   const qd = toLatin(I.q).replace(/\D/g, '');
   if (I.cat !== 'all' && !catById(I.cat) && !(brandPick(I.cat) && catVisible(I.cat))) I.cat = 'all';
   let list = DATA.products.filter((p) => (I.cat === 'all' || inCat(p, I.cat)) &&
@@ -102,6 +115,7 @@ CHANGE.imgFile = (el) => {
 Object.assign(ACT, {
   // صنف جديد من المخزن: بيفتح الاستلام تحته عشان العدد والتكلفة يتكتبوا مرة واحدة. أول مرة (مفيش استلامات) = «بضاعة موجودة عندي»
   storeNew: () => { rcOpen({ mode: DATA.receipts.length ? 'supplier' : 'opening' }); openNewItem(); },
+  storeNewKind: (d) => { rcOpen({ mode: 'opening' }); openNewItem({ kind: d.v }); },
   invCat: (d) => { S.inv.cat = chipToggle(S.inv.cat, d.id); render(); },
   invOpen: (d) => { S.inv.open[d.id] = !S.inv.open[d.id]; render(); },
   imgPick: (d) => { S._imgFor = d.id; const f = $('#img-file'); if (f) f.click(); },

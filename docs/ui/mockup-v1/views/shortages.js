@@ -3,7 +3,9 @@
 /* ===== النواقص: اللي بتكتبه بإيدك + اقتراحات السيستم (docs/ui/SALES-SHORTAGES.md) =====
    بتتحفظ في المتصفح زي الإعدادات. أول مرة: 3 أمثلة. نفس الصنف مرتين ← الكمية بتزيد بدل سطر جديد. */
 const SHORT_KEY = 'mshop.mockup.shortages.v1';
+// المحل الفاضي (للتجربة) بيبدأ من غير نواقص وما بيحفظش، عشان قايمة بيانات التجربة ما تتلخبطش
 let SHORT = (() => {
+  if (DATA.fresh) return [];
   try { const v = JSON.parse(localStorage.getItem(SHORT_KEY) || 'null'); if (Array.isArray(v)) return v; } catch { /* أول مرة */ }
   const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
   return [
@@ -12,7 +14,7 @@ let SHORT = (() => {
     { id: 'sh3', pid: null, name: 'شاحن 65 وات تايب سي', qty: 1, note: '', cust: { name: 'كريم مصطفى', phone: '01011122233' }, status: 'open', by: 'u3', at: ago(50) },
   ];
 })();
-const saveShort = () => { try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
+const saveShort = () => { if (DATA.fresh) return; try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
 // الكمية المقترحة: توصّل الصنف لضعف أقل حد
 const suggestQty = (p) => Math.max(1, p.min * 2 - stockOf(p));
 const shortSuggest = () => DATA.products.filter((p) => stockOf(p) <= p.min && !SHORT.some((x) => x.pid === p.id)).sort((a, b) => stockOf(a) - stockOf(b));

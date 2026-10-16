@@ -49,7 +49,7 @@ function repToday() {
     <div class="dash-grid">
       <div class="card"><h3>آخر الفواتير</h3>
         <div class="table-wrap" style="border:0"><table class="t"><thead><tr><th>رقم</th><th>الوقت</th><th>البيّاع</th><th>العميل</th><th>الدفع</th><th>المبلغ</th></tr></thead>
-        <tbody>${d.recent.slice(0, 7).map((r) => `<tr class="hov"><td class="num">${dg(r.no)}</td><td>${dg(r.at)}</td><td>${esc(r.seller)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td><td><b class="num">${money(r.total)}</b></td></tr>`).join('')}</tbody></table></div></div>
+        <tbody>${d.recent.slice(0, 7).map((r) => `<tr class="hov"><td class="num">${dg(r.no)}</td><td>${dg(r.at)}</td><td>${esc(r.seller)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td><td><b class="num">${money(r.total)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده</td></tr>'}</tbody></table></div></div>
       <div class="stack">
         <div class="card"><h3>الأكثر مبيعًا النهارده</h3>${d.top.map(([n, q, v], i) => `<div class="li"><span class="rank">${num(i + 1)}</span><bdi dir="rtl" class="ell">${esc(n)}</bdi><span class="sp"></span><span class="muted num">${pcsWord(q)}</span><b class="num">${money(v)}</b></div>`).join('')}</div>
         <div class="card"><h3>${esc(fmtMonth(M.from))} لحد النهارده</h3>
@@ -112,7 +112,8 @@ function repMonth(st) {
 
   // التفاصيل بتغيّرها عن الشهر اللي فات
   const share = (v, tot) => { const s = tot ? Math.round((v / tot) * 100) : 0; return `<span class="sv-share"><i style="width:${s}%"></i></span><span class="num">${num(s)}%</span>`; };
-  const tbl = (head, body) => `<div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  // الشهر اللي لسه ملوش مبيعات (زي أول يوم في محل جديد): سطر بيقول كده بدل جدول فاضي
+  const tbl = (head, body) => `<div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${(head.match(/<th/g) || []).length}" class="muted">لسه مفيش مبيعات في الشهر ده</td></tr>`}</tbody></table></div>`;
   const cats = `<div class="card narrow"><h3>التصنيفات</h3>${tbl('<th>التصنيف</th><th class="ta-n">المبيعات</th><th>النسبة</th><th class="ta-n">التغيير</th>',
     R.cats.map((c) => `<tr><td>${esc(svCatName(c.id))}</td><td class="ta-n num"><b>${money(c.sales)}</b></td><td>${share(c.sales, R.cats.reduce((a, e) => a + e.sales, 0))}</td><td class="ta-n">${chgCell(c.ch)}</td></tr>`).join(''))}</div>`;
   const prods = `<div class="card"><h3>الأصناف الأكتر مبيعًا</h3>${tbl('<th>الصنف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th class="ta-n">التغيير</th>',

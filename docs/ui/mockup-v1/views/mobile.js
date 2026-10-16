@@ -47,7 +47,12 @@ function lookupScreen() {
   </div>`;
 }
 function recvScreen() {
-  const M = S.mobile, p = prod(M.recvPid), byQty = M.recvMode === 'qty';
+  const M = S.mobile;
+  let p = prod(M.recvPid);
+  if (!p) { p = DATA.products.find((x) => x.serial); if (p) M.recvPid = p.id; }
+  if (!p) return `<div class="ph-head"><b>استلام بضاعة</b></div><div class="ph-body"><div class="ph-card"><b>لسه مفيش موبايلات متسجّلة</b>
+    <div class="muted" style="font-size:.85rem">الموديل الجديد بيتسجّل مرة واحدة من الكمبيوتر: «المخزن»، وبعدين «صنف جديد». بعدها تستلمه من هنا بمسح العلب.</div></div></div>`;
+  const byQty = M.recvMode === 'qty';
   const head = `<div class="ph-head"><b>استلام بضاعة</b></div><div class="ph-body">
     <div class="ph-card"><div class="r"><span class="muted">المورد</span><b>شركة النور</b></div><div class="r"><span class="muted">الصنف</span><b><bdi dir="rtl">${esc(p.name)}</bdi></b></div><div class="r"><span class="muted">تكلفة الجهاز</span><b class="num">${isOwner() ? money(p.cost) : '****'}</b></div></div>
     <div class="seg ph-seg"><button type="button" class="${byQty ? '' : 'on'}" data-act="mRecvMode" data-id="imei">${icon('scan-barcode')} بالـ IMEI</button><button type="button" class="${byQty ? 'on' : ''}" data-act="mRecvMode" data-id="qty">${icon('hash')} بالعدد</button></div>`;

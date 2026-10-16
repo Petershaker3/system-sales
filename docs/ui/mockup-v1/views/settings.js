@@ -2,7 +2,8 @@
 // شاشة «الإعدادات». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الإعدادات ===== */
 function sampleSale() {
-  const p = prod('p1'), u = DATA.units.find((x) => x.pid === 'p1');
+  // مثال الإيصال: من بيانات التجربة، أو صنف مثال لو المحل فاضي
+  const p = prod('p1') || { name: 'Samsung Galaxy A16 128GB', price: 9250, cat: 'phones', warranty: 12 }, u = DATA.units.find((x) => x.pid === 'p1');
   const lines = [
     { kind: 'unit', name: p.name, price: p.price, qty: 1, imei: u ? u.imei : '352867150000004', warranty: warrantyOf(p) },
     { kind: 'item', name: 'جراب سيليكون شفاف', price: 120, qty: 2, warranty: 0 },
@@ -20,8 +21,18 @@ function setShop() {
         <label class="btn sm">${icon('upload')} ارفع لوجو<input type="file" accept="image/*" data-change="logo" hidden></label>
         ${SET.logo ? `<button type="button" class="btn sm ghost danger" data-act="logoRemove">${icon('trash-2')} شيل اللوجو</button>` : ''}
         <span class="hint">PNG أو JPG، وبيتصغّر لوحده. بيظهر في البرنامج وعلى الإيصال</span></div></div></div>
-    </div>${receiptHTML(sampleSale())}</div></div>`;
+    </div>${receiptHTML(sampleSale())}</div></div>
+  <div class="card"><h3>جرّب البرنامج من الصفر</h3>
+    <div class="s-row"><div class="t"><b>${DATA.fresh ? 'انت دلوقتي في محل فاضي للتجربة' : 'محل فاضي من غير بيانات التجربة'}</b><small>${DATA.fresh ? 'سجّل بضاعتك وبيع وشوف التقارير. اللي بتسجّله هنا تجربة بس: بيتمسح لما تقفل الصفحة أو ترجع لبيانات التجربة، ومش بيتنقل للبرنامج الحقيقي' : 'عشان تجرّب أول يوم: تسجيل الموبايلات والإكسسوار والمستعمل من الأول، والبيع. الإعدادات (الشكل والتصنيفات والشركات) زي ما هي'}</small></div>
+      ${DATA.fresh ? `<button type="button" class="btn" data-act="freshOff">${icon('rotate-ccw')} رجّع بيانات التجربة</button>` : `<button type="button" class="btn soft" data-act="freshOn">${icon('store')} ابدأ محل فاضي</button>`}</div>
+  </div>`;
 }
+// المحل الفاضي بيتشغّل ويتقفل بإعادة تحميل الصفحة (البيانات بتتبني من الأول في data.js)
+const FRESH_KEY = 'mshop.mockup.fresh';
+Object.assign(ACT, {
+  freshOn: () => { try { localStorage.setItem(FRESH_KEY, '1'); } catch { /* مفيش تخزين */ } location.reload(); },
+  freshOff: () => { try { localStorage.removeItem(FRESH_KEY); } catch { /* مفيش تخزين */ } const u = new URL(location.href); if (u.searchParams.has('fresh')) { u.searchParams.delete('fresh'); location.href = u.toString(); } else location.reload(); },
+});
 function setLook() {
   const themes = [['light', 'sun', 'فاتح'], ['dark', 'moon', 'غامق'], ['auto', 'monitor', 'زي الجهاز']];
   const looks = [['plate', 'لافتة الشارع', 'لون المحل لوح بإطار رفيع جوّه، وخط Changa'], ['box', 'علبة الموبايل', 'أبيض وحبر وخطوط رفيعة، ولون المحل شريط واحد، وخط Vazirmatn']];

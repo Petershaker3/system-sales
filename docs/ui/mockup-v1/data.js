@@ -1,6 +1,9 @@
 'use strict';
 /* بيانات تجريبية للنموذج فقط — مش بيانات المحل الحقيقية. */
 const DATA = (() => {
+  // «جرّب من محل فاضي» (للمعاينة بس): نفس البرنامج من غير بيانات التجربة، عشان المالك يجرّب التسجيل من الصفر.
+  // بيتشغّل من الإعدادات ← المحل (بيتحفظ في المتصفح)، أو بإضافة ?fresh=1 للرابط. ومن غير متصفح (الفحوص السريعة) = بيانات التجربة
+  const FRESH = (() => { try { return /[?&]fresh=1(&|$)/.test(location.search) || localStorage.getItem('mshop.mockup.fresh') === '1'; } catch { return false; } })();
   // مولّد أرقام ثابت عشان الأرقام (والـ IMEI) تفضل هي هي كل مرة
   let seed = 16102026;
   const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
@@ -246,7 +249,7 @@ const DATA = (() => {
     { no: 42, at: new Date(Date.now() - 5 * 864e5), kind: 'supplier', supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
     { no: 43, at: new Date(Date.now() - 2 * 864e5), kind: 'supplier', supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
   ];
-  const history = (() => {
+  const history = FRESH ? [] : (() => {
     let hs = 20261016;
     const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
     const weighted = (list) => { const tot = list.reduce((a, p) => a + p.sold + 2, 0); let r = hr() * tot; for (const p of list) { r -= p.sold + 2; if (r <= 0) return p; } return list[list.length - 1]; };
@@ -305,8 +308,15 @@ const DATA = (() => {
     return out;
   })();
 
+  // المحل الفاضي: من غير أصناف ولا أجهزة ولا عملاء ولا فواتير ولا صيانة، والوردية والمحافظ من الصفر
+  if (FRESH) {
+    for (const list of [products, units, customers, repairs, receipts]) list.length = 0;
+    Object.assign(shift, { no: 1, by: users[0].name, opening: 0, cashSales: 0, servicesIn: 0, servicesOut: 0, expenses: [], ownerDraw: 0 });
+    Object.assign(dash, { today: { sales: 0, invoices: 0, profit: 0, services: 0, servicesFee: 0, yesterday: 0, bySeller: {}, countBySeller: {} }, week: [0, 0, 0, 0, 0, 0, 0], pay: [], top: [], recent: [] });
+    wallets.forEach((w) => Object.assign(w, { balance: 0, usedToday: 0 }));
+  }
   return {
-    users, categories, brands, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
+    fresh: FRESH, users, categories, brands, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
     billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
   };
 })();
