@@ -83,7 +83,7 @@ Object.assign(ACT, {
   repMove: (d) => {
     const r = S.repairs.find((x) => x.no === d.no), st = DATA.repairStatuses, i = st.findIndex((s) => s.id === r.status);
     r.status = st[Math.min(i + 1, st.length - 1)].id; render();
-    toast(`${r.no} ← ${st.find((s) => s.id === r.status).name}${r.status === 'ready' ? '. تقدر تبعت للعميل واتساب' : ''}`);
+    toast(`${r.no} بقت «${st.find((s) => s.id === r.status).name}»${r.status === 'ready' ? '. تقدر تبعت للعميل واتساب' : ''}`);
   },
   repWa: (d) => toast(`اتبعت لعميل ${d.no} رسالة واتساب إن الجهاز جاهز`),
   deliver: (d) => {

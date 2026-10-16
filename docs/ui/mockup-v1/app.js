@@ -34,7 +34,9 @@ const DEFAULTS = {
   // صور الأصناف (اختياري): بتظهر في مربعات البيع والبحث وتطبيق الموبايل بدل الأيقونة
   showImages: true,
   // التصنيفات (الترتيب = ترتيب الظهور). بتتعدّل من الإعدادات ← الأصناف والبيع
-  cats: DATA.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, parent: c.parent || null, hidden: false })),
+  cats: DATA.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, parent: c.parent || null, hidden: false, kind: c.kind || null })),
+  // شركات الموبايلات (الترتيب = ترتيب الظهور في «صنف جديد» وزراير الشركات). من الإعدادات ← الأصناف والبيع
+  brands: DATA.brands.map((b) => ({ ...b, hidden: false })),
 };
 // ألوان جاهزة، و«لون تاني» بيقبل أي لون — الكلام عليه بيتظبط تلقائي
 const ACCENTS = ['#1d4f91', '#0f6e5a', '#b3261e', '#0e6170', '#6b2f73', '#a86b00', '#2f3437'];
@@ -43,8 +45,18 @@ function mergeCats(saved) {
   if (!Array.isArray(saved)) return DEFAULTS.cats.map((c) => ({ ...c }));
   const ok = saved.filter((c) => c && typeof c.id === 'string' && typeof c.name === 'string' && c.name.trim());
   const ids = new Set(ok.map((c) => c.id));
-  const out = ok.filter((c) => !c.parent || ids.has(c.parent)).map((c) => ({ id: c.id, name: c.name, icon: c.icon || 'tag', parent: c.parent || null, hidden: !!c.hidden, custom: !!c.custom }));
+  // النوع (phone/used/item): المحفوظ قبل ما يبقى فيه نوع بياخد نوع التصنيف الأصلي، والجديد من غير نوع = بالعدد
+  const kindOf = (c) => (['phone', 'used', 'item'].includes(c.kind) ? c.kind : c.parent ? null : ((DEFAULTS.cats.find((d) => d.id === c.id) || {}).kind || 'item'));
+  const out = ok.filter((c) => !c.parent || ids.has(c.parent)).map((c) => ({ id: c.id, name: c.name, icon: c.icon || 'tag', parent: c.parent || null, hidden: !!c.hidden, custom: !!c.custom, kind: kindOf(c) }));
   for (const c of DEFAULTS.cats) if (!ids.has(c.id)) out.push({ ...c });
+  return out;
+}
+function mergeBrands(saved) {
+  if (!Array.isArray(saved)) return DEFAULTS.brands.map((b) => ({ ...b }));
+  const ok = saved.filter((b) => b && typeof b.id === 'string' && typeof b.name === 'string' && b.name.trim());
+  const ids = new Set(ok.map((b) => b.id));
+  const out = ok.map((b) => ({ ...(DEFAULTS.brands.find((d) => d.id === b.id) || {}), ...b, type: ['touch', 'keypad', 'both'].includes(b.type) ? b.type : 'touch', hidden: !!b.hidden }));
+  for (const b of DEFAULTS.brands) if (!ids.has(b.id)) out.push({ ...b });
   return out;
 }
 function loadSettings() {
@@ -59,7 +71,7 @@ function loadSettings() {
   return {
     ...DEFAULTS, ...saved,
     perms: { ...DEFAULTS.perms, ...(saved.perms || {}) }, methods: { ...DEFAULTS.methods, ...(saved.methods || {}) },
-    imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats),
+    imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats), brands: mergeBrands(saved.brands),
     feeMode: saved.feeMode === 'auto' ? 'auto' : 'manual', printer: saved.printer === true,
     look: LOOKS.includes(saved.look) ? saved.look : DEFAULTS.look, font: FONT_IDS.includes(saved.font) ? saved.font : DEFAULTS.font,
   };
@@ -145,6 +157,10 @@ const fmtTime = (d = new Date()) => new Intl.DateTimeFormat(locale(), { hour: 'n
 const fmtDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
 // «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة»
 const pcsWord = (n) => (n === 1 ? 'قطعة' : n === 2 ? 'قطعتين' : n <= 10 ? `${num(n)} قطع` : `${num(n)} قطعة`);
+// نفس القاعدة لأي كلمة: «نوع»، «نوعين»، «3 أنواع»، «11 نوع»
+const countWord = (n, one, two, few) => (n === 1 ? one : n === 2 ? two : n <= 10 ? `${num(n)} ${few}` : `${num(n)} ${one}`);
+const kindsWord = (n) => countWord(n, 'نوع', 'نوعين', 'أنواع');
+const itemsWord = (n) => countWord(n, 'صنف', 'صنفين', 'أصناف');
 const fmtMonth = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
 const monthName = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
 const fmtDayDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
@@ -199,7 +215,8 @@ const S = {
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },
   sw: null, // قايمة تبديل المستخدم فوق: null أو { user, pin, err, pinned }
-  catNew: { name: '', parent: '', icon: 'tag' },
+  catNew: { name: '', parent: '', icon: 'tag', kind: 'item' },
+  brNew: { name: '', type: 'touch' },
 };
 const isOwner = () => S.user && S.user.role === 'owner';
 const roleName = (u) => (u.role === 'owner' ? 'المالك' : 'بيّاع');

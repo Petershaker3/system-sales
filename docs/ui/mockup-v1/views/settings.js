@@ -47,7 +47,7 @@ function catRowHTML(c, sibs, k) {
   return `<div class="cat-row ${c.parent ? 'sub' : ''} ${c.hidden ? 'off' : ''}">
     <span class="t-ico">${icon(c.icon)}</span>
     <input class="cat-name" id="cat-n-${c.id}" data-input="catName" data-id="${c.id}" value="${esc(c.name)}" aria-label="اسم التصنيف" autocomplete="off">
-    <span class="muted num cat-n">${num(n)} صنف</span>
+    <span class="muted num cat-n">${n ? itemsWord(n) : 'فاضي'}</span>
     <button type="button" class="icon-btn sm" data-act="catMove" data-id="${c.id}" data-d="-1" title="لفوق" ${k === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
     <button type="button" class="icon-btn sm" data-act="catMove" data-id="${c.id}" data-d="1" title="لتحت" ${k === sibs.length - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
     <label class="switch" title="يظهر في شاشة البيع"><input type="checkbox" data-change="catShow" data-id="${c.id}" ${c.hidden ? '' : 'checked'} aria-label="يظهر في شاشة البيع"><span></span></label>
@@ -73,16 +73,65 @@ function setCatalog() {
     <div class="cat-add">
       <div class="field"><label for="cat-new">تصنيف جديد</label><input id="cat-new" data-input="catNew" value="${esc(N.name)}" placeholder="مثلًا: خطوط، كروت شحن، قطع غيار" autocomplete="off"></div>
       <div class="field"><label for="cat-parent">مكانه</label><select id="cat-parent" data-change="catParent"><option value="">تصنيف رئيسي</option>${mains.map((c) => `<option value="${c.id}" ${N.parent === c.id ? 'selected' : ''}>تحت «${esc(c.name)}»</option>`).join('')}</select></div>
+      <div class="field"><label for="cat-kind">بيتسجّل إزاي</label><select id="cat-kind" data-change="catKindNew" ${N.parent ? 'disabled title="زي التصنيف الرئيسي بتاعه"' : ''}>${[['item', 'بالعدد، زي الإكسسوار'], ['phone', 'جهاز جهاز بالـ IMEI']].map(([v, l]) => `<option value="${v}" ${(N.parent ? catKind(N.parent) : N.kind) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <button type="button" class="btn soft" data-act="catAdd" ${N.name.trim() ? '' : 'disabled'}>${icon('circle-plus')} ضيف</button>
       <div class="icon-pick" role="radiogroup" aria-label="أيقونة التصنيف">${CAT_ICONS.map((ic) => `<button type="button" class="icon-btn sm ${N.icon === ic ? 'on' : ''}" data-act="catIcon" data-ic="${ic}" role="radio" aria-checked="${N.icon === ic}" title="${ic}">${icon(ic)}</button>`).join('')}</div>
     </div>
+  </div>${setBrands()}`;
+}
+// شركات الموبايلات (زي السيستم القديم): تاتش أو زراير أو الاتنين. الصنف بيشاور على الشركة باسمها، فتغيير الاسم بيتطبق على أصنافها
+const BR_TYPES = [['touch', 'تاتش'], ['keypad', 'زراير'], ['both', 'الاتنين']];
+function setBrands() {
+  const N = S.brNew, count = (b) => DATA.products.filter((p) => p.brand === b.name).length;
+  const row = (b, k) => { const n = count(b); return `<div class="cat-row br-row ${b.hidden ? 'off' : ''}">
+    <input class="cat-name" id="br-n-${b.id}" data-change="brName" data-id="${b.id}" value="${esc(b.name)}" aria-label="اسم الشركة" autocomplete="off">
+    <select class="br-type" data-change="brType" data-id="${b.id}" aria-label="نوع موبايلات «${esc(b.name)}»">${BR_TYPES.map(([v, l]) => `<option value="${v}" ${b.type === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="muted num cat-n">${n ? countWord(n, 'موديل', 'موديلين', 'موديلات') : 'مفيش موديلات'}</span>
+    <button type="button" class="icon-btn sm" data-act="brMove" data-id="${b.id}" data-d="-1" title="لفوق" ${k === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
+    <button type="button" class="icon-btn sm" data-act="brMove" data-id="${b.id}" data-d="1" title="لتحت" ${k === SET.brands.length - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
+    <label class="switch" title="تظهر في «صنف جديد»"><input type="checkbox" data-change="brShow" data-id="${b.id}" ${b.hidden ? '' : 'checked'} aria-label="تظهر في «صنف جديد»"><span></span></label>
+    ${b.custom && !n ? `<button type="button" class="icon-btn sm danger" data-act="brDel" data-id="${b.id}" title="امسح الشركة">${icon('trash-2')}</button>` : '<span class="cat-del-sp"></span>'}
+  </div>`; };
+  return `<div class="card"><h3>شركات الموبايلات</h3>
+    <div class="muted" style="font-size:.85rem;margin-bottom:8px">بتظهر في «صنف جديد» للموبايل الجديد والمستعمل، وزراير الشركات تحت «موبايلات» في البيع والمخزن. «زراير» يعني موبايل من غير رام ومساحة.</div>
+    <div class="cat-list">${SET.brands.map(row).join('')}</div>
+    <div class="cat-add br-add">
+      <div class="field"><label for="br-new">شركة جديدة</label><input id="br-new" data-input="brNew" value="${esc(N.name)}" placeholder="مثلًا: Motorola" autocomplete="off"></div>
+      <div class="field"><label for="br-type-new">نوعها</label><select id="br-type-new" data-change="brNewType">${BR_TYPES.map(([v, l]) => `<option value="${v}" ${N.type === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <button type="button" class="btn soft" data-act="brAdd" ${N.name.trim() ? '' : 'disabled'}>${icon('circle-plus')} ضيف</button>
+    </div>
   </div>`;
 }
+const brById = (id) => SET.brands.find((b) => b.id === id);
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'br-new') { e.preventDefault(); ACT.brAdd(); } });
+INPUT.brNew = (el) => { const had = !!S.brNew.name.trim(); S.brNew.name = el.value; if (had !== !!el.value.trim()) render(); };
+CHANGE.brNewType = (el) => { S.brNew.type = el.value; };
+CHANGE.brType = (el) => { const b = brById(el.dataset.id); if (!b) return; b.type = el.value; saveSettings(); render(); };
+CHANGE.brShow = (el) => { const b = brById(el.dataset.id); if (!b) return; b.hidden = !el.checked; saveSettings(); render(); };
+CHANGE.brName = (el) => {
+  const b = brById(el.dataset.id), v = el.value.trim();
+  if (!b || v === b.name) return;
+  if (!v || SET.brands.some((x) => x !== b && normalize(x.name) === normalize(v))) { toast(v ? `فيه شركة اسمها «${v}» بالفعل` : 'اسم الشركة مايبقاش فاضي', 'err'); beep(); render(); return; }
+  const old = b.name; b.name = v; DATA.products.forEach((p) => { if (p.brand === old) p.brand = v; }); saveSettings(); indexProducts(); render();
+  toast(`«${old}» بقت «${v}»، وموديلاتها معاها`);
+};
+Object.assign(ACT, {
+  brMove: (d) => { const i = SET.brands.findIndex((b) => b.id === d.id), j = i + +d.d; if (i < 0 || !SET.brands[j]) return; [SET.brands[i], SET.brands[j]] = [SET.brands[j], SET.brands[i]]; saveSettings(); render(); },
+  brDel: (d) => { const b = brById(d.id); if (!b || !b.custom || DATA.products.some((p) => p.brand === b.name)) return; SET.brands = SET.brands.filter((x) => x !== b); saveSettings(); render(); toast(`اتمسحت «${b.name}»`, 'info'); },
+  brAdd: () => {
+    const N = S.brNew, name = N.name.trim();
+    if (!name) return;
+    if (SET.brands.some((b) => normalize(b.name) === normalize(name))) { toast(`فيه شركة اسمها «${name}» بالفعل`, 'err'); beep(); return; }
+    SET.brands.push({ id: `b${Date.now().toString(36)}`, name, type: N.type, hidden: false, custom: true }); saveSettings();
+    S.brNew = { name: '', type: N.type }; render(); toast(`اتضافت «${name}»، وهتظهر في «صنف جديد»`);
+  },
+});
 const saveCats = () => { saveSettings(); indexProducts(); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'cat-new') { e.preventDefault(); ACT.catAdd(); } });
 INPUT.catName = (el) => { const c = catById(el.dataset.id), v = el.value.trim(); if (!c || !v) return; c.name = v; saveCats(); };
 INPUT.catNew = (el) => { const had = !!S.catNew.name.trim(); S.catNew.name = el.value; if (had !== !!el.value.trim()) render(); };
-CHANGE.catParent = (el) => { S.catNew.parent = el.value; };
+CHANGE.catParent = (el) => { S.catNew.parent = el.value; render(); };
+CHANGE.catKindNew = (el) => { S.catNew.kind = el.value; };
 CHANGE.catShow = (el) => { const c = catById(el.dataset.id); if (!c) return; c.hidden = !el.checked; saveCats(); render(); };
 CHANGE.showImages = (el) => { SET.showImages = el.checked; saveSettings(); render(); };
 Object.assign(ACT, {
@@ -99,8 +148,8 @@ Object.assign(ACT, {
     const N = S.catNew, name = N.name.trim();
     if (!name) return;
     if (SET.cats.some((c) => normalize(c.name) === normalize(name))) { toast(`فيه تصنيف اسمه «${name}» بالفعل`, 'err'); beep(); return; }
-    SET.cats.push({ id: `c${Date.now().toString(36)}`, name, icon: N.icon, parent: N.parent || null, hidden: false, custom: true });
-    saveCats(); S.catNew = { name: '', parent: N.parent, icon: 'tag' }; render();
+    SET.cats.push({ id: `c${Date.now().toString(36)}`, name, icon: N.icon, parent: N.parent || null, hidden: false, custom: true, kind: N.parent ? null : (N.kind === 'phone' ? 'phone' : 'item') });
+    saveCats(); S.catNew = { name: '', parent: N.parent, icon: 'tag', kind: 'item' }; render();
     toast(`اتضاف «${name}»${N.parent ? ` تحت «${catName(N.parent)}»` : ''}، وهيظهر في شاشة البيع`);
   },
 });

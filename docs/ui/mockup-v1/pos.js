@@ -7,15 +7,27 @@ function normalize(s) {
     .replace(/\s+/g, ' ').trim();
 }
 /* ===== التصنيفات: رئيسية + فرعية (من الإعدادات) ===== */
+// تحت تصنيفات الموبايلات (الجديد والمستعمل) زراير الشركات بدل الفرعي: الاختيار «phones~Samsung» = التصنيف ~ الشركة
 const catById = (id) => SET.cats.find((c) => c.id === id);
 const catName = (id) => (catById(id) || {}).name || '';
-const mainOf = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
+const brandPick = (id) => (String(id).includes('~') ? String(id).split('~') : null);
+const mainOf = (id) => { const bp = brandPick(id); if (bp) return bp[0]; const c = catById(id); return c && c.parent ? c.parent : id; };
+// نوع التصنيف: phone (موبايل جديد) أو used (مستعمل) أو item (بالعدد). الفرعي بياخد نوع الرئيسي
+const catKind = (id) => { const c = catById(mainOf(id)); return (c && c.kind) || 'item'; };
+// دوسة تانية على الفرعي (أو الشركة) بترجع للرئيسي
+const chipToggle = (cur, id) => { if (cur !== id) return id; const bp = brandPick(id); if (bp) return bp[0]; const c = catById(id); return c && c.parent ? c.parent : id; };
 const catFull = (id) => { const c = catById(id); return !c ? '' : c.parent ? `${catName(c.parent)} / ${c.name}` : c.name; };
 const mainCats = () => SET.cats.filter((c) => !c.parent && !c.hidden);
 const subCats = (mainId) => SET.cats.filter((c) => c.parent === mainId && !c.hidden);
-const inCat = (p, id) => p.cat === id || mainOf(p.cat) === id;
+const inCat = (p, id) => { const bp = brandPick(id); return bp ? inCat(p, bp[0]) && p.brand === bp[1] : p.cat === id || mainOf(p.cat) === id; };
 const catCount = (id) => DATA.products.filter((p) => inCat(p, id)).length;
-const catVisible = (id) => { const c = catById(id); return !!c && !c.hidden && (!c.parent || !(catById(c.parent) || {}).hidden); };
+const catVisible = (id) => { const bp = brandPick(id); if (bp) return catVisible(bp[0]) && DATA.products.some((p) => inCat(p, id)); const c = catById(id); return !!c && !c.hidden && (!c.parent || !(catById(c.parent) || {}).hidden); };
+// الشركات اللي ليها أصناف في التصنيف ده، بترتيب الإعدادات (والشركة اللي مش في الإعدادات في الآخر)
+function brandsIn(mainId) {
+  const names = [...new Set(DATA.products.filter((p) => p.brand && inCat(p, mainId)).map((p) => p.brand))];
+  const order = (n) => { const i = SET.brands.findIndex((b) => b.name === n); return i < 0 ? 999 : i; };
+  return names.sort((a, b) => order(a) - order(b));
+}
 // اسم التصنيف (والرئيسي بتاعه) داخل في البحث: «اكسسوار» بتجيب كل الإكسسوارات
 function indexProducts() { DATA.products.forEach((p) => { p._hay = normalize([p.name, p.kw, p.sku, catFull(p.cat)].join(' ')); p._nn = normalize(p.name); }); }
 indexProducts();
@@ -24,9 +36,10 @@ function catChipsHTML(sel, act) {
   const fixed = act === 'cat' ? [{ id: 'top', name: 'الأكثر مبيعًا', icon: 'flame' }, { id: 'all', name: 'الكل', icon: 'layout-grid' }] : [{ id: 'all', name: 'الكل', icon: 'layout-grid' }];
   const selMain = sel === 'top' || sel === 'all' ? null : mainOf(sel);
   const chip = (c, on, n, cls = '') => `<button type="button" class="chip ${cls} ${on ? 'on' : ''}" data-act="${act}" data-id="${c.id}">${icon(c.icon)}<bdi dir="rtl">${esc(c.name)}</bdi>${n != null ? `<span class="cnt num">${num(n)}</span>` : ''}</button>`;
-  const subs = selMain ? subCats(selMain) : [];
+  let subs = selMain ? subCats(selMain) : [];
+  if (selMain && !subs.length && catKind(selMain) !== 'item') subs = brandsIn(selMain).map((b) => ({ id: `${selMain}~${b}`, name: b, icon: '' }));
   return `<div class="chips cats">${fixed.map((c) => chip(c, sel === c.id)).join('')}${mainCats().map((c) => chip(c, selMain === c.id, catCount(c.id))).join('')}</div>`
-    + (subs.length ? `<div class="chips subcats" aria-label="أقسام ${esc(catName(selMain))}">${subs.map((c) => chip(c, sel === c.id, catCount(c.id), 'sub')).join('')}</div>` : '');
+    + (subs.length ? `<div class="chips subcats" aria-label="${catKind(selMain) === 'item' ? 'أقسام' : 'شركات'} ${esc(catName(selMain))}">${subs.map((c) => chip(c, sel === c.id, catCount(c.id), 'sub')).join('')}</div>` : '');
 }
 const prod = (id) => DATA.products.find((p) => p.id === id);
 const inAnyCart = (imei) => S.invoices.some((inv) => inv.lines.some((l) => l.imei === imei));
@@ -37,7 +50,7 @@ const unitsFree = (pid) => unitsIn(pid).filter((u) => !inAnyCart(u.imei));
 const unitLines = (pid) => S.invoices.reduce((a, inv) => a + inv.lines.filter((l) => l.kind === 'unit' && l.pid === pid).length, 0);
 const stockOf = (p) => (p.serial ? Math.max(0, p.stock - unitLines(p.id)) : p.stock);
 const avgCost = (p) => { const us = unitsIn(p.id); return us.length ? Math.round(us.reduce((a, u) => a + u.cost, 0) / us.length) : p.cost; };
-const warrantyOf = (p) => (p.cat === 'used' ? +SET.warrantyUsed : p.cat === 'phones' ? +SET.warrantyNew : p.warranty);
+const warrantyOf = (p) => { const k = catKind(p.cat); return k === 'used' ? +SET.warrantyUsed : k === 'phone' ? +SET.warrantyNew : p.warranty; };
 const luhnOk = (s) => /^\d{15}$/.test(s) && DATA.luhnDigit(s.slice(0, 14)) === s[14];
 const imeiHTML = (imei) => `<bdi dir="ltr" class="mono">${imei.slice(0, -4)}<b>${imei.slice(-4)}</b></bdi>`;
 const methodName = (id) => (DATA.payMethods.find((x) => x.id === id) || {}).name || id;
@@ -149,7 +162,7 @@ function addItem(p, qty = 1) {
   render(); focusSearch();
 }
 // سطر موبايل: من غير IMEI (imei: null) لحد ما تسجّله — أو بالـ IMEI على طول
-const phoneLine = (p) => ({ kind: 'unit', pid: p.id, name: p.name, price: p.price, cost: avgCost(p), qty: 1, imei: null, color: null, warranty: warrantyOf(p), icon: p.icon, used: p.cat === 'used' });
+const phoneLine = (p) => ({ kind: 'unit', pid: p.id, name: p.name, price: p.price, cost: avgCost(p), qty: 1, imei: null, color: null, warranty: warrantyOf(p), icon: p.icon, used: catKind(p.cat) === 'used' });
 function addPhone(p) {
   const inv = cur();
   inv.lines.push(phoneLine(p));
@@ -225,11 +238,14 @@ function clearDo() { const inv = cur(); inv.lines = []; inv.discount = null; S.s
 
 /* ===== شاشة البيع ===== */
 function tilesHTML() {
-  let list = DATA.products;
+  // الجهاز المستعمل جهاز واحد: لما يتباع (أو يكون في فاتورة) مربعه بيختفي بدل ما يفضل «خلصان»
+  let list = DATA.products.filter((p) => catKind(p.cat) !== 'used' || stockOf(p) > 0);
   if (S.cat === 'top') list = [...list].sort((a, b) => b.sold - a.sold).slice(0, 12);
   else if (S.cat !== 'all') list = list.filter((p) => inCat(p, S.cat)).sort((a, b) => b.sold - a.sold);
-  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزن. وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
-  return list.map(tileHTML).join('');
+  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزن. وتقدر تغيّر اسمه أو تخفيه من الإعدادات، في «الأصناف والبيع»</span></div>`;
+  // الصنف اللي ليه تفرعات بيظهر مربع واحد، والنوع بيتختار بعد الدوسة
+  const seen = new Set();
+  return list.filter((p) => !p.fam || (!seen.has(p.fam) && seen.add(p.fam))).map((p) => (p.fam ? famTileHTML(p.fam) : tileHTML(p))).join('');
 }
 function tileHTML(p) {
   const st = stockOf(p);
@@ -239,6 +255,17 @@ function tileHTML(p) {
     ${p.serial && imeiRequired() ? `<span class="corner tag accent">${icon('scan-barcode')} IMEI</span>` : ''}
     <div class="name"><bdi dir="rtl">${esc(p.name)}</bdi></div>
     <div class="foot"><span class="price num">${money(p.price)}</span><span class="stock ${cls}">${st <= 0 ? 'خلصان' : `${num(st)} متاح`}</span></div>
+  </button>`;
+}
+const famOf = (fam) => DATA.products.filter((p) => p.fam === fam);
+function famTileHTML(fam) {
+  const vs = famOf(fam), p = vs[0], st = vs.reduce((a, x) => a + stockOf(x), 0), lo = Math.min(...vs.map((x) => x.price)), hi = Math.max(...vs.map((x) => x.price));
+  const cls = st <= 0 ? 'out' : st <= p.min ? 'low' : '';
+  return `<button type="button" class="tile fam" data-act="tileFam" data-fam="${fam}" title="ليه ${kindsWord(vs.length)}: اختار النوع بعد الدوسة">
+    <div class="ico ${prodImg(p) ? 'img' : ''}">${prodVisual(p)}</div>
+    <span class="corner tag">${icon('layers')} ${kindsWord(vs.length)}</span>
+    <div class="name"><bdi dir="rtl">${esc(p.base)}</bdi></div>
+    <div class="foot"><span class="price num">${lo === hi ? money(lo) : `من ${money(lo)}`}</span><span class="stock ${cls}">${st <= 0 ? 'خلصان' : `${num(st)} متاح`}</span></div>
   </button>`;
 }
 function lineHTML(l, i) {
@@ -360,7 +387,8 @@ function modalKey(e) {
 
 /* ===== أفعال شاشة البيع ===== */
 Object.assign(ACT, {
-  cat: (d) => { const c = catById(d.id); S.cat = S.cat === d.id && c && c.parent ? c.parent : d.id; render(); }, // دوسة تانية على الفرعي بترجع للرئيسي
+  cat: (d) => { S.cat = chipToggle(S.cat, d.id); render(); },
+  tileFam: (d) => openVariantPicker(d.fam),
   lineImei: (d) => { const l = cur().lines[+d.i]; if (!l) return; S.sel = +d.i; openImeiPicker(prod(l.pid), +d.i); },
   tile: (d) => pickProduct(prod(d.id)),
   pickRes: (d) => pickResult(+d.i),

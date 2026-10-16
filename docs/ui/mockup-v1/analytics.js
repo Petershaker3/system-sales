@@ -177,6 +177,28 @@ function receiveCost(stock, avg, qty, unitCost) {
   return q > 0 ? Math.ceil((q0 * avg + qty * unitCost) / q) : unitCost;
 }
 
+/* --- الأصناف: قواعد التسجيل (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 2) --- */
+// اسم الموبايل = الشركة + الموديل + المساحة. الموديل اللي بيبدأ باسم الشركة أو بخط من خطوطها (iPhone و Redmi) ما بيتكررش قبله اسم الشركة
+function phoneTitle(brand, model, rom) {
+  const m = String(model || '').trim().replace(/\s+/g, ' '), name = brand ? brand.name : '', low = m.toLowerCase();
+  const bare = !name || low.startsWith(`${name.toLowerCase()} `) || (brand.lines || []).some((l) => low.startsWith(l.toLowerCase()));
+  return [bare ? '' : name, m, rom || ''].filter(Boolean).join(' ');
+}
+// المواصفات زي ما بتظهر في المخزن وعلى الجهاز: «128GB، رام 6GB». الزراير من غير مواصفات
+const specText = (rom, ram) => [rom, ram ? `رام ${ram}` : ''].filter(Boolean).join('، ');
+// التفرعات: كل قيمة من الأول × كل قيمة من التاني (والتاني اختياري)، بالترتيب اللي اتكتبوا بيه
+function variantCombos(dims) {
+  const lists = dims.filter((d) => d.length);
+  if (!lists.length || lists.length < dims.filter((d, i) => i === 0 || d.length).length) return [];
+  return lists.reduce((acc, vals) => acc.flatMap((c) => vals.map((v) => [...c, v])), [[]]);
+}
+// باركود EAN-13: رقم المراجعة (الأوزان 1 و 3). الأكواد اللي المحل بيعملها لنفسه بتبدأ بـ 2 (للاستعمال الداخلي)
+function ean13(body12) {
+  const t = [...body12].reduce((a, d, i) => a + Number(d) * (i % 2 ? 3 : 1), 0);
+  return body12 + String((10 - (t % 10)) % 10);
+}
+const ean13Ok = (code) => /^\d{13}$/.test(code) && ean13(code.slice(0, 12)) === code;
+
 /* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */
 // البيعة اللي خلصت ← سطر في السجل بنفس شكل الفواتير التجريبية (والخدمات زي تسليم الصيانة تصنيفها «svc»)
 function histRecord(sale) {

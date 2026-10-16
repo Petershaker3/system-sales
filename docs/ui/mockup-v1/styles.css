@@ -231,6 +231,8 @@ input[dir="ltr"] { text-align: left; }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* جوه نافذة بتسكرول: الجدول ياخد طوله والنافذة هي اللي تسكرول (من غير كده الجدول كان بيتكبس لـ 2 بكسل) */
+.modal-b.stack > .table-wrap { flex: none; }
 .seg { display: inline-flex; background: var(--surface-3); border-radius: var(--r-m); padding: 4px; gap: 4px; flex-wrap: wrap; max-width: 100%; }
 .seg button {
   border: 0; background: transparent; padding: 7px 12px; border-radius: var(--r-s); font-weight: 600; color: var(--text-2);
@@ -864,6 +866,57 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .sh-none { padding: 2px; }
 .no-res .sh-quick { display: flex; margin: 10px auto 0; }
 .result .sh-quick { flex: none; }
+
+/* ===== صنف جديد (views/catalog.js) واختيار النوع في البيع ===== */
+.modal.ni { width: 780px; }
+.ni-kinds { display: grid; gap: 8px; }
+.ni-kind { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--surface); color: var(--text); text-align: start; cursor: pointer; font: inherit; }
+.ni-kind:hover, .ni-kind:focus-visible { border-color: var(--accent-text); background: var(--accent-weak); }
+.ni-kind:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.ni-kind .t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ni-kind .t small { color: var(--text-2); font-size: .85rem; }
+.ni-kind .t-ico { width: 40px; height: 40px; background: var(--accent-weak); color: var(--accent-text); }
+.ni-kind-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.ni-row { display: grid; gap: 6px; min-width: 0; }
+.ni-row > .label { font-size: .82rem; font-weight: 600; color: var(--text-2); }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.chip.ghost-chip { border-style: dashed; color: var(--accent-text); background: transparent; }
+.ni-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ni-inline input { flex: 1; min-width: 0; height: 40px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 10px; background: var(--surface); color: var(--text); font: inherit; }
+.ni-inline input:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.chips .ni-inline input { width: 170px; flex: none; height: 34px; }
+.ni-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-s); background: var(--surface); }
+.ni-tags:focus-within { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.ni-tags .tag { gap: 4px; }
+.ni-tag-in { flex: 1; min-width: 150px; height: 30px; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; }
+.ni-sugg .chip.sub { color: var(--text-2); }
+.ni-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border-radius: var(--r-s); background: var(--surface-2); color: var(--text-2); font-size: .9rem; }
+.ni-name b { color: var(--text); }
+.ni-foot { font-size: .85rem; display: flex; gap: 6px; align-items: flex-start; }
+.ni-foot svg.i, .ni-name svg.i { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.ni-switch { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-m); cursor: pointer; }
+.ni-switch .t { display: grid; gap: 2px; }
+.ni-switch small { color: var(--text-2); font-size: .85rem; }
+.ni-dim { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; align-items: start; }
+.ni-dim .ni-row { padding-top: 22px; }
+.ni-var .rc-in.ni-sku { width: 150px; text-align: start; }
+.ni-var-f { gap: 8px; align-items: center; font-size: .85rem; }
+.ni-more { justify-self: start; }
+.vr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.vr { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--surface); color: var(--text); text-align: start; cursor: pointer; font: inherit; }
+.vr:hover, .vr.on { border-color: var(--accent-text); background: var(--accent-weak); }
+.vr:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.vr:disabled { cursor: not-allowed; border-style: dashed; background: var(--surface-2); color: var(--muted); }
+.vr small { font-size: .8rem; }
+.rc-mode { align-self: start; }
+.rc-top.solo { grid-template-columns: minmax(0, 1fr); }
+.rc-find-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.rc-find-row .inline-search { flex: 1; }
+.rc-none { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat-add { grid-template-columns: minmax(0, 1fr) 200px 200px auto; }
+.br-row { grid-template-columns: minmax(0, 1fr) 130px 96px auto auto auto 32px; }
+.br-type { height: 36px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 8px; background: var(--surface); color: var(--text); font: inherit; }
+.cat-add.br-add { grid-template-columns: minmax(0, 1fr) 160px auto; }
 
 /* ===== الحركة: لو الجهاز متظبط على «تقليل الحركة» — من غير ظهور تدريجي ولا هزّة ولا خط الكاميرا ===== */
 @media (prefers-reduced-motion: reduce) {

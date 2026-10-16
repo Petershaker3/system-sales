@@ -28,6 +28,20 @@ function invRow(p, own) {
   }
   return html;
 }
+// الصنف اللي ليه تفرعات: صف واحد بالعدد كله، ويتفتح على أنواعه (كل نوع بباركوده وسعره وعدده)
+const invStatus = (st, min) => (st <= 0 ? '<span class="tag danger">خلصان</span>' : st <= min ? '<span class="tag warn">قرب يخلص</span>' : '<span class="tag ok">متوفر</span>');
+const range = (a) => { const lo = Math.min(...a), hi = Math.max(...a); return lo === hi ? money(lo) : `${money(lo)} لـ ${money(hi)}`; };
+function famRowHTML(fam, own) {
+  const vs = famOf(fam), p = vs[0], st = vs.reduce((a, x) => a + stockOf(x), 0), open = S.inv.open[`f:${fam}`], img = IMGS[p.id];
+  const low = vs.filter((x) => stockOf(x) <= x.min).length;
+  const status = st <= 0 ? '<span class="tag danger">خلصان</span>' : low ? `<span class="tag warn">${low === 1 ? 'نوع قرب يخلص' : `${kindsWord(low)} قربوا يخلصوا`}</span>` : '<span class="tag ok">متوفر</span>';
+  let html = `<tr class="hov fam-row">
+    <td><div class="row"><button type="button" class="icon-btn sm" data-act="invOpen" data-id="f:${fam}" title="الأنواع" aria-expanded="${!!open}">${icon(open ? 'chevron-up' : 'chevron-down')}</button><button type="button" class="pic ${img ? 'has' : ''}" data-act="imgPick" data-id="${p.id}" title="${img ? 'غيّر صورة الصنف' : 'ضيف صورة للصنف (اختياري)'}">${img ? `<img src="${img}" alt="">` : icon(p.icon)}<span class="cam">${icon('camera')}</span></button><bdi dir="rtl" class="ell"><b>${esc(p.base)}</b></bdi><span class="tag">${icon('layers')} ${kindsWord(vs.length)}</span></div></td>
+    <td><bdi dir="rtl">${esc(catFull(p.cat))}</bdi></td><td><span class="muted">حسب ${esc(p.dims.join(' و'))}</span></td><td class="num">${range(vs.map((x) => x.price))}</td>
+    ${own ? `<td class="num">${range(vs.map((x) => x.cost))}</td><td></td>` : ''}<td class="num"><b>${num(st)}</b></td><td>${status}</td></tr>`;
+  if (open) html += vs.map((v) => `<tr class="sub"><td><bdi dir="rtl">${esc(v.vr.join('، '))}</bdi></td><td></td><td>${v.sku ? `<bdi dir="ltr" class="mono">${v.sku}</bdi>` : '—'}</td><td class="num">${money(v.price)}</td>${own ? `<td class="num">${money(v.cost)}</td><td class="num">${num(Math.round(((v.price - v.cost) / v.price) * 100))}%</td>` : ''}<td class="num">${num(stockOf(v))}</td><td>${invStatus(stockOf(v), v.min)}</td></tr>`).join('');
+  return html;
+}
 function viewInventory() {
   const I = S.inv, q = normalize(I.q), own = isOwner();
   const tabs = `<div class="seg inv-seg"><button type="button" class="${I.tab !== 'short' ? 'on' : ''}" data-act="invView" data-id="items">الأصناف</button><button type="button" class="${I.tab === 'short' ? 'on' : ''}" data-act="invView" data-id="short">النواقص <span class="cnt num">${num(SHORT.length)}</span></button></div>`;
@@ -37,19 +51,22 @@ function viewInventory() {
     ${shortView()}
   </div>`;
   const qd = toLatin(I.q).replace(/\D/g, '');
-  if (I.cat !== 'all' && !catById(I.cat)) I.cat = 'all';
+  if (I.cat !== 'all' && !catById(I.cat) && !(brandPick(I.cat) && catVisible(I.cat))) I.cat = 'all';
   let list = DATA.products.filter((p) => (I.cat === 'all' || inCat(p, I.cat)) &&
     (!q || p._hay.includes(q) || (qd.length >= 4 && DATA.units.some((u) => u.pid === p.id && u.imei.includes(qd)))));
-  const value = DATA.products.reduce((a, p) => a + stockValue(p), 0);
+  const value = DATA.products.reduce((a, p) => a + stockValue(p), 0), seenFam = new Set();
+  // من غير بحث: الأنواع متجمّعة في صف واحد. والبحث بيجيب النوع نفسه بالاسم أو الباركود
+  const rows = list.map((p) => (!p.fam || q ? invRow(p, own) : seenFam.has(p.fam) ? '' : (seenFam.add(p.fam), famRowHTML(p.fam, own)))).join('');
   return `<div class="page">
     <div class="page-h"><h2>المخزن</h2>${tabs}<span class="sub">${num(DATA.products.length)} صنف و${num(DATA.units.filter((u) => u.status === 'in').length)} جهاز بالـ IMEI</span>${own ? `<span class="tag accent">قيمة البضاعة بالتكلفة ${money(value)}</span>` : ''}<span class="sp"></span>
       <label class="inline-search">${icon('search')}<input id="inv-q" data-input="invQ" value="${esc(I.q)}" placeholder="اسم أو كود أو IMEI…" autocomplete="off"></label>
+      <button type="button" class="btn" data-act="storeNew" title="موبايل جديد أو مستعمل أو إكسسوار، بتفاصيله">${icon('circle-plus')} صنف جديد</button>
       <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button>
       <button type="button" class="btn" data-act="soon">${icon('tag')} طباعة ملصقات</button></div>
     ${catChipsHTML(I.cat, 'invCat')}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>الصنف</th><th>القسم</th><th>الكود</th><th>سعر البيع</th>${own ? '<th>التكلفة</th><th>الهامش</th>' : ''}<th>المتاح</th><th>الحالة</th></tr></thead>
-      <tbody>${list.map((p) => invRow(p, own)).join('') || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">مفيش أصناف</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">مفيش أصناف</td></tr>'}</tbody>
     </table></div>
     <div class="note">${icon('camera')} دوس على أيقونة أي صنف عشان تضيفله صورة (اختياري). بتظهر في شاشة البيع والبحث وتطبيق الموبايل.${own ? '' : ' والتكلفة والهامش بيظهروا للمالك بس.'}</div>
     <input type="file" id="img-file" accept="image/*" hidden data-change="imgFile">
@@ -83,7 +100,9 @@ CHANGE.imgFile = (el) => {
   });
 };
 Object.assign(ACT, {
-  invCat: (d) => { const c = catById(d.id); S.inv.cat = S.inv.cat === d.id && c && c.parent ? c.parent : d.id; render(); },
+  // صنف جديد من المخزن: بيفتح الاستلام تحته عشان العدد والتكلفة يتكتبوا مرة واحدة. أول مرة (مفيش استلامات) = «بضاعة موجودة عندي»
+  storeNew: () => { rcOpen({ mode: DATA.receipts.length ? 'supplier' : 'opening' }); openNewItem(); },
+  invCat: (d) => { S.inv.cat = chipToggle(S.inv.cat, d.id); render(); },
   invOpen: (d) => { S.inv.open[d.id] = !S.inv.open[d.id]; render(); },
   imgPick: (d) => { S._imgFor = d.id; const f = $('#img-file'); if (f) f.click(); },
   imgDel: (d) => { delete IMGS[d.id]; saveImages(); render(); toast('اتشالت الصورة، والصنف رجع بالأيقونة', 'info'); },

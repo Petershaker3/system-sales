@@ -23,10 +23,11 @@ const DATA = (() => {
 
   // التصنيفات: رئيسية، وتحت «إكسسوارات» تصنيفات فرعية (parent).
   // «الأكثر مبيعًا» و«الكل» ثابتين في شاشة البيع. الأسماء والترتيب والإظهار وإضافة تصنيف جديد من الإعدادات.
+  // kind بيحدد «صنف جديد» بيسأل عن إيه: phone = موبايل جديد بالشركة والموديل، used = جهاز مستعمل، item = بالعدد. الفرعي بياخد نوع الرئيسي
   const categories = [
-    { id: 'phones', name: 'موبايلات جديدة', icon: 'smartphone' },
-    { id: 'used', name: 'مستعمل', icon: 'recycle' },
-    { id: 'acc', name: 'إكسسوارات', icon: 'package' },
+    { id: 'phones', name: 'موبايلات جديدة', icon: 'smartphone', kind: 'phone' },
+    { id: 'used', name: 'مستعمل', icon: 'recycle', kind: 'used' },
+    { id: 'acc', name: 'إكسسوارات', icon: 'package', kind: 'item' },
     { id: 'cases', name: 'جرابات', icon: 'shield', parent: 'acc' },
     { id: 'screens', name: 'اسكرينات', icon: 'layers', parent: 'acc' },
     { id: 'chargers', name: 'شواحن', icon: 'plug-zap', parent: 'acc' },
@@ -34,7 +35,23 @@ const DATA = (() => {
     { id: 'audio', name: 'سماعات', icon: 'headphones', parent: 'acc' },
     { id: 'power', name: 'باور بانك وميموري', icon: 'battery-charging', parent: 'acc' },
     { id: 'car', name: 'حوامل', icon: 'car', parent: 'acc' },
-    { id: 'smart', name: 'ساعات ذكية', icon: 'watch' },
+    { id: 'smart', name: 'ساعات ذكية', icon: 'watch', kind: 'item' },
+  ];
+  // شركات الموبايلات (من الإعدادات، زي السيستم القديم): type = تاتش أو زراير أو الاتنين. ar = اسمها بالعربي للبحث.
+  // lines = موديلات بتتكتب من غير اسم الشركة (iPhone و Redmi)، فالاسم يطلع «iPhone 16 128GB» مش «Apple iPhone 16 128GB»
+  const brands = [
+    { id: 'samsung', name: 'Samsung', type: 'touch', ar: 'سامسونج جالاكسي جلاكسي' },
+    { id: 'apple', name: 'Apple', type: 'touch', lines: ['iPhone'], ar: 'ابل آبل ايفون آيفون' },
+    { id: 'xiaomi', name: 'Xiaomi', type: 'touch', lines: ['Redmi', 'POCO'], ar: 'شاومي شاومى ريدمي ردمي بوكو' },
+    { id: 'oppo', name: 'OPPO', type: 'touch', ar: 'اوبو أوبو' },
+    { id: 'realme', name: 'realme', type: 'touch', ar: 'ريلمي ريل مي' },
+    { id: 'honor', name: 'Honor', type: 'touch', ar: 'هونر هونور' },
+    { id: 'infinix', name: 'Infinix', type: 'touch', ar: 'انفينكس انفنكس' },
+    { id: 'tecno', name: 'Tecno', type: 'both', ar: 'تكنو تيكنو' },
+    { id: 'vivo', name: 'vivo', type: 'touch', ar: 'فيفو' },
+    { id: 'huawei', name: 'Huawei', type: 'touch', ar: 'هواوي' },
+    { id: 'nokia', name: 'Nokia', type: 'both', ar: 'نوكيا' },
+    { id: 'itel', name: 'itel', type: 'keypad', ar: 'ايتل آيتل' },
   ];
 
   const P = (id, cat, name, price, cost, o = {}) => ({
@@ -59,8 +76,8 @@ const DATA = (() => {
     phone('p10', 'iPhone 16 128GB', 57500, 54800, '35391811', 1, 2, 'ايفون آيفون ابل آبل apple', ['أسود'], '128GB'),
     phone('p11', 'Tecno Spark 30 128GB', 5999, 5500, '35118876', 0, 6, 'تكنو تيكنو سبارك', ['أسود', 'أبيض'], '128GB، رام 4GB', 2),
     used('u1', 'iPhone 13 128GB مستعمل فئة A', 21500, 19000, '35305611', 1, 3, 'ايفون آيفون مستعمل ابل', ['أزرق'], '128GB', 'فئة A'),
-    used('u2', 'Samsung Galaxy S22 مستعمل فئة B', 12500, 10800, '35062919', 1, 2, 'سامسونج جالاكسي مستعمل', ['أسود'], '128GB، رام 8GB', 'فئة B'),
-    used('u3', 'Redmi Note 12 مستعمل فئة A', 4900, 4000, '86455904', 2, 4, 'ريدمي ردمي شاومي مستعمل', ['رمادي', 'أزرق'], '128GB، رام 6GB', 'فئة A'),
+    used('u2', 'Samsung Galaxy S22 128GB مستعمل فئة B', 12500, 10800, '35062919', 1, 2, 'سامسونج جالاكسي مستعمل', ['أسود'], '128GB، رام 8GB', 'فئة B'),
+    used('u3', 'Redmi Note 12 128GB مستعمل فئة A', 4900, 4000, '86455904', 2, 4, 'ريدمي ردمي شاومي مستعمل', ['رمادي', 'أزرق'], '128GB، رام 6GB', 'فئة A'),
     P('a1', 'cases', 'جراب سيليكون شفاف', 120, 35, { stock: 64, sold: 180, icon: 'shield', kw: 'جراب كفر كفرات cover case سيليكون', sku: '6223001234560', min: 15 }),
     P('a2', 'screens', 'اسكرينة زجاج 9D', 100, 25, { stock: 118, sold: 210, icon: 'layers', kw: 'اسكرينه سكرينة سكرينه لزقة جلاس glass حماية شاشة', sku: '6223001234577', min: 20 }),
     P('a3', 'screens', 'اسكرينة نانو مط', 150, 40, { stock: 37, sold: 45, icon: 'layers', kw: 'اسكرينه سكرينة نانو مات', sku: '6223001234584', min: 10 }),
@@ -83,6 +100,27 @@ const DATA = (() => {
     P('s1', 'smart', 'ساعة ذكية T900 Ultra', 950, 650, { stock: 6, sold: 8, warranty: 3, icon: 'watch', kw: 'ساعه سمارت ووتش smart watch', sku: '6971234522008', min: 2 }),
     P('s2', 'smart', 'Xiaomi Smart Band 9', 1850, 1520, { stock: 4, sold: 3, warranty: 12, icon: 'watch', kw: 'شاومي باند سوار ذكي اسورة mi band', sku: '6941812790001', min: 2 }),
   ];
+  // صنف بتفرعات (المالك: «الإكسسوار بتفرعاته»): نفس الجراب لكل موديل ولون، ولكل نوع عدده وسعره وباركوده.
+  // اتسجّل جديد، فملوش مبيعات في السجل (والسجل تحت بيتولّد من غيره عشان أرقامه ما تتغيّرش)
+  {
+    const dims = ['الموبايل', 'اللون'], models = ['Galaxy A16', 'Galaxy A26', 'Redmi 14C', 'iPhone 16'], colors = ['أسود', 'كحلي', 'بينك'];
+    const stock = [6, 4, 0, 5, 3, 2, 2, 0, 3, 4, 1, 2], codes = ['2000000001012', '2000000001029', '2000000001036', '2000000001043', '2000000001050', '2000000001067'];
+    let k = 0;
+    for (const m of models) for (const c of colors) {
+      const iph = m.startsWith('iPhone');
+      products.push(P(`f1v${k + 1}`, 'cases', `جراب سيليكون ملون ${m} ${c}`, iph ? 180 : 150, iph ? 60 : 45,
+        { stock: stock[k], icon: 'shield', kw: 'جراب كفر كفرات سيليكون ملون cover case', sku: codes[k] || '', min: 2, fam: 'f1', base: 'جراب سيليكون ملون', vr: [m, c], dims }));
+      k++;
+    }
+  }
+  // الشركة والموديل والمساحة والرام لكل موبايل (من اسمه)، بنفس شكل اللي بيتسجّل من «صنف جديد»
+  for (const p of products) {
+    if (!p.serial) continue;
+    const b = brands.find((x) => p.name.startsWith(`${x.name} `) || (x.lines || []).some((l) => p.name.startsWith(`${l} `)));
+    const base = p.name.replace(/ مستعمل.*$/, ''), rom = (base.match(/ (\d+(?:GB|TB))$/) || p.storage.match(/^(\d+(?:GB|TB))/) || [])[1] || '';
+    const model = base.replace(new RegExp(`^${b.name} `), '').replace(new RegExp(` ${rom}$`), '').trim();
+    Object.assign(p, { brand: b.name, model, rom, ram: (p.storage.match(/رام (\d+GB)/) || [])[1] || '', ptype: 'touch' });
+  }
 
   // وحدات الأجهزة: كل جهاز بالـ IMEI بتاعه وتكلفته الفعلية
   const units = [];
@@ -204,9 +242,9 @@ const DATA = (() => {
      فيه نمو على السنة ومواسم السوق المصري، عشان مقارنات الشهور يبقى ليها معنى. */
   // آخر الاستلامات (تجريبي). المورد اسم بيكتبه المحل من غير سجل موردين، زي البرنامج الحقيقي (receive_stock)
   const receipts = [
-    { no: 41, at: new Date(Date.now() - 9 * 864e5), supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
-    { no: 42, at: new Date(Date.now() - 5 * 864e5), supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
-    { no: 43, at: new Date(Date.now() - 2 * 864e5), supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
+    { no: 41, at: new Date(Date.now() - 9 * 864e5), kind: 'supplier', supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
+    { no: 42, at: new Date(Date.now() - 5 * 864e5), kind: 'supplier', supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
+    { no: 43, at: new Date(Date.now() - 2 * 864e5), kind: 'supplier', supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
   ];
   const history = (() => {
     let hs = 20261016;
@@ -214,7 +252,7 @@ const DATA = (() => {
     const weighted = (list) => { const tot = list.reduce((a, p) => a + p.sold + 2, 0); let r = hr() * tot; for (const p of list) { r -= p.sold + 2; if (r <= 0) return p; } return list[list.length - 1]; };
     const imeiOf = (tac) => { let x = tac; while (x.length < 14) x += Math.floor(hr() * 10); return x + luhnDigit(x); };
     const newPhones = products.filter((p) => p.cat === 'phones'), usedPhones = products.filter((p) => p.cat === 'used');
-    const accs = products.filter((p) => !p.serial), addOns = accs.filter((p) => p.cat === 'cases' || p.cat === 'screens');
+    const accs = products.filter((p) => !p.serial && !p.fam), addOns = accs.filter((p) => p.cat === 'cases' || p.cat === 'screens');
     const sellerOf = () => { const r = hr(); return r < 0.42 ? 'u2' : r < 0.75 ? 'u3' : 'u1'; };
     const unitLine = (p) => ({ pid: p.id, name: p.name, cat: p.cat, qty: 1, price: p.price, cost: p.cost, imei: imeiOf(p.tac), warranty: p.warranty });
     const itemLine = (p, qty = 1) => ({ pid: p.id, name: p.name, cat: p.cat, qty, price: p.price, cost: p.cost, imei: null, warranty: p.warranty });
@@ -268,7 +306,7 @@ const DATA = (() => {
   })();
 
   return {
-    users, categories, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
+    users, categories, brands, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
     billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
   };
 })();

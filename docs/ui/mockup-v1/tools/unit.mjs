@@ -131,6 +131,22 @@ ok(rc(3, 520, 5, 480) === 495, 'receiving cost: an exact average stays exact (49
 ok(rc(0, 999, 5, 480) === 480 && rc(-2, 100, 3, 120) === 120, 'receiving cost: empty or negative stock takes the new unit cost');
 ok(rc(10, 100, 10, 100) === 100, 'receiving cost: the same cost keeps the average as it was');
 
+// 9) تسجيل الأصناف (docs/ui/STORE-CATALOG-WALLETS.md): اسم الموبايل، والتفرعات، والباركود الداخلي
+const has = (n) => run(`typeof ${n} === 'function'`);
+const B = run('DATA.brands'), bOf = (n) => B.find((b) => b.name === n);
+ok(has('phoneTitle') && run('phoneTitle')(bOf('Samsung'), 'Galaxy A16', '128GB') === 'Samsung Galaxy A16 128GB', 'phone name: brand + model + storage («Samsung Galaxy A16 128GB»)');
+ok(has('phoneTitle') && run('phoneTitle')(bOf('Apple'), 'iPhone 16', '128GB') === 'iPhone 16 128GB' && run('phoneTitle')(bOf('Xiaomi'), 'Redmi 14C', '128GB') === 'Redmi 14C 128GB', 'phone name: product lines go without the brand («iPhone 16 128GB»، «Redmi 14C 128GB»)');
+ok(has('phoneTitle') && run('phoneTitle')(bOf('Nokia'), '105', '') === 'Nokia 105' && run('phoneTitle')(bOf('Samsung'), 'samsung Galaxy A07', '64GB') === 'samsung Galaxy A07 64GB', 'phone name: a keypad phone has no storage, and a model that already says the brand is not doubled');
+ok(has('specText') && run('specText')('128GB', '6GB') === '128GB، رام 6GB' && run('specText')('128GB', '') === '128GB' && run('specText')('', '') === '', 'phone specs read like the demo («128GB، رام 6GB»)');
+ok(has('phoneTitle') && run('DATA.products').filter((p) => p.serial).every((p) => run('phoneTitle')(bOf(p.brand), p.model, p.rom) === p.name.replace(/ مستعمل.*$/, '')), 'every demo phone has the name its brand, model and storage give');
+const vc = has('variantCombos') ? run('variantCombos') : () => [];
+ok(JSON.stringify(vc([['A16', 'A26'], ['أسود', 'كحلي', 'بينك']])) === JSON.stringify([['A16', 'أسود'], ['A16', 'كحلي'], ['A16', 'بينك'], ['A26', 'أسود'], ['A26', 'كحلي'], ['A26', 'بينك']]) && vc([['A16', 'A26'], []]).length === 2 && vc([[], []]).length === 0, 'variants: every value of the first × every value of the second, in order (2 × 3 = 6)');
+ok(has('ean13') && run('ean13')('400638133393') === '4006381333931' && run('ean13')('590123412345') === '5901234123457' && run('ean13Ok')('4006381333931') && !run('ean13Ok')('4006381333932'), 'EAN-13 check digit (4006381333931، 5901234123457)');
+const fam = run('DATA.products').filter((p) => p.fam === 'f1');
+ok(fam.length === 12 && fam.every((p) => p.base === 'جراب سيليكون ملون' && p.vr.length === 2 && p.name === `${p.base} ${p.vr.join(' ')}`) && new Set(fam.map((p) => p.vr.join('|'))).size === 12, 'the demo case has 12 variants (4 models × 3 colours), each named «الصنف + النوع»');
+const skus = run('DATA.products').map((p) => p.sku).filter(Boolean);
+ok(has('ean13Ok') && new Set(skus).size === skus.length && fam.filter((p) => p.sku).every((p) => run('ean13Ok')(p.sku)), 'every barcode is unique, and the shop\'s own codes are valid EAN-13');
+
 // 6) كل اسم متعرّف في ملف واحد (اسم متكرر بين ملفين = الصفحة كلها تقف)
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const files = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), seen = new Map(), dups = [];
