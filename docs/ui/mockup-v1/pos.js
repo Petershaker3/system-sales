@@ -202,11 +202,11 @@ function moveSel(d) {
 }
 function holdInvoice() {
   const inv = cur();
-  if (!inv.lines.length) { toast('الفاتورة فاضية — مفيش حاجة تتعلّق', 'info'); return; }
+  if (!inv.lines.length) { toast('الفاتورة فاضية — مفيش حاجة تتحط في الانتظار', 'info'); return; }
   inv.held = true;
   S.invoices.push(newInvoice()); S.active = S.invoices.length - 1; S.sel = -1;
   render(); focusSearch();
-  toast(`اتعلّقت الفاتورة${inv.customer ? ` — ${inv.customer.name}` : ''}. ترجعلها من التبويبات فوق الفاتورة`);
+  toast(`الفاتورة اتحطت في الانتظار${inv.customer ? ` — ${inv.customer.name}` : ''}. ترجعلها من التبويبات فوق الفاتورة`);
 }
 function switchInvoice(i) {
   if (i === S.active) return;
@@ -261,8 +261,8 @@ const emptyCart = () => `<div class="empty"><div class="big-i">${icon('shopping-
   <div class="keys"><span><kbd>/</kbd> بحث</span><span><kbd>F9</kbd> خدمات</span><span><kbd>F4</kbd> عميل</span></div></div>`;
 function invTab(x, i) {
   const t = totals(x), on = i === S.active;
-  const label = on ? (x.customer ? esc(x.customer.name) : 'الفاتورة الحالية') : `${x.customer ? esc(x.customer.name) : 'معلّقة'} · ${money(t.total)}`;
-  return `<button type="button" class="inv-tab ${on ? 'on' : ''} ${x.held ? 'held' : ''}" data-act="invTab" data-i="${i}">${icon(on ? 'receipt' : 'pause')}<span class="tl">${label}</span>${on ? '' : `<span class="x" data-act="dropInv" data-i="${i}" title="إلغاء الفاتورة المعلّقة">${icon('x')}</span>`}</button>`;
+  const label = on ? (x.customer ? esc(x.customer.name) : 'الفاتورة الحالية') : `${x.customer ? esc(x.customer.name) : 'انتظار'} · ${money(t.total)}`;
+  return `<button type="button" class="inv-tab ${on ? 'on' : ''} ${x.held ? 'held' : ''}" data-act="invTab" data-i="${i}">${icon(on ? 'receipt' : 'pause')}<span class="tl">${label}</span>${on ? '' : `<span class="x" data-act="dropInv" data-i="${i}" title="إلغاء فاتورة الانتظار">${icon('x')}</span>`}</button>`;
 }
 function viewPOS() {
   if (S.cat !== 'top' && S.cat !== 'all' && !catVisible(S.cat)) S.cat = 'top';
@@ -298,14 +298,14 @@ function viewPOS() {
         <button type="button" class="btn primary btn-pay" data-act="pay" ${empty ? 'disabled' : ''}>${icon('banknote')} ادفع <span class="amt num">${money(t.total)}</span> <kbd>F12</kbd></button>
         <button type="button" class="btn" data-act="exactCash" ${empty ? 'disabled' : ''}>${icon('check')} كاش بالظبط</button>
         <button type="button" class="btn" data-act="discount" ${empty ? 'disabled' : ''}>خصم <kbd>F3</kbd></button>
-        <button type="button" class="btn" data-act="hold" ${empty ? 'disabled' : ''}>تعليق <kbd>F8</kbd></button>
+        <button type="button" class="btn" data-act="hold" ${empty ? 'disabled' : ''} title="حط الفاتورة دي في الانتظار وابدأ واحدة جديدة">انتظار <kbd>F8</kbd></button>
         <button type="button" class="btn ghost danger" data-act="clear" ${empty ? 'disabled' : ''} title="مسح الفاتورة">${icon('trash-2')}</button>
       </div>
     </aside>
   </div>${keysBar()}</div>`;
 }
 function keysBar() {
-  const K = [['Enter', 'إضافة ثم دفع'], ['F2', 'الكمية'], ['F3', 'خصم'], ['F4', 'عميل'], ['F8', 'تعليق'], ['F9', 'خدمات'], ['F12', 'دفع'], ['Del', 'حذف سطر'], ['+ / −', 'الكمية'], ['↑ ↓', 'اختيار سطر'], ['Ctrl+L', 'قفل']];
+  const K = [['Enter', 'إضافة ثم دفع'], ['F2', 'الكمية'], ['F3', 'خصم'], ['F4', 'عميل'], ['F8', 'انتظار'], ['F9', 'خدمات'], ['F12', 'دفع'], ['Del', 'حذف سطر'], ['+ / −', 'الكمية'], ['↑ ↓', 'اختيار سطر'], ['Ctrl+L', 'قفل']];
   return `<div class="keys-bar">${K.map(([k, l]) => `<span><kbd>${k}</kbd>${l}</span>`).join('')}<span class="sp"></span><span>${icon('smartphone')} موبايل يوسف جاهز كماسح</span></div>`;
 }
 VIEWS.pos = viewPOS;
@@ -377,7 +377,7 @@ Object.assign(ACT, {
     const i = +d.i, keep = cur();
     S.invoices.splice(i, 1);
     S.active = S.invoices.indexOf(keep);
-    render(); toast('اتلغت الفاتورة المعلّقة', 'info');
+    render(); toast('اتلغت فاتورة الانتظار', 'info');
   },
   toggleProfit: () => { S.showProfit = !S.showProfit; render(); },
   shiftClose: () => openShiftClose(),
@@ -612,7 +612,7 @@ MODALS.confirmClear = {
 /* ===== نافذة: الدفع (F12) — كاش / محافظ / فيزا / تقسيط / آجل + دفع مقسّم ===== */
 function openPay() {
   const inv = cur(); if (!inv.lines.length) return;
-  const mode = (SET.receiptMode === 'wa' || SET.receiptMode === 'both') && !inv.customer ? 'print' : SET.receiptMode;
+  const mode = defaultReceipt(inv);
   openModal({ type: 'pay', step: 'pay', method: 'cash', payments: [], amount: '', provider: 'valU', receipt: mode, wa: inv.customer ? inv.customer.phone : '', err: '' });
 }
 function payCalc(m) {
@@ -654,8 +654,8 @@ function payFormHTML(m) {
           <div class="r grand"><span>${m.payments.length ? 'الباقي المطلوب' : 'المطلوب'}</span><b class="num">${money(c.remaining)}</b></div>
         </div>
         <button type="button" class="btn" data-act="payPartial" ${c.canPartial ? '' : 'disabled'}>${icon('plus')} دفع جزئي بالطريقة دي</button>
-        <div class="field"><span class="label">الإيصال</span><div class="seg">${[['print', 'طباعة'], ['wa', 'واتساب'], ['both', 'الاتنين'], ['none', 'بدون']].map(([id, l]) => `<button type="button" class="${m.receipt === id ? 'on' : ''}" data-act="payRMode" data-id="${id}">${l}</button>`).join('')}</div></div>
-        ${m.receipt === 'wa' || m.receipt === 'both' ? `<div class="field"><label for="pay-wa">رقم الواتساب</label><input id="pay-wa" data-input="payWa" dir="ltr" inputmode="tel" value="${esc(m.wa)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>` : ''}
+        <div class="field"><span class="label">الإيصال</span><div class="seg">${receiptOpts().map(([id, l]) => `<button type="button" class="${m.receipt === id ? 'on' : ''}" data-act="payRMode" data-id="${id}">${l}</button>`).join('')}</div></div>
+        ${m.receipt === 'wa' || m.receipt === 'both' ? `<div class="field"><label for="pay-wa">رقم واتساب العميل</label><input id="pay-wa" data-input="payWa" dir="ltr" inputmode="tel" value="${esc(m.wa)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>` : ''}
       </div>
     </div></div>
     <div class="modal-f"><span class="muted">${inv.customer ? `العميل: ${esc(inv.customer.name)}` : 'عميل نقدي'}</span><span class="sp"></span>
@@ -687,7 +687,7 @@ function payConfirm() {
 function exactCash() {
   const inv = cur(); if (!inv.lines.length) return;
   const t = totals(inv);
-  const mode = (SET.receiptMode === 'wa' || SET.receiptMode === 'both') && !inv.customer ? 'print' : SET.receiptMode;
+  const mode = defaultReceipt(inv);
   S.sw = null;
   S.modal = { type: 'pay', step: 'pay', method: 'cash', payments: [], amount: '', provider: 'valU', receipt: mode, wa: inv.customer ? inv.customer.phone : '', err: '' };
   completeSale([{ method: 'cash', amount: t.total, received: t.total }], 0, mode, S.modal.wa);
@@ -717,8 +717,8 @@ function completeSale(payments, change, receiptMode, wa) {
   S.sales.push(sale);
   Object.assign(S.modal, { step: 'done', sale, err: '', _mounted: false });
   render();
-  if (receiptMode === 'print' || receiptMode === 'both') toast(`بيطبع الإيصال رقم ${sale.no} (كصورة عشان العربي يطلع مظبوط)`, 'info');
-  if (receiptMode === 'wa' || receiptMode === 'both') toast(`اتبعت الإيصال على واتساب ${wa}`);
+  if (hasPrinter() && (receiptMode === 'print' || receiptMode === 'both')) toast(`بيطبع الإيصال رقم ${sale.no} (كصورة عشان العربي يطلع مظبوط)`, 'info');
+  if (receiptMode === 'wa' || receiptMode === 'both') toast(`اتبعت الإيصال على واتساب ${wa} (صورة الإيصال + رسالة)`);
 }
 function finishAfterSale() {
   S.invoices.splice(S.active, 1);
@@ -763,9 +763,10 @@ function payDoneHTML(m) {
         </div>
         <div class="row wrap">
           <button type="button" class="btn primary lg" data-act="payDone">${icon('plus')} فاتورة جديدة <kbd>Enter</kbd></button>
-          <button type="button" class="btn" data-act="reprint">${icon('printer')} اطبع تاني</button>
-          <button type="button" class="btn" data-act="waSend">${icon('message-circle')} واتساب</button>
+          ${hasPrinter() ? `<button type="button" class="btn" data-act="reprint">${icon('printer')} اطبع تاني</button>` : ''}
+          ${m.askWa ? '' : `<button type="button" class="btn" data-act="waSend">${icon('message-circle')} ${s.wa ? 'ابعت تاني واتساب' : 'ابعت الإيصال واتساب'}</button>`}
         </div>
+        ${m.askWa ? `<div class="row wa-ask"><div class="field"><label for="done-wa">رقم واتساب العميل</label><input id="done-wa" data-input="doneWa" data-autofocus dir="ltr" inputmode="tel" value="${esc(m.wa2 || '')}" placeholder="01xxxxxxxxx" autocomplete="off"></div><button type="button" class="btn primary" data-act="doneWaGo">${icon('send')} ابعت <kbd>Enter</kbd></button></div><div class="err-msg">${esc(m.err)}</div>` : ''}
       </div>
       ${receiptHTML(s)}
     </div></div>
@@ -773,11 +774,21 @@ function payDoneHTML(m) {
 }
 MODALS.pay = {
   html: (m) => (m.step === 'done' ? payDoneHTML(m) : payFormHTML(m)),
-  enter: (m) => { if (m.step === 'done') finishAfterSale(); else payConfirm(); },
+  enter: (m) => { if (m.step === 'done') { if (m.askWa) doneWaGo(); else finishAfterSale(); } else payConfirm(); },
   key: (e, m) => { if (m.step !== 'done' && e.key === 'F4') { openCustomer(m); return true; } return false; },
 };
 INPUT.payAmt = (el) => { S.modal.amount = el.value; S.modal.err = ''; render(); };
-INPUT.payWa = (el) => { S.modal.wa = el.value; S.modal.err = ''; };
+// رسالة الغلط بتختفي أول ما يصلّح الرقم (بنرسم تاني بس لو كان فيه غلط — المؤشر بيرجع مكانه)
+INPUT.payWa = (el) => { const had = !!S.modal.err; S.modal.wa = el.value; S.modal.err = ''; if (had) render(); };
+INPUT.doneWa = (el) => { const had = !!S.modal.err; S.modal.wa2 = el.value; S.modal.err = ''; if (had) render(); };
+// بعد الدفع: لو العميل طلب الإيصال — بنبعته على رقمه (أو رقم يتكتب دلوقتي)
+function doneWaGo() {
+  const m = S.modal, s = m.sale, wa = toLatin(m.wa2 || '').replace(/\D/g, '');
+  if (!/^01\d{9}$/.test(wa)) { m.err = 'رقم الواتساب لازم يكون 11 رقم ويبدأ بـ 01'; beep(); render(); return; }
+  s.wa = wa; s.receiptMode = s.receiptMode === 'print' || s.receiptMode === 'both' ? 'both' : 'wa';
+  Object.assign(m, { askWa: false, err: '' }); render();
+  toast(`اتبعت الإيصال على واتساب ${wa}`);
+}
 Object.assign(ACT, {
   payMethod: (d) => { Object.assign(S.modal, { method: d.id, amount: '', err: '' }); render(); },
   payProv: (d) => { S.modal.provider = d.id; render(); },
@@ -789,23 +800,38 @@ Object.assign(ACT, {
   payCust: () => openCustomer(S.modal),
   payDone: () => finishAfterSale(),
   reprint: () => toast(`بيطبع الإيصال رقم ${S.modal.sale.no} تاني`, 'info'),
-  waSend: () => { const s = S.modal.sale; toast(s.customer ? `اتبعت الإيصال على واتساب ${s.customer.phone}` : 'اختار عميل الأول عشان الواتساب', s.customer ? 'ok' : 'info'); },
+  waSend: () => {
+    const m = S.modal, s = m.sale, ph = s.wa || (s.customer && s.customer.phone);
+    if (ph) { s.wa = ph; if (s.receiptMode === 'none') s.receiptMode = 'wa'; render(); toast(`اتبعت الإيصال على واتساب ${ph}`); return; }
+    Object.assign(m, { askWa: true, wa2: '', err: '', _mounted: false }); render();
+  },
+  doneWaGo: () => doneWaGo(),
 });
 
 /* ===== نافذة: خدمات سريعة (F9) — محافظ · كروت شحن · فواتير ===== */
+// العمولة مش ثابتة: «manual» البيّاع بيكتبها في كل عملية · «auto» بتتحسب من الإعدادات وتفضل قابلة للتعديل
 const walletFee = (a) => Math.max(+SET.feeMin, Math.round((a * +SET.feePct) / 100));
-function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', phone: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '' }); }
+const feeAuto = () => SET.feeMode === 'auto';
+// القيمة الفعلية: اللي اتكتب — أو المحسوبة لو الوضع تلقائي ومحدش غيّرها. NaN = لسه متكتبتش
+function svcFee(m, autoVal) { if (m.feeEdited || !feeAuto()) { const f = parseNum(m.fee); return isNaN(f) ? NaN : f; } return autoVal; }
+const feeShown = (m, autoVal, ok) => (m.feeEdited || !feeAuto() ? m.fee : ok ? String(autoVal) : '');
+function feeField(m, id, label, hint, autoVal, ok) {
+  return `<div class="r fee-r"><label for="${id}">${label} <small>${hint}</small></label><input id="${id}" class="fee-in num" data-input="svcFee" ${m.focusFee ? 'data-autofocus' : ''} dir="ltr" inputmode="decimal" value="${esc(feeShown(m, autoVal, ok))}" placeholder="${feeAuto() ? '' : 'اكتبها'}" autocomplete="off"></div>`;
+}
+const svcReset = { fee: '', feeEdited: false, focusFee: false };
+function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', phone: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
 function svcWallet(m) {
   const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ok = !isNaN(a) && a > 0;
-  const fee = ok ? walletFee(a) : 0, over = ok && w.limitDay && w.usedToday + a > w.limitDay;
+  const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), over = ok && w.limitDay && w.usedToday + a > w.limitDay;
+  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}% · أقل حاجة ${money(SET.feeMin)} — تقدر تغيّرها` : 'مش ثابتة — اكتبها';
   return `<div class="seg">${[['send', 'تحويل لرقم', 'arrow-up-from-line'], ['withdraw', 'سحب كاش', 'arrow-down-to-line']].map(([id, l, ic]) => `<button type="button" class="${m.op === id ? 'on' : ''}" data-act="svcOp" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div>
     <div class="wallets">${DATA.wallets.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${x.name}</b><small class="num">${money(x.balance)}</small></span></button>`).join('')}</div>
     <div class="grid2">
-      <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" data-autofocus dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
+      <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
       <div class="field"><label for="svc-ph">${m.op === 'send' ? 'الرقم اللي هيتحوّل له' : 'رقم محفظة العميل'}</label><input id="svc-ph" class="big-in mono" data-input="svc" data-k="phone" dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>
     </div>
-    <div class="due-box"><div class="r"><span>العمولة (${num(SET.feePct)}% · أقل حاجة ${money(SET.feeMin)})</span><b class="num">${money(fee)}</b></div>
-      <div class="r grand"><span>${m.op === 'send' ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${money(ok ? (m.op === 'send' ? a + fee : a - fee) : 0)}</b></div></div>
+    <div class="due-box">${feeField(m, 'svc-fee', 'العمولة', hint, autoFee, ok)}
+      <div class="r grand"><span>${m.op === 'send' ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب العمولة</small>' : money(m.op === 'send' ? a + fee : a - fee)}</b></div></div>
     ${over ? `<div class="note warn">${icon('triangle-alert')} كده هتعدّي الحد اليومي لـ${w.name} (${money(w.limitDay)})</div>` : ''}`;
 }
 function svcCards(m) {
@@ -814,13 +840,14 @@ function svcCards(m) {
     <div class="note">${icon('info')} الكارت بيتضاف للفاتورة المفتوحة ويتحاسب معاها.</div>`;
 }
 function svcBills(m) {
-  const a = parseNum(m.billAmt), ok = !isNaN(a) && a > 0, fee = +SET.billFee;
+  const a = parseNum(m.billAmt), ok = !isNaN(a) && a > 0, fee = svcFee(m, +SET.billFee);
+  const hint = feeAuto() ? `من الإعدادات ${money(SET.billFee)} — تقدر تغيّرها` : 'مش ثابتة — اكتبها';
   return `<div class="wallets">${DATA.billTypes.map((b) => `<button type="button" class="wallet ${m.bill === b.id ? 'on' : ''}" data-act="svcBill" data-id="${b.id}">${icon(b.icon)}<span class="t"><b>${b.name}</b></span></button>`).join('')}</div>
     <div class="grid2">
-      <div class="field"><label for="bill-amt">مبلغ الفاتورة</label><input id="bill-amt" class="big-in num" data-input="svc" data-k="billAmt" data-autofocus dir="ltr" inputmode="decimal" value="${esc(m.billAmt)}" autocomplete="off"></div>
+      <div class="field"><label for="bill-amt">مبلغ الفاتورة</label><input id="bill-amt" class="big-in num" data-input="svc" data-k="billAmt" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.billAmt)}" autocomplete="off"></div>
       <div class="field"><label for="bill-acct">رقم الحساب أو التليفون (اختياري)</label><input id="bill-acct" class="big-in mono" data-input="svc" data-k="acct" dir="ltr" value="${esc(m.acct)}" autocomplete="off"></div>
     </div>
-    <div class="due-box"><div class="r"><span>رسوم الخدمة</span><b class="num">${money(fee)}</b></div><div class="r grand"><span>تحصّل من العميل</span><b class="num">${money(ok ? a + fee : 0)}</b></div></div>`;
+    <div class="due-box">${feeField(m, 'bill-fee', 'رسوم الخدمة', hint, +SET.billFee, true)}<div class="r grand"><span>تحصّل من العميل</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب الرسوم</small>' : money(a + fee)}</b></div></div>`;
 }
 MODALS.services = {
   html(m) {
@@ -842,24 +869,29 @@ function recordWallet(m) {
   const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ph = toLatin(m.phone).replace(/\D/g, '');
   if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
   if (!/^01\d{9}$/.test(ph)) { m.err = 'رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01'; beep(); render(); return; }
-  const fee = walletFee(a), cash = m.op === 'send' ? a + fee : a - fee;
+  const fee = svcFee(m, walletFee(a));
+  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة — لو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
+  if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
+  const cash = m.op === 'send' ? a + fee : a - fee;
   if (m.op === 'send') { w.balance -= a; DATA.shift.servicesIn += cash; } else { w.balance += a; DATA.shift.servicesOut += cash; }
   w.usedToday += a; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
   S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, phone: ph, amount: a, fee, at: new Date(), by: S.user.name });
   toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name} — حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)} — ادفع للعميل ${money(cash)}`);
-  Object.assign(m, { amount: '', phone: '', err: '', _mounted: false }); render();
+  Object.assign(m, { amount: '', phone: '', err: '', ...svcReset, _mounted: false }); render();
 }
 function recordBill(m) {
-  const a = parseNum(m.billAmt), fee = +SET.billFee, b = DATA.billTypes.find((x) => x.id === m.bill);
+  const a = parseNum(m.billAmt), fee = svcFee(m, +SET.billFee), b = DATA.billTypes.find((x) => x.id === m.bill);
   if (!(a > 0)) { m.err = 'اكتب مبلغ الفاتورة'; beep(); render(); return; }
+  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب رسوم الخدمة — لو مفيش رسوم اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
   DATA.shift.servicesIn += a + fee; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
   S.services.push({ kind: 'bill', bill: b.id, acct: m.acct, amount: a, fee, at: new Date(), by: S.user.name });
   toast(`اتسجّل دفع فاتورة ${b.name} — حصّل ${money(a + fee)}`);
-  Object.assign(m, { billAmt: '', acct: '', err: '', _mounted: false }); render();
+  Object.assign(m, { billAmt: '', acct: '', err: '', ...svcReset, _mounted: false }); render();
 }
 INPUT.svc = (el) => { S.modal[el.dataset.k] = el.value; S.modal.err = ''; render(); };
+INPUT.svcFee = (el) => { Object.assign(S.modal, { fee: el.value, feeEdited: true, err: '' }); render(); };
 Object.assign(ACT, {
-  svcTab: (d) => { Object.assign(S.modal, { tab: d.id, err: '', _mounted: false }); render(); },
+  svcTab: (d) => { Object.assign(S.modal, { tab: d.id, err: '', ...svcReset, _mounted: false }); render(); },
   svcOp: (d) => { S.modal.op = d.id; render(); },
   svcWallet: (d) => { S.modal.wallet = d.id; render(); },
   svcOpr: (d) => { S.modal.opr = d.id; render(); },
@@ -899,7 +931,7 @@ MODALS.shift = {
           ${c.any ? `<div class="change-box ${c.diff < 0 ? 'short' : ''}"><span>${c.diff === 0 ? 'مظبوط' : c.diff < 0 ? 'عجز' : 'زيادة'}</span><b class="num">${money(Math.abs(c.diff))}</b></div>` : '<div class="muted">اكتب عدد كل فئة — والفرق بيظهر لوحده</div>'}
         </div>
       </div></div>
-      <div class="modal-f"><button type="button" class="btn ghost" data-act="soon">${icon('printer')} اطبع تقرير الوردية</button><span class="sp"></span><button type="button" class="btn primary" data-act="shiftDo" ${c.any ? '' : 'disabled'}>${icon('check')} قفّل الوردية</button></div>
+      <div class="modal-f"><button type="button" class="btn ghost" data-act="soon">${hasPrinter() ? `${icon('printer')} اطبع تقرير الوردية` : `${icon('message-circle')} ابعت التقرير للمالك واتساب`}</button><span class="sp"></span><button type="button" class="btn primary" data-act="shiftDo" ${c.any ? '' : 'disabled'}>${icon('check')} قفّل الوردية</button></div>
     </div>`;
   },
 };

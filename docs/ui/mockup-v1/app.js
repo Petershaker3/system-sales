@@ -17,9 +17,13 @@ const SETTINGS_KEY = 'mshop.mockup.settings.v1';
 const DEFAULTS = {
   shopName: 'موبايل ستور', phone: '01000000000', address: '12 شارع شبرا، القاهرة', logo: '',
   theme: 'light', accent: '#2563eb', font: 'plex', scale: 'normal', digits: 'latin',
-  paper: '80', footer: 'شكرًا لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة', showQR: true, receiptMode: 'print',
+  paper: '80', footer: 'شكرًا لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة', showQR: true, receiptMode: 'wa',
   waTemplate: 'أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.',
   warrantyNew: 12, warrantyUsed: 1, feePct: 1, feeMin: 5, billFee: 5, discountLimit: 5,
+  // العمولة: «manual» = البيّاع بيكتبها في كل عملية لأنها مش ثابتة · «auto» = بتتحسب من النسبة والحد الأدنى وتفضل قابلة للتعديل
+  feeMode: 'manual',
+  // الطابعة: مفيش دلوقتي — الإيصال واتساب بس. لما تتفعّل من الإعدادات ← الأجهزة بترجع «طباعة» و«الاتنين» في شاشة الدفع
+  printer: false,
   perms: { seeCost: false, refunds: false, closeShift: true, reports: false, editPrices: false },
   methods: { cash: true, vf: true, instapay: true, card: true, install: true, credit: true },
   // الـ IMEI: «optional» = الموبايل بيتضاف على طول وتسجّل الـ IMEI لو حبيت · «required» = لازم تختار الجهاز بالـ IMEI
@@ -45,12 +49,20 @@ function loadSettings() {
     ...DEFAULTS, ...saved,
     perms: { ...DEFAULTS.perms, ...(saved.perms || {}) }, methods: { ...DEFAULTS.methods, ...(saved.methods || {}) },
     imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats),
+    feeMode: saved.feeMode === 'auto' ? 'auto' : 'manual', printer: saved.printer === true,
   };
 }
 let SET = loadSettings();
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SET)); return true; } catch { toast('مساحة التخزين مش كفاية — جرّب لوجو أصغر', 'err'); return false; }
 }
+/* ===== الإيصال: واتساب بس دلوقتي — الطباعة بترجع لما تتفعّل الطابعة من الإعدادات ===== */
+const hasPrinter = () => SET.printer === true;
+const receiptOpts = () => (hasPrinter() ? [['print', 'طباعة'], ['wa', 'واتساب'], ['both', 'الاتنين'], ['none', 'بدون']] : [['wa', 'واتساب'], ['none', 'بدون']]);
+// الوضع المحفوظ بعد ما نشيل الطباعة لو مفيش طابعة (إعداد قديم «طباعة» = واتساب)
+function receiptSetting() { const m = SET.receiptMode; return hasPrinter() ? m : (m === 'none' ? 'none' : 'wa'); }
+// المتعلّم في شاشة الدفع: واتساب لو الفاتورة على عميل برقمه — من غير عميل: «بدون» (أو «طباعة» لو فيه طابعة)، والبيّاع يقدر يختار واتساب ويكتب الرقم
+function defaultReceipt(inv) { const m = receiptSetting(); return (m === 'wa' || m === 'both') && !(inv.customer && inv.customer.phone) ? (hasPrinter() ? 'print' : 'none') : m; }
 const curTheme = () => (SET.theme === 'auto' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : SET.theme);
 function onAccent(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#ffffff';
@@ -217,7 +229,7 @@ function topbar() {
     <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">· ${esc(SET.shopName)}</span>
     <div class="sp"></div>
     <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة · من ${dg(DATA.shift.opened)}</span>
-    <span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>
+    ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة — الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
     <span class="status hide-sm" title="الموبايلات المتصلة بشبكة المحل"><span class="dot"></span>${icon('smartphone')} ${num(DATA.devices.filter((d) => d.online).length)} موبايل متصل</span>
     <span class="status num" id="clock">${fmtTime()}</span>
     <button type="button" class="btn sm" data-act="shiftClose">${icon('calculator')} تقفيل الوردية</button>

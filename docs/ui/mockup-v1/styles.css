@@ -365,6 +365,15 @@ input[dir="ltr"] { text-align: left; }
 .due-box { border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 12px; padding: 10px 12px; background: var(--accent-weak); display: grid; gap: 6px; }
 .due-box .r { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .due-box .grand { font-size: 1.15rem; font-weight: 700; }
+/* خانة العمولة (بتتكتب في كل عملية) */
+.due-box .fee-r label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-weight: 600; min-width: 0; }
+.due-box .fee-r label small { color: var(--muted); font-weight: 400; }
+.fee-in { width: 128px; flex: none; height: 40px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 1.05rem; font-weight: 700; }
+.fee-in:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+.fee-in::placeholder { color: var(--muted); font-weight: 400; font-size: .9rem; }
+/* شاشة «تم البيع»: إرسال الإيصال واتساب لرقم يتكتب بعد الدفع */
+.wa-ask { align-items: flex-end; gap: 8px; }
+.wa-ask .field { flex: 1; min-width: 0; }
 .change-box {
   display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px;
   background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); font-weight: 700;

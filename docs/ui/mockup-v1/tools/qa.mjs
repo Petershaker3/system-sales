@@ -1,4 +1,4 @@
-// Full QA for the UI mockup: ~70 behaviour checks + layout-overflow detection + screenshots in /tmp/shots.
+// Full QA for the UI mockup: ~90 behaviour checks + layout-overflow detection + screenshots in /tmp/shots.
 // Needs the preview server (serve.py) on 127.0.0.1:4173 (or MOCKUP_URL). Run: node qa.mjs
 import { launch, URL } from './launch.mjs';
 import fs from 'node:fs';
@@ -75,20 +75,24 @@ ok(await p.evaluate(() => !!document.querySelector('.totals .disc')), 'discount 
 // 7) عميل
 await key('F4'); await type('مينا'); await shot('05-customer'); await key('Enter');
 ok(await p.evaluate(() => document.querySelector('.cust-row b').textContent.includes('مينا')), 'customer picked by name');
-// 8) تعليق والرجوع
+// 8) انتظار والرجوع (الكلمة «انتظار» بدل «تعليق» — قرار المالك 2026-10-16)
 await key('F8');
 ok(await p.evaluate(() => document.querySelectorAll('.inv-tab').length === 3 && document.querySelectorAll('.line').length === 0), 'F8 holds invoice and opens a new one');
+ok(await p.evaluate(() => !document.body.textContent.includes('تعليق') && document.querySelector('[data-act="hold"]').textContent.includes('انتظار') && document.querySelector('.keys-bar').textContent.includes('انتظار')), 'hold is worded «انتظار» (no «تعليق» anywhere)');
 await p.evaluate(() => document.querySelectorAll('.inv-tab')[0].click()); await sleep(150);
 ok((await lines()) === 3, 'switch back to held invoice');
 // 9) دفع كاش بمبلغ أكبر -> باقي -> تم -> فاتورة جديدة
 await key('F12');
 ok(await p.$('.modal[aria-label="الدفع"]'), 'F12 opens pay modal');
+ok(await p.evaluate(() => { const b = [...document.querySelectorAll('[data-act="payRMode"]')]; const on = b.find((x) => x.classList.contains('on')); return b.map((x) => x.textContent.trim()).join('|') === 'واتساب|بدون' && on && on.dataset.id === 'wa' && document.querySelector('#pay-wa').value === '01287654321'; }), 'no printer: receipt is WhatsApp/none — customer sale defaults to WhatsApp on his number');
+ok(await p.evaluate(() => document.querySelector('.topbar').textContent.includes('الإيصال: واتساب') && !document.querySelector('.topbar').textContent.includes('الطابعة')), 'top bar shows WhatsApp receipt instead of printer');
 await type('30000');
 ok(await p.evaluate(() => !!document.querySelector('.change-box') && !document.querySelector('.change-box.short')), 'change box shows change');
 await shot('06-pay');
 await checkOverflow('pay');
 await key('Enter');
 ok(await p.$('.modal[aria-label="تم البيع"]'), 'Enter confirms → done screen');
+ok(await p.evaluate(() => !document.querySelector('[data-act="reprint"]') && S.modal.sale.receiptMode === 'wa' && [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('اتبعت الإيصال على واتساب 01287654321'))), 'receipt sent on WhatsApp (no reprint button without a printer)');
 await shot('07-done-receipt');
 await checkOverflow('done');
 await key('Enter');
@@ -97,13 +101,24 @@ ok((await lines()) === 0 && !(await p.$('.modal')), 'Enter on done → fresh inv
 await p.evaluate(() => document.querySelector('.tile[data-id="a9"]').click()); await sleep(120);
 await p.evaluate(() => document.querySelector('.tile[data-id="a4"]').click()); await sleep(120);
 await key('F12');
+ok(await p.evaluate(() => document.querySelector('[data-act="payRMode"].on').dataset.id === 'none' && !document.querySelector('#pay-wa')), 'walk-in sale defaults to no receipt (no number demanded)');
 await clickText('.method', 'فودافون كاش'); await type('500');
 await clickText('.btn', 'دفع جزئي');
 ok(await p.evaluate(() => document.querySelectorAll('.paid-item').length === 1), 'partial payment recorded');
 await shot('08-split');
 await key('Enter');
 ok(await p.$('.modal[aria-label="تم البيع"]'), 'split payment completes');
+await clickText('.btn', 'ابعت الإيصال واتساب');
+ok(await p.evaluate(() => document.activeElement && document.activeElement.id === 'done-wa'), 'done screen: WhatsApp asks for a number when there is no customer');
+await type('0101234'); await key('Enter');
+ok(await p.evaluate(() => document.querySelector('.err-msg').textContent.includes('11 رقم') && S.modal.step === 'done'), 'short WhatsApp number refused');
+await type('5678');
+ok(await p.evaluate(() => document.querySelector('.err-msg').textContent.trim() === '' && document.querySelector('#done-wa').value === '01012345678' && document.activeElement.id === 'done-wa'), 'error clears as soon as the number is corrected (cursor kept)');
+await shot('08b-done-wa'); await key('Enter');
+ok(await p.evaluate(() => S.modal && S.modal.step === 'done' && S.modal.sale.wa === '01012345678' && [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('01012345678'))), 'receipt sent to the typed number after payment');
+await checkOverflow('done-wa');
 await key('Enter');
+ok((await lines()) === 0 && !(await p.$('.modal')), 'Enter after sending → fresh invoice');
 // 11) آجل من غير عميل
 await p.evaluate(() => document.querySelector('.tile[data-id="a6"]').click()); await sleep(120);
 await key('F12'); await clickText('.method', 'آجل'); await key('Enter');
@@ -117,15 +132,19 @@ await key('Escape');
 await key('F9');
 ok(await p.$('.modal[aria-label="خدمات سريعة"]'), 'F9 opens services');
 await type('1000');
-ok(await p.evaluate(() => document.querySelector('.due-box b').textContent.includes('10')), 'wallet fee 1% = 10');
-await p.focus('#svc-ph'); await type('01012345678'); await shot('09-services-wallet'); await key('Enter');
-ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('1,010'))), 'wallet transfer recorded (collect 1,010)');
+ok(await p.evaluate(() => document.querySelector('#svc-fee').value === '' && document.querySelector('.due-box .grand').textContent.includes('اكتب العمولة')), 'commission is typed per transaction (empty by default)');
+await p.focus('#svc-ph'); await type('01012345678'); await key('Enter');
+ok(await p.evaluate(() => document.querySelector('.err-msg').textContent.includes('العمولة') && document.activeElement.id === 'svc-fee' && !S.services.length), 'missing commission refused → cursor jumps to it');
+await type('15'); await shot('09-services-wallet');
+ok(await p.evaluate(() => document.querySelector('.due-box .grand').textContent.includes('1,015')), 'typed commission updates the total (1,015)');
+await key('Enter');
+ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('1,015')) && S.services.at(-1).fee === 15), 'wallet transfer recorded with the typed commission');
 await checkOverflow('services-wallet');
 await clickText('.seg button', 'كروت شحن'); await clickText('.btn', 'كارت 50');
 await shot('10-services-cards');
 await checkOverflow('services-cards');
-await clickText('.seg button', 'فواتير'); await type('450'); await key('Enter');
-ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('455'))), 'bill recorded with 5 fee');
+await clickText('.seg button', 'فواتير'); await type('450'); await p.focus('#bill-fee'); await type('5'); await key('Enter');
+ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('455')) && S.services.at(-1).fee === 5), 'bill recorded with the typed fee (5)');
 await checkOverflow('services-bills');
 await key('Escape');
 ok((await lines()) === 1, 'recharge card added to invoice');
@@ -264,8 +283,34 @@ await shot('18-settings-shop');
 for (const tab of ['look', 'catalog', 'users', 'pay', 'receipt', 'backup', 'devices']) {
   await p.evaluate((t) => document.querySelector(`.s-nav [data-id="${t}"]`).click(), tab); await sleep(150);
   await checkOverflow('settings-' + tab);
-  if (tab === 'look' || tab === 'receipt' || tab === 'devices' || tab === 'catalog') await shot('19-settings-' + tab);
+  if (tab === 'look' || tab === 'receipt' || tab === 'devices' || tab === 'catalog' || tab === 'pay') await shot('19-settings-' + tab);
 }
+ok(await p.evaluate(() => document.querySelector('input[data-change="printer"]') && !document.querySelector('input[data-change="printer"]').checked && document.body.textContent.includes('مفيش طابعة دلوقتي')), 'devices: no printer by default — receipt on WhatsApp');
+await p.evaluate(() => document.querySelector('.s-nav [data-id="pay"]').click()); await sleep(120);
+ok(await p.evaluate(() => !document.querySelector('#set-feePct') && document.querySelector('[data-act="setFeeMode"].on').dataset.id === 'manual'), 'settings: commission typed per transaction by default (no fixed rate)');
+await clickText('[data-act="setFeeMode"]', 'محسوبة تلقائي');
+ok(await p.$('#set-feePct'), 'auto commission shows the rate fields');
+await shot('19-settings-pay-auto');
+await checkOverflow('settings-pay-auto');
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);
+await key('F9'); await type('1000');
+ok(await p.evaluate(() => document.querySelector('#svc-fee').value === '10'), 'auto mode pre-fills the commission (1% = 10)');
+await p.focus('#svc-fee'); await p.evaluate(() => document.querySelector('#svc-fee').select()); await type('12');
+ok(await p.evaluate(() => document.querySelector('.due-box .grand').textContent.includes('1,012')), 'auto commission stays editable (1,012)');
+await key('Escape');
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="settings"]').click()); await sleep(150);
+await p.evaluate(() => document.querySelector('.s-nav [data-id="pay"]').click()); await sleep(120);
+await clickText('[data-act="setFeeMode"]', 'تتكتب في كل عملية');
+await p.evaluate(() => document.querySelector('.s-nav [data-id="devices"]').click()); await sleep(120);
+await p.evaluate(() => document.querySelector('input[data-change="printer"]').click()); await sleep(150);
+ok(await p.evaluate(() => document.querySelector('.topbar').textContent.includes('الطابعة جاهزة') && receiptOpts().length === 4 && !!document.querySelector('[data-act="testPrint"]')), 'printer switch (optional) brings back print options');
+await p.evaluate(() => document.querySelector('.s-nav [data-id="receipt"]').click()); await sleep(120);
+ok(await p.evaluate(() => !!document.querySelector('[data-act="setPaper"]') && document.querySelectorAll('[data-act="setRMode"]').length === 4), 'with a printer: paper size + 4 receipt choices');
+await p.evaluate(() => document.querySelector('.s-nav [data-id="devices"]').click()); await sleep(120);
+await p.evaluate(() => document.querySelector('input[data-change="printer"]').click()); await sleep(150);
+await p.evaluate(() => document.querySelector('.s-nav [data-id="receipt"]').click()); await sleep(120);
+ok(await p.evaluate(() => document.querySelector('.topbar').textContent.includes('الإيصال: واتساب') && !document.querySelector('[data-act="setPaper"]') && [...document.querySelectorAll('[data-act="setRMode"]')].map((b) => b.textContent.trim()).join('|') === 'واتساب|بدون' && SET.feeMode === 'manual'), 'printer off → WhatsApp only, no paper size');
+ok(await p.evaluate(() => !!document.querySelector('#set-footer') && !!document.querySelector('#set-warrantyNew') && !!document.querySelector('#set-warrantyUsed')), 'warranty months and receipt footer are set from settings');
 await p.evaluate(() => document.querySelector('.s-nav [data-id="catalog"]').click()); await sleep(120);
 await clickText('.seg button', 'إجباري');
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);

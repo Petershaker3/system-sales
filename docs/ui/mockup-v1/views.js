@@ -88,7 +88,7 @@ MODALS.intake = {
             <div class="field"><span class="label">التسليم</span><div class="seg">${['النهارده', 'بكره', 'بعده'].map((x) => `<button type="button" class="${m.due === x ? 'on' : ''}" data-act="inDue" data-v="${x}">${x}</button>`).join('')}</div></div></div>
         </div>
       </div><div class="err-msg">${esc(m.err)}</div></div>
-      <div class="modal-f"><span class="muted">${icon('printer')} بيطبع إيصال استلام للعميل وملصق للجهاز</span><span class="sp"></span><button type="button" class="btn primary" data-act="intakeSave">${icon('check')} سجّل الاستلام <kbd>Enter</kbd></button></div>
+      <div class="modal-f"><span class="muted">${hasPrinter() ? `${icon('printer')} بيطبع إيصال استلام للعميل وملصق للجهاز` : `${icon('message-circle')} إيصال الاستلام بيتبعت للعميل واتساب`}</span><span class="sp"></span><button type="button" class="btn primary" data-act="intakeSave">${icon('check')} سجّل الاستلام <kbd>Enter</kbd></button></div>
     </div>`;
   },
   enter: () => intakeSave(),
@@ -339,8 +339,10 @@ function setPay() {
     ${DATA.wallets.map((w) => `<tr><td><div class="row"><span class="dot" style="background:${w.color}"></span><b>${w.name}</b></div></td><td><bdi dir="ltr" class="mono">${w.number}</bdi></td><td class="num">${money(w.balance)}</td><td class="num">${w.limitDay ? money(w.limitDay) : '<span class="muted">—</span>'}</td></tr>`).join('')}
     </tbody></table></div></div>
   <div class="card"><h3>${icon('percent')} عمولات الخدمات</h3>
-    <div class="grid3">${setField('feePct', 'عمولة التحويل والسحب %', 'class="num" dir="ltr" inputmode="decimal"')}${setField('feeMin', 'أقل عمولة (ج.م)', 'class="num" dir="ltr" inputmode="decimal"')}${setField('billFee', 'رسوم دفع الفواتير (ج.م)', 'class="num" dir="ltr" inputmode="decimal"')}</div>
-    <div class="note" style="margin-top:12px">${icon('info')} مثال: تحويل ${money(1000)} عمولته ${money(walletFee(1000))} · تحويل ${money(200)} عمولته ${money(walletFee(200))}</div></div>
+    <div class="s-row"><div class="t"><b>العمولة والرسوم</b><small>${feeAuto() ? 'بتتحسب لوحدها من النسبة والحد الأدنى، والبيّاع يقدر يغيّرها في العملية' : 'مش ثابتة: البيّاع بيكتبها في كل عملية، وبتتسجّل في دفتر الخدمات والتقارير'}</small></div>
+      <div class="seg">${[['manual', 'تتكتب في كل عملية'], ['auto', 'محسوبة تلقائي']].map(([id, l]) => `<button type="button" class="${SET.feeMode === id ? 'on' : ''}" data-act="setFeeMode" data-id="${id}">${l}</button>`).join('')}</div></div>
+    ${feeAuto() ? `<div class="grid3" style="margin-top:8px">${setField('feePct', 'عمولة التحويل والسحب %', 'class="num" dir="ltr" inputmode="decimal"')}${setField('feeMin', 'أقل عمولة (ج.م)', 'class="num" dir="ltr" inputmode="decimal"')}${setField('billFee', 'رسوم دفع الفواتير (ج.م)', 'class="num" dir="ltr" inputmode="decimal"')}</div>
+    <div class="note" style="margin-top:12px">${icon('info')} مثال: تحويل ${money(1000)} عمولته ${money(walletFee(1000))} · تحويل ${money(200)} عمولته ${money(walletFee(200))}</div>` : `<div class="note" style="margin-top:12px">${icon('info')} في شاشة الخدمات (F9) فيه خانة «العمولة» فاضية — البيّاع بيكتب اللي اتفق عليه مع العميل (ولو مفيش يكتب ${num(0)}).</div>`}</div>
   <div class="card"><h3>${icon('credit-card')} طرق الدفع اللي بتظهر في شاشة الدفع</h3>
     ${DATA.payMethods.map((x) => `<div class="s-row"><div class="t"><b>${icon(x.icon)} ${x.name}</b>${x.id === 'install' ? `<small>${DATA.installProviders.join(' · ')}</small>` : x.id === 'credit' ? '<small>لازم يكون على عميل متسجّل</small>' : ''}</div><label class="switch"><input type="checkbox" data-change="method" data-k="${x.id}" ${SET.methods[x.id] !== false ? 'checked' : ''} ${x.id === 'cash' ? 'disabled' : ''} aria-label="${x.name}"><span></span></label></div>`).join('')}
   </div>`;
@@ -348,8 +350,8 @@ function setPay() {
 function setReceipt() {
   return `<div class="preview-pair"><div class="stack">
     <div class="card"><h3>${icon('receipt')} الإيصال</h3>
-      <div class="s-row"><div class="t"><b>مقاس الورق</b><small>بيتطبع كصورة عشان العربي يطلع مظبوط على أي طابعة حرارية</small></div><div class="seg"><button type="button" class="${SET.paper === '80' ? 'on' : ''}" data-act="setPaper" data-id="80">${num(80)} مم</button><button type="button" class="${SET.paper === '58' ? 'on' : ''}" data-act="setPaper" data-id="58">${num(58)} مم</button></div></div>
-      <div class="s-row"><div class="t"><b>بعد الدفع</b><small>الاختيار اللي بيبقى متعلّم في شاشة الدفع</small></div><div class="seg">${[['print', 'طباعة'], ['wa', 'واتساب'], ['both', 'الاتنين'], ['none', 'بدون']].map(([id, l]) => `<button type="button" class="${SET.receiptMode === id ? 'on' : ''}" data-act="setRMode" data-id="${id}">${l}</button>`).join('')}</div></div>
+      ${hasPrinter() ? `<div class="s-row"><div class="t"><b>مقاس الورق</b><small>بيتطبع كصورة عشان العربي يطلع مظبوط على أي طابعة حرارية</small></div><div class="seg"><button type="button" class="${SET.paper === '80' ? 'on' : ''}" data-act="setPaper" data-id="80">${num(80)} مم</button><button type="button" class="${SET.paper === '58' ? 'on' : ''}" data-act="setPaper" data-id="58">${num(58)} مم</button></div></div>` : ''}
+      <div class="s-row"><div class="t"><b>بعد الدفع</b><small>${hasPrinter() ? 'الاختيار اللي بيبقى متعلّم في شاشة الدفع' : 'مفيش طابعة: الإيصال بيتبعت واتساب (صورة + رسالة). من غير عميل بتبقى «بدون» وتقدر تختار واتساب وتكتب الرقم'}</small></div><div class="seg">${receiptOpts().map(([id, l]) => `<button type="button" class="${receiptSetting() === id ? 'on' : ''}" data-act="setRMode" data-id="${id}">${l}</button>`).join('')}</div></div>
       <div class="s-row"><div class="t"><b>مكان QR الإيصال الإلكتروني</b><small>بيتفعّل لما المحل يدخل منظومة الإيصال الإلكتروني</small></div><label class="switch"><input type="checkbox" data-change="showQR" ${SET.showQR ? 'checked' : ''} aria-label="QR"><span></span></label></div>
       <div class="field" style="margin-top:8px"><label for="set-footer">الجملة اللي في آخر الإيصال</label><textarea id="set-footer" data-input="set" data-k="footer">${esc(SET.footer)}</textarea></div>
       <div class="field" style="margin-top:8px"><label for="set-waTemplate">رسالة الواتساب</label><textarea id="set-waTemplate" data-input="set" data-k="waTemplate">${esc(SET.waTemplate)}</textarea><span class="hint">{الاسم} و{رقم} و{المحل} و{تاريخ_الضمان} بيتبدّلوا لوحدهم</span></div>
@@ -377,7 +379,10 @@ function setDevices() {
       <span class="muted">عنوان الكمبيوتر: <bdi dir="ltr" class="mono">192.168.1.10:8787</bdi></span></div></div>
   </div>
   <div class="card"><h3>${icon('printer')} الطابعة</h3>
-    <div class="s-row"><div class="t"><b>XP-80 (USB)</b><small>طابعة حرارية ${num(80)} مم · الطباعة كصورة</small></div><span class="tag ok">جاهزة</span><button type="button" class="btn sm" data-act="testPrint">${icon('printer')} صفحة تجربة</button></div>
+    ${hasPrinter()
+      ? `<div class="s-row"><div class="t"><b>XP-80 (USB)</b><small>طابعة حرارية ${num(80)} مم · الطباعة كصورة</small></div><span class="tag ok">جاهزة</span><button type="button" class="btn sm" data-act="testPrint">${icon('printer')} صفحة تجربة</button></div>`
+      : `<div class="s-row"><span class="t-ico">${icon('message-circle')}</span><div class="t"><b>مفيش طابعة دلوقتي</b><small>الإيصال بيتبعت للعميل على واتساب: صورة الإيصال + رسالة الواتساب اللي في إعدادات الإيصال</small></div><span class="tag">واتساب بس</span></div>`}
+    <div class="s-row"><div class="t"><b>عندي طابعة إيصالات</b><small>لما تجيب طابعة حرارية فعّل ده — هترجع «طباعة» و«الاتنين» في شاشة الدفع</small></div><label class="switch"><input type="checkbox" data-change="printer" ${hasPrinter() ? 'checked' : ''} aria-label="عندي طابعة إيصالات"><span></span></label></div>
   </div>`;
 }
 const S_TABS = [['shop', 'store', 'المحل'], ['look', 'palette', 'الشكل'], ['catalog', 'tags', 'الأصناف والبيع'], ['users', 'users', 'المستخدمين والصلاحيات'], ['pay', 'wallet', 'المحافظ والدفع'], ['receipt', 'receipt', 'الإيصال والضمان'], ['backup', 'database', 'النسخ الاحتياطي'], ['devices', 'wifi', 'الأجهزة والطابعة']];
@@ -396,6 +401,8 @@ CHANGE.accentDone = (el) => setAndRender('accent', el.value);
 CHANGE.perm = (el) => { SET.perms[el.dataset.k] = el.checked; saveSettings(); render(); };
 CHANGE.method = (el) => { SET.methods[el.dataset.k] = el.checked; saveSettings(); render(); };
 CHANGE.showQR = (el) => setAndRender('showQR', el.checked);
+// الطابعة اختيارية: لو اتشالت والإعداد كان «طباعة»/«الاتنين» يرجع واتساب
+CHANGE.printer = (el) => { SET.printer = el.checked; if (!SET.printer && (SET.receiptMode === 'print' || SET.receiptMode === 'both')) SET.receiptMode = 'wa'; saveSettings(); applySettings(); render(); toast(SET.printer ? 'الطباعة رجعت في شاشة الدفع' : 'الإيصال هيتبعت واتساب بس', 'info'); };
 CHANGE.logo = (el) => {
   const f = el.files && el.files[0]; if (!f) return;
   const rd = new FileReader();
@@ -423,6 +430,7 @@ Object.assign(ACT, {
   setDigits: (d) => setAndRender('digits', d.id),
   setPaper: (d) => setAndRender('paper', d.id),
   setRMode: (d) => setAndRender('receiptMode', d.id),
+  setFeeMode: (d) => setAndRender('feeMode', d.id),
   logoRemove: () => setAndRender('logo', ''),
   resetSettings: () => { SET = JSON.parse(JSON.stringify(DEFAULTS)); saveSettings(); applySettings(); indexProducts(); render(); toast('رجعت الإعدادات الأصلية', 'info'); },
   backupNow: () => toast(`اتعملت نسخة احتياطية مشفّرة — ${fmtTime()}`),
