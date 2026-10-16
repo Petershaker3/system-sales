@@ -72,7 +72,8 @@ function searchAll(q) {
 function resultsHTML() {
   if (!S.q.trim()) return '';
   const res = S._res || [];
-  if (!res.length) return `<div class="results"><div class="no-res">${icon('search')} مفيش نتيجة لـ «${esc(S.q)}». ${dg('جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI')}</div></div>`;
+  if (!res.length) return `<div class="results"><div class="no-res">${icon('search')} مفيش نتيجة لـ «${esc(S.q)}». ${dg('جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI')}
+    <button type="button" class="btn sm sh-quick" data-act="shortQuick" data-name="${esc(S.q.trim())}">${icon('clipboard-list')} لو العميل طالبه: ضيف «${esc(S.q.trim())}» للنواقص</button></div></div>`;
   return `<div class="results" data-scroll="results">${res.map((r, i) => resultRow(r, i)).join('')}</div>`;
 }
 function resultRow(r, i) {
@@ -89,7 +90,7 @@ function resultRow(r, i) {
   return `<div class="result${on}" data-act="pickRes" data-i="${i}"><div class="ico ${prodImg(p) ? 'img' : ''}">${prodVisual(p)}</div>
     <div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div>
     <div class="s"><span class="${st <= 0 ? 'danger-t' : st <= p.min ? 'warn-t' : ''}">${st <= 0 ? 'خلصان' : `متاح ${num(st)}`}</span>${p.serial && imeiRequired() ? `<span>${icon('scan-barcode')} هتختار الجهاز بالـ IMEI</span>` : ''}${p.sku ? `<span><bdi dir="ltr" class="mono">${p.sku}</bdi></span>` : ''}</div></div>
-    <div class="p num">${money(p.price)}</div>${enter}</div>`;
+    ${st <= 0 ? `<button type="button" class="btn sm ghost sh-quick" data-act="shortQuick" data-id="${p.id}" title="ضيفه لقايمة النواقص">${icon('clipboard-list')} ضيف للنواقص</button>` : ''}<div class="p num">${money(p.price)}</div>${enter}</div>`;
 }
 function refreshResults() {
   const w = $('#res-wrap'); if (!w) return;

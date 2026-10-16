@@ -469,6 +469,47 @@ ok(await p.evaluate(() => { ACT.svRange({ id: 'week' }); const t = dayStart(new 
 await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; svSetDay(addDays(dayStart(new Date()), -75)); }); await sleep(120);
 ok(await p.evaluate(() => !!document.querySelector('.sv-empty') && document.querySelector('.sv-empty b').textContent.includes('اليوم ده')), 'a day without sales says so');
 await p.evaluate(() => { S.salesv = null; S.view = 'pos'; render(); });
+// 23c) النواقص: بإيدك، ومن اقتراحات السيستم، والحالة، ومن شاشة البيع
+await p.evaluate(() => { S.user = DATA.users[0]; S.modal = null; S.view = 'inventory'; S.inv.tab = 'items'; render(); document.querySelector('[data-act="invView"][data-id="short"]').click(); }); await sleep(150);
+ok(await p.evaluate(() => { const t = document.querySelectorAll('.sh-t'); return t.length === 2 && t[0].querySelectorAll('tbody tr').length === SHORT.length && t[1].querySelectorAll('tbody tr').length === shortSuggest().length
+  && shortSuggest().length > 0 && shortSuggest().every((x) => stockOf(x) <= x.min && !SHORT.some((y) => y.pid === x.id)); }), 'shortages tab: the written list + system suggestions (at or under the minimum, not already listed)');
+await p.focus('#sh-q'); await type('سماعة JBL Tune 520');
+await p.focus('#sh-qty'); await p.evaluate(() => document.querySelector('#sh-qty').select()); await type('2');
+await p.focus('#sh-note'); await type('لون أبيض');
+await p.focus('#sh-cust'); await type('هاني 01099988877');
+await p.evaluate(() => document.querySelector('[data-act="shAdd"]').click()); await sleep(150);
+ok(await p.evaluate(() => { const x = SHORT[0]; return x.name === 'سماعة JBL Tune 520' && x.qty === 2 && x.note === 'لون أبيض' && x.cust && x.cust.phone === '01099988877' && x.cust.name === 'هاني' && !x.pid && x.by === 'u1'
+  && JSON.parse(localStorage.getItem('mshop.mockup.shortages.v1'))[0].id === x.id; }), 'add a shortage by hand (typed name, quantity, note, waiting customer) and it is saved');
+await p.focus('#sh-q'); await type('باور بانك'); await sleep(100);
+ok(await p.$('.sh-res .result'), 'typing a name suggests matching items from inventory');
+await p.keyboard.press('Enter'); await sleep(120);
+ok(await p.evaluate(() => shortForm().pid === 'a11' && !!document.querySelector('.sh-picked')), 'Enter picks the item from inventory');
+await p.evaluate(() => document.querySelector('[data-act="shAdd"]').click()); await sleep(150);
+ok(await p.evaluate(() => SHORT[0].pid === 'a11'), 'the picked inventory item is added, linked to the product');
+await p.evaluate(() => ACT.shortQuick({ id: 'a11' })); await sleep(100);
+ok(await p.evaluate(() => SHORT.filter((x) => x.pid === 'a11').length === 1 && SHORT.find((x) => x.pid === 'a11').qty >= 2), 'the same item again raises its quantity instead of a second line');
+const sp = await p.evaluate(() => shortSuggest()[0].id);
+await p.evaluate((id) => document.querySelector(`[data-act="shSug"][data-id="${id}"]`).click(), sp); await sleep(150);
+ok(await p.evaluate((id) => SHORT.some((x) => x.pid === id && x.qty === suggestQty(prod(id))) && !shortSuggest().some((x) => x.id === id), sp), 'a system suggestion is added with the suggested quantity and leaves the suggestions');
+const sid = await p.evaluate(() => SHORT[0].id);
+await p.evaluate((id) => document.querySelector(`[data-act="shStatus"][data-id="${id}"][data-s="ordered"]`).click(), sid); await sleep(100);
+ok(await p.evaluate((id) => SHORT.find((x) => x.id === id).status === 'ordered' && document.querySelector(`[data-act="shStatus"][data-id="${id}"][data-s="ordered"]`).getAttribute('aria-pressed') === 'true', sid), 'a shortage can be marked as ordered');
+await shot('39-shortages'); await checkOverflow('shortages');
+await p.evaluate((id) => document.querySelector(`[data-act="shDone"][data-id="${id}"]`).click(), sid); await sleep(120);
+ok(await p.evaluate((id) => !SHORT.some((x) => x.id === id) && [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('وصل')), sid), '«وصل» takes it off the list');
+await p.evaluate(() => { S.view = 'pos'; S.q = ''; S.modal = null; render(); }); await p.focus('#q'); await type('شاحن 100 وات جالكسي'); await sleep(150);
+ok(await p.$('.no-res [data-act="shortQuick"]'), 'a sales search with no result offers adding it to shortages');
+await shot('40-pos-search-shortage'); await checkOverflow('pos-search-shortage');
+await p.evaluate(() => document.querySelector('.no-res [data-act="shortQuick"]').click()); await sleep(120);
+ok(await p.evaluate(() => SHORT[0].name === 'شاحن 100 وات جالكسي' && !SHORT[0].pid), 'added to shortages straight from the sales search');
+await p.evaluate(() => { prod('a13').stock = 0; S.q = ''; render(); }); await p.focus('#q'); await type('حامل موبايل للعربية'); await sleep(150);
+await p.evaluate(() => document.querySelector('.result [data-act="shortQuick"][data-id="a13"]').click()); await sleep(120);
+ok(await p.evaluate(() => SHORT.some((x) => x.pid === 'a13') && cur().lines.every((l) => l.pid !== 'a13')), 'an out-of-stock item in the sales search goes to shortages in one click (not into the invoice)');
+await p.evaluate(() => { S.user = DATA.users[2]; ACT.shortQuick({ name: 'جراب iPhone 15 شفاف' }); S.view = 'inventory'; S.inv.tab = 'short'; render(); }); await sleep(120);
+ok(await p.evaluate(() => SHORT[0].by === 'u3' && [...document.querySelectorAll('.sh-t')[0].querySelectorAll('tbody tr')].every((tr) => { const x = SHORT.find((y) => y.id === tr.dataset.id); return !!tr.querySelector('[data-act="shDel"]') === (x.by === 'u3'); })), 'a seller can add; he can delete only what he added');
+const shN = await p.evaluate(() => SHORT.length);
+await p.reload({ waitUntil: 'networkidle0' });
+ok(await p.evaluate((n) => SHORT.length === n, shN), 'shortages survive closing and reopening');
 // 24) طابع «علبة الموبايل»: نفس الشاشات من غير ما الكلام يطلع برّه (الخط عرضه مختلف)
 await p.evaluate(() => { SET.look = 'box'; saveSettings(); applySettings(); render(); }); await sleep(200);
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);
@@ -483,6 +524,9 @@ await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').cl
 await shot('34-dashboard-box-dark'); await checkOverflow('dashboard-box-dark');
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="sales"]').click()); await sleep(200);
 await shot('34b-sales-box-dark'); await checkOverflow('sales-box-dark');
+await p.evaluate(() => { S.view = 'inventory'; S.inv.tab = 'short'; render(); }); await sleep(150);
+await shot('34c-shortages-box-dark'); await checkOverflow('shortages-box-dark');
+await p.evaluate(() => { S.inv.tab = 'items'; render(); });
 // 24b) العلبة بحجم كلام كبير على 1366 (أضيق حالة)
 await p.evaluate(() => { SET.theme = 'light'; SET.scale = 'large'; applySettings(); render(); }); await sleep(200);
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);

@@ -190,7 +190,7 @@ const S = {
   invoices: [newInvoice()], active: 0, sel: -1,
   q: '', qi: 0, cat: 'top', _res: [],
   nextNo: 10453, sales: [], services: [], showProfit: false,
-  inv: { q: '', cat: 'all', low: false, open: {} },
+  inv: { q: '', cat: 'all', tab: 'items', open: {} },
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },
   sw: null, // قايمة تبديل المستخدم فوق: null أو { user, pin, err, pinned }
@@ -202,7 +202,10 @@ const avatar = (u, cls = '') => `<span class="avatar ${cls}" style="background:$
 const logoHTML = (cls = 'logo') => `<div class="${cls}">${SET.logo ? `<img src="${SET.logo}" alt="">` : esc((SET.shopName || 'م').trim().charAt(0))}</div>`;
 
 /* سجلات تتملي من الملفات التانية */
-const VIEWS = {}, MODALS = {}, ACT = {}, INPUT = {}, CHANGE = {};
+// كل اسم (شاشة، نافذة، إجراء) لازم يتعرّف مرة واحدة: التعريف التاني بيلغي الأول من غير ما حد ياخد باله،
+// فبنكتب خطأ في الكونسول والفحص الآلي بيلقطه (حصل مع invTab: تبويب المخزون كان بيلغي تبويب الفواتير)
+const registry = (name) => new Proxy({}, { set(t, k, v) { if (Object.prototype.hasOwnProperty.call(t, k)) console.error(`${name}.${String(k)} اتعرّف مرتين`); t[k] = v; return true; } });
+const VIEWS = registry('VIEWS'), MODALS = registry('MODALS'), ACT = registry('ACT'), INPUT = registry('INPUT'), CHANGE = registry('CHANGE');
 
 /* ===== الرسم ===== */
 function render() {
