@@ -9,6 +9,7 @@
     "serve": "python3 serve.py --bind 0.0.0.0 --port 4173 --directory ..",
     "smoke": "node smoke.mjs",
     "qa": "node qa.mjs",
+    "unit": "node unit.mjs",
     "screens": "node final.mjs"
   },
   "devDependencies": {
