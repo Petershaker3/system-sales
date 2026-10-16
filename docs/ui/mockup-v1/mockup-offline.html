@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ملف مُولَّد — لا تعدّله بإيدك. المصدر: index.html + fonts.css + styles.css + icons.js + data.js + app.js + analytics.js + pos.js + views/reports.js + views/repairs.js + views/inventory.js + views/receive.js + views/shortages.js + views/settings.js + views/lock.js + views/mobile.js + views/sales.js + boot.js.
+  ملف مُولَّد — لا تعدّله بإيدك. المصدر: index.html + fonts.css + styles.css + icons.js + data.js + app.js + analytics.js + pos.js + views/reports.js + views/repairs.js + views/inventory.js + views/receive.js + views/catalog.js + views/shortages.js + views/settings.js + views/lock.js + views/mobile.js + views/sales.js + views/wallets.js + boot.js.
   إعادة البناء: cd docs/ui/mockup-v1/tools && node build-offline.mjs
   Generated single-file build of the UI mockup: opens from disk with no server and no internet.
 -->
@@ -645,6 +645,8 @@ input[dir="ltr"] { text-align: left; }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* جوه نافذة بتسكرول: الجدول ياخد طوله والنافذة هي اللي تسكرول (من غير كده الجدول كان بيتكبس لـ 2 بكسل) */
+.modal-b.stack > .table-wrap { flex: none; }
 .seg { display: inline-flex; background: var(--surface-3); border-radius: var(--r-m); padding: 4px; gap: 4px; flex-wrap: wrap; max-width: 100%; }
 .seg button {
   border: 0; background: transparent; padding: 7px 12px; border-radius: var(--r-s); font-weight: 600; color: var(--text-2);
@@ -1279,6 +1281,111 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .no-res .sh-quick { display: flex; margin: 10px auto 0; }
 .result .sh-quick { flex: none; }
 
+/* ===== صنف جديد (views/catalog.js) واختيار النوع في البيع ===== */
+.modal.ni { width: 780px; }
+.ni-kinds { display: grid; gap: 8px; }
+.ni-kind { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--surface); color: var(--text); text-align: start; cursor: pointer; font: inherit; }
+.ni-kind:hover, .ni-kind:focus-visible { border-color: var(--accent-text); background: var(--accent-weak); }
+.ni-kind:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.ni-kind .t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ni-kind .t small { color: var(--text-2); font-size: .85rem; }
+.ni-kind .t-ico { width: 40px; height: 40px; background: var(--accent-weak); color: var(--accent-text); }
+.ni-kind-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.ni-row { display: grid; gap: 6px; min-width: 0; }
+.ni-row > .label { font-size: .82rem; font-weight: 600; color: var(--text-2); }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
+.chip.ghost-chip { border-style: dashed; color: var(--accent-text); background: transparent; }
+.ni-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ni-inline input { flex: 1; min-width: 0; height: 40px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 10px; background: var(--surface); color: var(--text); font: inherit; }
+.ni-inline input:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.chips .ni-inline input { width: 170px; flex: none; height: 34px; }
+.ni-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: var(--r-s); background: var(--surface); }
+.ni-tags:focus-within { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.ni-tags .tag { gap: 4px; }
+.ni-tag-in { flex: 1; min-width: 150px; height: 30px; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; }
+.ni-sugg .chip.sub { color: var(--text-2); }
+.ni-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; border-radius: var(--r-s); background: var(--surface-2); color: var(--text-2); font-size: .9rem; }
+.ni-name b { color: var(--text); }
+.ni-foot { font-size: .85rem; display: flex; gap: 6px; align-items: flex-start; }
+.ni-foot svg.i, .ni-name svg.i { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.ni-switch { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-m); cursor: pointer; }
+.ni-switch .t { display: grid; gap: 2px; }
+.ni-switch small { color: var(--text-2); font-size: .85rem; }
+.ni-dim { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; align-items: start; }
+.ni-dim .ni-row { padding-top: 22px; }
+.ni-var .rc-in.ni-sku { width: 150px; text-align: start; }
+.ni-var-f { gap: 8px; align-items: center; font-size: .85rem; }
+.ni-var-f .btn { min-height: 38px; padding-block: 8px; }
+.ni-more { justify-self: start; }
+.vr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.vr { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--surface); color: var(--text); text-align: start; cursor: pointer; font: inherit; }
+.vr:hover, .vr.on { border-color: var(--accent-text); background: var(--accent-weak); }
+.vr:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.vr:disabled { cursor: not-allowed; border-style: dashed; background: var(--surface-2); color: var(--muted); }
+.vr small { font-size: .8rem; }
+.rc-mode { align-self: start; }
+.rc-top.solo { grid-template-columns: minmax(0, 1fr); }
+.rc-find-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.rc-find-row .inline-search { flex: 1; }
+.rc-none { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cat-add { grid-template-columns: minmax(0, 1fr) 200px 200px auto; }
+.br-row { grid-template-columns: minmax(0, 1fr) 130px 96px auto auto auto 32px; }
+.br-type { height: 36px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 8px; background: var(--surface); color: var(--text); font: inherit; }
+.cat-add.br-add { grid-template-columns: minmax(0, 1fr) 160px auto; }
+/* المحل الفاضي: خطوات أول يوم في المخزن، وعلامة فوق إنه محل تجربة */
+.first-run { display: grid; gap: 12px; }
+.first-run p { margin: 0; }
+.fr-kinds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fr-kinds .ni-kind { align-items: flex-start; }
+.fr-steps { margin: 0; padding-inline-start: 22px; display: grid; gap: 6px; color: var(--text-2); }
+.fr-steps b { color: var(--text); }
+.status.fresh-tag { border: 1px dashed var(--accent-text); color: var(--accent-text); background: transparent; cursor: pointer; font: inherit; }
+
+/* ===== المحافظ (views/wallets.js) ===== */
+.wl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.wl-card { display: grid; gap: 4px; align-content: start; text-align: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface); color: var(--text); cursor: pointer; font: inherit; min-width: 0; }
+.wl-card:hover { border-color: var(--border-strong); }
+.wl-card.on { border-color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent-text); }
+.wl-card:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.wl-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.wl-h .tag { margin-inline-start: auto; }
+.wl-bal { font-size: 1.4rem; font-weight: 700; line-height: 1.25; }
+.wl-meter { position: relative; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin: 2px 0; }
+.wl-meter i { position: absolute; inset-block: 0; inset-inline-start: 0; background: var(--ok); border-radius: 999px; }
+.wl-card.st-low .wl-meter i, .wl-card.st-near .wl-meter i { background: var(--warn); }
+.wl-card.st-over .wl-meter i, .wl-card.st-neg .wl-meter i { background: var(--danger); }
+.wl-meter em { position: absolute; inset-block: 0; width: 2px; background: var(--text-2); }
+.wl-sub { font-size: .82rem; overflow-wrap: anywhere; }
+.wl-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wl-bar .chip { gap: 4px; }
+.wl-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.wl-grid .card h3 small { font-weight: 500; font-size: .85rem; }
+.wl-foot { font-size: .82rem; margin-top: 8px; }
+.wl-none { padding: 18px 4px; }
+.wl-log td { white-space: nowrap; }
+.wl-log td.wl-why { white-space: normal; min-width: 120px; }
+.wl-type { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.wl-type svg.i { width: 15px; height: 15px; color: var(--text-2); }
+.wl-log tr.void td { color: var(--muted); text-decoration: line-through; }
+.wl-log tr.void td.wl-why { text-decoration: none; }
+.sv-t tr.tot td { border-top: 1px solid var(--border-strong); }
+.seg.wl-op { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+.seg.wl-op button { display: grid; justify-items: start; gap: 2px; text-align: start; padding: 8px 12px; height: auto; }
+.seg.wl-op button b { display: inline-flex; align-items: center; gap: 6px; }
+.seg.wl-op small { font-size: .8rem; color: var(--text-2); font-weight: 500; }
+.wl-pay-to { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--r-m); background: var(--accent-weak); color: var(--accent-text); font-weight: 600; }
+.wl-pay-to bdi { font-size: 1.25rem; color: var(--text); letter-spacing: .02em; }
+.note.danger { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+/* محافظ المحل في الإعدادات: صفوف بخط فاصل جوه الكارت (مش كروت جوه كارت) */
+.wm-item { display: grid; gap: 10px; padding: 14px 0; border-top: 1px solid var(--border); }
+.wm-item.off .cat-name, .wm-item.off .wm-g { opacity: .55; }
+.wm-h { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto auto auto 32px; gap: 8px; align-items: center; }
+.wm-color { width: 32px; height: 32px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--r-s); background: var(--surface); cursor: pointer; }
+.wm-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wm-add { display: grid; gap: 6px; margin-top: 4px; }
+.wm-add > .label { font-size: .82rem; font-weight: 600; color: var(--text-2); }
+.field input.wl-note { height: 52px; }
+
 /* ===== الحركة: لو الجهاز متظبط على «تقليل الحركة» — من غير ظهور تدريجي ولا هزّة ولا خط الكاميرا ===== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
@@ -1431,6 +1538,9 @@ const ICONS = {"shopping-cart":"<path d=\"m2.05 2.05 1.099-.028a1 1 0 0 1 1.008.
 'use strict';
 /* بيانات تجريبية للنموذج فقط — مش بيانات المحل الحقيقية. */
 const DATA = (() => {
+  // «جرّب من محل فاضي» (للمعاينة بس): نفس البرنامج من غير بيانات التجربة، عشان المالك يجرّب التسجيل من الصفر.
+  // بيتشغّل من الإعدادات ← المحل (بيتحفظ في المتصفح)، أو بإضافة ?fresh=1 للرابط. ومن غير متصفح (الفحوص السريعة) = بيانات التجربة
+  const FRESH = (() => { try { return /[?&]fresh=1(&|$)/.test(location.search) || localStorage.getItem('mshop.mockup.fresh') === '1'; } catch { return false; } })();
   // مولّد أرقام ثابت عشان الأرقام (والـ IMEI) تفضل هي هي كل مرة
   let seed = 16102026;
   const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
@@ -1453,10 +1563,11 @@ const DATA = (() => {
 
   // التصنيفات: رئيسية، وتحت «إكسسوارات» تصنيفات فرعية (parent).
   // «الأكثر مبيعًا» و«الكل» ثابتين في شاشة البيع. الأسماء والترتيب والإظهار وإضافة تصنيف جديد من الإعدادات.
+  // kind بيحدد «صنف جديد» بيسأل عن إيه: phone = موبايل جديد بالشركة والموديل، used = جهاز مستعمل، item = بالعدد. الفرعي بياخد نوع الرئيسي
   const categories = [
-    { id: 'phones', name: 'موبايلات جديدة', icon: 'smartphone' },
-    { id: 'used', name: 'مستعمل', icon: 'recycle' },
-    { id: 'acc', name: 'إكسسوارات', icon: 'package' },
+    { id: 'phones', name: 'موبايلات جديدة', icon: 'smartphone', kind: 'phone' },
+    { id: 'used', name: 'مستعمل', icon: 'recycle', kind: 'used' },
+    { id: 'acc', name: 'إكسسوارات', icon: 'package', kind: 'item' },
     { id: 'cases', name: 'جرابات', icon: 'shield', parent: 'acc' },
     { id: 'screens', name: 'اسكرينات', icon: 'layers', parent: 'acc' },
     { id: 'chargers', name: 'شواحن', icon: 'plug-zap', parent: 'acc' },
@@ -1464,7 +1575,23 @@ const DATA = (() => {
     { id: 'audio', name: 'سماعات', icon: 'headphones', parent: 'acc' },
     { id: 'power', name: 'باور بانك وميموري', icon: 'battery-charging', parent: 'acc' },
     { id: 'car', name: 'حوامل', icon: 'car', parent: 'acc' },
-    { id: 'smart', name: 'ساعات ذكية', icon: 'watch' },
+    { id: 'smart', name: 'ساعات ذكية', icon: 'watch', kind: 'item' },
+  ];
+  // شركات الموبايلات (من الإعدادات، زي السيستم القديم): type = تاتش أو زراير أو الاتنين. ar = اسمها بالعربي للبحث.
+  // lines = موديلات بتتكتب من غير اسم الشركة (iPhone و Redmi)، فالاسم يطلع «iPhone 16 128GB» مش «Apple iPhone 16 128GB»
+  const brands = [
+    { id: 'samsung', name: 'Samsung', type: 'touch', ar: 'سامسونج جالاكسي جلاكسي' },
+    { id: 'apple', name: 'Apple', type: 'touch', lines: ['iPhone'], ar: 'ابل آبل ايفون آيفون' },
+    { id: 'xiaomi', name: 'Xiaomi', type: 'touch', lines: ['Redmi', 'POCO'], ar: 'شاومي شاومى ريدمي ردمي بوكو' },
+    { id: 'oppo', name: 'OPPO', type: 'touch', ar: 'اوبو أوبو' },
+    { id: 'realme', name: 'realme', type: 'touch', ar: 'ريلمي ريل مي' },
+    { id: 'honor', name: 'Honor', type: 'touch', ar: 'هونر هونور' },
+    { id: 'infinix', name: 'Infinix', type: 'touch', ar: 'انفينكس انفنكس' },
+    { id: 'tecno', name: 'Tecno', type: 'both', ar: 'تكنو تيكنو' },
+    { id: 'vivo', name: 'vivo', type: 'touch', ar: 'فيفو' },
+    { id: 'huawei', name: 'Huawei', type: 'touch', ar: 'هواوي' },
+    { id: 'nokia', name: 'Nokia', type: 'both', ar: 'نوكيا' },
+    { id: 'itel', name: 'itel', type: 'keypad', ar: 'ايتل آيتل' },
   ];
 
   const P = (id, cat, name, price, cost, o = {}) => ({
@@ -1489,8 +1616,8 @@ const DATA = (() => {
     phone('p10', 'iPhone 16 128GB', 57500, 54800, '35391811', 1, 2, 'ايفون آيفون ابل آبل apple', ['أسود'], '128GB'),
     phone('p11', 'Tecno Spark 30 128GB', 5999, 5500, '35118876', 0, 6, 'تكنو تيكنو سبارك', ['أسود', 'أبيض'], '128GB، رام 4GB', 2),
     used('u1', 'iPhone 13 128GB مستعمل فئة A', 21500, 19000, '35305611', 1, 3, 'ايفون آيفون مستعمل ابل', ['أزرق'], '128GB', 'فئة A'),
-    used('u2', 'Samsung Galaxy S22 مستعمل فئة B', 12500, 10800, '35062919', 1, 2, 'سامسونج جالاكسي مستعمل', ['أسود'], '128GB، رام 8GB', 'فئة B'),
-    used('u3', 'Redmi Note 12 مستعمل فئة A', 4900, 4000, '86455904', 2, 4, 'ريدمي ردمي شاومي مستعمل', ['رمادي', 'أزرق'], '128GB، رام 6GB', 'فئة A'),
+    used('u2', 'Samsung Galaxy S22 128GB مستعمل فئة B', 12500, 10800, '35062919', 1, 2, 'سامسونج جالاكسي مستعمل', ['أسود'], '128GB، رام 8GB', 'فئة B'),
+    used('u3', 'Redmi Note 12 128GB مستعمل فئة A', 4900, 4000, '86455904', 2, 4, 'ريدمي ردمي شاومي مستعمل', ['رمادي', 'أزرق'], '128GB، رام 6GB', 'فئة A'),
     P('a1', 'cases', 'جراب سيليكون شفاف', 120, 35, { stock: 64, sold: 180, icon: 'shield', kw: 'جراب كفر كفرات cover case سيليكون', sku: '6223001234560', min: 15 }),
     P('a2', 'screens', 'اسكرينة زجاج 9D', 100, 25, { stock: 118, sold: 210, icon: 'layers', kw: 'اسكرينه سكرينة سكرينه لزقة جلاس glass حماية شاشة', sku: '6223001234577', min: 20 }),
     P('a3', 'screens', 'اسكرينة نانو مط', 150, 40, { stock: 37, sold: 45, icon: 'layers', kw: 'اسكرينه سكرينة نانو مات', sku: '6223001234584', min: 10 }),
@@ -1513,6 +1640,27 @@ const DATA = (() => {
     P('s1', 'smart', 'ساعة ذكية T900 Ultra', 950, 650, { stock: 6, sold: 8, warranty: 3, icon: 'watch', kw: 'ساعه سمارت ووتش smart watch', sku: '6971234522008', min: 2 }),
     P('s2', 'smart', 'Xiaomi Smart Band 9', 1850, 1520, { stock: 4, sold: 3, warranty: 12, icon: 'watch', kw: 'شاومي باند سوار ذكي اسورة mi band', sku: '6941812790001', min: 2 }),
   ];
+  // صنف بتفرعات (المالك: «الإكسسوار بتفرعاته»): نفس الجراب لكل موديل ولون، ولكل نوع عدده وسعره وباركوده.
+  // اتسجّل جديد، فملوش مبيعات في السجل (والسجل تحت بيتولّد من غيره عشان أرقامه ما تتغيّرش)
+  {
+    const dims = ['الموبايل', 'اللون'], models = ['Galaxy A16', 'Galaxy A26', 'Redmi 14C', 'iPhone 16'], colors = ['أسود', 'كحلي', 'بينك'];
+    const stock = [6, 4, 0, 5, 3, 2, 2, 0, 3, 4, 1, 2], codes = ['2000000001012', '2000000001029', '2000000001036', '2000000001043', '2000000001050', '2000000001067'];
+    let k = 0;
+    for (const m of models) for (const c of colors) {
+      const iph = m.startsWith('iPhone');
+      products.push(P(`f1v${k + 1}`, 'cases', `جراب سيليكون ملون ${m} ${c}`, iph ? 180 : 150, iph ? 60 : 45,
+        { stock: stock[k], icon: 'shield', kw: 'جراب كفر كفرات سيليكون ملون cover case', sku: codes[k] || '', min: 2, fam: 'f1', base: 'جراب سيليكون ملون', vr: [m, c], dims }));
+      k++;
+    }
+  }
+  // الشركة والموديل والمساحة والرام لكل موبايل (من اسمه)، بنفس شكل اللي بيتسجّل من «صنف جديد»
+  for (const p of products) {
+    if (!p.serial) continue;
+    const b = brands.find((x) => p.name.startsWith(`${x.name} `) || (x.lines || []).some((l) => p.name.startsWith(`${l} `)));
+    const base = p.name.replace(/ مستعمل.*$/, ''), rom = (base.match(/ (\d+(?:GB|TB))$/) || p.storage.match(/^(\d+(?:GB|TB))/) || [])[1] || '';
+    const model = base.replace(new RegExp(`^${b.name} `), '').replace(new RegExp(` ${rom}$`), '').trim();
+    Object.assign(p, { brand: b.name, model, rom, ram: (p.storage.match(/رام (\d+GB)/) || [])[1] || '', ptype: 'touch' });
+  }
 
   // وحدات الأجهزة: كل جهاز بالـ IMEI بتاعه وتكلفته الفعلية
   const units = [];
@@ -1543,13 +1691,16 @@ const DATA = (() => {
     { id: 'c7', name: 'كريم مصطفى', phone: '01011122233', balance: 0, visits: 1 },
   ];
 
-  // محافظ المحل (للخدمات وللتحصيل). الحدود الموثّقة بس: فودافون كاش وإنستاباي
+  // محافظ المحل (زي السيستم القديم: المالك بيضيف ويرتّب ويغيّر من الإعدادات). الرصيد مش رقم ثابت: بيتحسب من السجل (walletBalance).
+  // number = رقم محفظة المحل نفسه (بيظهر للعميل في السحب عشان يحوّل عليه). opening = الرصيد يوم ما التسجيل بدأ (walletSince).
+  // min = تحت كده «قرب يخلص»، max = أقصى رصيد (قرّب منه = تنبيه، زي «حد التنبيه» في القديم)، limitDay = حد التحويلات في اليوم.
+  // pay = طريقة الدفع في البيع اللي فلوسها بتنزل في المحفظة دي. الحدود الموثّقة بس: فودافون كاش (60 ألف) وإنستاباي (70 ألف)
   const wallets = [
-    { id: 'vf', name: 'فودافون كاش', number: '01001234567', balance: 18450, limitDay: 60000, usedToday: 18500, color: '#e60000' },
-    { id: 'et', name: 'اتصالات كاش', number: '01112345678', balance: 6200, usedToday: 4000, color: '#719e19' },
-    { id: 'or', name: 'أورنج كاش', number: '01223456789', balance: 4750, usedToday: 2500, color: '#ff7900' },
-    { id: 'we', name: 'وي باي', number: '01559876543', balance: 2100, usedToday: 0, color: '#5c2d91' },
-    { id: 'ip', name: 'إنستاباي', number: 'mobilestore@instapay', balance: 25300, limitDay: 70000, usedToday: 9000, color: '#3b2a85' },
+    { id: 'vf', name: 'فودافون كاش', number: '01001234567', color: '#e60000', opening: 15000, min: 3000, max: 90000, limitDay: 60000, pay: 'vf' },
+    { id: 'et', name: 'اتصالات كاش', number: '01112345678', color: '#719e19', opening: 5000, min: 1000, max: 50000, limitDay: 0, pay: null },
+    { id: 'or', name: 'أورنج كاش', number: '01223456789', color: '#ff7900', opening: 4000, min: 1000, max: 50000, limitDay: 0, pay: null },
+    { id: 'we', name: 'وي باي', number: '01559876543', color: '#5c2d91', opening: 2000, min: 500, max: 30000, limitDay: 0, pay: null },
+    { id: 'ip', name: 'إنستاباي', number: 'mobilestore@instapay', color: '#3b2a85', opening: 20000, min: 2000, max: 150000, limitDay: 70000, pay: 'instapay' },
   ];
 
   const payMethods = [
@@ -1596,9 +1747,10 @@ const DATA = (() => {
     { no: 'R-1045', device: 'Infinix Hot 30', issue: 'فلاتة باور', customer: 'أحمد سمير', phone: '01555123456', status: 'delivered', estimate: 400, deposit: 400, due: 'امبارح', tech: 'م. حسن', at: 'امبارح' },
   ];
 
-  // الوردية الحالية: المتوقع في الدرج = 1000 + 11730 + 4040 − 2970 − 150 − 1300 = 12350
+  // الوردية الحالية (من 9 الصبح): مبيعات الكاش والخدمات والمحافظ بتتحسب من سجلاتها (shiftNow في analytics.js)، والباقي هنا
+  const shiftFrom = new Date(); shiftFrom.setHours(9, 0, 0, 0);
   const shift = {
-    no: 142, opened: '9:00 ص', by: 'يوسف', opening: 1000, cashSales: 11730, servicesIn: 4040, servicesOut: 2970,
+    no: 142, opened: '9:00 ص', from: shiftFrom, by: 'يوسف', opening: 1000,
     expenses: [{ name: 'شاي وقهوة', amount: 50 }, { name: 'مواصلات توصيل', amount: 100 }], ownerDraw: 1300,
   };
 
@@ -1634,17 +1786,17 @@ const DATA = (() => {
      فيه نمو على السنة ومواسم السوق المصري، عشان مقارنات الشهور يبقى ليها معنى. */
   // آخر الاستلامات (تجريبي). المورد اسم بيكتبه المحل من غير سجل موردين، زي البرنامج الحقيقي (receive_stock)
   const receipts = [
-    { no: 41, at: new Date(Date.now() - 9 * 864e5), supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
-    { no: 42, at: new Date(Date.now() - 5 * 864e5), supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
-    { no: 43, at: new Date(Date.now() - 2 * 864e5), supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
+    { no: 41, at: new Date(Date.now() - 9 * 864e5), kind: 'supplier', supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
+    { no: 42, at: new Date(Date.now() - 5 * 864e5), kind: 'supplier', supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
+    { no: 43, at: new Date(Date.now() - 2 * 864e5), kind: 'supplier', supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
   ];
-  const history = (() => {
+  const history = FRESH ? [] : (() => {
     let hs = 20261016;
     const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
     const weighted = (list) => { const tot = list.reduce((a, p) => a + p.sold + 2, 0); let r = hr() * tot; for (const p of list) { r -= p.sold + 2; if (r <= 0) return p; } return list[list.length - 1]; };
     const imeiOf = (tac) => { let x = tac; while (x.length < 14) x += Math.floor(hr() * 10); return x + luhnDigit(x); };
     const newPhones = products.filter((p) => p.cat === 'phones'), usedPhones = products.filter((p) => p.cat === 'used');
-    const accs = products.filter((p) => !p.serial), addOns = accs.filter((p) => p.cat === 'cases' || p.cat === 'screens');
+    const accs = products.filter((p) => !p.serial && !p.fam), addOns = accs.filter((p) => p.cat === 'cases' || p.cat === 'screens');
     const sellerOf = () => { const r = hr(); return r < 0.42 ? 'u2' : r < 0.75 ? 'u3' : 'u1'; };
     const unitLine = (p) => ({ pid: p.id, name: p.name, cat: p.cat, qty: 1, price: p.price, cost: p.cost, imei: imeiOf(p.tac), warranty: p.warranty });
     const itemLine = (p, qty = 1) => ({ pid: p.id, name: p.name, cat: p.cat, qty, price: p.price, cost: p.cost, imei: null, warranty: p.warranty });
@@ -1697,9 +1849,74 @@ const DATA = (() => {
     return out;
   })();
 
+  /* ===== سجل المحافظ (تجريبي): من أول الشهر اللي فات، يوم ما المحل بدأ يسجّل المحافظ =====
+     عمليات العملاء (إيداع وسحب بعمولة، من غير رقم العميل) وفواتير الخدمات، وفلوس البيع اللي اتدفعت بمحفظة.
+     المالك بيشحن المحفظة لما تقرب تخلص، وبيفرّغها للبنك لما تقرب من أقصى رصيد، وفيه من كل حركة تانية واحدة.
+     مولّد لوحده بعد سجل المبيعات، فأرقام المبيعات ما تتغيّرش. */
+  const walletSince = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() - 1, 1); })();
+  const { walletOps, bills } = FRESH ? { walletOps: [], bills: [] } : (() => {
+    let ws = 17102026;
+    const wr = () => { ws = (ws * 1103515245 + 12345) % 2147483648; return ws / 2147483648; };
+    const now = new Date(), ops = [], bl = [], OPEN = 9 * 3600, CLOSE = 23 * 3600, bal = {};
+    for (const w of wallets) bal[w.id] = w.opening;
+    const share = { vf: 0.55, ip: 0.17, et: 0.12, or: 0.11, we: 0.05 };
+    const pickW = () => { let x = wr(); for (const w of wallets) { x -= share[w.id]; if (x <= 0) return w; } return wallets[0]; };
+    const AMOUNTS = [100, 200, 300, 500, 500, 700, 1000, 1000, 1500, 2000, 2500, 3000, 5000];
+    const NOTES = ['تحويل لأخوه', 'قسط', 'اشتراك نت', 'مرتب'];
+    const feeOf = (a) => Math.max(5, Math.round(a / 500) * 5); // حوالي 1%، والأقل 5
+    const at = (day, sec) => { const d = new Date(day); d.setHours(Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60); return d; };
+    const payDay = {}; // فلوس البيع اللي نزلت في كل محفظة كل يوم
+    for (const x of history) { if (x.at < walletSince) continue; for (const p of x.payments) { const w = wallets.find((y) => y.pay === p.method); if (w) { const k = `${x.at.toDateString()}|${w.id}`; payDay[k] = (payDay[k] || 0) + p.amount; } } }
+    const sellerOf = () => { const r = wr(); return r < 0.45 ? 'u2' : r < 0.8 ? 'u3' : 'u1'; };
+    for (let day = new Date(walletSince); day <= now; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
+      const isToday = day.toDateString() === now.toDateString(), end = isToday ? Math.min(CLOSE, now.getHours() * 3600 + now.getMinutes() * 60) : CLOSE;
+      if (end <= OPEN) continue;
+      const part = (end - OPEN) / (CLOSE - OPEN), n = Math.round((9 + Math.floor(wr() * 8)) * part), nb = Math.round((2 + Math.floor(wr() * 4)) * part);
+      const secs = Array.from({ length: n + nb }, () => OPEN + Math.floor(wr() * (end - OPEN))).sort((a, b) => a - b);
+      const billIdx = new Set(); while (billIdx.size < nb) billIdx.add(Math.floor(wr() * secs.length));
+      secs.forEach((sec, i) => {
+        if (billIdx.has(i)) { bl.push({ at: at(day, sec), bill: billTypes[Math.floor(wr() * billTypes.length)].id, acct: '', amount: 50 * (2 + Math.floor(wr() * 14)), fee: 5, by: sellerOf() }); return; }
+        const w = pickW(), a = AMOUNTS[Math.floor(wr() * AMOUNTS.length)], type = wr() < 0.55 ? 'deposit' : 'withdraw';
+        // الإيداع ما يعدّيش الرصيد: المحفظة اللي قربت تخلص المالك بيشحنها قبلها (من حسابه)
+        if (type === 'deposit' && bal[w.id] - a < w.min / 2) { const t = Math.round((w.max * 0.4) / 1000) * 1000; ops.push({ at: at(day, sec - 60), type: 'topup', via: 'out', wallet: w.id, amount: t, fee: 0, by: 'u1', note: 'شحن من حساب المالك' }); bal[w.id] += t; }
+        ops.push({ at: at(day, sec), type, wallet: w.id, amount: a, fee: feeOf(a), by: sellerOf(), note: wr() < 0.05 ? NOTES[Math.floor(wr() * NOTES.length)] : '' });
+        bal[w.id] += type === 'deposit' ? -a : a;
+      });
+      // آخر اليوم: فلوس البيع اللي اتدفعت على المحفظة، والمحفظة اللي قربت من أقصى رصيد بتتفرّغ للبنك
+      for (const w of wallets) {
+        bal[w.id] += payDay[`${day.toDateString()}|${w.id}`] || 0;
+        if (!isToday && bal[w.id] > w.max * 0.75) { const t = Math.floor((bal[w.id] - w.max * 0.35) / 1000) * 1000; ops.push({ at: at(day, 22 * 3600 + 50 * 60), type: 'unload', via: 'out', wallet: w.id, amount: t, fee: 0, by: 'u1', note: 'تحويل لحساب البنك' }); bal[w.id] -= t; }
+      }
+    }
+    // من كل حركة داخلية واحدة قريبة: تفريغ للدرج، وتحويل بين محفظتين، وتسوية جرد، وشحن من الدرج النهارده
+    const back = (d, h, m) => { const x = new Date(now.getFullYear(), now.getMonth(), now.getDate() - d); x.setHours(h, m, 0, 0); return x; };
+    const extra = [
+      { at: back(3, 21, 30), type: 'unload', via: 'drawer', wallet: 'vf', amount: 3000, fee: 0, by: 'u1', note: 'سحبت كاش للدرج' },
+      { at: back(2, 10, 15), type: 'move', wallet: 'ip', to: 'vf', amount: 5000, fee: 0, by: 'u1', note: 'نقل رصيد' },
+      { at: back(1, 22, 55), type: 'adjust', wallet: 'vf', amount: -15, fee: 0, by: 'u1', note: 'جرد: رسوم الشبكة' },
+    ];
+    if (now.getHours() * 60 + now.getMinutes() > 9 * 60 + 5) extra.push({ at: back(0, 9, 5), type: 'topup', via: 'drawer', wallet: 'or', amount: 2000, fee: 0, by: 'u1', note: 'شحن من الدرج' });
+    ops.push(...extra.filter((o) => o.at >= walletSince));
+    // آخر عملية: إيداع كبير من «وي باي» يخلّيها تحت الأدنى، عشان تنبيه «قرب يخلص» يبان (لو المحل فاتح دلوقتي)
+    const mins = now.getHours() * 60 + now.getMinutes(), we = wallets.find((w) => w.id === 'we');
+    const weBal = we.opening + ops.reduce((a, o) => a + (o.wallet !== 'we' ? (o.to === 'we' ? o.amount : 0) : ['withdraw', 'topup', 'adjust'].includes(o.type) ? o.amount : -o.amount), 0);
+    const big = Math.floor((weBal - 300) / 100) * 100;
+    if (mins >= 9 * 60 + 30 && mins < 23 * 60 && big >= 500) ops.push({ at: new Date(now.getTime() - 120e3), type: 'deposit', wallet: 'we', amount: big, fee: feeOf(big), by: 'u2', note: '' });
+    ops.sort((a, b) => a.at - b.at);
+    ops.forEach((o, i) => { o.id = `w${i + 1}`; if (o.note === undefined) o.note = ''; });
+    bl.forEach((b, i) => { b.id = `b${i + 1}`; });
+    return { walletOps: ops, bills: bl };
+  })();
+
+  // المحل الفاضي: من غير أصناف ولا أجهزة ولا عملاء ولا فواتير ولا صيانة ولا محافظ (المالك بيضيف محافظه)، والوردية من الصفر
+  if (FRESH) {
+    for (const list of [products, units, customers, repairs, receipts, wallets]) list.length = 0;
+    Object.assign(shift, { no: 1, by: users[0].name, opening: 0, expenses: [], ownerDraw: 0 });
+    Object.assign(dash, { today: { sales: 0, invoices: 0, profit: 0, services: 0, servicesFee: 0, yesterday: 0, bySeller: {}, countBySeller: {} }, week: [0, 0, 0, 0, 0, 0, 0], pay: [], top: [], recent: [] });
+  }
   return {
-    users, categories, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
-    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
+    fresh: FRESH, users, categories, brands, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
+    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, walletSince, walletOps, bills, makeImei, luhnDigit,
   };
 })();
 
@@ -1741,7 +1958,9 @@ const DEFAULTS = {
   // صور الأصناف (اختياري): بتظهر في مربعات البيع والبحث وتطبيق الموبايل بدل الأيقونة
   showImages: true,
   // التصنيفات (الترتيب = ترتيب الظهور). بتتعدّل من الإعدادات ← الأصناف والبيع
-  cats: DATA.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, parent: c.parent || null, hidden: false })),
+  cats: DATA.categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon, parent: c.parent || null, hidden: false, kind: c.kind || null })),
+  // شركات الموبايلات (الترتيب = ترتيب الظهور في «صنف جديد» وزراير الشركات). من الإعدادات ← الأصناف والبيع
+  brands: DATA.brands.map((b) => ({ ...b, hidden: false })),
 };
 // ألوان جاهزة، و«لون تاني» بيقبل أي لون — الكلام عليه بيتظبط تلقائي
 const ACCENTS = ['#1d4f91', '#0f6e5a', '#b3261e', '#0e6170', '#6b2f73', '#a86b00', '#2f3437'];
@@ -1750,8 +1969,18 @@ function mergeCats(saved) {
   if (!Array.isArray(saved)) return DEFAULTS.cats.map((c) => ({ ...c }));
   const ok = saved.filter((c) => c && typeof c.id === 'string' && typeof c.name === 'string' && c.name.trim());
   const ids = new Set(ok.map((c) => c.id));
-  const out = ok.filter((c) => !c.parent || ids.has(c.parent)).map((c) => ({ id: c.id, name: c.name, icon: c.icon || 'tag', parent: c.parent || null, hidden: !!c.hidden, custom: !!c.custom }));
+  // النوع (phone/used/item): المحفوظ قبل ما يبقى فيه نوع بياخد نوع التصنيف الأصلي، والجديد من غير نوع = بالعدد
+  const kindOf = (c) => (['phone', 'used', 'item'].includes(c.kind) ? c.kind : c.parent ? null : ((DEFAULTS.cats.find((d) => d.id === c.id) || {}).kind || 'item'));
+  const out = ok.filter((c) => !c.parent || ids.has(c.parent)).map((c) => ({ id: c.id, name: c.name, icon: c.icon || 'tag', parent: c.parent || null, hidden: !!c.hidden, custom: !!c.custom, kind: kindOf(c) }));
   for (const c of DEFAULTS.cats) if (!ids.has(c.id)) out.push({ ...c });
+  return out;
+}
+function mergeBrands(saved) {
+  if (!Array.isArray(saved)) return DEFAULTS.brands.map((b) => ({ ...b }));
+  const ok = saved.filter((b) => b && typeof b.id === 'string' && typeof b.name === 'string' && b.name.trim());
+  const ids = new Set(ok.map((b) => b.id));
+  const out = ok.map((b) => ({ ...(DEFAULTS.brands.find((d) => d.id === b.id) || {}), ...b, type: ['touch', 'keypad', 'both'].includes(b.type) ? b.type : 'touch', hidden: !!b.hidden }));
+  for (const b of DEFAULTS.brands) if (!ids.has(b.id)) out.push({ ...b });
   return out;
 }
 function loadSettings() {
@@ -1766,7 +1995,7 @@ function loadSettings() {
   return {
     ...DEFAULTS, ...saved,
     perms: { ...DEFAULTS.perms, ...(saved.perms || {}) }, methods: { ...DEFAULTS.methods, ...(saved.methods || {}) },
-    imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats),
+    imeiMode: saved.imeiMode === 'required' ? 'required' : 'optional', cats: mergeCats(saved.cats), brands: mergeBrands(saved.brands),
     feeMode: saved.feeMode === 'auto' ? 'auto' : 'manual', printer: saved.printer === true,
     look: LOOKS.includes(saved.look) ? saved.look : DEFAULTS.look, font: FONT_IDS.includes(saved.font) ? saved.font : DEFAULTS.font,
   };
@@ -1852,6 +2081,10 @@ const fmtTime = (d = new Date()) => new Intl.DateTimeFormat(locale(), { hour: 'n
 const fmtDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
 // «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة»
 const pcsWord = (n) => (n === 1 ? 'قطعة' : n === 2 ? 'قطعتين' : n <= 10 ? `${num(n)} قطع` : `${num(n)} قطعة`);
+// نفس القاعدة لأي كلمة: «نوع»، «نوعين»، «3 أنواع»، «11 نوع»
+const countWord = (n, one, two, few) => (n === 1 ? one : n === 2 ? two : n <= 10 ? `${num(n)} ${few}` : `${num(n)} ${one}`);
+const kindsWord = (n) => countWord(n, 'نوع', 'نوعين', 'أنواع');
+const itemsWord = (n) => countWord(n, 'صنف', 'صنفين', 'أصناف');
 const fmtMonth = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
 const monthName = (d = new Date()) => new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
 const fmtDayDate = (d = new Date()) => new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
@@ -1901,12 +2134,13 @@ const S = {
   view: 'pos', modal: null,
   invoices: [newInvoice()], active: 0, sel: -1,
   q: '', qi: 0, cat: 'top', _res: [],
-  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], services: [], showProfit: false,
+  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], showProfit: false,
   inv: { q: '', cat: 'all', tab: 'items', open: {} },
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },
   sw: null, // قايمة تبديل المستخدم فوق: null أو { user, pin, err, pinned }
-  catNew: { name: '', parent: '', icon: 'tag' },
+  catNew: { name: '', parent: '', icon: 'tag', kind: 'item' },
+  brNew: { name: '', type: 'touch' },
 };
 const isOwner = () => S.user && S.user.role === 'owner';
 const roleName = (u) => (u.role === 'owner' ? 'المالك' : 'بيّاع');
@@ -1915,7 +2149,7 @@ const logoHTML = (cls = 'logo') => `<div class="${cls}">${SET.logo ? `<img src="
 
 /* سجلات تتملي من الملفات التانية */
 // كل اسم (شاشة، نافذة، إجراء) لازم يتعرّف مرة واحدة: التعريف التاني بيلغي الأول من غير ما حد ياخد باله،
-// فبنكتب خطأ في الكونسول والفحص الآلي بيلقطه (حصل مع invTab: تبويب المخزون كان بيلغي تبويب الفواتير)
+// فبنكتب خطأ في الكونسول والفحص الآلي بيلقطه (حصل مع invTab: تبويب المخزن كان بيلغي تبويب الفواتير)
 const registry = (name) => new Proxy({}, { set(t, k, v) { if (Object.prototype.hasOwnProperty.call(t, k)) console.error(`${name}.${String(k)} اتعرّف مرتين`); t[k] = v; return true; } });
 const VIEWS = registry('VIEWS'), MODALS = registry('MODALS'), ACT = registry('ACT'), INPUT = registry('INPUT'), CHANGE = registry('CHANGE');
 
@@ -1965,13 +2199,14 @@ const modalHead = (title, sub = '') => `<div class="modal-h"><h2><span class="mt
 const NAV = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart' },
   { id: 'sales', label: 'المبيعات', icon: 'receipt-text' },
+  { id: 'wallets', label: 'المحافظ', icon: 'wallet' },
   { id: 'repairs', label: 'الصيانة', icon: 'wrench' },
-  { id: 'inventory', label: 'المخزون', icon: 'boxes' },
+  { id: 'inventory', label: 'المخزن', icon: 'boxes' },
   { id: 'dashboard', label: 'التقارير', icon: 'chart-column', owner: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone' },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', owner: true },
 ];
-const TITLES = { pos: 'البيع', sales: 'المبيعات', repairs: 'الصيانة', inventory: 'المخزون', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
+const TITLES = { pos: 'البيع', sales: 'المبيعات', wallets: 'المحافظ', repairs: 'الصيانة', inventory: 'المخزن', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
 function shell() {
   return `<div class="shell">${rail()}<main class="main">${topbar()}<div class="content" data-scroll="content-${S.view}">${VIEWS[S.view]()}</div></main></div>`;
 }
@@ -1992,6 +2227,7 @@ function topbar() {
   const u = S.user;
   return `<header class="topbar">
     <h1>${TITLES[S.view]}</h1><span class="shop hide-sm">${esc(SET.shopName)}</span>
+    ${DATA.fresh ? `<button type="button" class="status fresh-tag" data-act="freshInfo" title="ترجع لبيانات التجربة من الإعدادات، في «المحل»">${icon('store')} محل فاضي للتجربة</button>` : ''}
     <div class="sp"></div>
     <span class="status" title="الوردية">${icon('clock')} وردية #${num(DATA.shift.no)} مفتوحة من ${dg(DATA.shift.opened)}</span>
     ${hasPrinter() ? `<span class="status hide-sm" title="الطابعة"><span class="dot"></span>${icon('printer')} الطابعة جاهزة</span>` : `<span class="status hide-sm" title="مفيش طابعة. الإيصال بيتبعت للعميل على واتساب"><span class="dot"></span>${icon('message-circle')} الإيصال: واتساب</span>`}
@@ -2118,6 +2354,7 @@ ACT.overlay = (d, el, e) => {
   if (S.modal.type === 'pay' && S.modal.step === 'done') finishAfterSale(); else closeModal();
 };
 ACT.soon = () => toast('دي للعرض بس في النموذج', 'info');
+ACT.freshInfo = () => { if (isOwner()) { S.view = 'settings'; S.settingsTab = 'shop'; S.modal = null; render(); } else toast('محل فاضي للتجربة. المالك يرجّع بيانات التجربة من الإعدادات', 'info'); };
 
 /* ===== الأحداث ===== */
 document.addEventListener('click', (e) => {
@@ -2137,6 +2374,7 @@ document.addEventListener('keydown', (e) => {
   if (S.view === 'pos') posKey(e);
   else if (S.view === 'sales') salesKey(e);
   else if (S.view === 'dashboard') reportsKey(e);
+  else if (S.view === 'wallets') walletsKey(e);
 });
 setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(); }, 15000);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (SET.theme === 'auto') { applySettings(); render(); } });
@@ -2314,12 +2552,99 @@ function monthReport(list, month, now = new Date()) {
   return { from, to, last, live, rows, T, P, PT, Y, YT, days, done: done.length, perDay, projection, phones, mix, cats, products, sellers, methods, months, rank, of, verdict, notes, disc };
 }
 
-/* --- المخزون: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
+/* --- المخزن: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
 // (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق زي البرنامج الحقيقي (domain/costing/moving_average.rs):
 // تقريب لفوق بيقلّل الربح قرش ولا يعمل ربح وهمي. الرصيد بالسالب بيتحسب صفر
 function receiveCost(stock, avg, qty, unitCost) {
   const q0 = Math.max(0, stock), q = q0 + qty;
   return q > 0 ? Math.ceil((q0 * avg + qty * unitCost) / q) : unitCost;
+}
+
+/* --- الأصناف: قواعد التسجيل (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 2) --- */
+// اسم الموبايل = الشركة + الموديل + المساحة. الموديل اللي بيبدأ باسم الشركة أو بخط من خطوطها (iPhone و Redmi) ما بيتكررش قبله اسم الشركة
+function phoneTitle(brand, model, rom) {
+  const m = String(model || '').trim().replace(/\s+/g, ' '), name = brand ? brand.name : '', low = m.toLowerCase();
+  const bare = !name || low.startsWith(`${name.toLowerCase()} `) || (brand.lines || []).some((l) => low.startsWith(l.toLowerCase()));
+  return [bare ? '' : name, m, rom || ''].filter(Boolean).join(' ');
+}
+// المواصفات زي ما بتظهر في المخزن وعلى الجهاز: «128GB، رام 6GB». الزراير من غير مواصفات
+const specText = (rom, ram) => [rom, ram ? `رام ${ram}` : ''].filter(Boolean).join('، ');
+// التفرعات: كل قيمة من الأول × كل قيمة من التاني (والتاني اختياري)، بالترتيب اللي اتكتبوا بيه
+function variantCombos(dims) {
+  const lists = dims.filter((d) => d.length);
+  if (!lists.length || lists.length < dims.filter((d, i) => i === 0 || d.length).length) return [];
+  return lists.reduce((acc, vals) => acc.flatMap((c) => vals.map((v) => [...c, v])), [[]]);
+}
+// باركود EAN-13: رقم المراجعة (الأوزان 1 و 3). الأكواد اللي المحل بيعملها لنفسه بتبدأ بـ 2 (للاستعمال الداخلي)
+function ean13(body12) {
+  const t = [...body12].reduce((a, d, i) => a + Number(d) * (i % 2 ? 3 : 1), 0);
+  return body12 + String((10 - (t % 10)) % 10);
+}
+const ean13Ok = (code) => /^\d{13}$/.test(code) && ean13(code.slice(0, 12)) === code;
+
+/* --- المحافظ (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 4): الرصيد والدرج من سجل واحد --- */
+// الحركات: deposit إيداع (العميل بيدفع كاش وانت بتحوّل من محفظتك)، withdraw سحب (العميل بيحوّل على محفظتك وبياخد كاش)،
+// topup شحن المحفظة و unload تفريغها (via: drawer من الدرج وليه، أو out من برّه وليه زي البنك)، move من محفظة لمحفظة، adjust تسوية جرد بالفرق.
+// العملية الملغية (void) بتفضل في السجل ومش بتحرّك حاجة. المبلغ بس اللي بيحرّك المحفظة، والعمولة دخل للمحل في الدرج
+function walletDelta(op, wid) {
+  if (op.void) return 0;
+  if (op.type === 'move') return op.wallet === wid ? -op.amount : op.to === wid ? op.amount : 0;
+  if (op.wallet !== wid) return 0;
+  return op.type === 'adjust' || op.type === 'withdraw' || op.type === 'topup' ? op.amount : -op.amount;
+}
+function opCash(op) {
+  if (op.void) return 0;
+  if (op.type === 'deposit') return op.amount + op.fee;
+  if (op.type === 'withdraw') return -(op.amount - op.fee);
+  if (op.via === 'drawer') return op.type === 'topup' ? -op.amount : op.type === 'unload' ? op.amount : 0;
+  return 0;
+}
+const isCustomerOp = (op) => op.type === 'deposit' || op.type === 'withdraw';
+// فلوس البيع اللي اتدفعت على المحفظة (فاتورة بفودافون كاش ← محفظة فودافون كاش)
+function walletPayIn(w, sales, from, end) {
+  if (!w.pay) return 0;
+  let s = 0;
+  for (const x of sales) if (x.at >= from && x.at < end) for (const p of x.payments) if (p.method === w.pay) s += p.amount;
+  return s;
+}
+const FAR = new Date(8.64e15);
+// الرصيد = الافتتاحي (يوم since) + كل حركاته + فلوس البيع اللي نزلت فيه. end اختياري: الرصيد لحد لحظة معيّنة
+function walletBalance(w, ops, sales, since, end = FAR) {
+  let b = w.opening || 0;
+  for (const op of ops) if (op.at < end) b += walletDelta(op, w.id);
+  return b + walletPayIn(w, sales, since, end);
+}
+// حالة الرصيد: بالسالب، أو قرب يخلص (تحت الأدنى)، أو عدّى أقصى رصيد، أو قرّب منه (90٪ زي السيستم القديم)
+const walletState = (w, bal) => (bal < 0 ? 'neg' : w.min && bal < w.min ? 'low' : w.max && bal > w.max ? 'over' : w.max && bal >= w.max * 0.9 ? 'near' : 'ok');
+// أرقام محفظة في فترة: الإيداع والسحب (عدد ومبلغ) والعمولة، وحركات المالك، وفلوس البيع. used = اللي اتحوّل للعملاء (للحد اليومي)
+function walletStats(w, ops, sales, from, end) {
+  const r = { ops: 0, depN: 0, dep: 0, witN: 0, wit: 0, fees: 0, other: 0, payIn: walletPayIn(w, sales, from, end) };
+  for (const op of ops) {
+    if (op.void || op.at < from || op.at >= end) continue;
+    if (isCustomerOp(op) && op.wallet === w.id) { r.ops++; r.fees += op.fee; if (op.type === 'deposit') { r.depN++; r.dep += op.amount; } else { r.witN++; r.wit += op.amount; } } else r.other += walletDelta(op, w.id);
+  }
+  r.used = r.dep + r.wit;
+  return r;
+}
+// الخدمات في فترة: عمليات العملاء على المحافظ + الفواتير (العمولة والرسوم دخل)، والكاش اللي دخل وخرج، وحركات المحافظ مع الدرج
+function servicesOf(ops, bills, from, end) {
+  const r = { count: 0, fees: 0, cashIn: 0, cashOut: 0, drawer: 0 };
+  for (const op of ops) {
+    if (op.void || op.at < from || op.at >= end) continue;
+    const c = opCash(op);
+    if (isCustomerOp(op)) { r.count++; r.fees += op.fee; if (c > 0) r.cashIn += c; else r.cashOut -= c; } else r.drawer += c;
+  }
+  for (const b of bills) { if (b.void || b.at < from || b.at >= end) continue; r.count++; r.fees += b.fee; r.cashIn += b.amount + b.fee; }
+  return r;
+}
+// الدرج في الوردية الحالية: كل رقم من سجله (المبيعات الكاش، والخدمات، والمحافظ)، والمتوقع مجموعهم
+function shiftNow() {
+  const s = DATA.shift, sv = servicesOf(DATA.walletOps, DATA.bills, s.from, FAR);
+  let cashSales = 0;
+  for (const x of DATA.history) if (x.at >= s.from) for (const p of x.payments) if (p.method === 'cash') cashSales += p.amount;
+  const expenses = s.expenses.reduce((a, e) => a + e.amount, 0);
+  return { opening: s.opening, cashSales, svcIn: sv.cashIn, svcOut: sv.cashOut, drawer: sv.drawer, expenses, ownerDraw: s.ownerDraw,
+    expected: s.opening + cashSales + sv.cashIn - sv.cashOut + sv.drawer - expenses - s.ownerDraw };
 }
 
 /* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */
@@ -2331,10 +2656,21 @@ function histRecord(sale) {
     disc: sale.disc || 0, total: sale.total, profit: sale.profit, payments: sale.payments.map((x) => ({ method: x.method, amount: x.amount, provider: x.provider || '' })),
   };
 }
+// تقسيم طرق الدفع بالنسبة: الألوان 5 درجات بس من لون المحل (styles.css: --c0…--c4)، فلو الطرق أكتر من 5
+// الأصغر بيتجمعوا في «تاني» (يوم فيه الست طرق كان الجزء السادس بيطلع من غير لون). المجموع 100 دايمًا
+function paySplit(pay, max = 5) {
+  const sum = Object.values(pay).reduce((a, v) => a + v, 0);
+  let rows = Object.entries(pay).sort((a, b) => b[1] - a[1]);
+  if (rows.length > max) rows = [...rows.slice(0, max - 1), ['تاني', rows.slice(max - 1).reduce((a, r) => a + r[1], 0)]];
+  const split = rows.map(([name, v]) => ({ name, v: sum ? Math.round((v / sum) * 100) : 0 }));
+  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
+  return split;
+}
 // أرقام التقارير والموبايل بتتحسب من السجل (عدادات الخدمات زي ما هي: مش فواتير بيع)
 function refreshDash() {
   const D = DATA.dash, now = new Date(), today = dayStart(now);
-  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: D.today.services, servicesFee: D.today.servicesFee };
+  const sv = servicesOf(DATA.walletOps, DATA.bills, today, FAR); // خدمات النهارده من سجل المحافظ والفواتير
+  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: sv.count, servicesFee: sv.fees };
   const week = [0, 0, 0, 0, 0, 0, 0], pay = {}, top = {}, todays = [];
   const ySame = spanEnd(addDays(today, -1), true, now); // امبارح لحد نفس الساعة: النهارده لسه ماخلصش
   for (const x of DATA.history) {
@@ -2347,9 +2683,7 @@ function refreshDash() {
     for (const p of x.payments) { const n = methodName(p.method); pay[n] = (pay[n] || 0) + p.amount; }
     for (const l of x.lines) { const r = top[l.name] || (top[l.name] = [l.name, 0, 0]); r[1] += l.qty; r[2] += l.price * l.qty; }
   }
-  const paySum = Object.values(pay).reduce((a, v) => a + v, 0);
-  const split = Object.entries(pay).sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, v: paySum ? Math.round((v / paySum) * 100) : 0 }));
-  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
+  const split = paySplit(pay);
   Object.assign(D, {
     today: { ...t, vsYesterday: t.yesterday ? pct(t.sales, t.yesterday) : null }, week, pay: split, top: Object.values(top).sort((a, b) => b[1] - a[1] || b[2] - a[2]).slice(0, 5),
     recent: todays.slice().reverse().slice(0, 8).map((x) => {
@@ -2370,15 +2704,27 @@ function normalize(s) {
     .replace(/\s+/g, ' ').trim();
 }
 /* ===== التصنيفات: رئيسية + فرعية (من الإعدادات) ===== */
+// تحت تصنيفات الموبايلات (الجديد والمستعمل) زراير الشركات بدل الفرعي: الاختيار «phones~Samsung» = التصنيف ~ الشركة
 const catById = (id) => SET.cats.find((c) => c.id === id);
 const catName = (id) => (catById(id) || {}).name || '';
-const mainOf = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
+const brandPick = (id) => (String(id).includes('~') ? String(id).split('~') : null);
+const mainOf = (id) => { const bp = brandPick(id); if (bp) return bp[0]; const c = catById(id); return c && c.parent ? c.parent : id; };
+// نوع التصنيف: phone (موبايل جديد) أو used (مستعمل) أو item (بالعدد). الفرعي بياخد نوع الرئيسي
+const catKind = (id) => { const c = catById(mainOf(id)); return (c && c.kind) || 'item'; };
+// دوسة تانية على الفرعي (أو الشركة) بترجع للرئيسي
+const chipToggle = (cur, id) => { if (cur !== id) return id; const bp = brandPick(id); if (bp) return bp[0]; const c = catById(id); return c && c.parent ? c.parent : id; };
 const catFull = (id) => { const c = catById(id); return !c ? '' : c.parent ? `${catName(c.parent)} / ${c.name}` : c.name; };
 const mainCats = () => SET.cats.filter((c) => !c.parent && !c.hidden);
 const subCats = (mainId) => SET.cats.filter((c) => c.parent === mainId && !c.hidden);
-const inCat = (p, id) => p.cat === id || mainOf(p.cat) === id;
+const inCat = (p, id) => { const bp = brandPick(id); return bp ? inCat(p, bp[0]) && p.brand === bp[1] : p.cat === id || mainOf(p.cat) === id; };
 const catCount = (id) => DATA.products.filter((p) => inCat(p, id)).length;
-const catVisible = (id) => { const c = catById(id); return !!c && !c.hidden && (!c.parent || !(catById(c.parent) || {}).hidden); };
+const catVisible = (id) => { const bp = brandPick(id); if (bp) return catVisible(bp[0]) && DATA.products.some((p) => inCat(p, id)); const c = catById(id); return !!c && !c.hidden && (!c.parent || !(catById(c.parent) || {}).hidden); };
+// الشركات اللي ليها أصناف في التصنيف ده، بترتيب الإعدادات (والشركة اللي مش في الإعدادات في الآخر)
+function brandsIn(mainId) {
+  const names = [...new Set(DATA.products.filter((p) => p.brand && inCat(p, mainId)).map((p) => p.brand))];
+  const order = (n) => { const i = SET.brands.findIndex((b) => b.name === n); return i < 0 ? 999 : i; };
+  return names.sort((a, b) => order(a) - order(b));
+}
 // اسم التصنيف (والرئيسي بتاعه) داخل في البحث: «اكسسوار» بتجيب كل الإكسسوارات
 function indexProducts() { DATA.products.forEach((p) => { p._hay = normalize([p.name, p.kw, p.sku, catFull(p.cat)].join(' ')); p._nn = normalize(p.name); }); }
 indexProducts();
@@ -2387,20 +2733,21 @@ function catChipsHTML(sel, act) {
   const fixed = act === 'cat' ? [{ id: 'top', name: 'الأكثر مبيعًا', icon: 'flame' }, { id: 'all', name: 'الكل', icon: 'layout-grid' }] : [{ id: 'all', name: 'الكل', icon: 'layout-grid' }];
   const selMain = sel === 'top' || sel === 'all' ? null : mainOf(sel);
   const chip = (c, on, n, cls = '') => `<button type="button" class="chip ${cls} ${on ? 'on' : ''}" data-act="${act}" data-id="${c.id}">${icon(c.icon)}<bdi dir="rtl">${esc(c.name)}</bdi>${n != null ? `<span class="cnt num">${num(n)}</span>` : ''}</button>`;
-  const subs = selMain ? subCats(selMain) : [];
+  let subs = selMain ? subCats(selMain) : [];
+  if (selMain && !subs.length && catKind(selMain) !== 'item') subs = brandsIn(selMain).map((b) => ({ id: `${selMain}~${b}`, name: b, icon: '' }));
   return `<div class="chips cats">${fixed.map((c) => chip(c, sel === c.id)).join('')}${mainCats().map((c) => chip(c, selMain === c.id, catCount(c.id))).join('')}</div>`
-    + (subs.length ? `<div class="chips subcats" aria-label="أقسام ${esc(catName(selMain))}">${subs.map((c) => chip(c, sel === c.id, catCount(c.id), 'sub')).join('')}</div>` : '');
+    + (subs.length ? `<div class="chips subcats" aria-label="${catKind(selMain) === 'item' ? 'أقسام' : 'شركات'} ${esc(catName(selMain))}">${subs.map((c) => chip(c, sel === c.id, catCount(c.id), 'sub')).join('')}</div>` : '');
 }
 const prod = (id) => DATA.products.find((p) => p.id === id);
 const inAnyCart = (imei) => S.invoices.some((inv) => inv.lines.some((l) => l.imei === imei));
-/* المخزون: p.stock = كل الأجهزة. منهم اللي متسجّل له IMEI (units) واللي اتسلّم بالعدد من غير IMEI */
+/* المخزن: p.stock = كل الأجهزة. منهم اللي متسجّل له IMEI (units) واللي اتسلّم بالعدد من غير IMEI */
 const imeiRequired = () => SET.imeiMode === 'required';
 const unitsIn = (pid) => DATA.units.filter((u) => u.pid === pid && u.status === 'in');
 const unitsFree = (pid) => unitsIn(pid).filter((u) => !inAnyCart(u.imei));
 const unitLines = (pid) => S.invoices.reduce((a, inv) => a + inv.lines.filter((l) => l.kind === 'unit' && l.pid === pid).length, 0);
 const stockOf = (p) => (p.serial ? Math.max(0, p.stock - unitLines(p.id)) : p.stock);
 const avgCost = (p) => { const us = unitsIn(p.id); return us.length ? Math.round(us.reduce((a, u) => a + u.cost, 0) / us.length) : p.cost; };
-const warrantyOf = (p) => (p.cat === 'used' ? +SET.warrantyUsed : p.cat === 'phones' ? +SET.warrantyNew : p.warranty);
+const warrantyOf = (p) => { const k = catKind(p.cat); return k === 'used' ? +SET.warrantyUsed : k === 'phone' ? +SET.warrantyNew : p.warranty; };
 const luhnOk = (s) => /^\d{15}$/.test(s) && DATA.luhnDigit(s.slice(0, 14)) === s[14];
 const imeiHTML = (imei) => `<bdi dir="ltr" class="mono">${imei.slice(0, -4)}<b>${imei.slice(-4)}</b></bdi>`;
 const methodName = (id) => (DATA.payMethods.find((x) => x.id === id) || {}).name || id;
@@ -2492,10 +2839,10 @@ function pickProduct(p) {
   if (!p) return;
   if (p.serial) {
     if (imeiRequired()) { openImeiPicker(p); return; }
-    if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+    if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
     addPhone(p); return;
   }
-  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
   addItem(p);
 }
 function addItem(p, qty = 1) {
@@ -2512,7 +2859,7 @@ function addItem(p, qty = 1) {
   render(); focusSearch();
 }
 // سطر موبايل: من غير IMEI (imei: null) لحد ما تسجّله — أو بالـ IMEI على طول
-const phoneLine = (p) => ({ kind: 'unit', pid: p.id, name: p.name, price: p.price, cost: avgCost(p), qty: 1, imei: null, color: null, warranty: warrantyOf(p), icon: p.icon, used: p.cat === 'used' });
+const phoneLine = (p) => ({ kind: 'unit', pid: p.id, name: p.name, price: p.price, cost: avgCost(p), qty: 1, imei: null, color: null, warranty: warrantyOf(p), icon: p.icon, used: catKind(p.cat) === 'used' });
 function addPhone(p) {
   const inv = cur();
   inv.lines.push(phoneLine(p));
@@ -2527,7 +2874,7 @@ function addUnit(u) {
   // لو السطر المختار نفس الموبايل ومن غير IMEI: الـ IMEI بيتسجّل عليه (ضفت الموبايل وبعدين مسحت العلبة)
   const sl = inv.lines[S.sel];
   if (sl && sl.kind === 'unit' && sl.pid === p.id && !sl.imei) { attachUnit(S.sel, u); return; }
-  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
   inv.lines.push({ ...phoneLine(p), cost: u.cost, imei: u.imei, color: u.color });
   S.sel = inv.lines.length - 1; S._scrollSel = true;
   render(); focusSearch();
@@ -2588,11 +2935,15 @@ function clearDo() { const inv = cur(); inv.lines = []; inv.discount = null; S.s
 
 /* ===== شاشة البيع ===== */
 function tilesHTML() {
-  let list = DATA.products;
+  // الجهاز المستعمل جهاز واحد: لما يتباع (أو يكون في فاتورة) مربعه بيختفي بدل ما يفضل «خلصان»
+  let list = DATA.products.filter((p) => catKind(p.cat) !== 'used' || stockOf(p) > 0);
   if (S.cat === 'top') list = [...list].sort((a, b) => b.sold - a.sold).slice(0, 12);
   else if (S.cat !== 'all') list = list.filter((p) => inCat(p, S.cat)).sort((a, b) => b.sold - a.sold);
-  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزون. وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
-  return list.map(tileHTML).join('');
+  if (!DATA.products.length) return `<div class="tiles-empty">${icon('package-plus')}<b>لسه مفيش أصناف في المحل</b><span>أول مرة: سجّل البضاعة اللي عندك من «المخزن»، وبعدها بتظهر هنا على طول.</span><button type="button" class="btn primary" data-act="goStore">${icon('boxes')} روح للمخزن</button></div>`;
+  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزن. وتقدر تغيّر اسمه أو تخفيه من الإعدادات، في «الأصناف والبيع»</span></div>`;
+  // الصنف اللي ليه تفرعات بيظهر مربع واحد، والنوع بيتختار بعد الدوسة
+  const seen = new Set();
+  return list.filter((p) => !p.fam || (!seen.has(p.fam) && seen.add(p.fam))).map((p) => (p.fam ? famTileHTML(p.fam) : tileHTML(p))).join('');
 }
 function tileHTML(p) {
   const st = stockOf(p);
@@ -2602,6 +2953,17 @@ function tileHTML(p) {
     ${p.serial && imeiRequired() ? `<span class="corner tag accent">${icon('scan-barcode')} IMEI</span>` : ''}
     <div class="name"><bdi dir="rtl">${esc(p.name)}</bdi></div>
     <div class="foot"><span class="price num">${money(p.price)}</span><span class="stock ${cls}">${st <= 0 ? 'خلصان' : `${num(st)} متاح`}</span></div>
+  </button>`;
+}
+const famOf = (fam) => DATA.products.filter((p) => p.fam === fam);
+function famTileHTML(fam) {
+  const vs = famOf(fam), p = vs[0], st = vs.reduce((a, x) => a + stockOf(x), 0), lo = Math.min(...vs.map((x) => x.price)), hi = Math.max(...vs.map((x) => x.price));
+  const cls = st <= 0 ? 'out' : st <= p.min ? 'low' : '';
+  return `<button type="button" class="tile fam" data-act="tileFam" data-fam="${fam}" title="ليه ${kindsWord(vs.length)}: اختار النوع بعد الدوسة">
+    <div class="ico ${prodImg(p) ? 'img' : ''}">${prodVisual(p)}</div>
+    <span class="corner tag">${icon('layers')} ${kindsWord(vs.length)}</span>
+    <div class="name"><bdi dir="rtl">${esc(p.base)}</bdi></div>
+    <div class="foot"><span class="price num">${lo === hi ? money(lo) : `من ${money(lo)}`}</span><span class="stock ${cls}">${st <= 0 ? 'خلصان' : `${num(st)} متاح`}</span></div>
   </button>`;
 }
 function lineHTML(l, i) {
@@ -2723,7 +3085,9 @@ function modalKey(e) {
 
 /* ===== أفعال شاشة البيع ===== */
 Object.assign(ACT, {
-  cat: (d) => { const c = catById(d.id); S.cat = S.cat === d.id && c && c.parent ? c.parent : d.id; render(); }, // دوسة تانية على الفرعي بترجع للرئيسي
+  cat: (d) => { S.cat = chipToggle(S.cat, d.id); render(); },
+  tileFam: (d) => openVariantPicker(d.fam),
+  goStore: () => { S.view = 'inventory'; S.inv.tab = 'items'; render(); },
   lineImei: (d) => { const l = cur().lines[+d.i]; if (!l) return; S.sel = +d.i; openImeiPicker(prod(l.pid), +d.i); },
   tile: (d) => pickProduct(prod(d.id)),
   pickRes: (d) => pickResult(+d.i),
@@ -3184,21 +3548,9 @@ function feeField(m, id, label, hint, autoVal, ok) {
   return `<div class="r fee-r"><label for="${id}">${label} <small>${hint}</small></label><input id="${id}" class="fee-in num" data-input="svcFee" ${m.focusFee ? 'data-autofocus' : ''} dir="ltr" inputmode="decimal" value="${esc(feeShown(m, autoVal, ok))}" placeholder="${feeAuto() ? '' : 'اكتبها'}" autocomplete="off"></div>`;
 }
 const svcReset = { fee: '', feeEdited: false, focusFee: false };
-function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', phone: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
-function svcWallet(m) {
-  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ok = !isNaN(a) && a > 0;
-  const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), over = ok && w.limitDay && w.usedToday + a > w.limitDay;
-  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}%، وأقل حاجة ${money(SET.feeMin)}. تقدر تغيّرها` : 'مش ثابتة، اكتبها';
-  return `<div class="seg">${[['send', 'تحويل لرقم', 'arrow-up-from-line'], ['withdraw', 'سحب كاش', 'arrow-down-to-line']].map(([id, l, ic]) => `<button type="button" class="${m.op === id ? 'on' : ''}" data-act="svcOp" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div>
-    <div class="wallets">${DATA.wallets.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${x.name}</b><small class="num">${money(x.balance)}</small></span></button>`).join('')}</div>
-    <div class="grid2">
-      <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
-      <div class="field"><label for="svc-ph">${m.op === 'send' ? 'الرقم اللي هيتحوّل له' : 'رقم محفظة العميل'}</label><input id="svc-ph" class="big-in mono" data-input="svc" data-k="phone" dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>
-    </div>
-    <div class="due-box">${feeField(m, 'svc-fee', 'العمولة', hint, autoFee, ok)}
-      <div class="r grand"><span>${m.op === 'send' ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب العمولة</small>' : money(m.op === 'send' ? a + fee : a - fee)}</b></div></div>
-    ${over ? `<div class="note warn">${icon('triangle-alert')} كده هتعدّي الحد اليومي لـ${w.name} (${money(w.limitDay)})</div>` : ''}`;
-}
+function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'deposit', wallet: (walShown()[0] || {}).id || '', note: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
+// المحافظ: نفس نموذج شاشة «المحافظ» (views/wallets.js)، من غير رقم العميل
+const svcWallet = (m) => walletFormHTML(m);
 function svcCards(m) {
   return `<div class="wallets">${DATA.operators.map((o) => `<button type="button" class="wallet ${m.opr === o.id ? 'on' : ''}" data-act="svcOpr" data-id="${o.id}"><span class="dot" style="background:${o.color}"></span><span class="t"><b>${o.name}</b></span></button>`).join('')}</div>
     <div class="card-vals">${DATA.cardValues.map((v) => `<button type="button" class="btn" data-act="svcCard" data-v="${v}">${icon('signal')} كارت ${num(v)}</button>`).join('')}</div>
@@ -3230,26 +3582,13 @@ MODALS.services = {
   },
   enter: (m) => { if (m.tab === 'wallet') recordWallet(m); else if (m.tab === 'bills') recordBill(m); },
 };
-function recordWallet(m) {
-  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ph = toLatin(m.phone).replace(/\D/g, '');
-  if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
-  if (!/^01\d{9}$/.test(ph)) { m.err = 'رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01'; beep(); render(); return; }
-  const fee = svcFee(m, walletFee(a));
-  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة، ولو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
-  if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
-  const cash = m.op === 'send' ? a + fee : a - fee;
-  if (m.op === 'send') { w.balance -= a; DATA.shift.servicesIn += cash; } else { w.balance += a; DATA.shift.servicesOut += cash; }
-  w.usedToday += a; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
-  S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, phone: ph, amount: a, fee, at: new Date(), by: S.user.name });
-  toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name}. حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)}. ادفع للعميل ${money(cash)}`);
-  Object.assign(m, { amount: '', phone: '', err: '', ...svcReset, _mounted: false }); render();
-}
+const recordWallet = (m) => walletRecord(m);
 function recordBill(m) {
   const a = parseNum(m.billAmt), fee = svcFee(m, +SET.billFee), b = DATA.billTypes.find((x) => x.id === m.bill);
   if (!(a > 0)) { m.err = 'اكتب مبلغ الفاتورة'; beep(); render(); return; }
   if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب رسوم الخدمة، ولو مفيش رسوم اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
-  DATA.shift.servicesIn += a + fee; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
-  S.services.push({ kind: 'bill', bill: b.id, acct: m.acct, amount: a, fee, at: new Date(), by: S.user.name });
+  // الفاتورة بتتسجّل في سجل الفواتير، والدرج والتقارير بيتحسبوا منه (servicesOf)
+  DATA.bills.push({ id: `b${DATA.bills.length + 1}`, at: new Date(), bill: b.id, acct: m.acct, amount: a, fee, by: S.user.id }); refreshDash();
   toast(`اتسجّل دفع فاتورة ${b.name}. حصّل ${money(a + fee)}`);
   Object.assign(m, { billAmt: '', acct: '', err: '', ...svcReset, _mounted: false }); render();
 }
@@ -3271,7 +3610,8 @@ Object.assign(ACT, {
 
 /* ===== نافذة: تقفيل الوردية — عدّ الفلوس بالفئات ===== */
 const DENOMS = [200, 100, 50, 20, 10, 5, 1, 0.5];
-function expectedCash() { const s = DATA.shift; return s.opening + s.cashSales + s.servicesIn - s.servicesOut - s.expenses.reduce((a, e) => a + e.amount, 0) - s.ownerDraw; }
+// المتوقع في الدرج: كل رقم من سجله (shiftNow في analytics.js)
+const expectedCash = () => shiftNow().expected;
 function openShiftClose() {
   if (!isOwner() && !SET.perms.closeShift) { toast('تقفيل الوردية للمالك بس (من الإعدادات)', 'err'); beep(); return; }
   openModal({ type: 'shift', counts: DENOMS.map(() => '') });
@@ -3283,7 +3623,7 @@ function shiftCalc(m) {
 MODALS.shift = {
   html(m) {
     const c = shiftCalc(m), s = DATA.shift;
-    const rows = [['رصيد أول الوردية', s.opening], ['مبيعات كاش', s.cashSales], ['خدمات داخلة كاش', s.servicesIn], ['خدمات خارجة كاش', -s.servicesOut], ...s.expenses.map((e) => [`مصروف: ${e.name}`, -e.amount]), ['سحب المالك', -s.ownerDraw]];
+    const z = shiftNow(), rows = [['رصيد أول الوردية', z.opening], ['مبيعات كاش', z.cashSales], ['خدمات داخلة كاش', z.svcIn], ['خدمات خارجة كاش', -z.svcOut], ...(z.drawer ? [['شحن وتفريغ المحافظ من الدرج', z.drawer]] : []), ...s.expenses.map((e) => [`مصروف: ${e.name}`, -e.amount]), ['سحب المالك', -s.ownerDraw]];
     return `<div class="modal wide" role="dialog" aria-label="تقفيل الوردية">
       ${modalHead(`تقفيل الوردية #${num(s.no)}`, `فتحها ${esc(s.by)} الساعة ${dg(s.opened)}`)}
       <div class="modal-b"><div class="shift">
@@ -3356,7 +3696,7 @@ function repToday() {
     <div class="dash-grid">
       <div class="card"><h3>آخر الفواتير</h3>
         <div class="table-wrap" style="border:0"><table class="t"><thead><tr><th>رقم</th><th>الوقت</th><th>البيّاع</th><th>العميل</th><th>الدفع</th><th>المبلغ</th></tr></thead>
-        <tbody>${d.recent.slice(0, 7).map((r) => `<tr class="hov"><td class="num">${dg(r.no)}</td><td>${dg(r.at)}</td><td>${esc(r.seller)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td><td><b class="num">${money(r.total)}</b></td></tr>`).join('')}</tbody></table></div></div>
+        <tbody>${d.recent.slice(0, 7).map((r) => `<tr class="hov"><td class="num">${dg(r.no)}</td><td>${dg(r.at)}</td><td>${esc(r.seller)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td><td><b class="num">${money(r.total)}</b></td></tr>`).join('') || '<tr><td colspan="6" class="muted">لسه مفيش فواتير النهارده</td></tr>'}</tbody></table></div></div>
       <div class="stack">
         <div class="card"><h3>الأكثر مبيعًا النهارده</h3>${d.top.map(([n, q, v], i) => `<div class="li"><span class="rank">${num(i + 1)}</span><bdi dir="rtl" class="ell">${esc(n)}</bdi><span class="sp"></span><span class="muted num">${pcsWord(q)}</span><b class="num">${money(v)}</b></div>`).join('')}</div>
         <div class="card"><h3>${esc(fmtMonth(M.from))} لحد النهارده</h3>
@@ -3419,7 +3759,8 @@ function repMonth(st) {
 
   // التفاصيل بتغيّرها عن الشهر اللي فات
   const share = (v, tot) => { const s = tot ? Math.round((v / tot) * 100) : 0; return `<span class="sv-share"><i style="width:${s}%"></i></span><span class="num">${num(s)}%</span>`; };
-  const tbl = (head, body) => `<div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  // الشهر اللي لسه ملوش مبيعات (زي أول يوم في محل جديد): سطر بيقول كده بدل جدول فاضي
+  const tbl = (head, body) => `<div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${(head.match(/<th/g) || []).length}" class="muted">لسه مفيش مبيعات في الشهر ده</td></tr>`}</tbody></table></div>`;
   const cats = `<div class="card narrow"><h3>التصنيفات</h3>${tbl('<th>التصنيف</th><th class="ta-n">المبيعات</th><th>النسبة</th><th class="ta-n">التغيير</th>',
     R.cats.map((c) => `<tr><td>${esc(svCatName(c.id))}</td><td class="ta-n num"><b>${money(c.sales)}</b></td><td>${share(c.sales, R.cats.reduce((a, e) => a + e.sales, 0))}</td><td class="ta-n">${chgCell(c.ch)}</td></tr>`).join(''))}</div>`;
   const prods = `<div class="card"><h3>الأصناف الأكتر مبيعًا</h3>${tbl('<th>الصنف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th class="ta-n">التغيير</th>',
@@ -3496,7 +3837,7 @@ VIEWS.dashboard = viewDashboard;
 'use strict';
 // شاشة «الصيانة». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الصيانة: لوحة بالمراحل + استلام جهاز ===== */
-const nextRepairNo = () => 1 + Math.max(...S.repairs.map((r) => +r.no.replace(/\D/g, '')));
+const nextRepairNo = () => 1 + Math.max(1000, ...S.repairs.map((r) => +r.no.replace(/\D/g, '')));
 function ticketHTML(r) {
   const st = DATA.repairStatuses, idx = st.findIndex((s) => s.id === r.status), next = st[idx + 1];
   const left = Math.max(0, r.estimate - r.deposit);
@@ -3578,7 +3919,7 @@ Object.assign(ACT, {
   repMove: (d) => {
     const r = S.repairs.find((x) => x.no === d.no), st = DATA.repairStatuses, i = st.findIndex((s) => s.id === r.status);
     r.status = st[Math.min(i + 1, st.length - 1)].id; render();
-    toast(`${r.no} ← ${st.find((s) => s.id === r.status).name}${r.status === 'ready' ? '. تقدر تبعت للعميل واتساب' : ''}`);
+    toast(`${r.no} بقت «${st.find((s) => s.id === r.status).name}»${r.status === 'ready' ? '. تقدر تبعت للعميل واتساب' : ''}`);
   },
   repWa: (d) => toast(`اتبعت لعميل ${d.no} رسالة واتساب إن الجهاز جاهز`),
   deliver: (d) => {
@@ -3593,9 +3934,9 @@ Object.assign(ACT, {
 </script>
 <script>/* views/inventory.js */
 'use strict';
-// شاشة «المخزون». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
-/* ===== المخزون ===== */
-// قيمة المخزون بالتكلفة: الأجهزة المتسجّلة بتكلفتها الفعلية، واللي من غير IMEI بتكلفة الصنف
+// شاشة «المخزن». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== المخزن ===== */
+// قيمة البضاعة بالتكلفة: الأجهزة المتسجّلة بتكلفتها الفعلية، واللي من غير IMEI بتكلفة الصنف
 function stockValue(p) {
   if (!p.serial) return p.cost * p.stock;
   const reg = unitsIn(p.id);
@@ -3622,28 +3963,58 @@ function invRow(p, own) {
   }
   return html;
 }
+// الصنف اللي ليه تفرعات: صف واحد بالعدد كله، ويتفتح على أنواعه (كل نوع بباركوده وسعره وعدده)
+const invStatus = (st, min) => (st <= 0 ? '<span class="tag danger">خلصان</span>' : st <= min ? '<span class="tag warn">قرب يخلص</span>' : '<span class="tag ok">متوفر</span>');
+const range = (a) => { const lo = Math.min(...a), hi = Math.max(...a); return lo === hi ? money(lo) : `${money(lo)} لـ ${money(hi)}`; };
+function famRowHTML(fam, own) {
+  const vs = famOf(fam), p = vs[0], st = vs.reduce((a, x) => a + stockOf(x), 0), open = S.inv.open[`f:${fam}`], img = IMGS[p.id];
+  const low = vs.filter((x) => stockOf(x) <= x.min).length;
+  const status = st <= 0 ? '<span class="tag danger">خلصان</span>' : low ? `<span class="tag warn">${low === 1 ? 'نوع قرب يخلص' : `${kindsWord(low)} قربوا يخلصوا`}</span>` : '<span class="tag ok">متوفر</span>';
+  let html = `<tr class="hov fam-row">
+    <td><div class="row"><button type="button" class="icon-btn sm" data-act="invOpen" data-id="f:${fam}" title="الأنواع" aria-expanded="${!!open}">${icon(open ? 'chevron-up' : 'chevron-down')}</button><button type="button" class="pic ${img ? 'has' : ''}" data-act="imgPick" data-id="${p.id}" title="${img ? 'غيّر صورة الصنف' : 'ضيف صورة للصنف (اختياري)'}">${img ? `<img src="${img}" alt="">` : icon(p.icon)}<span class="cam">${icon('camera')}</span></button><bdi dir="rtl" class="ell"><b>${esc(p.base)}</b></bdi><span class="tag">${icon('layers')} ${kindsWord(vs.length)}</span></div></td>
+    <td><bdi dir="rtl">${esc(catFull(p.cat))}</bdi></td><td><span class="muted">حسب ${esc(p.dims.join(' و'))}</span></td><td class="num">${range(vs.map((x) => x.price))}</td>
+    ${own ? `<td class="num">${range(vs.map((x) => x.cost))}</td><td></td>` : ''}<td class="num"><b>${num(st)}</b></td><td>${status}</td></tr>`;
+  if (open) html += vs.map((v) => `<tr class="sub"><td><bdi dir="rtl">${esc(v.vr.join('، '))}</bdi></td><td></td><td>${v.sku ? `<bdi dir="ltr" class="mono">${v.sku}</bdi>` : '—'}</td><td class="num">${money(v.price)}</td>${own ? `<td class="num">${money(v.cost)}</td><td class="num">${num(Math.round(((v.price - v.cost) / v.price) * 100))}%</td>` : ''}<td class="num">${num(stockOf(v))}</td><td>${invStatus(stockOf(v), v.min)}</td></tr>`).join('');
+  return html;
+}
 function viewInventory() {
   const I = S.inv, q = normalize(I.q), own = isOwner();
   const tabs = `<div class="seg inv-seg"><button type="button" class="${I.tab !== 'short' ? 'on' : ''}" data-act="invView" data-id="items">الأصناف</button><button type="button" class="${I.tab === 'short' ? 'on' : ''}" data-act="invView" data-id="short">النواقص <span class="cnt num">${num(SHORT.length)}</span></button></div>`;
   if (I.tab === 'short') return `<div class="page">
-    <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">اكتب الناقص بإيدك، أو ضيفه من اقتراحات السيستم</span><span class="sp"></span>
+    <div class="page-h"><h2>المخزن</h2>${tabs}<span class="sub">اكتب الناقص بإيدك، أو ضيفه من اقتراحات السيستم</span><span class="sp"></span>
       <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
     ${shortView()}
   </div>`;
+  // المحل لسه فاضي (أول يوم): خطوات التسجيل بدل الجدول
+  if (!DATA.products.length) return `<div class="page">
+    <div class="page-h"><h2>المخزن</h2>${tabs}<span class="sp"></span><button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
+    <div class="card first-run"><h3>أول مرة؟ سجّل البضاعة اللي في المحل</h3>
+      <p class="muted">كل صنف بيتسجّل مرة واحدة بتفاصيله، وبعدها بيتباع ويتدوّر عليه على طول. والعدد والتكلفة بيتكتبوا في نفس الشاشة${isOwner() ? ' كـ«بضاعة موجودة عندي (أول مرة)»، يعني مش مشتريات' : ''}.</p>
+      <div class="ni-kinds fr-kinds">${NI_KINDS.map(([id, ic, t, d]) => `<button type="button" class="ni-kind" data-act="storeNewKind" data-v="${id}"><span class="t-ico">${icon(ic)}</span><span class="t"><b>${t}</b><small>${d}</small></span></button>`).join('')}</div>
+      <ol class="fr-steps">
+        <li><b>الشركات والتصنيفات جاهزين</b>، وتقدر تغيّرهم من الإعدادات، في «الأصناف والبيع».</li>
+        <li><b>سجّل كل صنف:</b> الموبايل بشركته وموديله ومساحته، والمستعمل جهاز جهاز، والإكسسوار بتفرعاته.</li>
+        <li><b>اكتب العدد والتكلفة</b>، وامسح الـ IMEI لو حابب، ودوس «${isOwner() ? 'سجّل البضاعة' : 'حفظ الاستلام'}».</li>
+      </ol>
+    </div>
+  </div>`;
   const qd = toLatin(I.q).replace(/\D/g, '');
-  if (I.cat !== 'all' && !catById(I.cat)) I.cat = 'all';
+  if (I.cat !== 'all' && !catById(I.cat) && !(brandPick(I.cat) && catVisible(I.cat))) I.cat = 'all';
   let list = DATA.products.filter((p) => (I.cat === 'all' || inCat(p, I.cat)) &&
     (!q || p._hay.includes(q) || (qd.length >= 4 && DATA.units.some((u) => u.pid === p.id && u.imei.includes(qd)))));
-  const value = DATA.products.reduce((a, p) => a + stockValue(p), 0);
+  const value = DATA.products.reduce((a, p) => a + stockValue(p), 0), seenFam = new Set();
+  // من غير بحث: الأنواع متجمّعة في صف واحد. والبحث بيجيب النوع نفسه بالاسم أو الباركود
+  const rows = list.map((p) => (!p.fam || q ? invRow(p, own) : seenFam.has(p.fam) ? '' : (seenFam.add(p.fam), famRowHTML(p.fam, own)))).join('');
   return `<div class="page">
-    <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">${num(DATA.products.length)} صنف و${num(DATA.units.filter((u) => u.status === 'in').length)} جهاز بالـ IMEI</span>${own ? `<span class="tag accent">قيمة المخزون بالتكلفة ${money(value)}</span>` : ''}<span class="sp"></span>
+    <div class="page-h"><h2>المخزن</h2>${tabs}<span class="sub">${num(DATA.products.length)} صنف و${num(DATA.units.filter((u) => u.status === 'in').length)} جهاز بالـ IMEI</span>${own ? `<span class="tag accent">قيمة البضاعة بالتكلفة ${money(value)}</span>` : ''}<span class="sp"></span>
       <label class="inline-search">${icon('search')}<input id="inv-q" data-input="invQ" value="${esc(I.q)}" placeholder="اسم أو كود أو IMEI…" autocomplete="off"></label>
+      <button type="button" class="btn" data-act="storeNew" title="موبايل جديد أو مستعمل أو إكسسوار، بتفاصيله">${icon('circle-plus')} صنف جديد</button>
       <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button>
       <button type="button" class="btn" data-act="soon">${icon('tag')} طباعة ملصقات</button></div>
     ${catChipsHTML(I.cat, 'invCat')}
     <div class="table-wrap"><table class="t">
       <thead><tr><th>الصنف</th><th>القسم</th><th>الكود</th><th>سعر البيع</th>${own ? '<th>التكلفة</th><th>الهامش</th>' : ''}<th>المتاح</th><th>الحالة</th></tr></thead>
-      <tbody>${list.map((p) => invRow(p, own)).join('') || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">مفيش أصناف</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">مفيش أصناف</td></tr>'}</tbody>
     </table></div>
     <div class="note">${icon('camera')} دوس على أيقونة أي صنف عشان تضيفله صورة (اختياري). بتظهر في شاشة البيع والبحث وتطبيق الموبايل.${own ? '' : ' والتكلفة والهامش بيظهروا للمالك بس.'}</div>
     <input type="file" id="img-file" accept="image/*" hidden data-change="imgFile">
@@ -3677,7 +4048,10 @@ CHANGE.imgFile = (el) => {
   });
 };
 Object.assign(ACT, {
-  invCat: (d) => { const c = catById(d.id); S.inv.cat = S.inv.cat === d.id && c && c.parent ? c.parent : d.id; render(); },
+  // صنف جديد من المخزن: بيفتح الاستلام تحته عشان العدد والتكلفة يتكتبوا مرة واحدة. أول مرة (مفيش استلامات) = «بضاعة موجودة عندي»
+  storeNew: () => { rcOpen({ mode: DATA.receipts.length ? 'supplier' : 'opening' }); openNewItem(); },
+  storeNewKind: (d) => { rcOpen({ mode: 'opening' }); openNewItem({ kind: d.v }); },
+  invCat: (d) => { S.inv.cat = chipToggle(S.inv.cat, d.id); render(); },
   invOpen: (d) => { S.inv.open[d.id] = !S.inv.open[d.id]; render(); },
   imgPick: (d) => { S._imgFor = d.id; const f = $('#img-file'); if (f) f.click(); },
   imgDel: (d) => { delete IMGS[d.id]; saveImages(); render(); toast('اتشالت الصورة، والصنف رجع بالأيقونة', 'info'); },
@@ -3693,8 +4067,10 @@ Object.assign(ACT, {
    - تكلفة الوحدة بتظهر وتتكتب للمالك بس. البيّاع بيستلم بآخر تكلفة، فالمتوسط ما يتغيرش.
    - الـ IMEI اختياري أو إجباري حسب الإعدادات، ويتكتب أو يتمسح بالماسح أو بالموبايل.
    - الصنف اللي في «النواقص» بيتشال لوحده لما يوصل، ولو فيه عميل مستنيه بيتقال اسمه ورقمه.
-   السرعة: الاسم ← Enter ← العدد ← Enter ← التكلفة ← Enter ← اللي بعده. والموبايل: كل علبة تتمسح ← Enter. */
-const rcOpen = () => openModal({ type: 'receive', supplier: '', q: '', hi: 0, lines: [], err: '', imErr: null, confirmClose: false });
+   السرعة: الاسم ← Enter ← العدد ← Enter ← التكلفة ← Enter ← اللي بعده. والموبايل: كل علبة تتمسح ← Enter.
+   الصنف اللي مش متسجّل: «صنف جديد» (views/catalog.js) أو Enter لما البحث ما يلاقيش، وبعد التسجيل بينزل هنا.
+   «بضاعة موجودة عندي (أول مرة)» للمالك بس: البضاعة اللي في المحل يوم ما بيبدأ، من غير مورد، وما بتتحسبش مشتريات (PLAN §11). */
+const rcOpen = (o = {}) => openModal({ type: 'receive', mode: isOwner() && o.mode === 'opening' ? 'opening' : 'supplier', supplier: '', q: '', hi: 0, lines: [], err: '', imErr: null, confirmClose: false, focusId: '' });
 // البحث: الباركود بالأرقام، أو الاسم بنفس ترتيب شاشة البيع (rankProducts في pos.js)
 function rcResults(m) {
   const raw = toLatin(m.q).trim(), qn = normalize(raw), digits = raw.replace(/\s/g, '');
@@ -3725,20 +4101,32 @@ function rcImei(i, raw) {
   if (l.imeis.length > l.qty) { l.qty = l.imeis.length; l.qtyT = String(l.qty); }
   m.imErr = null; m.err = ''; render(); rcFocus(`rc-im-${i}`);
 }
+// الجهاز المستعمل: الـ IMEI وتفاصيله اتكتبوا في «صنف جديد»، فالسطر بيعرضهم والعدد واحد
+const metaTags = (l) => [`<span class="tag accent">IMEI ${imeiHTML(l.imeis[0])}</span>`, `<span class="tag">${esc(l.meta.condition)}</span>`,
+  l.meta.battery ? `<span class="tag">بطارية ${num(l.meta.battery)}%</span>` : '', l.meta.color ? `<span class="tag">${esc(l.meta.color)}</span>` : '',
+  l.meta.box.length ? `<span class="tag">معاه ${esc(l.meta.box.join(' و'))}</span>` : '', l.meta.notes ? `<span class="muted">${esc(l.meta.notes)}</span>` : ''].join('');
+const af = (m, id) => (m.focusId === id ? 'data-autofocus' : '');
 function rcLineHTML(m, l, i, own) {
   const p = prod(l.pid), cols = own ? 7 : 4, need = imeiRequired() && l.imeis.length < l.qty;
+  if (l.meta) {
+    return `<tr><td><bdi dir="rtl">${esc(p.name)}</bdi><small class="muted">${esc(catFull(p.cat))}</small></td><td class="ta-n num">${num(stockOf(p))}</td>
+    <td class="ta-n"><input id="rc-qty-${i}" class="rc-in num" value="1" readonly dir="ltr" aria-label="عدد «${esc(p.name)}»" title="الجهاز المستعمل جهاز واحد"></td>
+    ${own ? `<td class="ta-n"><input id="rc-cost-${i}" class="rc-in num" data-input="rcCost" data-i="${i}" value="${esc(l.costT)}" inputmode="numeric" dir="ltr" autocomplete="off" ${af(m, `rc-cost-${i}`)} aria-label="تكلفة «${esc(p.name)}»"></td><td class="ta-n num">${money(l.cost)}</td><td class="ta-n"><span class="muted">بتكلفته</span></td>` : ''}
+    <td class="ta-n"><button type="button" class="icon-btn sm danger" data-act="rcDel" data-i="${i}" title="شيل الجهاز ده" aria-label="شيل «${esc(p.name)}»">${icon('x')}</button></td></tr>
+    <tr class="rc-imrow"><td colspan="${cols}"><div class="rc-imei">${metaTags(l)}</div></td></tr>`;
+  }
   const after = p.serial ? '<span class="muted">كل جهاز بتكلفته</span>' : money(receiveCost(p.stock, p.cost, l.qty, l.cost));
   let html = `<tr><td><bdi dir="rtl">${esc(p.name)}</bdi><small class="muted">${esc(catFull(p.cat))}</small></td><td class="ta-n num">${num(stockOf(p))}</td>
-    <td class="ta-n"><input id="rc-qty-${i}" class="rc-in num" data-input="rcQty" data-i="${i}" value="${esc(l.qtyT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="عدد «${esc(p.name)}»"></td>
+    <td class="ta-n"><input id="rc-qty-${i}" class="rc-in num" data-input="rcQty" data-i="${i}" value="${esc(l.qtyT)}" inputmode="numeric" dir="ltr" autocomplete="off" ${af(m, `rc-qty-${i}`)} aria-label="عدد «${esc(p.name)}»"></td>
     ${own ? `<td class="ta-n"><input id="rc-cost-${i}" class="rc-in num" data-input="rcCost" data-i="${i}" value="${esc(l.costT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="تكلفة الوحدة «${esc(p.name)}»"></td>
-      <td class="ta-n num">${money(l.qty * l.cost)}</td><td class="ta-n num" title="بالمتوسط المرجح: (قيمة المخزون + قيمة الاستلام) ÷ العدد الجديد">${after}</td>` : ''}
+      <td class="ta-n num">${money(l.qty * l.cost)}</td><td class="ta-n num" title="بالمتوسط المرجح: (قيمة اللي في المخزن + قيمة الاستلام) ÷ العدد الجديد">${after}</td>` : ''}
     <td class="ta-n"><button type="button" class="icon-btn sm danger" data-act="rcDel" data-i="${i}" title="شيل الصنف ده" aria-label="شيل «${esc(p.name)}»">${icon('x')}</button></td></tr>`;
   if (p.serial) {
     html += `<tr class="rc-imrow"><td colspan="${cols}"><div class="rc-imei">
-      <label class="inline-search rc-ims">${icon('scan-barcode')}<input id="rc-im-${i}" data-input="rcImQ" data-i="${i}" value="${esc(l.imQ)}" placeholder="اكتب أو امسح الـ IMEI ودوس Enter" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="IMEI «${esc(p.name)}»"></label>
+      <label class="inline-search rc-ims">${icon('scan-barcode')}<input id="rc-im-${i}" data-input="rcImQ" data-i="${i}" value="${esc(l.imQ)}" ${af(m, `rc-im-${i}`)} placeholder="اكتب أو امسح الـ IMEI ودوس Enter" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="IMEI «${esc(p.name)}»"></label>
       <button type="button" class="btn sm" data-act="rcPhone" data-i="${i}" title="افتح الموبايل على «استلام» وامسح العلب: الأرقام بتنزل هنا على طول">${icon('smartphone')} امسح بالموبايل</button>
       <span class="rc-cnt ${need ? 'warn-t' : 'muted'}">${num(l.imeis.length)} من ${num(l.qty)} بالـ IMEI${!imeiRequired() && l.imeis.length < l.qty ? '، والباقي بالعدد' : ''}</span>
-      ${m.imErr && m.imErr.i === i ? `<span class="danger-t rc-err" role="alert">${icon('alert-triangle')} ${esc(m.imErr.msg)}</span>` : ''}
+      ${m.imErr && m.imErr.i === i ? `<span class="danger-t rc-err" role="alert">${icon('triangle-alert')} ${esc(m.imErr.msg)}</span>` : ''}
       ${l.imeis.length ? `<div class="rc-chips">${l.imeis.map((im, k) => `<span class="tag accent">${imeiHTML(im)}<button type="button" class="rc-x" data-act="rcImDel" data-i="${i}" data-k="${k}" title="شيل الـ IMEI ده" aria-label="شيل الـ IMEI اللي آخره ${im.slice(-4)}">${icon('x')}</button></span>`).join('')}</div>` : ''}
     </div></td></tr>`;
   }
@@ -3748,26 +4136,30 @@ MODALS.receive = {
   html: (m) => {
     const own = isOwner(), L = m.lines, T = rcTotals(m), res = rcResults(m), last = DATA.receipts[DATA.receipts.length - 1];
     const sups = [...new Set(DATA.receipts.map((r) => r.supplier).filter(Boolean))];
+    const opening = m.mode === 'opening';
     return `<div class="modal wide" role="dialog" aria-label="استلام بضاعة">
-      ${modalHead('استلام بضاعة', last ? `آخر استلام ${fmtDate(last.at)}${last.supplier ? ` من «${esc(last.supplier)}»` : ''}` : 'البضاعة اللي وصلت المحل')}
+      ${modalHead('استلام بضاعة', last ? `آخر استلام ${fmtDate(last.at)}${last.supplier ? ` من «${esc(last.supplier)}»` : last.kind === 'opening' ? '، بضاعة أول مرة' : ''}` : 'أول مرة: سجّل البضاعة اللي في المحل')}
       <div class="modal-b stack">
-        <div class="rc-top">
-          <div class="field rc-sup"><label for="rc-sup">المورد <span class="muted">(اختياري)</span></label><input id="rc-sup" data-input="rcSup" list="rc-sups" value="${esc(m.supplier)}" placeholder="مين اللي جاب البضاعة" autocomplete="off"><datalist id="rc-sups">${sups.map((s) => `<option value="${esc(s)}"></option>`).join('')}</datalist></div>
-          <div class="field rc-find"><label for="rc-q">ضيف صنف</label><label class="inline-search">${icon('search')}<input id="rc-q" data-input="rcQ" data-autofocus value="${esc(m.q)}" placeholder="اسم الصنف أو الباركود…" autocomplete="off" aria-controls="rc-res"></label></div>
+        ${own ? `<div class="seg rc-mode" role="group" aria-label="نوع الاستلام">${[['supplier', 'package-plus', 'من مورد'], ['opening', 'store', 'بضاعة موجودة عندي (أول مرة)']].map(([id, ic, l]) => `<button type="button" class="${m.mode === id ? 'on' : ''}" data-act="rcMode" data-id="${id}" aria-pressed="${m.mode === id}">${icon(ic)} ${l}</button>`).join('')}</div>` : ''}
+        ${opening ? `<div class="note">${icon('info')} بتسجّل البضاعة اللي في المحل دلوقتي وتكلفتها، عشان تبدأ صح. من غير مورد، وما بتتحسبش مشتريات.</div>` : ''}
+        <div class="rc-top ${opening ? 'solo' : ''}">
+          ${opening ? '' : `<div class="field rc-sup"><label for="rc-sup">المورد <span class="muted">(اختياري)</span></label><input id="rc-sup" data-input="rcSup" list="rc-sups" value="${esc(m.supplier)}" placeholder="مين اللي جاب البضاعة" autocomplete="off"><datalist id="rc-sups">${sups.map((s) => `<option value="${esc(s)}"></option>`).join('')}</datalist></div>`}
+          <div class="field rc-find"><label for="rc-q">ضيف صنف</label><div class="rc-find-row"><label class="inline-search">${icon('search')}<input id="rc-q" data-input="rcQ" ${m.focusId ? '' : 'data-autofocus'} value="${esc(m.q)}" placeholder="اسم الصنف أو الباركود…" autocomplete="off" aria-controls="rc-res"></label>
+            <button type="button" class="btn" data-act="rcNew" title="صنف لسه مش متسجّل: موبايل جديد أو مستعمل أو إكسسوار">${icon('circle-plus')} صنف جديد</button></div></div>
         </div>
         ${m.q ? `<div class="rc-res" id="rc-res" role="listbox" aria-label="الأصناف">${res.length ? res.map((p, i) => `<div class="result ${i === m.hi ? 'on' : ''}" role="option" aria-selected="${i === m.hi}" data-act="rcAdd" data-id="${p.id}">
             <div class="ico">${icon(p.serial ? 'smartphone' : 'package')}</div>
             <div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div><div class="s"><span>${esc(catFull(p.cat))}</span><span>المتاح ${num(stockOf(p))}</span>${p.serial ? '<span>بالـ IMEI</span>' : ''}</div></div>
             ${own ? `<div class="p muted num">آخر تكلفة ${money(p.cost)}</div>` : ''}</div>`).join('')
-          : '<div class="muted rc-none">مفيش صنف بالاسم ده. اتأكد من الاسم، أو دوّر بالباركود</div>'}</div>` : ''}
+          : `<div class="rc-none"><span class="muted">مفيش صنف بالاسم ده.</span> <button type="button" class="btn sm soft" data-act="rcNew">${icon('circle-plus')} سجّل «${esc(m.q.trim())}» صنف جديد <kbd>Enter</kbd></button></div>`}</div>` : ''}
         ${L.length ? `<div class="table-wrap"><table class="t rc-t"><thead><tr><th>الصنف</th><th class="ta-n">المتاح دلوقتي</th><th class="ta-n">العدد</th>${own ? '<th class="ta-n">تكلفة الوحدة</th><th class="ta-n">الإجمالي</th><th class="ta-n">التكلفة بعد الاستلام</th>' : ''}<th aria-hidden="true"></th></tr></thead>
           <tbody>${L.map((l, i) => rcLineHTML(m, l, i, own)).join('')}</tbody></table></div>`
-        : `<div class="sv-empty">${icon('package-plus')}<b>لسه مفيش أصناف</b><span>دوّر على الصنف اللي وصل وضيفه، وبعدين اكتب العدد${own ? ' وتكلفة الوحدة' : ''}. الموبايلات تتمسح علبها بالماسح أو بالموبايل.</span></div>`}
-        ${m.err ? `<div class="note warn" role="alert">${icon('alert-triangle')} ${esc(m.err)}</div>` : ''}
+        : `<div class="sv-empty">${icon('package-plus')}<b>لسه مفيش أصناف</b><span>دوّر على الصنف وضيفه، وبعدين اكتب العدد${own ? ' وتكلفة الوحدة' : ''}. الموبايلات تتمسح علبها بالماسح أو بالموبايل. والصنف اللي مش متسجّل: «صنف جديد».</span></div>`}
+        ${m.err ? `<div class="note warn" role="alert">${icon('triangle-alert')} ${esc(m.err)}</div>` : ''}
       </div>
-      <div class="modal-f"><span class="muted">${L.length ? `${pcsWord(T.qty)} من ${num(L.length)} صنف${own ? `، التكلفة ${money(T.cost)}` : ''}` : (own ? 'تكلفة الوحدة بتتحسب بالمتوسط المرجح' : 'التكلفة بيكتبها المالك')}</span><span class="sp"></span>
+      <div class="modal-f"><span class="muted">${L.length ? `${pcsWord(T.qty)} من ${itemsWord(L.length)}${own ? `، التكلفة ${money(T.cost)}` : ''}` : (own ? 'تكلفة الوحدة بتتحسب بالمتوسط المرجح' : 'التكلفة بيكتبها المالك')}</span><span class="sp"></span>
         <button type="button" class="btn ghost" data-act="closeModal">إلغاء <kbd>Esc</kbd></button>
-        <button type="button" class="btn primary" data-act="rcSave" ${L.length ? '' : 'disabled'}>${icon('save')} حفظ الاستلام <kbd>Ctrl+Enter</kbd></button></div>
+        <button type="button" class="btn primary" data-act="rcSave" ${L.length ? '' : 'disabled'}>${icon('save')} ${opening ? 'سجّل البضاعة' : 'حفظ الاستلام'} <kbd>Ctrl+Enter</kbd></button></div>
     </div>`;
   },
   key: (e, m) => {
@@ -3776,10 +4168,10 @@ MODALS.receive = {
     if (id === 'rc-q') {
       const res = rcResults(m);
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && res.length) { e.preventDefault(); m.hi = (m.hi + (e.key === 'ArrowDown' ? 1 : res.length - 1)) % res.length; render(); return true; }
-      if (e.key === 'Enter') { e.preventDefault(); if (res[m.hi]) rcAdd(res[m.hi].id); return true; }
+      if (e.key === 'Enter') { e.preventDefault(); if (res[m.hi]) rcAdd(res[m.hi].id); else if (m.q.trim()) openNewItem({ name: m.q }); return true; }
     }
     if (e.key !== 'Enter') return false;
-    const n = (pre) => Number(id.slice(pre.length)), serial = (i) => prod(m.lines[i].pid).serial;
+    const n = (pre) => Number(id.slice(pre.length)), serial = (i) => prod(m.lines[i].pid).serial && !m.lines[i].meta;
     if (id.startsWith('rc-im-')) { e.preventDefault(); if (t.value.trim()) rcImei(n('rc-im-'), t.value); else rcFocus('rc-q'); return true; }
     if (id.startsWith('rc-qty-')) { e.preventDefault(); const i = n('rc-qty-'); rcFocus(isOwner() ? `rc-cost-${i}` : serial(i) ? `rc-im-${i}` : 'rc-q'); return true; }
     if (id.startsWith('rc-cost-')) { e.preventDefault(); const i = n('rc-cost-'); rcFocus(serial(i) ? `rc-im-${i}` : 'rc-q'); return true; }
@@ -3792,38 +4184,50 @@ MODALS.receive = {
     return false;
   },
 };
-// الاستلام نفسه، من الكمبيوتر ومن الموبايل: المخزون، والتكلفة بالمتوسط المرجح، والأجهزة بالـ IMEI بتكلفتها،
+// الاستلام نفسه، من الكمبيوتر ومن الموبايل: رصيد المخزن، والتكلفة بالمتوسط المرجح، والأجهزة بالـ IMEI بتكلفتها،
 // والسجل، والنواقص. lines: [{ pid, qty, cost, imeis }]، وcost هي تكلفة الوحدة (اللي بيكتبها المالك، وغير كده آخر تكلفة).
 // بترجّع النواقص اللي اتقفلت عشان الشاشة تقول عليها
-function applyReceipt(supplier, lines) {
+// kind: «supplier» من مورد، أو «opening» بضاعة أول مرة. l.meta = تفاصيل الجهاز المستعمل من «صنف جديد»
+function applyReceipt(supplier, lines, kind = 'supplier') {
   const today = isoDay(new Date());
   for (const l of lines) {
-    const p = prod(l.pid);
+    const p = prod(l.pid), mt = l.meta;
     if (p.serial) {
       // الجهاز اللي بالـ IMEI بتكلفته هو، واللي بالعدد بيدخل في متوسط الأجهزة اللي من غير IMEI
       const unreg = Math.max(0, p.stock - unitsIn(p.id).length), byCount = l.qty - l.imeis.length;
-      l.imeis.forEach((im, k) => DATA.units.push({ imei: im, imei2: DATA.makeImei(p.tac), pid: p.id, color: p.colors && p.colors.length ? p.colors[k % p.colors.length] : null, storage: p.storage, condition: p.cat === 'used' ? 'مستعمل' : 'جديد', battery: null, customs: null, cost: l.cost, received: today, status: 'in' }));
+      l.imeis.forEach((im, k) => DATA.units.push(mt
+        ? { imei: im, imei2: mt.imei2, pid: p.id, color: mt.color, storage: p.storage, condition: mt.condition, battery: mt.battery, box: mt.box, notes: mt.notes, seller: mt.seller, customs: null, cost: l.cost, received: today, status: 'in' }
+        : { imei: im, imei2: DATA.makeImei(p.tac), pid: p.id, color: p.colors && p.colors.length ? p.colors[k % p.colors.length] : null, storage: p.storage, condition: catKind(p.cat) === 'used' ? 'مستعمل' : 'جديد', battery: null, customs: null, cost: l.cost, received: today, status: 'in' }));
       if (byCount > 0) p.cost = receiveCost(unreg, p.cost, byCount, l.cost);
     } else p.cost = receiveCost(p.stock, p.cost, l.qty, l.cost);
     p.stock += l.qty;
   }
   const last = DATA.receipts[DATA.receipts.length - 1];
-  DATA.receipts.push({ no: last ? last.no + 1 : 1, at: new Date(), supplier, by: S.user.id, lines: lines.map((l) => ({ pid: l.pid, qty: l.qty, cost: l.cost, imeis: [...l.imeis] })) });
+  DATA.receipts.push({ no: last ? last.no + 1 : 1, at: new Date(), kind, supplier: kind === 'opening' ? '' : supplier, by: S.user.id, lines: lines.map((l) => ({ pid: l.pid, qty: l.qty, cost: l.cost, imeis: [...l.imeis] })) });
   const arrived = SHORT.filter((x) => x.pid && lines.some((l) => l.pid === x.pid));
   if (arrived.length) { for (const x of arrived) SHORT.splice(SHORT.indexOf(x), 1); saveShort(); }
   return arrived;
+}
+// الأصناف اللي اتسجّلت في «صنف جديد» بتنزل هنا بعددها وتكلفتها، والمؤشر على أول واحد فيهم
+function rcAddLines(m, items) {
+  const at = m.lines.length;
+  for (const x of items) m.lines.push({ pid: x.p.id, qty: x.qty, qtyT: String(x.qty), cost: x.p.cost, costT: String(x.p.cost), imeis: [...x.imeis], imQ: '', meta: x.meta || null });
+  const f = items[0], i = at;
+  Object.assign(m, { q: '', hi: 0, err: '', confirmClose: false, _mounted: false, focusId: !f ? '' : f.meta ? (isOwner() ? `rc-cost-${i}` : '') : f.p.serial ? `rc-im-${i}` : `rc-qty-${i}` });
 }
 const arrivedToasts = (arrived) => arrived.forEach((x) => toast(x.cust ? `«${x.name}» وصل، و${x.cust.name} مستنيه: ${x.cust.phone}` : `«${x.name}» وصل واتشال من النواقص`, 'info'));
 const rcNum = (v) => { const n = parseInt(toLatin(v).replace(/[^\d]/g, ''), 10); return Number.isFinite(n) ? n : 0; };
 Object.assign(INPUT, {
   rcSup: (el) => { S.modal.supplier = el.value; },
-  rcQ: (el) => { Object.assign(S.modal, { q: el.value, hi: 0 }); render(); },
+  rcQ: (el) => { Object.assign(S.modal, { q: el.value, hi: 0, focusId: '' }); render(); },
   rcQty: (el) => { const l = S.modal.lines[+el.dataset.i]; l.qtyT = el.value; l.qty = rcNum(el.value); S.modal.confirmClose = false; render(); },
   rcCost: (el) => { const l = S.modal.lines[+el.dataset.i]; l.costT = el.value; l.cost = rcNum(el.value); render(); },
   rcImQ: (el) => { S.modal.lines[+el.dataset.i].imQ = el.value; },
 });
 Object.assign(ACT, {
   recvOpen: () => rcOpen(),
+  rcMode: (d) => { Object.assign(S.modal, { mode: d.id, err: '' }); render(); },
+  rcNew: () => openNewItem({ name: S.modal.q }),
   rcAdd: (d) => rcAdd(d.id),
   rcDel: (d) => { const m = S.modal; m.lines.splice(+d.i, 1); m.imErr = null; render(); rcFocus('rc-q'); },
   rcImDel: (d) => { const l = S.modal.lines[+d.i]; l.imeis.splice(+d.k, 1); render(); },
@@ -3839,13 +4243,392 @@ Object.assign(ACT, {
     if (less) return bad(`عدد «${prod(less.pid).name}» أقل من الـ IMEI المكتوبة (${num(less.imeis.length)})`);
     if (imeiRequired()) { const miss = L.find((l) => prod(l.pid).serial && l.imeis.length < l.qty); if (miss) return bad(`الإعدادات بتقول IMEI لكل جهاز: «${prod(miss.pid).name}» ناقصه ${num(miss.qty - miss.imeis.length)}`); }
     // البيّاع بيستلم بآخر تكلفة، فالمتوسط ما يتغيرش
-    const lines = L.map((l) => ({ pid: l.pid, qty: l.qty, cost: own ? l.cost : prod(l.pid).cost, imeis: l.imeis })), T = rcTotals({ lines });
-    const arrived = applyReceipt(m.supplier.trim(), lines);
+    const lines = L.map((l) => ({ pid: l.pid, qty: l.qty, cost: own ? l.cost : prod(l.pid).cost, imeis: l.imeis, meta: l.meta || null })), T = rcTotals({ lines });
+    const arrived = applyReceipt(m.supplier.trim(), lines, m.mode);
     m.saved = true; closeModal();
-    toast(`اتاستلم ${pcsWord(T.qty)} من ${num(L.length)} صنف${own ? `، التكلفة ${money(T.cost)}` : ''}`);
+    toast(`${m.mode === 'opening' ? 'اتسجّلت بضاعة أول مرة:' : 'اتاستلم'} ${pcsWord(T.qty)} من ${itemsWord(L.length)}${own ? `، التكلفة ${money(T.cost)}` : ''}`);
     arrivedToasts(arrived);
   },
 });
+
+</script>
+<script>/* views/catalog.js */
+'use strict';
+// «صنف جديد» واختيار النوع في شاشة البيع. الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== صنف جديد (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 2) =====
+   المالك: «أول مرة نسجّل بضاعة بتفاصيلها… الإكسسوار بتفرعاته، والموبايلات بشركاتها وأنواعها، والمستعمل».
+   بيتفتح فوق «استلام بضاعة» (من الاستلام نفسه، أو من المخزن وبيفتح الاستلام تحته). تلات أنواع، وكل نوع بيسأل عن تفاصيله بس:
+   - موبايل جديد: تاتش أو زراير (زي السيستم القديم)، والشركة، والموديل، والمساحة والرام، والألوان. كل جهاز بالـ IMEI بتاعه في الاستلام.
+   - مستعمل: جهاز جهاز بالـ IMEI والحالة والبطارية واللي معاه وسعره، وبيانات اللي باعه (اختياري).
+   - إكسسوار أو أي صنف بالعدد: التصنيف، والاسم، والتفرعات (لموبايل، اللون، المقاس…) ولكل نوع عدده وسعره وباركوده.
+   بعد التسجيل الصنف بينزل في الاستلام بعدده وتكلفته، والرصيد بيدخل لما الاستلام يتحفظ (applyReceipt). */
+const NI_KINDS = [
+  ['phone', 'smartphone', 'موبايل جديد', 'الشركة والموديل والمساحة والألوان. كل جهاز بالـ IMEI بتاعه وقت الاستلام'],
+  ['used', 'recycle', 'موبايل مستعمل', 'جهاز جهاز: الـ IMEI والحالة والبطارية واللي معاه وسعره'],
+  ['item', 'package', 'إكسسوار أو أي صنف بالعدد', 'جرابات وشواحن وسماعات وقطع غيار، بالتصنيف والتفرعات والباركود'],
+];
+const NI_ROMS = ['32GB', '64GB', '128GB', '256GB', '512GB', '1TB'], NI_RAMS = ['2GB', '3GB', '4GB', '6GB', '8GB', '12GB', '16GB'];
+const NI_COLORS = ['أسود', 'أبيض', 'أزرق', 'أخضر', 'رمادي', 'فضي', 'ذهبي', 'بنفسجي', 'بينك', 'أحمر'];
+const NI_GRADES = [['A', 'زي الجديد'], ['B', 'خدوش خفيفة'], ['C', 'عيوب واضحة']], NI_BOX = ['علبة', 'شاحن', 'فاتورة'];
+// أسماء التفرعات، ولكل اسم اقتراحات بتتضاف بدوسة (الموبايل: موديلات المحل نفسه)
+const NI_DIMS = ['الموبايل', 'اللون', 'النوع', 'المقاس', 'القوة', 'الطول', 'المساحة'];
+const niSuggest = (label) => ({
+  'الموبايل': [...new Set(DATA.products.filter((p) => p.serial).sort((a, b) => b.sold - a.sold).map((p) => p.model))].slice(0, 10),
+  'اللون': NI_COLORS, 'القوة': ['20W', '25W', '33W', '45W', '65W'], 'الطول': ['1م', '2م', '3م'], 'المساحة': ['32GB', '64GB', '128GB', '256GB'],
+}[label] || []);
+const NI_MAX_VARIANTS = 60;
+const brandByName = (n) => SET.brands.find((b) => b.name === n);
+const brandsFor = (ptype) => SET.brands.filter((b) => !b.hidden && (b.type === 'both' || b.type === ptype));
+const kindCats = (kind) => SET.cats.filter((c) => !c.parent && c.kind === kind);
+// التصنيفات اللي الصنف بالعدد بيتسجّل فيها: فرعي الرئيسي اللي نوعه «بالعدد»، أو الرئيسي نفسه لو ملوش فرعي
+function itemCats() {
+  const out = [];
+  for (const c of SET.cats.filter((x) => !x.parent && (x.kind || 'item') === 'item')) {
+    const subs = SET.cats.filter((x) => x.parent === c.id);
+    out.push(...(subs.length ? subs : [c]));
+  }
+  return out;
+}
+// نفس الافتراضيات بتاعة الأصناف في data.js
+const newProd = (o) => ({ stock: 0, serial: false, warranty: 0, icon: 'package', kw: '', sold: 0, min: 5, sku: '', ...o });
+let NI_SEQ = 0;
+const niId = () => `n${Date.now().toString(36)}${(++NI_SEQ).toString(36)}`;
+function niBlank(kind) {
+  return {
+    kind, err: '', errAt: '', dup: null, ptype: 'touch', brand: '', brandNew: null, model: '', rom: '', ram: '', colors: [], colorQ: '', color: '',
+    price: '', cost: '', min: '', warranty: '', cat: '', catNew: null, imei: '', imei2: '', grade: 'A', battery: '', box: [], notes: '',
+    seller: { name: '', phone: '', nid: '' }, sellerOn: false, name: '', ibrand: '', sku: '',
+    varOn: false, confirmClose: false, dims: [{ label: 'الموبايل', vals: [], q: '' }, { label: 'اللون', vals: [], q: '' }], rows: {},
+  };
+}
+// الاسم اللي اتكتب في بحث الاستلام بينزل في مكانه: الموديل (ولو أوله اسم شركة، الشركة بتتختار) أو اسم الصنف
+function niSeed(m, text) {
+  const t = String(text || '').trim();
+  if (!t) return;
+  if (m.kind === 'item') { m.name = t; return; }
+  const first = t.split(' ')[0].toLowerCase(), b = SET.brands.find((x) => x.name.toLowerCase() === first);
+  if (b) { m.brand = b.name; m.model = t.slice(first.length).trim(); if (b.type === 'keypad') m.ptype = 'keypad'; } else m.model = t;
+}
+function openNewItem(opts = {}) {
+  const prev = S.modal && S.modal.type === 'receive' ? S.modal : null;
+  if (prev) prev._mounted = false;
+  const m = { type: 'newItem', prev, seed: opts.name || '', ...niBlank(opts.kind || null), ...(opts.keep || {}) };
+  if (m.kind) niSeed(m, m.seed);
+  openModal(m);
+}
+const niKindName = (k) => (NI_KINDS.find((x) => x[0] === k) || [])[2] || '';
+const niTitle = (m) => (m.kind === 'item' ? m.name.trim() : phoneTitle(brandByName(m.brand), m.model, m.ptype === 'touch' ? m.rom : ''));
+const usedTitle = (m) => `${niTitle(m)} مستعمل فئة ${m.grade}`;
+const niCombos = (m) => (m.varOn ? variantCombos(m.dims.map((d) => d.vals)) : []);
+
+/* --- الرسم --- */
+const niLabel = (text, opt) => `<span class="label">${text}${opt ? ' <span class="muted">(اختياري)</span>' : ''}</span>`;
+function niInput(id, label, k, val, attrs = '', opt = false, hint = '') {
+  return `<div class="field"><label for="${id}">${label}${opt ? ' <span class="muted">(اختياري)</span>' : ''}</label><input id="${id}" data-input="ni" data-k="${k}" value="${esc(val)}" ${attrs} autocomplete="off">${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+}
+const niMoney = (id, label, k, val, opt, ph = '') => niInput(id, label, k, val, `class="num" dir="ltr" inputmode="numeric" placeholder="${ph}"`, opt);
+const niChip = (on, act, attrs, label) => `<button type="button" class="chip ${on ? 'on' : ''}" data-act="${act}" ${attrs} aria-pressed="${on}">${label}</button>`;
+function niTags(list, listKey, inputId, k, q, ph, sugg) {
+  const left = sugg.filter((v) => !list.includes(v));
+  return `<div class="ni-tags">${list.map((v, i) => `<span class="tag accent"><bdi>${esc(v)}</bdi><button type="button" class="rc-x" data-act="niTagDel" data-list="${listKey}" data-i="${i}" aria-label="شيل «${esc(v)}»">${icon('x')}</button></span>`).join('')}
+    <input id="${inputId}" class="ni-tag-in" data-input="ni" data-k="${k}" value="${esc(q)}" placeholder="${ph}" autocomplete="off"></div>
+    ${left.length ? `<div class="chips wrap ni-sugg">${left.map((v) => `<button type="button" class="chip sub" data-act="niTagAdd" data-list="${listKey}" data-v="${esc(v)}">${icon('plus')}<bdi>${esc(v)}</bdi></button>`).join('')}</div>` : ''}`;
+}
+function niBrandRow(m) {
+  const list = brandsFor(m.ptype);
+  return `<div class="ni-row">${niLabel('الشركة')}<div class="chips wrap" id="ni-brands">${list.map((b) => niChip(m.brand === b.name, 'niBrand', `data-v="${esc(b.name)}"`, `<bdi dir="ltr">${esc(b.name)}</bdi>`)).join('')}
+    ${m.brandNew === null ? `<button type="button" class="chip ghost-chip" data-act="niBrandNew">${icon('plus')} شركة تانية</button>`
+      : `<span class="ni-inline"><input id="ni-brand-new" data-input="ni" data-k="brandNew" value="${esc(m.brandNew)}" placeholder="اسم الشركة" autocomplete="off" aria-label="اسم الشركة الجديدة"><button type="button" class="btn sm soft" data-act="niBrandAdd">${icon('check')} ضيف</button></span>`}</div></div>`;
+}
+const niPtypeRow = (m) => `<div class="ni-row">${niLabel('نوع الجهاز')}<div class="seg">${[['touch', 'تاتش'], ['keypad', 'زراير']].map(([v, l]) => `<button type="button" class="${m.ptype === v ? 'on' : ''}" data-act="niPtype" data-v="${v}" aria-pressed="${m.ptype === v}">${l}</button>`).join('')}</div></div>`;
+function niSpecRows(m) {
+  if (m.ptype !== 'touch') return '';
+  const row = (title, list, cur, act, opt) => `<div class="ni-row">${niLabel(title, opt)}<div class="chips wrap">${list.map((v) => niChip(cur === v, act, `data-v="${v}"`, `<span class="num" dir="ltr">${v}</span>`)).join('')}</div></div>`;
+  return row('المساحة', NI_ROMS, m.rom, 'niRom', false) + row('الرام', NI_RAMS, m.ram, 'niRam', true);
+}
+function niModelField(m) {
+  const models = [...new Set(DATA.products.filter((p) => p.brand && p.brand === m.brand).map((p) => p.model))];
+  return niInput('ni-model', 'الموديل', 'model', m.model, `list="ni-models" placeholder="${m.ptype === 'keypad' ? 'مثلًا: 105، 110' : 'مثلًا: Galaxy A16، Redmi 14C'}" data-autofocus`)
+    + `<datalist id="ni-models">${models.map((x) => `<option value="${esc(x)}"></option>`).join('')}</datalist>`;
+}
+const niCatRow = (m, cats, label) => (cats.length > 1 ? `<div class="ni-row">${niLabel(label)}<div class="chips wrap">${cats.map((c) => niChip((m.cat || cats[0].id) === c.id, 'niCat', `data-v="${c.id}"`, `${icon(c.icon)}<bdi>${esc(c.name)}</bdi>`)).join('')}</div></div>` : '');
+function niNameLine(m, title, extra = '') {
+  return title ? `<div class="ni-name">${icon('tag')} هيتسجّل باسم <b><bdi dir="auto">${esc(title)}</bdi></b>${extra}</div>` : '';
+}
+function niPhone(m) {
+  const own = isOwner(), spec = m.ptype === 'touch' && m.ram ? `رام ${m.ram}` : ''; // المساحة جوه الاسم، والرام جنبه
+  return `${niCatRow(m, kindCats('phone'), 'التصنيف')}${niPtypeRow(m)}${niBrandRow(m)}${niModelField(m)}${niSpecRows(m)}
+    <div class="ni-row">${niLabel('الألوان', true)}${niTags(m.colors, 'colors', 'ni-color-q', 'colorQ', m.colorQ, 'اكتب لون ودوس Enter', NI_COLORS)}</div>
+    <div class="grid3">${niMoney('ni-price', 'سعر البيع', 'price', m.price)}${own ? niMoney('ni-cost', 'التكلفة', 'cost', m.cost, true, 'بتتكتب في الاستلام') : ''}${niMoney('ni-min', 'نبّهني لما يفضل', 'min', m.min, true, '2')}</div>
+    ${niNameLine(m, niTitle(m), spec ? `، <span class="num">${esc(spec)}</span>` : '')}
+    <div class="muted ni-foot">${icon('shield-check')} الضمان من الإعدادات: ${monthsTxt(+SET.warrantyNew)}. والـ IMEI بيتكتب أو بيتمسح لكل جهاز في الاستلام${imeiRequired() ? '، وهو إجباري حسب الإعدادات' : '، وهو اختياري'}.</div>`;
+}
+function niUsed(m) {
+  const own = isOwner();
+  return `${niPtypeRow(m)}${niBrandRow(m)}${niModelField(m)}${niSpecRows(m)}
+    <div class="ni-row">${niLabel('اللون', true)}<div class="chips wrap">${NI_COLORS.map((c) => niChip(m.color === c, 'niColor', `data-v="${c}"`, c)).join('')}</div></div>
+    <div class="grid2">
+      <div class="field"><label for="ni-imei">IMEI</label><div class="ni-inline"><input id="ni-imei" class="mono" data-input="ni" data-k="imei" value="${esc(m.imei)}" dir="ltr" inputmode="numeric" placeholder="15 رقم" autocomplete="off"><button type="button" class="btn sm" data-act="niScan" title="الموبايل بيمسح الرقم من على الجهاز (*#06#)">${icon('smartphone')} امسح</button></div></div>
+      ${niInput('ni-imei2', 'IMEI التاني', 'imei2', m.imei2, 'class="mono" dir="ltr" inputmode="numeric" placeholder="للموبايل اللي بخطين"', true)}
+    </div>
+    <div class="ni-row">${niLabel('الحالة')}<div class="seg">${NI_GRADES.map(([g, d]) => `<button type="button" class="${m.grade === g ? 'on' : ''}" data-act="niGrade" data-v="${g}" aria-pressed="${m.grade === g}"><b dir="ltr">${g}</b> ${d}</button>`).join('')}</div></div>
+    <div class="grid2">${niInput('ni-battery', 'البطارية %', 'battery', m.battery, 'class="num" dir="ltr" inputmode="numeric" placeholder="مثلًا 86"', true)}
+      <div class="ni-row">${niLabel('معاه')}<div class="chips wrap">${NI_BOX.map((x) => niChip(m.box.includes(x), 'niBox', `data-v="${x}"`, x)).join('')}</div></div></div>
+    ${niInput('ni-notes', 'العيوب أو ملاحظات', 'notes', m.notes, 'placeholder="مثلًا: خدش في الضهر، الشاشة مغيّرة"', true)}
+    <div class="grid3">${own ? niMoney('ni-cost', 'اشتريته بكام', 'cost', m.cost, true) : ''}${niMoney('ni-price', 'هيتباع بكام', 'price', m.price)}</div>
+    <button type="button" class="btn sm ghost ni-more" data-act="niSeller" aria-expanded="${m.sellerOn}">${icon(m.sellerOn ? 'chevron-up' : 'chevron-down')} بيانات اللي باعه (اختياري)</button>
+    ${m.sellerOn ? `<div class="grid3">${niInput('ni-s-name', 'الاسم', 'seller.name', m.seller.name)}${niInput('ni-s-phone', 'التليفون', 'seller.phone', m.seller.phone, 'class="mono" dir="ltr" inputmode="tel" placeholder="01xxxxxxxxx"')}${niInput('ni-s-nid', 'رقم البطاقة', 'seller.nid', m.seller.nid, 'class="mono" dir="ltr" inputmode="numeric" placeholder="14 رقم"')}</div>` : ''}
+    ${niNameLine(m, m.brand && m.model.trim() ? usedTitle(m) : '')}
+    <div class="muted ni-foot">${icon('shield-check')} ضمان المستعمل من الإعدادات: ${monthsTxt(+SET.warrantyUsed)}.</div>`;
+}
+function niVariants(m) {
+  const own = isOwner(), combos = niCombos(m), price = parseNum(m.price), cost = parseNum(m.cost);
+  const dimRow = (d, i) => `<div class="ni-dim"><div class="field"><label for="ni-dim-${i}">${i ? 'وتاني' : 'متفرّع حسب'}${i ? ' <span class="muted">(اختياري)</span>' : ''}</label><select id="ni-dim-${i}" data-change="niDimLabel" data-i="${i}">${NI_DIMS.map((x) => `<option ${d.label === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    <div class="ni-row">${niTags(d.vals, `dims.${i}`, `ni-dq-${i}`, `dims.${i}.q`, d.q, 'اكتب ودوس Enter', niSuggest(d.label))}</div></div>`;
+  const table = combos.length ? `<div class="table-wrap"><table class="t rc-t ni-var"><thead><tr><th>النوع</th><th>الباركود</th><th class="ta-n">العدد</th>${own ? '<th class="ta-n">التكلفة</th>' : ''}<th class="ta-n">السعر</th></tr></thead><tbody>
+    ${combos.map((c) => { const key = c.join('|'), r = m.rows[key] || {}; const cell = (f, ph, cls = 'num', attrs = 'inputmode="numeric"') => `<input class="rc-in ${cls}" data-input="niRow" data-r="${esc(key)}" data-f="${f}" value="${esc(r[f] || '')}" placeholder="${ph}" dir="ltr" ${attrs} autocomplete="off" aria-label="${f} «${esc(c.join('، '))}»">`;
+      return `<tr><td><bdi dir="rtl">${esc(c.join('، '))}</bdi></td><td>${cell('sku', '', 'mono ni-sku')}</td><td class="ta-n">${cell('qty', '0')}</td>${own ? `<td class="ta-n">${cell('cost', isNaN(cost) ? '' : String(cost))}</td>` : ''}<td class="ta-n">${cell('price', isNaN(price) ? '' : String(price))}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <div class="row wrap ni-var-f"><span class="muted">${kindsWord(combos.length)}. السعر${own ? ' والتكلفة' : ''} الفاضي = اللي فوق</span><span class="sp"></span><button type="button" class="btn sm" data-act="niCodes">${icon('scan-barcode')} اعمل أكواد للي من غير باركود</button></div>` : '';
+  return `${m.dims.map(dimRow).join('')}${table}`;
+}
+function niItem(m) {
+  const own = isOwner(), cats = itemCats(), cur = m.cat || '';
+  return `<div class="ni-row">${niLabel('التصنيف')}<div class="chips wrap" id="ni-cats">${cats.map((c) => niChip(cur === c.id, 'niCat', `data-v="${c.id}"`, `${icon(c.icon)}<bdi>${esc(c.name)}</bdi>`)).join('')}
+      ${m.catNew === null ? `<button type="button" class="chip ghost-chip" data-act="niCatNew">${icon('plus')} تصنيف جديد</button>`
+        : `<span class="ni-inline"><input id="ni-cat-new" data-input="ni" data-k="catNew" value="${esc(m.catNew)}" placeholder="مثلًا: قطع غيار، خطوط" autocomplete="off" aria-label="اسم التصنيف الجديد"><button type="button" class="btn sm soft" data-act="niCatAdd">${icon('check')} ضيف</button></span>`}</div></div>
+    <div class="grid2">${niInput('ni-name', 'اسم الصنف', 'name', m.name, 'placeholder="مثلًا: جراب سيليكون شفاف" data-autofocus')}${niInput('ni-ibrand', 'الماركة', 'ibrand', m.ibrand, 'placeholder="مثلًا: Anker"', true)}</div>
+    <label class="ni-switch"><span class="switch"><input type="checkbox" data-change="niVarOn" ${m.varOn ? 'checked' : ''}><span></span></span><span class="t"><b>الصنف ده ليه تفرعات</b><small>زي جراب لكل موديل ولون، أو شاحن بأكتر من قوة. كل نوع ليه عدده وسعره وباركوده</small></span></label>
+    ${m.varOn ? niVariants(m) : `<div class="field"><label for="ni-sku">الباركود <span class="muted">(اختياري)</span></label><div class="ni-inline"><input id="ni-sku" class="mono" data-input="ni" data-k="sku" value="${esc(m.sku)}" dir="ltr" inputmode="numeric" placeholder="امسحه بالماسح" autocomplete="off"><button type="button" class="btn sm" data-act="niCode" title="كود للمحل نفسه، بيتطبع على الملصق">${icon('scan-barcode')} اعمل كود</button></div></div>`}
+    <div class="grid3">${niMoney('ni-price', 'سعر البيع', 'price', m.price)}${own ? niMoney('ni-cost', 'التكلفة', 'cost', m.cost, true, 'بتتكتب في الاستلام') : ''}${niMoney('ni-min', 'نبّهني لما يفضل', 'min', m.min, true, '5')}</div>
+    ${niMoney('ni-warranty', 'الضمان بالشهور', 'warranty', m.warranty, true, '0')}
+    ${niNameLine(m, m.varOn ? '' : niTitle(m), cur ? `، في «${esc(catFull(cur))}»` : '')}`;
+}
+const niKinds = () => `<div class="ni-kinds">${NI_KINDS.map(([id, ic, t, d], i) => `<button type="button" class="ni-kind" data-act="niKind" data-v="${id}" ${i === 0 ? 'data-autofocus' : ''}><span class="t-ico">${icon(ic)}</span><span class="t"><b>${t}</b><small>${d}</small></span><kbd>${num(i + 1)}</kbd></button>`).join('')}</div>
+  <div class="note">${icon('info')} الشركات والتصنيفات بتتغيّر من الإعدادات، في «الأصناف والبيع». وأي صنف بيتسجّل هنا بيظهر على طول في البيع والبحث والمخزن.</div>`;
+MODALS.newItem = {
+  html: (m) => {
+    const body = !m.kind ? niKinds() : m.kind === 'phone' ? niPhone(m) : m.kind === 'used' ? niUsed(m) : niItem(m);
+    const sub = !m.kind ? 'اختار نوعه' : `${niKindName(m.kind)}${m.prev ? '. بعد التسجيل بينزل في الاستلام' : ''}`;
+    return `<div class="modal ni" role="dialog" aria-label="صنف جديد">
+      ${modalHead('صنف جديد', sub)}
+      <div class="modal-b stack">${m.kind ? `<div class="ni-kind-bar"><span class="tag accent">${icon(NI_KINDS.find((x) => x[0] === m.kind)[1])} ${niKindName(m.kind)}</span><button type="button" class="btn sm ghost" data-act="niKind" data-v="">${icon('arrow-right')} غيّر النوع</button></div>` : ''}
+        ${body}
+        ${m.err ? `<div class="note warn" role="alert">${icon('triangle-alert')} <span>${esc(m.err)}${m.dup ? ` <button type="button" class="btn sm soft" data-act="niUseDup" data-id="${m.dup}">${icon('package-plus')} ضيف الموجود للاستلام</button>` : ''}</span></div>` : ''}
+      </div>
+      <div class="modal-f">${m.kind ? '' : '<span class="muted">دوس 1 أو 2 أو 3</span>'}<span class="sp"></span>
+        <button type="button" class="btn ghost" data-act="closeModal">رجوع <kbd>Esc</kbd></button>
+        ${m.kind === 'used' ? `<button type="button" class="btn" data-act="niSave" data-more="1">${icon('circle-plus')} سجّل وضيف جهاز تاني</button>` : ''}
+        ${m.kind ? `<button type="button" class="btn primary" data-act="niSave">${icon('save')} ${m.prev ? 'سجّل وضيفه للاستلام' : 'سجّل الصنف'} <kbd>Enter</kbd></button>` : ''}</div>
+    </div>`;
+  },
+  key: (e, m) => {
+    const id = (e.target && e.target.id) || '';
+    // Enter على زرار (نوع أو شركة أو مساحة…) بيدوسه، مش بيسجّل
+    if (e.key === 'Enter' && e.target && e.target.tagName === 'BUTTON') { e.preventDefault(); e.target.click(); return true; }
+    if (!m.kind) { const k = toLatin(e.key); if (/^[1-3]$/.test(k)) { e.preventDefault(); ACT.niKind({ v: NI_KINDS[+k - 1][0] }); return true; } return false; }
+    // خانات الكلمات: Enter (أو الفاصلة) بيضيف الكلمة بدل ما يسجّل
+    const tag = id === 'ni-color-q' ? ['colors', 'colorQ'] : /^ni-dq-[01]$/.test(id) ? [`dims.${id.slice(-1)}`, `dims.${id.slice(-1)}.q`] : null;
+    if (tag && (e.key === 'Enter' || e.key === ',' || e.key === '،')) { e.preventDefault(); niTagPush(m, tag[0], niGet(m, tag[1])); niSet(m, tag[1], ''); render(); return true; }
+    if (e.key === 'Enter' && id === 'ni-brand-new') { e.preventDefault(); ACT.niBrandAdd(); return true; }
+    if (e.key === 'Enter' && id === 'ni-cat-new') { e.preventDefault(); ACT.niCatAdd(); return true; }
+    return false;
+  },
+  enter: () => ACT.niSave({}),
+  // فيه بيانات اتكتبت ولسه ماتسجّلتش: أول رجوع بينبّه
+  canClose: (m) => {
+    const typed = m.kind && (m.model || m.name || m.price || m.imei || m.colors.length || m.dims[0].vals.length);
+    if (m.saved || !typed || m.confirmClose) return true;
+    Object.assign(m, { confirmClose: true, err: 'فيه بيانات لسه ماتسجّلتش. لو عايز ترجع من غير تسجيل دوس Esc تاني', dup: null }); render();
+    return false;
+  },
+};
+const niGet = (m, path) => path.split('.').reduce((o, k) => o[k], m);
+function niSet(m, path, v) { const ks = path.split('.'), last = ks.pop(); ks.reduce((o, k) => o[k], m)[last] = v; }
+// path بيشاور على لستة (colors أو dims.0) أو على عنصر فيه vals
+function niTagPush(m, path, raw) {
+  const v = String(raw || '').trim().replace(/[،,]+$/, '').trim();
+  if (!v) return;
+  const t = niGet(m, path), list = Array.isArray(t) ? t : t.vals;
+  if (!list.some((x) => normalize(x) === normalize(v))) list.push(v);
+}
+
+/* --- الفحص والتسجيل --- */
+const niNum = (v) => { const n = parseNum(v); return Number.isFinite(n) ? n : NaN; };
+const usedImeis = (m) => (m.prev ? m.prev.lines.flatMap((l) => l.imeis) : []);
+function niImeiErr(raw, m, label = 'الـ IMEI') {
+  const f = toLatin(raw).replace(/\D/g, '');
+  if (f.length !== 15) return `${label} لازم يكون 15 رقم`;
+  if (!luhnOk(f)) return `${label} ده مش صحيح: رقم المراجعة غلط. راجع الرقم`;
+  const other = DATA.units.find((u) => u.imei === f || u.imei2 === f);
+  if (other) return `${label} ده متسجّل قبل كده على «${prod(other.pid).name}»`;
+  if (usedImeis(m).includes(f)) return `${label} ده مكتوب في الاستلام ده بالفعل`;
+  return '';
+}
+function niCheck(m) {
+  const own = isOwner(), price = niNum(m.price), bad = (msg, at, dup = null) => ({ msg, at, dup });
+  if (m.kind === 'phone' || m.kind === 'used') {
+    if (!m.brand) return bad('اختار الشركة، ولو مش موجودة دوس «شركة تانية»', 'ni-brands');
+    if (!m.model.trim()) return bad('اكتب الموديل', 'ni-model');
+    if (m.ptype === 'touch' && !m.rom) return bad('اختار المساحة', 'ni-model');
+  }
+  if (m.kind === 'phone') {
+    const nm = normalize(m.model), dup = DATA.products.find((p) => p.serial && catKind(p.cat) === 'phone' && p.brand === m.brand && normalize(p.model) === nm && (p.rom || '') === (m.ptype === 'touch' ? m.rom : '') && (p.ram || '') === (m.ptype === 'touch' ? m.ram : ''));
+    if (dup) return bad(`الموديل ده متسجّل قبل كده: «${dup.name}»`, 'ni-model', dup.id);
+  }
+  if (m.kind === 'used') {
+    const e1 = niImeiErr(m.imei, m); if (e1) return bad(e1, 'ni-imei');
+    if (m.imei2.trim()) { const e2 = niImeiErr(m.imei2, m, 'الـ IMEI التاني'); if (e2) return bad(e2, 'ni-imei2'); if (toLatin(m.imei2).replace(/\D/g, '') === toLatin(m.imei).replace(/\D/g, '')) return bad('الـ IMEI التاني هو هو الأولاني', 'ni-imei2'); }
+    const bt = m.battery.trim() ? niNum(m.battery) : 0;
+    if (isNaN(bt) || bt < 0 || bt > 100) return bad('البطارية رقم من 1 لـ 100', 'ni-battery');
+  }
+  if (m.kind === 'item') {
+    if (!m.cat) return bad('اختار التصنيف، ولو مش موجود دوس «تصنيف جديد»', 'ni-cats');
+    if (!m.name.trim()) return bad('اكتب اسم الصنف', 'ni-name');
+    if (!m.varOn) {
+      const dup = DATA.products.find((p) => !p.fam && p.cat === m.cat && normalize(p.name) === normalize(m.name));
+      if (dup) return bad(`فيه صنف بنفس الاسم في «${catFull(m.cat)}»`, 'ni-name', dup.id);
+      const e = niSkuErr(m.sku, []); if (e) return bad(e, 'ni-sku');
+    } else {
+      const combos = niCombos(m);
+      if (!combos.length) return bad(`اكتب نوع واحد على الأقل في «${m.dims[0].label}»، ودوس Enter بعد كل واحد`, 'ni-dq-0');
+      if (combos.length > NI_MAX_VARIANTS) return bad(`${kindsWord(combos.length)} كتير على صنف واحد (الحد ${num(NI_MAX_VARIANTS)}). قسّمه لأكتر من صنف`, 'ni-dq-1');
+      if (DATA.products.some((p) => p.fam && normalize(p.base) === normalize(m.name) && p.cat === m.cat)) return bad(`فيه صنف بتفرعات بنفس الاسم في «${catFull(m.cat)}»`, 'ni-name');
+      const seen = [];
+      for (const c of combos) { const r = m.rows[c.join('|')] || {}, e = niSkuErr(r.sku || '', seen); if (e) return bad(`«${c.join('، ')}»: ${e}`, 'ni-name'); if (r.sku) seen.push(toLatin(r.sku).trim()); }
+    }
+  }
+  if (!(price > 0)) return bad(m.kind === 'used' ? 'اكتب هيتباع بكام' : 'اكتب سعر البيع', 'ni-price');
+  if (own && m.cost.trim() && !(niNum(m.cost) >= 0)) return bad('التكلفة لازم تكون رقم', 'ni-cost');
+  for (const [k, id] of [['min', 'ni-min'], ['warranty', 'ni-warranty']]) if (String(m[k]).trim() && !(niNum(m[k]) >= 0)) return bad('الخانة دي رقم بس', id);
+  return null;
+}
+function niSkuErr(raw, taken) {
+  const v = toLatin(raw).trim();
+  if (!v) return '';
+  if (!/^\d{6,14}$/.test(v)) return 'الباركود أرقام بس (من 6 لـ 14 رقم)';
+  const other = DATA.products.find((p) => p.sku === v);
+  if (other || taken.includes(v)) return `الباركود ده على «${other ? other.name : 'نوع تاني هنا'}»`;
+  return '';
+}
+// كود داخلي EAN-13 بيبدأ بـ 2: اللي بعد آخر كود عمله المحل
+function nextCode(extra = []) {
+  const mine = [...DATA.products.map((p) => p.sku), ...extra].filter((c) => /^2\d{12}$/.test(c || '')).map((c) => Number(c.slice(1, 12)));
+  return ean13(`2${String((mine.length ? Math.max(...mine) : 0) + 1).padStart(11, '0')}`);
+}
+// بيرجّع الأصناف الجديدة، ومع كل واحد سطر الاستلام بتاعه (العدد والتكلفة والـ IMEI وتفاصيل المستعمل)
+function niCreate(m) {
+  const own = isOwner(), price = niNum(m.price), cost = own && m.cost.trim() ? niNum(m.cost) : 0;
+  const min = String(m.min).trim() ? niNum(m.min) : null, b = brandByName(m.brand);
+  if (m.kind === 'phone' || m.kind === 'used') {
+    const rom = m.ptype === 'touch' ? m.rom : '', ram = m.ptype === 'touch' ? m.ram : '', used = m.kind === 'used';
+    const base = { serial: true, icon: used ? 'recycle' : 'smartphone', brand: m.brand, model: m.model.trim().replace(/\s+/g, ' '), rom, ram, ptype: m.ptype, storage: specText(rom, ram), tac: '', kw: `${b && b.ar ? b.ar : ''}${used ? ' مستعمل' : ''}` };
+    if (!used) return [{ p: newProd({ ...base, id: niId(), cat: m.cat || kindCats('phone')[0].id, name: niTitle(m), price, cost, min: min ?? 2, colors: [...m.colors] }), qty: 1, imeis: [], meta: null }];
+    const imei = toLatin(m.imei).replace(/\D/g, ''), imei2 = toLatin(m.imei2).replace(/\D/g, '') || null;
+    const meta = { imei2, color: m.color || null, condition: `فئة ${m.grade}`, battery: m.battery.trim() ? niNum(m.battery) : null, box: [...m.box], notes: m.notes.trim(), seller: m.sellerOn && m.seller.name.trim() ? { ...m.seller } : null };
+    return [{ p: newProd({ ...base, id: niId(), cat: kindCats('used')[0].id, name: usedTitle(m), price, cost, min: min ?? 0, grade: `فئة ${m.grade}`, colors: m.color ? [m.color] : [] }), qty: 1, imeis: [imei], meta }];
+  }
+  const cat = catById(m.cat), name = m.name.trim().replace(/\s+/g, ' ');
+  const common = { cat: m.cat, icon: (cat && cat.icon) || 'package', min: min ?? 5, warranty: String(m.warranty).trim() ? niNum(m.warranty) : 0, kw: [name, m.ibrand].join(' '), ibrand: m.ibrand.trim() };
+  if (!m.varOn) return [{ p: newProd({ ...common, id: niId(), name, price, cost, sku: toLatin(m.sku).trim() }), qty: 1, imeis: [], meta: null }];
+  const fam = niId(), dims = m.dims.filter((d) => d.vals.length).map((d) => d.label);
+  return niCombos(m).map((c) => {
+    const r = m.rows[c.join('|')] || {}, pr = r.price && niNum(r.price) > 0 ? niNum(r.price) : price, co = own && r.cost && niNum(r.cost) >= 0 ? niNum(r.cost) : cost;
+    return { p: newProd({ ...common, id: niId(), name: `${name} ${c.join(' ')}`, price: pr, cost: co, sku: toLatin(r.sku || '').trim(), fam, base: name, vr: c, dims }), qty: Math.max(0, Math.floor(niNum(r.qty) || 0)), imeis: [], meta: null };
+  });
+}
+function niFocus(at) { const el = document.getElementById(at); if (!el) return; if (el.tagName === 'INPUT') { el.focus(); el.select(); } else { const b = el.querySelector('button'); if (b) b.focus(); } }
+INPUT.ni = (el) => { const m = S.modal; niSet(m, el.dataset.k, el.value); Object.assign(m, { err: '', dup: null, confirmClose: false }); render(); };
+INPUT.niRow = (el) => { const m = S.modal, r = m.rows[el.dataset.r] || (m.rows[el.dataset.r] = {}); r[el.dataset.f] = el.value; m.err = ''; render(); };
+CHANGE.niDimLabel = (el) => { S.modal.dims[+el.dataset.i].label = el.value; render(); };
+CHANGE.niVarOn = (el) => { Object.assign(S.modal, { varOn: el.checked, err: '' }); render(); if (el.checked) niFocus('ni-dq-0'); };
+const niPick = (k, v, toggle = false) => { const m = S.modal; m[k] = toggle && m[k] === v ? '' : v; Object.assign(m, { err: '', dup: null }); render(); };
+Object.assign(ACT, {
+  newItem: () => openNewItem(),
+  niKind: (d) => { const m = S.modal, keep = m.prev; Object.assign(m, niBlank(d.v || null), { prev: keep, _mounted: false }); if (m.kind) niSeed(m, m.seed); render(); },
+  niPtype: (d) => { const m = S.modal; m.ptype = d.v; const b = brandByName(m.brand); if (b && b.type !== 'both' && b.type !== d.v) m.brand = ''; render(); },
+  niBrand: (d) => { niPick('brand', d.v); niFocus('ni-model'); },
+  niBrandNew: () => { S.modal.brandNew = ''; render(); niFocus('ni-brand-new'); },
+  niBrandAdd: () => {
+    const m = S.modal, name = String(m.brandNew || '').trim();
+    if (!name) { m.brandNew = null; render(); return; }
+    const had = SET.brands.find((b) => normalize(b.name) === normalize(name));
+    if (!had) { SET.brands.push({ id: `b${Date.now().toString(36)}`, name, type: m.ptype, hidden: false, custom: true }); saveSettings(); toast(`اتضافت «${name}» لشركات الموبايلات`); }
+    Object.assign(m, { brand: had ? had.name : name, brandNew: null }); render(); niFocus('ni-model');
+  },
+  niRom: (d) => niPick('rom', d.v),
+  niRam: (d) => niPick('ram', d.v, true),
+  niColor: (d) => niPick('color', d.v, true),
+  niGrade: (d) => niPick('grade', d.v),
+  niBox: (d) => { const b = S.modal.box, i = b.indexOf(d.v); if (i < 0) b.push(d.v); else b.splice(i, 1); render(); },
+  niSeller: () => { S.modal.sellerOn = !S.modal.sellerOn; render(); },
+  niScan: () => { const m = S.modal; m.imei = DATA.makeImei('35'); Object.assign(m, { err: '', dup: null }); render(); toast(`الموبايل مسح IMEI …${m.imei.slice(-4)}`, 'info'); },
+  niTagAdd: (d) => { niTagPush(S.modal, d.list, d.v); render(); },
+  niTagDel: (d) => { const t = niGet(S.modal, d.list); (Array.isArray(t) ? t : t.vals).splice(+d.i, 1); render(); },
+  niCat: (d) => niPick('cat', d.v),
+  niCatNew: () => { S.modal.catNew = ''; render(); niFocus('ni-cat-new'); },
+  niCatAdd: () => {
+    const m = S.modal, name = String(m.catNew || '').trim();
+    if (!name) { m.catNew = null; render(); return; }
+    const had = SET.cats.find((c) => normalize(c.name) === normalize(name));
+    if (had) { Object.assign(m, { cat: had.id, catNew: null }); render(); return; }
+    const parent = (SET.cats.find((c) => !c.parent && c.kind === 'item' && SET.cats.some((x) => x.parent === c.id)) || {}).id || null;
+    const c = { id: `c${Date.now().toString(36)}`, name, icon: 'tag', parent, hidden: false, custom: true, kind: parent ? null : 'item' };
+    SET.cats.push(c); saveCats(); Object.assign(m, { cat: c.id, catNew: null }); render();
+    toast(`اتضاف التصنيف «${name}»${parent ? ` تحت «${catName(parent)}»` : ''}`);
+  },
+  niCode: () => { S.modal.sku = nextCode(); render(); },
+  niCodes: () => {
+    const m = S.modal, made = [];
+    for (const c of niCombos(m)) { const key = c.join('|'), r = m.rows[key] || (m.rows[key] = {}); if (!String(r.sku || '').trim()) { r.sku = nextCode(made); made.push(r.sku); } }
+    render(); toast(made.length ? `اتعمل ${num(made.length)} كود للمحل، بيتطبعوا على الملصقات` : 'كل الأنواع ليها باركود', 'info');
+  },
+  niUseDup: (d) => { const m = S.modal; m.saved = true; const prev = m.prev; closeModal(); if (prev && S.modal === prev) rcAdd(d.id); },
+  niSave: (d = {}) => {
+    const m = S.modal;
+    if (!m || m.type !== 'newItem' || !m.kind) return;
+    const bad = niCheck(m);
+    if (bad) { Object.assign(m, { err: bad.msg, dup: bad.dup }); render(); niFocus(bad.at); beep(); return; }
+    const made = niCreate(m), keep = d.more ? { ptype: m.ptype, brand: m.brand, model: m.model, rom: m.rom, ram: m.ram } : null;
+    for (const x of made) DATA.products.push(x.p);
+    indexProducts();
+    m.saved = true;
+    const prev = m.prev, lines = made.filter((x) => x.qty > 0 || x.p.serial);
+    closeModal();
+    if (prev && S.modal === prev) rcAddLines(prev, lines);
+    const first = made[0].p;
+    toast(made.length > 1 ? `اتسجّل «${first.base}» بـ ${kindsWord(made.length)}${prev ? `، و${num(lines.length)} منهم نزلوا في الاستلام بعددهم` : ''}` : `اتسجّل «${first.name}»${prev ? '، اكتب العدد والتكلفة في الاستلام' : ''}`);
+    if (keep && prev) openNewItem({ kind: 'used', keep });
+    else render();
+  },
+});
+
+/* ===== شاشة البيع: الصنف اللي ليه تفرعات بيتختار نوعه ===== */
+function openVariantPicker(fam) {
+  const vs = famOf(fam);
+  if (!vs.length) return;
+  openModal({ type: 'variant', fam, hi: Math.max(0, vs.findIndex((v) => stockOf(v) > 0)) });
+}
+MODALS.variant = {
+  html: (m) => {
+    const vs = famOf(m.fam), p = vs[0];
+    return `<div class="modal md" role="dialog" aria-label="اختار النوع">
+      ${modalHead(esc(p.base), `اختار ${esc(p.dims.join(' و'))}`)}
+      <div class="modal-b"><div class="vr-grid" role="listbox" aria-label="الأنواع">${vs.map((v, i) => { const st = stockOf(v);
+        return `<button type="button" class="vr ${i === m.hi ? 'on' : ''}" role="option" aria-selected="${i === m.hi}" data-act="vrPick" data-id="${v.id}" ${st <= 0 ? 'disabled' : ''}>
+          <b><bdi dir="rtl">${esc(v.vr.join('، '))}</bdi></b><span class="num">${money(v.price)}</span><small class="${st <= 0 ? 'danger-t' : st <= v.min ? 'warn-t' : 'muted'}">${st <= 0 ? 'خلصان' : `${num(st)} متاح`}</small></button>`; }).join('')}</div></div>
+      <div class="modal-f"><span class="muted">الأسهم وEnter، أو دوس على النوع</span><span class="sp"></span><button type="button" class="btn ghost" data-act="closeModal">قفل <kbd>Esc</kbd></button></div>
+    </div>`;
+  },
+  key: (e, m) => {
+    const vs = famOf(m.fam), ok = vs.map((v) => stockOf(v) > 0);
+    const step = { ArrowLeft: 1, ArrowDown: 1, ArrowRight: -1, ArrowUp: -1 }[e.key];
+    if (step) { e.preventDefault(); for (let k = 1; k <= vs.length; k++) { const j = (m.hi + step * k + vs.length * k) % vs.length; if (ok[j]) { m.hi = j; break; } } render(); return true; }
+    if (e.key === 'Enter') { e.preventDefault(); if (vs[m.hi] && ok[m.hi]) ACT.vrPick({ id: vs[m.hi].id }); return true; }
+    return false;
+  },
+};
+ACT.vrPick = (d) => { const p = prod(d.id); S.modal = null; pickProduct(p); };
 
 </script>
 <script>/* views/shortages.js */
@@ -3854,7 +4637,9 @@ Object.assign(ACT, {
 /* ===== النواقص: اللي بتكتبه بإيدك + اقتراحات السيستم (docs/ui/SALES-SHORTAGES.md) =====
    بتتحفظ في المتصفح زي الإعدادات. أول مرة: 3 أمثلة. نفس الصنف مرتين ← الكمية بتزيد بدل سطر جديد. */
 const SHORT_KEY = 'mshop.mockup.shortages.v1';
+// المحل الفاضي (للتجربة) بيبدأ من غير نواقص وما بيحفظش، عشان قايمة بيانات التجربة ما تتلخبطش
 let SHORT = (() => {
+  if (DATA.fresh) return [];
   try { const v = JSON.parse(localStorage.getItem(SHORT_KEY) || 'null'); if (Array.isArray(v)) return v; } catch { /* أول مرة */ }
   const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
   return [
@@ -3863,7 +4648,7 @@ let SHORT = (() => {
     { id: 'sh3', pid: null, name: 'شاحن 65 وات تايب سي', qty: 1, note: '', cust: { name: 'كريم مصطفى', phone: '01011122233' }, status: 'open', by: 'u3', at: ago(50) },
   ];
 })();
-const saveShort = () => { try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
+const saveShort = () => { if (DATA.fresh) return; try { localStorage.setItem(SHORT_KEY, JSON.stringify(SHORT)); } catch { toast('مساحة التخزين مش كفاية', 'err'); } };
 // الكمية المقترحة: توصّل الصنف لضعف أقل حد
 const suggestQty = (p) => Math.max(1, p.min * 2 - stockOf(p));
 const shortSuggest = () => DATA.products.filter((p) => stockOf(p) <= p.min && !SHORT.some((x) => x.pid === p.id)).sort((a, b) => stockOf(a) - stockOf(b));
@@ -3884,7 +4669,7 @@ function shortView() {
   return `
     <section class="sh-add" aria-label="ضيف ناقص">
       <div class="sh-name">
-        <label class="inline-search">${icon('package-search')}<input id="sh-q" data-input="shQ" value="${esc(F.q)}" placeholder="اسم الصنف، أو اختار من المخزون" autocomplete="off" aria-label="اسم الصنف الناقص"></label>
+        <label class="inline-search">${icon('package-search')}<input id="sh-q" data-input="shQ" value="${esc(F.q)}" placeholder="اسم الصنف، أو اختار من المخزن" autocomplete="off" aria-label="اسم الصنف الناقص"></label>
         ${m.length ? `<div class="results sh-res">${m.map((p, i) => `<div class="result ${i === F.hi ? 'on' : ''}" data-act="shPick" data-id="${p.id}"><div class="t"><div class="n"><bdi dir="rtl">${esc(p.name)}</bdi></div><div class="s"><span>${esc(catFull(p.cat))}</span>${stockTxt(p)}</div></div></div>`).join('')}</div>` : ''}
       </div>
       <label class="sh-f sh-qty"><span>الكمية</span><input id="sh-qty" data-input="shQty" value="${esc(F.qty)}" inputmode="numeric" autocomplete="off"></label>
@@ -3892,12 +4677,12 @@ function shortView() {
       <label class="sh-f"><span>عميل مستني</span><input id="sh-cust" data-input="shCust" value="${esc(F.cust)}" placeholder="اسم أو رقم، اختياري" autocomplete="off"></label>
       <button type="button" class="btn primary" data-act="shAdd">${icon('plus')} ضيف للنواقص</button>
     </section>
-    ${picked ? `<div class="sh-picked">${icon('package')} من المخزون: <b><bdi dir="rtl">${esc(picked.name)}</bdi></b> ${stockTxt(picked)}<button type="button" class="icon-btn xs" data-act="shUnpick" title="اكتب اسم تاني">${icon('x')}</button></div>` : ''}
+    ${picked ? `<div class="sh-picked">${icon('package')} من المخزن: <b><bdi dir="rtl">${esc(picked.name)}</bdi></b> ${stockTxt(picked)}<button type="button" class="icon-btn xs" data-act="shUnpick" title="اكتب اسم تاني">${icon('x')}</button></div>` : ''}
     ${F.err ? `<div class="err-msg">${esc(F.err)}</div>` : ''}
     <h3 class="sh-h">النواقص <span class="muted num">${num(SHORT.length)}</span></h3>
     ${SHORT.length ? `<div class="table-wrap"><table class="t sh-t"><thead><tr><th>الصنف</th><th class="ta-n">الكمية</th><th>ملاحظة</th><th>عميل مستني</th><th>أضافه</th><th>الحالة</th><th></th></tr></thead><tbody>
       ${SHORT.map((x) => { const p = x.pid ? prod(x.pid) : null, u = DATA.users.find((y) => y.id === x.by), mine = own || x.by === S.user.id;
-        return `<tr data-id="${x.id}"><td><bdi dir="rtl">${esc(x.name)}</bdi> ${p ? stockTxt(p) : '<small class="muted">مش في المخزون</small>'}</td><td class="ta-n num"><b>${num(x.qty)}</b></td><td class="muted">${esc(x.note)}</td>
+        return `<tr data-id="${x.id}"><td><bdi dir="rtl">${esc(x.name)}</bdi> ${p ? stockTxt(p) : '<small class="muted">مش في المخزن</small>'}</td><td class="ta-n num"><b>${num(x.qty)}</b></td><td class="muted">${esc(x.note)}</td>
           <td>${x.cust ? `${esc(x.cust.name || '')}${x.cust.phone ? ` <bdi dir="ltr" class="mono">${esc(x.cust.phone)}</bdi>` : ''}` : ''}</td><td class="muted">${u ? esc(u.name) : ''}، ${whenTxt(x.at)}</td>
           <td><div class="seg sh-st"><button type="button" class="${x.status === 'open' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="open" aria-pressed="${x.status === 'open'}">ناقص</button><button type="button" class="${x.status === 'ordered' ? 'on' : ''}" data-act="shStatus" data-id="${x.id}" data-s="ordered" aria-pressed="${x.status === 'ordered'}">اتطلب</button></div></td>
           <td class="sh-act"><button type="button" class="btn sm" data-act="shDone" data-id="${x.id}">${icon('check')} وصل</button>${mine ? `<button type="button" class="icon-btn sm danger" data-act="shDel" data-id="${x.id}" title="شيله من النواقص">${icon('trash-2')}</button>` : ''}</td></tr>`; }).join('')}
@@ -3909,14 +4694,14 @@ function shortView() {
 }
 function shAddNow() {
   const F = shortForm(), qty = parseInt(toLatin(F.qty), 10);
-  if (!F.pid && !F.q.trim()) { F.err = 'اكتب اسم الصنف أو اختاره من المخزون'; render(); return; }
+  if (!F.pid && !F.q.trim()) { F.err = 'اكتب اسم الصنف أو اختاره من المخزن'; render(); return; }
   if (!qty || qty < 1) { F.err = 'الكمية لازم تبقى رقم 1 أو أكتر'; render(); return; }
   const c = F.cust.trim(), digits = toLatin(c).replace(/\D/g, '');
   const cust = c ? (digits.length >= 8 ? { name: c.replace(/[\d\s+]+/g, ' ').trim(), phone: digits } : { name: c, phone: '' }) : null;
   if (shortAdd({ pid: F.pid, name: F.q, qty, note: F.note, cust })) { S.shortF = null; render(); }
 }
 Object.assign(ACT, {
-  // تبويب المخزون (الأصناف / النواقص) — اسم مختلف عن invTab بتاع تبويبات الفواتير في شاشة البيع
+  // تبويب المخزن (الأصناف / النواقص) — اسم مختلف عن invTab بتاع تبويبات الفواتير في شاشة البيع
   invView: (d) => { S.inv.tab = d.id === 'short' ? 'short' : 'items'; render(); },
   shPick: (d) => { const F = shortForm(), p = prod(d.id); if (p) { Object.assign(F, { pid: p.id, q: p.name, hi: 0, err: '' }); if (F.qty === '1') F.qty = String(suggestQty(p)); render(); } },
   shUnpick: () => { Object.assign(shortForm(), { pid: null, q: '', qty: '1' }); render(); },
@@ -3949,7 +4734,8 @@ document.addEventListener('keydown', (e) => {
 // شاشة «الإعدادات». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== الإعدادات ===== */
 function sampleSale() {
-  const p = prod('p1'), u = DATA.units.find((x) => x.pid === 'p1');
+  // مثال الإيصال: من بيانات التجربة، أو صنف مثال لو المحل فاضي
+  const p = prod('p1') || { name: 'Samsung Galaxy A16 128GB', price: 9250, cat: 'phones', warranty: 12 }, u = DATA.units.find((x) => x.pid === 'p1');
   const lines = [
     { kind: 'unit', name: p.name, price: p.price, qty: 1, imei: u ? u.imei : '352867150000004', warranty: warrantyOf(p) },
     { kind: 'item', name: 'جراب سيليكون شفاف', price: 120, qty: 2, warranty: 0 },
@@ -3967,8 +4753,18 @@ function setShop() {
         <label class="btn sm">${icon('upload')} ارفع لوجو<input type="file" accept="image/*" data-change="logo" hidden></label>
         ${SET.logo ? `<button type="button" class="btn sm ghost danger" data-act="logoRemove">${icon('trash-2')} شيل اللوجو</button>` : ''}
         <span class="hint">PNG أو JPG، وبيتصغّر لوحده. بيظهر في البرنامج وعلى الإيصال</span></div></div></div>
-    </div>${receiptHTML(sampleSale())}</div></div>`;
+    </div>${receiptHTML(sampleSale())}</div></div>
+  <div class="card"><h3>جرّب البرنامج من الصفر</h3>
+    <div class="s-row"><div class="t"><b>${DATA.fresh ? 'انت دلوقتي في محل فاضي للتجربة' : 'محل فاضي من غير بيانات التجربة'}</b><small>${DATA.fresh ? 'سجّل بضاعتك وبيع وشوف التقارير. اللي بتسجّله هنا تجربة بس: بيتمسح لما تقفل الصفحة أو ترجع لبيانات التجربة، ومش بيتنقل للبرنامج الحقيقي' : 'عشان تجرّب أول يوم: تسجيل الموبايلات والإكسسوار والمستعمل من الأول، والبيع. الإعدادات (الشكل والتصنيفات والشركات) زي ما هي'}</small></div>
+      ${DATA.fresh ? `<button type="button" class="btn" data-act="freshOff">${icon('rotate-ccw')} رجّع بيانات التجربة</button>` : `<button type="button" class="btn soft" data-act="freshOn">${icon('store')} ابدأ محل فاضي</button>`}</div>
+  </div>`;
 }
+// المحل الفاضي بيتشغّل ويتقفل بإعادة تحميل الصفحة (البيانات بتتبني من الأول في data.js)
+const FRESH_KEY = 'mshop.mockup.fresh';
+Object.assign(ACT, {
+  freshOn: () => { try { localStorage.setItem(FRESH_KEY, '1'); } catch { /* مفيش تخزين */ } location.reload(); },
+  freshOff: () => { try { localStorage.removeItem(FRESH_KEY); } catch { /* مفيش تخزين */ } const u = new URL(location.href); if (u.searchParams.has('fresh')) { u.searchParams.delete('fresh'); location.href = u.toString(); } else location.reload(); },
+});
 function setLook() {
   const themes = [['light', 'sun', 'فاتح'], ['dark', 'moon', 'غامق'], ['auto', 'monitor', 'زي الجهاز']];
   const looks = [['plate', 'لافتة الشارع', 'لون المحل لوح بإطار رفيع جوّه، وخط Changa'], ['box', 'علبة الموبايل', 'أبيض وحبر وخطوط رفيعة، ولون المحل شريط واحد، وخط Vazirmatn']];
@@ -3994,7 +4790,7 @@ function catRowHTML(c, sibs, k) {
   return `<div class="cat-row ${c.parent ? 'sub' : ''} ${c.hidden ? 'off' : ''}">
     <span class="t-ico">${icon(c.icon)}</span>
     <input class="cat-name" id="cat-n-${c.id}" data-input="catName" data-id="${c.id}" value="${esc(c.name)}" aria-label="اسم التصنيف" autocomplete="off">
-    <span class="muted num cat-n">${num(n)} صنف</span>
+    <span class="muted num cat-n">${n ? itemsWord(n) : 'فاضي'}</span>
     <button type="button" class="icon-btn sm" data-act="catMove" data-id="${c.id}" data-d="-1" title="لفوق" ${k === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
     <button type="button" class="icon-btn sm" data-act="catMove" data-id="${c.id}" data-d="1" title="لتحت" ${k === sibs.length - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
     <label class="switch" title="يظهر في شاشة البيع"><input type="checkbox" data-change="catShow" data-id="${c.id}" ${c.hidden ? '' : 'checked'} aria-label="يظهر في شاشة البيع"><span></span></label>
@@ -4012,7 +4808,7 @@ function setCatalog() {
   </div>
   <div class="card"><h3>صور الأصناف</h3>
     <div class="s-row"><div class="t"><b>اعرض صور الأصناف</b><small>في مربعات البيع ونتايج البحث وتطبيق الموبايل، والصنف اللي ملوش صورة بتفضل أيقونته</small></div><label class="switch"><input type="checkbox" data-change="showImages" ${SET.showImages ? 'checked' : ''} aria-label="اعرض صور الأصناف"><span></span></label></div>
-    <div class="note" style="margin-top:12px">${icon('info')} اختيارية: بتتضاف من المخزون بالدوس على أيقونة الصنف. الصورة بتتقص مربع وتتصغّر لوحدها (حوالي 15 ك.ب)، يعني ألف صنف بصورهم حوالي 15 م.ب بس. ${nImg ? `عندك ${num(nImg)} صنف بصورة دلوقتي.` : 'لسه مفيش صور.'}</div>
+    <div class="note" style="margin-top:12px">${icon('info')} اختيارية: بتتضاف من المخزن بالدوس على أيقونة الصنف. الصورة بتتقص مربع وتتصغّر لوحدها (حوالي 15 ك.ب)، يعني ألف صنف بصورهم حوالي 15 م.ب بس. ${nImg ? `عندك ${num(nImg)} صنف بصورة دلوقتي.` : 'لسه مفيش صور.'}</div>
   </div>
   <div class="card"><h3>التصنيفات في شاشة البيع</h3>
     <div class="muted" style="font-size:.85rem;margin-bottom:8px">«الأكثر مبيعًا» و«الكل» ثابتين في الأول. غيّر الاسم بالكتابة عليه، ورتّب بالأسهم، واقفل اللي مش عايزه يظهر.</div>
@@ -4020,16 +4816,65 @@ function setCatalog() {
     <div class="cat-add">
       <div class="field"><label for="cat-new">تصنيف جديد</label><input id="cat-new" data-input="catNew" value="${esc(N.name)}" placeholder="مثلًا: خطوط، كروت شحن، قطع غيار" autocomplete="off"></div>
       <div class="field"><label for="cat-parent">مكانه</label><select id="cat-parent" data-change="catParent"><option value="">تصنيف رئيسي</option>${mains.map((c) => `<option value="${c.id}" ${N.parent === c.id ? 'selected' : ''}>تحت «${esc(c.name)}»</option>`).join('')}</select></div>
+      <div class="field"><label for="cat-kind">بيتسجّل إزاي</label><select id="cat-kind" data-change="catKindNew" ${N.parent ? 'disabled title="زي التصنيف الرئيسي بتاعه"' : ''}>${[['item', 'بالعدد، زي الإكسسوار'], ['phone', 'جهاز جهاز بالـ IMEI']].map(([v, l]) => `<option value="${v}" ${(N.parent ? catKind(N.parent) : N.kind) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <button type="button" class="btn soft" data-act="catAdd" ${N.name.trim() ? '' : 'disabled'}>${icon('circle-plus')} ضيف</button>
       <div class="icon-pick" role="radiogroup" aria-label="أيقونة التصنيف">${CAT_ICONS.map((ic) => `<button type="button" class="icon-btn sm ${N.icon === ic ? 'on' : ''}" data-act="catIcon" data-ic="${ic}" role="radio" aria-checked="${N.icon === ic}" title="${ic}">${icon(ic)}</button>`).join('')}</div>
     </div>
+  </div>${setBrands()}`;
+}
+// شركات الموبايلات (زي السيستم القديم): تاتش أو زراير أو الاتنين. الصنف بيشاور على الشركة باسمها، فتغيير الاسم بيتطبق على أصنافها
+const BR_TYPES = [['touch', 'تاتش'], ['keypad', 'زراير'], ['both', 'الاتنين']];
+function setBrands() {
+  const N = S.brNew, count = (b) => DATA.products.filter((p) => p.brand === b.name).length;
+  const row = (b, k) => { const n = count(b); return `<div class="cat-row br-row ${b.hidden ? 'off' : ''}">
+    <input class="cat-name" id="br-n-${b.id}" data-change="brName" data-id="${b.id}" value="${esc(b.name)}" aria-label="اسم الشركة" autocomplete="off">
+    <select class="br-type" data-change="brType" data-id="${b.id}" aria-label="نوع موبايلات «${esc(b.name)}»">${BR_TYPES.map(([v, l]) => `<option value="${v}" ${b.type === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="muted num cat-n">${n ? countWord(n, 'موديل', 'موديلين', 'موديلات') : 'مفيش موديلات'}</span>
+    <button type="button" class="icon-btn sm" data-act="brMove" data-id="${b.id}" data-d="-1" title="لفوق" ${k === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
+    <button type="button" class="icon-btn sm" data-act="brMove" data-id="${b.id}" data-d="1" title="لتحت" ${k === SET.brands.length - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
+    <label class="switch" title="تظهر في «صنف جديد»"><input type="checkbox" data-change="brShow" data-id="${b.id}" ${b.hidden ? '' : 'checked'} aria-label="تظهر في «صنف جديد»"><span></span></label>
+    ${b.custom && !n ? `<button type="button" class="icon-btn sm danger" data-act="brDel" data-id="${b.id}" title="امسح الشركة">${icon('trash-2')}</button>` : '<span class="cat-del-sp"></span>'}
+  </div>`; };
+  return `<div class="card"><h3>شركات الموبايلات</h3>
+    <div class="muted" style="font-size:.85rem;margin-bottom:8px">بتظهر في «صنف جديد» للموبايل الجديد والمستعمل، وزراير الشركات تحت «موبايلات» في البيع والمخزن. «زراير» يعني موبايل من غير رام ومساحة.</div>
+    <div class="cat-list">${SET.brands.map(row).join('')}</div>
+    <div class="cat-add br-add">
+      <div class="field"><label for="br-new">شركة جديدة</label><input id="br-new" data-input="brNew" value="${esc(N.name)}" placeholder="مثلًا: Motorola" autocomplete="off"></div>
+      <div class="field"><label for="br-type-new">نوعها</label><select id="br-type-new" data-change="brNewType">${BR_TYPES.map(([v, l]) => `<option value="${v}" ${N.type === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <button type="button" class="btn soft" data-act="brAdd" ${N.name.trim() ? '' : 'disabled'}>${icon('circle-plus')} ضيف</button>
+    </div>
   </div>`;
 }
+const brById = (id) => SET.brands.find((b) => b.id === id);
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'br-new') { e.preventDefault(); ACT.brAdd(); } });
+INPUT.brNew = (el) => { const had = !!S.brNew.name.trim(); S.brNew.name = el.value; if (had !== !!el.value.trim()) render(); };
+CHANGE.brNewType = (el) => { S.brNew.type = el.value; };
+CHANGE.brType = (el) => { const b = brById(el.dataset.id); if (!b) return; b.type = el.value; saveSettings(); render(); };
+CHANGE.brShow = (el) => { const b = brById(el.dataset.id); if (!b) return; b.hidden = !el.checked; saveSettings(); render(); };
+CHANGE.brName = (el) => {
+  const b = brById(el.dataset.id), v = el.value.trim();
+  if (!b || v === b.name) return;
+  if (!v || SET.brands.some((x) => x !== b && normalize(x.name) === normalize(v))) { toast(v ? `فيه شركة اسمها «${v}» بالفعل` : 'اسم الشركة مايبقاش فاضي', 'err'); beep(); render(); return; }
+  const old = b.name; b.name = v; DATA.products.forEach((p) => { if (p.brand === old) p.brand = v; }); saveSettings(); indexProducts(); render();
+  toast(`«${old}» بقت «${v}»، وموديلاتها معاها`);
+};
+Object.assign(ACT, {
+  brMove: (d) => { const i = SET.brands.findIndex((b) => b.id === d.id), j = i + +d.d; if (i < 0 || !SET.brands[j]) return; [SET.brands[i], SET.brands[j]] = [SET.brands[j], SET.brands[i]]; saveSettings(); render(); },
+  brDel: (d) => { const b = brById(d.id); if (!b || !b.custom || DATA.products.some((p) => p.brand === b.name)) return; SET.brands = SET.brands.filter((x) => x !== b); saveSettings(); render(); toast(`اتمسحت «${b.name}»`, 'info'); },
+  brAdd: () => {
+    const N = S.brNew, name = N.name.trim();
+    if (!name) return;
+    if (SET.brands.some((b) => normalize(b.name) === normalize(name))) { toast(`فيه شركة اسمها «${name}» بالفعل`, 'err'); beep(); return; }
+    SET.brands.push({ id: `b${Date.now().toString(36)}`, name, type: N.type, hidden: false, custom: true }); saveSettings();
+    S.brNew = { name: '', type: N.type }; render(); toast(`اتضافت «${name}»، وهتظهر في «صنف جديد»`);
+  },
+});
 const saveCats = () => { saveSettings(); indexProducts(); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'cat-new') { e.preventDefault(); ACT.catAdd(); } });
 INPUT.catName = (el) => { const c = catById(el.dataset.id), v = el.value.trim(); if (!c || !v) return; c.name = v; saveCats(); };
 INPUT.catNew = (el) => { const had = !!S.catNew.name.trim(); S.catNew.name = el.value; if (had !== !!el.value.trim()) render(); };
-CHANGE.catParent = (el) => { S.catNew.parent = el.value; };
+CHANGE.catParent = (el) => { S.catNew.parent = el.value; render(); };
+CHANGE.catKindNew = (el) => { S.catNew.kind = el.value; };
 CHANGE.catShow = (el) => { const c = catById(el.dataset.id); if (!c) return; c.hidden = !el.checked; saveCats(); render(); };
 CHANGE.showImages = (el) => { SET.showImages = el.checked; saveSettings(); render(); };
 Object.assign(ACT, {
@@ -4046,8 +4891,8 @@ Object.assign(ACT, {
     const N = S.catNew, name = N.name.trim();
     if (!name) return;
     if (SET.cats.some((c) => normalize(c.name) === normalize(name))) { toast(`فيه تصنيف اسمه «${name}» بالفعل`, 'err'); beep(); return; }
-    SET.cats.push({ id: `c${Date.now().toString(36)}`, name, icon: N.icon, parent: N.parent || null, hidden: false, custom: true });
-    saveCats(); S.catNew = { name: '', parent: N.parent, icon: 'tag' }; render();
+    SET.cats.push({ id: `c${Date.now().toString(36)}`, name, icon: N.icon, parent: N.parent || null, hidden: false, custom: true, kind: N.parent ? null : (N.kind === 'phone' ? 'phone' : 'item') });
+    saveCats(); S.catNew = { name: '', parent: N.parent, icon: 'tag', kind: 'item' }; render();
     toast(`اتضاف «${name}»${N.parent ? ` تحت «${catName(N.parent)}»` : ''}، وهيظهر في شاشة البيع`);
   },
 });
@@ -4065,10 +4910,7 @@ function setUsers() {
     <div class="note">${icon('info')} في النموذج ده «أقصى خصم» و«يقفل الوردية» شغالين فعلًا، والباقي للعرض بس.</div></div>`;
 }
 function setPay() {
-  return `<div class="card"><h3>محافظ المحل</h3>
-    <div class="table-wrap" style="border:0"><table class="t"><thead><tr><th>المحفظة</th><th>الرقم</th><th>الرصيد</th><th>الحد اليومي</th></tr></thead><tbody>
-    ${DATA.wallets.map((w) => `<tr><td><div class="row"><span class="dot" style="background:${w.color}"></span><b>${w.name}</b></div></td><td><bdi dir="ltr" class="mono">${w.number}</bdi></td><td class="num">${money(w.balance)}</td><td class="num">${w.limitDay ? money(w.limitDay) : '<span class="muted">—</span>'}</td></tr>`).join('')}
-    </tbody></table></div></div>
+  return `${walletsManageHTML()}
   <div class="card"><h3>عمولات الخدمات</h3>
     <div class="s-row"><div class="t"><b>العمولة والرسوم</b><small>${feeAuto() ? 'بتتحسب لوحدها من النسبة والحد الأدنى، والبيّاع يقدر يغيّرها في العملية' : 'مش ثابتة: البيّاع بيكتبها في كل عملية، وبتتسجّل في دفتر الخدمات والتقارير'}</small></div>
       <div class="seg">${[['manual', 'تتكتب في كل عملية'], ['auto', 'محسوبة تلقائي']].map(([id, l]) => `<button type="button" class="${SET.feeMode === id ? 'on' : ''}" data-act="setFeeMode" data-id="${id}">${l}</button>`).join('')}</div></div>
@@ -4251,6 +5093,7 @@ function salesScreen() {
         <div class="r"><span class="muted">${num(count)} فاتورة</span>${own && vsY !== null ? `<span class="${vsY >= 0 ? 'ok-t' : 'danger-t'}">${icon(vsY >= 0 ? 'trending-up' : 'trending-down')} ${num(Math.abs(vsY))}% عن امبارح لنفس الساعة</span>` : ''}</div>
         ${own ? `<div class="r"><span class="muted">الربح (للمالك بس)</span><b class="num">${money(d.profit)}</b></div>` : ''}</div>
       ${own ? `<div class="ph-card"><span class="muted" style="font-size:.8rem">مين باع كام</span>${DATA.users.map((u) => { const v = d.bySeller[u.id] || 0; return `<div class="seller-bar"><span class="nm">${esc(u.name)}</span><span class="bar-track"><i style="width:${Math.round((v / maxV) * 100)}%;background:${u.color}"></i></span><b class="num">${money(v)}</b></div>`; }).join('')}</div>` : ''}
+      ${own && walShown().length ? `<div class="ph-card ph-wallets"><span class="muted" style="font-size:.8rem">أرصدة المحافظ</span>${walShown().map((w) => { const b = wBal(w), st = walletState(w, b); return `<div class="r"><span><span class="dot" style="background:${w.color}"></span> ${esc(w.name)}</span><b class="num ${st === 'ok' ? '' : W_STATE[st][0] === 'danger' ? 'danger-t' : 'warn-t'}">${money(b)}</b></div>`; }).join('')}</div>` : ''}
       <div class="ph-list">${recent.map((r) => `<div class="ph-sale ${r.fresh ? 'fresh' : ''}"><div class="r"><b class="num">فاتورة ${dg(r.no)}</b><b class="num">${money(r.total)}</b></div><div class="r muted"><span>${dg(r.at)}، ${esc(r.seller)}</span>${r.fresh ? '<span class="tag accent">جديدة</span>' : `<span>${esc(r.method)}</span>`}</div></div>`).join('') || '<div class="muted" style="font-size:.85rem;text-align:center">لسه مفيش مبيعات</div>'}</div>
     </div>`;
 }
@@ -4279,14 +5122,19 @@ function lookupScreen() {
   </div>`;
 }
 function recvScreen() {
-  const M = S.mobile, p = prod(M.recvPid), byQty = M.recvMode === 'qty';
+  const M = S.mobile;
+  let p = prod(M.recvPid);
+  if (!p) { p = DATA.products.find((x) => x.serial); if (p) M.recvPid = p.id; }
+  if (!p) return `<div class="ph-head"><b>استلام بضاعة</b></div><div class="ph-body"><div class="ph-card"><b>لسه مفيش موبايلات متسجّلة</b>
+    <div class="muted" style="font-size:.85rem">الموديل الجديد بيتسجّل مرة واحدة من الكمبيوتر: «المخزن»، وبعدين «صنف جديد». بعدها تستلمه من هنا بمسح العلب.</div></div></div>`;
+  const byQty = M.recvMode === 'qty';
   const head = `<div class="ph-head"><b>استلام بضاعة</b></div><div class="ph-body">
     <div class="ph-card"><div class="r"><span class="muted">المورد</span><b>شركة النور</b></div><div class="r"><span class="muted">الصنف</span><b><bdi dir="rtl">${esc(p.name)}</bdi></b></div><div class="r"><span class="muted">تكلفة الجهاز</span><b class="num">${isOwner() ? money(p.cost) : '****'}</b></div></div>
     <div class="seg ph-seg"><button type="button" class="${byQty ? '' : 'on'}" data-act="mRecvMode" data-id="imei">${icon('scan-barcode')} بالـ IMEI</button><button type="button" class="${byQty ? 'on' : ''}" data-act="mRecvMode" data-id="qty">${icon('hash')} بالعدد</button></div>`;
   if (byQty) {
     return `${head}
     <div class="ph-card"><div class="r"><b>العدد</b><div class="qty"><button type="button" data-act="mRecvQty" data-d="1" title="زوّد">${icon('plus')}</button><span class="num">${num(M.recvQty)}</span><button type="button" data-act="mRecvQty" data-d="-1" title="قلّل">${icon('minus')}</button></div></div>
-      <div class="muted" style="font-size:.8rem">الأجهزة بتدخل المخزون من غير IMEI، ولو حبيت تسجّله بيتسجّل وقت البيع</div></div>
+      <div class="muted" style="font-size:.8rem">الأجهزة بتدخل المخزن من غير IMEI، ولو حبيت تسجّله بيتسجّل وقت البيع</div></div>
     <button type="button" class="btn primary block" data-act="mRecvSaveQty">${icon('save')} حفظ الاستلام</button>
   </div>`;
   }
@@ -4530,11 +5378,312 @@ MODALS.saleView = {
 };
 
 </script>
+<script>/* views/wallets.js */
+'use strict';
+// شاشة «المحافظ». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
+/* ===== المحافظ (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 4) =====
+   المالك: «تستورد الأفكار من السيستم القديم وتطوّرها… وفارض إني أكتب نمرة اللي بحوّله أو بسحب منه وده غلط».
+   من القديم: ملخص المحافظ فوق دايمًا (الإجمالي واللي محتاجة انتباه وكارت لكل محفظة)، والرصيد الافتتاحي، وحد التنبيه، والترتيب،
+   وسجل العمليات والتراجع بسبب، والتقرير بالمحفظة. التطوير: المبلغ والعمولة خانتين (المبلغ بس بيحرّك الرصيد)، ومكتوب تحت كل نوع
+   بيحصل إيه في الدرج والمحفظة، والإيداع ما يعدّيش الرصيد، ورقم محفظة المحل بيظهر في السحب، وشحن وتفريغ وتحويل بين محفظتين،
+   وجرد المحفظة، وفلوس البيع اللي اتدفعت بمحفظة بتنزل في رصيدها. كل الأرقام من analytics.js (walletBalance و walletStats و servicesOf). */
+const W_TYPES = {
+  deposit: ['إيداع', 'arrow-up-from-line'], withdraw: ['سحب', 'arrow-down-to-line'], topup: ['شحن المحفظة', 'circle-plus'],
+  unload: ['تفريغ المحفظة', 'download'], move: ['من محفظة لمحفظة', 'arrow-left-right'], adjust: ['تسوية جرد', 'scan-line'],
+};
+const W_STATE = { low: ['warn', 'قربت تخلص'], near: ['warn', 'قرّبت من أقصى رصيد'], over: ['danger', 'عدّت أقصى رصيد'], neg: ['danger', 'بالسالب'] };
+const walById = (id) => DATA.wallets.find((w) => w.id === id);
+const walShown = () => DATA.wallets.filter((w) => !w.hidden);
+const wBal = (w) => walletBalance(w, DATA.walletOps, DATA.history, DATA.walletSince);
+// اسم البيّاع: userName من views/reports.js
+const opWhen = (d) => (sameDay(d, new Date()) ? fmtTime(d) : `${fmtDate(d)} ${fmtTime(d)}`);
+const signed = (v, cls = true) => (v === 0 ? '<span class="muted">—</span>' : `<span class="num ${cls ? (v > 0 ? 'ok-t' : 'danger-t') : ''}">${v > 0 ? '+' : '−'} ${money(Math.abs(v))}</span>`);
+// الكلام اللي بيوصف الحركة في السجل
+function opWhat(op) {
+  if (op.type === 'topup') return op.via === 'drawer' ? 'من الدرج' : 'من برّه';
+  if (op.type === 'unload') return op.via === 'drawer' ? 'للدرج' : 'لبرّه';
+  if (op.type === 'move') { const a = walById(op.wallet), b = walById(op.to); return `من ${a ? a.name : ''} لـ${b ? b.name : ''}`; }
+  return '';
+}
+const W_PERIODS = [['today', 'النهارده'], ['yday', 'امبارح'], ['month', 'الشهر ده'], ['prev', 'الشهر اللي فات']];
+function wPeriod(id) {
+  const t0 = dayStart(new Date());
+  if (id === 'yday') return [addDays(t0, -1), t0];
+  if (id === 'month') return [monthStart(t0), FAR];
+  if (id === 'prev') return [monthStart(addMonths(t0, -1)), monthStart(t0)];
+  return [t0, FAR];
+}
+const walState = () => S.wal || (S.wal = { p: 'today', w: '', all: false });
+
+/* --- الكارت: رصيد المحفظة وحالتها ورقمها، ومقياس لحد أقصى رصيد --- */
+function walCardHTML(w, sel) {
+  const bal = wBal(w), st = walletState(w, bal), today = walletStats(w, DATA.walletOps, DATA.history, dayStart(new Date()), FAR), tag = W_STATE[st];
+  const pct = w.max ? clamp(Math.round((bal / w.max) * 100), 0, 100) : 0, minPct = w.max && w.min ? clamp(Math.round((w.min / w.max) * 100), 0, 100) : 0;
+  return `<button type="button" class="wl-card st-${st} ${sel ? 'on' : ''}" data-act="walPick" data-id="${w.id}" aria-pressed="${sel}" title="${sel ? 'اعرض كل المحافظ' : `اعرض عمليات ${esc(w.name)} بس`}">
+    <span class="wl-h"><span class="dot" style="background:${w.color}"></span><b>${esc(w.name)}</b>${tag ? `<span class="tag ${tag[0]}">${tag[1]}</span>` : ''}</span>
+    <span class="wl-bal num">${money(bal)}</span>
+    ${w.max ? `<span class="wl-meter" aria-hidden="true"><i style="width:${pct}%"></i>${minPct ? `<em style="inset-inline-start:${minPct}%"></em>` : ''}</span><span class="wl-sub muted">${w.min ? `الأدنى ${num(w.min)} والأقصى ${num(w.max)}` : `أقصى رصيد ${num(w.max)}`}</span>` : ''}
+    ${w.number ? `<span class="wl-sub"><bdi dir="ltr" class="mono">${esc(w.number)}</bdi></span>` : ''}
+    <span class="wl-sub muted">${today.ops ? `النهارده ${countWord(today.ops, 'عملية', 'عمليتين', 'عمليات')}، عمولة ${money(today.fees)}` : 'مفيش عمليات النهارده'}</span>
+    ${w.limitDay ? `<span class="wl-sub ${today.used > w.limitDay * 0.9 ? 'warn-t' : 'muted'}">الحد اليومي: ${num(today.used)} من ${num(w.limitDay)}</span>` : ''}
+  </button>`;
+}
+function viewWallets() {
+  const W = walState(), own = isOwner(), list = walShown();
+  if (!list.length) return `<div class="page"><div class="page-h"><h2>المحافظ</h2></div>
+    <div class="sv-empty">${icon('wallet')}<b>لسه مفيش محافظ</b><span>${own ? 'ضيف محافظ المحل من الإعدادات، في «المحافظ والدفع»: الاسم، ورقم المحفظة، والرصيد اللي فيها النهارده.' : 'المالك بيضيف محافظ المحل من الإعدادات.'}</span>
+      ${own ? `<button type="button" class="btn primary" data-act="walSettings">${icon('settings')} ضيف محفظة</button>` : ''}</div></div>`;
+  if (W.w && !list.some((w) => w.id === W.w)) W.w = '';
+  const bals = list.map(wBal), total = bals.reduce((a, b) => a + b, 0), warn = list.filter((w, i) => walletState(w, bals[i]) !== 'ok').length;
+  const [from, end] = wPeriod(W.p), stats = list.map((w) => walletStats(w, DATA.walletOps, DATA.history, from, end));
+  const T = stats.reduce((a, s) => ({ depN: a.depN + s.depN, dep: a.dep + s.dep, witN: a.witN + s.witN, wit: a.wit + s.wit, fees: a.fees + s.fees, payIn: a.payIn + s.payIn }), { depN: 0, dep: 0, witN: 0, wit: 0, fees: 0, payIn: 0 });
+  const ops = DATA.walletOps.filter((o) => o.at >= from && o.at < end && (!W.w || o.wallet === W.w || o.to === W.w)).slice().reverse(), shown = W.all ? ops : ops.slice(0, 40);
+  const pName = W_PERIODS.find((x) => x[0] === W.p)[1], selW = W.w ? walById(W.w) : null;
+  const row = (op) => {
+    const w = walById(op.wallet), [lbl, ic] = W_TYPES[op.type], d = op.type === 'move' && W.w === op.to ? op.amount : walletDelta({ ...op, void: null }, op.wallet === W.w || !W.w ? op.wallet : op.to);
+    return `<tr class="${op.void ? 'void' : ''}"><td class="num">${opWhen(op.at)}</td><td><span class="wl-type">${icon(ic)} ${lbl}</span>${opWhat(op) ? ` <small class="muted">${esc(opWhat(op))}</small>` : ''}</td>
+      <td><span class="dot" style="background:${w ? w.color : 'transparent'}"></span> ${esc(w ? w.name : '')}</td><td class="ta-n">${signed(d)}</td><td class="ta-n num">${op.fee ? money(op.fee) : '<span class="muted">—</span>'}</td>
+      <td class="ta-n">${signed(opCash({ ...op, void: null }), false)}</td><td>${esc(userName(op.by))}</td>
+      <td class="wl-why">${op.void ? `<span class="tag danger">اتلغت: ${esc(op.void.reason)}</span>` : esc(op.note)}</td>
+      ${own ? `<td class="ta-n">${op.void ? '' : `<button type="button" class="icon-btn sm" data-act="walVoid" data-id="${op.id}" title="إلغاء العملية (بسبب)" aria-label="إلغاء العملية">${icon('undo-2')}</button>`}</td>` : ''}</tr>`;
+  };
+  return `<div class="page">
+    <div class="page-h"><h2>المحافظ</h2><span class="sub">${countWord(list.length, 'محفظة', 'محفظتين', 'محافظ')}، والإجمالي <b class="num">${money(total)}</b></span>${warn ? `<span class="tag warn">${icon('triangle-alert')} ${countWord(warn, 'محفظة', 'محفظتين', 'محافظ')} محتاجة انتباه</span>` : ''}<span class="sp"></span>
+      <button type="button" class="btn primary" data-act="services">${icon('wallet')} إيداع أو سحب <kbd>F9</kbd></button>
+      ${own ? `<button type="button" class="btn" data-act="walMove">${icon('arrow-left-right')} شحن أو تفريغ</button><button type="button" class="btn" data-act="walCount">${icon('scan-line')} جرد محفظة</button>` : ''}</div>
+    <div class="wl-cards">${list.map((w) => walCardHTML(w, W.w === w.id)).join('')}</div>
+    <div class="wl-bar"><div class="seg" role="group" aria-label="الفترة">${W_PERIODS.map(([id, l]) => `<button type="button" class="${W.p === id ? 'on' : ''}" data-act="walPeriod" data-id="${id}" aria-pressed="${W.p === id}">${l}</button>`).join('')}</div>
+      ${selW ? `<span class="chip on">${esc(selW.name)}<button type="button" class="rc-x" data-act="walPick" data-id="${selW.id}" aria-label="كل المحافظ">${icon('x')}</button></span>` : '<span class="muted">دوس على محفظة تشوف عملياتها بس</span>'}</div>
+    <div class="wl-grid">
+      <div class="card"><h3>${pName} لكل محفظة</h3><div class="table-wrap" style="border:0"><table class="t sv-t"><thead><tr><th>المحفظة</th><th class="ta-n">إيداع</th><th class="ta-n">سحب</th><th class="ta-n">العمولة</th><th class="ta-n">فلوس البيع</th></tr></thead><tbody>
+        ${list.map((w, i) => { const s = stats[i]; return `<tr><td><span class="dot" style="background:${w.color}"></span> ${esc(w.name)}</td><td class="ta-n num">${s.depN ? `${money(s.dep)} <small class="muted">(${num(s.depN)})</small>` : '—'}</td><td class="ta-n num">${s.witN ? `${money(s.wit)} <small class="muted">(${num(s.witN)})</small>` : '—'}</td><td class="ta-n num"><b>${money(s.fees)}</b></td><td class="ta-n num">${w.pay ? money(s.payIn) : '<span class="muted">—</span>'}</td></tr>`; }).join('')}
+        <tr class="tot"><td><b>الإجمالي</b></td><td class="ta-n num"><b>${money(T.dep)}</b> <small class="muted">(${num(T.depN)})</small></td><td class="ta-n num"><b>${money(T.wit)}</b> <small class="muted">(${num(T.witN)})</small></td><td class="ta-n num"><b>${money(T.fees)}</b></td><td class="ta-n num"><b>${money(T.payIn)}</b></td></tr>
+      </tbody></table></div>
+      <div class="muted wl-foot">العمولة دخل للمحل. «فلوس البيع» فواتير اتدفعت على المحفظة، وبتزوّد رصيدها لوحدها.</div></div>
+      <div class="card"><h3>العمليات ${selW ? `على ${esc(selW.name)}` : ''}<small class="muted"> ${pName}، ${countWord(ops.length, 'عملية', 'عمليتين', 'عمليات')}</small></h3>
+        ${ops.length ? `<div class="table-wrap" style="border:0" data-scroll="wl-log"><table class="t wl-log"><thead><tr><th>الوقت</th><th>العملية</th><th>المحفظة</th><th class="ta-n">حركة المحفظة</th><th class="ta-n">العمولة</th><th class="ta-n">حركة الدرج</th><th>مين</th><th>ملاحظة</th>${own ? '<th aria-hidden="true"></th>' : ''}</tr></thead><tbody>${shown.map(row).join('')}</tbody></table></div>
+          ${ops.length > shown.length ? `<button type="button" class="btn sm ghost" data-act="walAll">${icon('chevron-down')} اعرض الـ ${num(ops.length - shown.length)} الباقيين</button>` : ''}`
+        : `<div class="muted wl-none">مفيش عمليات ${pName}</div>`}
+      </div>
+    </div>
+  </div>`;
+}
+VIEWS.wallets = viewWallets;
+function walletsKey(e) { if (e.key === 'F9') { e.preventDefault(); openServices(); } }
+
+/* --- عملية لعميل (إيداع أو سحب): نفس النموذج في «المحافظ» وفي خدمات البيع (F9)، ومن غير رقم العميل --- */
+function walletFormHTML(m) {
+  const list = walShown();
+  if (!list.length) return `<div class="sv-empty">${icon('wallet')}<b>لسه مفيش محافظ</b><span>${isOwner() ? 'ضيف محافظ المحل من الإعدادات، في «المحافظ والدفع».' : 'المالك بيضيف محافظ المحل من الإعدادات.'}</span></div>`;
+  const w = list.find((x) => x.id === m.wallet) || list[0]; m.wallet = w.id;
+  const a = parseNum(m.amount), ok = !isNaN(a) && a > 0, bal = wBal(w), dep = m.op === 'deposit', after = ok ? bal + (dep ? -a : a) : bal;
+  const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), used = walletStats(w, DATA.walletOps, DATA.history, dayStart(new Date()), FAR).used;
+  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}%، وأقل حاجة ${money(SET.feeMin)}. تقدر تغيّرها` : 'مش ثابتة، اكتبها';
+  const notes = [];
+  if (ok && dep && a > bal) notes.push(['danger', `الرصيد مش كفاية: في ${w.name} ${money(bal)} بس. اشحن المحفظة الأول، أو اختار محفظة تانية`]);
+  else if (ok && w.limitDay && used + a > w.limitDay) notes.push(['warn', `كده هتعدّي الحد اليومي لـ${w.name} (${money(w.limitDay)}). اتحوّل النهارده ${money(used)}`]);
+  if (ok && dep && a <= bal && w.min && after < w.min) notes.push(['warn', `${w.name} هتقرب تخلص: هيفضل فيها ${money(after)}`]);
+  if (ok && !dep && w.max && after > w.max) notes.push(['warn', `${w.name} هتعدّي أقصى رصيد (${money(w.max)}). فرّغها لما تقدر`]);
+  return `<div class="seg wl-op" role="group" aria-label="نوع العملية">${[['deposit', 'إيداع', 'arrow-up-from-line', 'العميل بيدفع كاش، وانت بتحوّل من محفظتك'], ['withdraw', 'سحب', 'arrow-down-to-line', 'العميل بيحوّل على محفظتك، وانت بتديله كاش']].map(([id, l, ic, d]) => `<button type="button" class="${m.op === id ? 'on' : ''}" data-act="svcOp" data-id="${id}" aria-pressed="${m.op === id}"><b>${icon(ic)} ${l}</b><small>${d}</small></button>`).join('')}</div>
+    <div class="wallets">${list.map((x) => { const b = wBal(x), st = walletState(x, b); return `<button type="button" class="wallet ${w.id === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}" aria-pressed="${w.id === x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${esc(x.name)}</b><small class="num ${st === 'ok' ? '' : W_STATE[st][0] === 'danger' ? 'danger-t' : 'warn-t'}">${money(b)}</small></span></button>`; }).join('')}</div>
+    ${!dep && w.number ? `<div class="wl-pay-to">${icon('smartphone')}<span>خلّي العميل يحوّل على</span><bdi dir="ltr" class="mono">${esc(w.number)}</bdi></div>` : ''}
+    <div class="grid2">
+      <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
+      <div class="field"><label for="svc-note">ملاحظة <span class="muted">(اختياري)</span></label><input id="svc-note" class="wl-note" data-input="svc" data-k="note" value="${esc(m.note)}" placeholder="لو حابب تكتب حاجة" autocomplete="off"></div>
+    </div>
+    <div class="due-box">${feeField(m, 'svc-fee', 'العمولة', hint, autoFee, ok)}
+      <div class="r"><span>رصيد ${esc(w.name)} بعدها</span><b class="num ${after < 0 ? 'danger-t' : ''}">${money(after)}</b></div>
+      <div class="r grand"><span>${dep ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب العمولة</small>' : money(dep ? a + fee : a - fee)}</b></div></div>
+    ${notes.map(([k, t]) => `<div class="note ${k}" ${k === 'danger' ? 'role="alert"' : ''}>${icon('triangle-alert')} ${esc(t)}</div>`).join('')}`;
+}
+function walletRecord(m) {
+  const w = walById(m.wallet), a = parseNum(m.amount);
+  if (!w) return;
+  if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
+  const fee = svcFee(m, walletFee(a));
+  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة، ولو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
+  if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
+  const bal = wBal(w);
+  if (m.op === 'deposit' && a > bal) { m.err = `الرصيد مش كفاية: في ${w.name} ${money(bal)} بس`; beep(); render(); return; }
+  const op = { id: `w${DATA.walletOps.length + 1}`, at: new Date(), type: m.op, wallet: w.id, amount: a, fee, by: S.user.id, note: m.note.trim() };
+  DATA.walletOps.push(op); refreshDash();
+  const cash = opCash(op);
+  toast(m.op === 'deposit' ? `اتسجّل إيداع ${money(a)} من ${w.name}. حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)} على ${w.name}. ادفع للعميل ${money(-cash)}`);
+  Object.assign(m, { amount: '', note: '', err: '', ...svcReset, _mounted: false }); render();
+}
+
+/* --- شحن وتفريغ وتحويل بين محفظتين (المالك بس) --- */
+const MOVE_KINDS = [['topup', 'شحن المحفظة'], ['unload', 'تفريغ المحفظة'], ['move', 'من محفظة لمحفظة']];
+function openWalletMove() {
+  const list = walShown();
+  if (!list.length) return;
+  openModal({ type: 'walletMove', kind: 'topup', wallet: list[0].id, to: (list[1] || list[0]).id, via: 'drawer', amount: '', note: '', err: '' });
+}
+MODALS.walletMove = {
+  html(m) {
+    const list = walShown(), w = walById(m.wallet), to = walById(m.to), a = parseNum(m.amount), ok = a > 0, bal = wBal(w);
+    const delta = !ok ? 0 : m.kind === 'topup' ? a : -a, cash = !ok || m.kind === 'move' || m.via !== 'drawer' ? 0 : m.kind === 'topup' ? -a : a;
+    const pick = (act, cur, skip) => `<div class="wallets">${list.filter((x) => x.id !== skip).map((x) => `<button type="button" class="wallet ${cur === x.id ? 'on' : ''}" data-act="${act}" data-id="${x.id}" aria-pressed="${cur === x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${esc(x.name)}</b><small class="num">${money(wBal(x))}</small></span></button>`).join('')}</div>`;
+    const vias = m.kind === 'topup' ? [['drawer', 'من الدرج'], ['out', 'من برّه (حسابك أو البنك)']] : [['drawer', 'للدرج'], ['out', 'لبرّه (البنك أو مورد)']];
+    return `<div class="modal md" role="dialog" aria-label="شحن أو تفريغ">
+      ${modalHead('شحن أو تفريغ', 'حركة فلوس للمالك، من غير عميل ومن غير عمولة')}
+      <div class="modal-b stack">
+        <div class="seg" role="group" aria-label="نوع الحركة">${MOVE_KINDS.map(([id, l]) => `<button type="button" class="${m.kind === id ? 'on' : ''}" data-act="wmvKind" data-id="${id}" aria-pressed="${m.kind === id}">${l}</button>`).join('')}</div>
+        <div class="ni-row"><span class="label">${m.kind === 'move' ? 'من' : 'المحفظة'}</span>${pick('wmvWallet', m.wallet)}</div>
+        ${m.kind === 'move' ? `<div class="ni-row"><span class="label">لـ</span>${pick('wmvTo', m.to, m.wallet)}</div>` : `<div class="seg" role="group" aria-label="منين أو لفين">${vias.map(([id, l]) => `<button type="button" class="${m.via === id ? 'on' : ''}" data-act="wmvVia" data-id="${id}" aria-pressed="${m.via === id}">${l}</button>`).join('')}</div>`}
+        <div class="grid2"><div class="field"><label for="wmv-amt">المبلغ</label><input id="wmv-amt" class="big-in num" data-input="wmv" data-k="amount" data-autofocus dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
+          <div class="field"><label for="wmv-note">ملاحظة <span class="muted">(اختياري)</span></label><input id="wmv-note" class="big-in" data-input="wmv" data-k="note" value="${esc(m.note)}" placeholder="مثلًا: تحويل للبنك" autocomplete="off"></div></div>
+        <div class="due-box"><div class="r"><span>رصيد ${esc(w.name)} بعدها</span><b class="num">${money(bal + delta)}</b></div>
+          ${m.kind === 'move' && to ? `<div class="r"><span>رصيد ${esc(to.name)} بعدها</span><b class="num">${money(wBal(to) + (ok ? a : 0))}</b></div>` : `<div class="r"><span>الدرج</span><b>${signed(cash)}</b></div>`}</div>
+        <div class="err-msg">${esc(m.err)}</div>
+      </div>
+      <div class="modal-f"><span class="sp"></span><button type="button" class="btn ghost" data-act="closeModal">قفل <kbd>Esc</kbd></button><button type="button" class="btn primary" data-act="wmvDo">${icon('check')} سجّل <kbd>Enter</kbd></button></div>
+    </div>`;
+  },
+  enter: () => ACT.wmvDo(),
+};
+
+/* --- جرد المحفظة: الرصيد الحقيقي من تطبيق المحفظة قصاد اللي في السيستم، والفرق تسوية بسببها (المالك بس) --- */
+const COUNT_WHY = ['رسوم الشبكة', 'عملية ماتسجّلتش', 'غلط في عملية', 'سبب تاني'];
+function openWalletCount(wid) { const list = walShown(); if (!list.length) return; openModal({ type: 'walletCount', wallet: wid || list[0].id, real: '', why: '', note: '', err: '' }); }
+MODALS.walletCount = {
+  html(m) {
+    const list = walShown(), w = walById(m.wallet), bal = wBal(w), real = parseNum(m.real), has = !isNaN(real) && String(m.real).trim() !== '', diff = has ? real - bal : 0;
+    return `<div class="modal md" role="dialog" aria-label="جرد محفظة">
+      ${modalHead('جرد محفظة', 'افتح تطبيق المحفظة واكتب الرصيد اللي فيه')}
+      <div class="modal-b stack">
+        <div class="wallets">${list.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="wcWallet" data-id="${x.id}" aria-pressed="${m.wallet === x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${esc(x.name)}</b><small class="num">${money(wBal(x))}</small></span></button>`).join('')}</div>
+        <div class="grid2"><div class="due-box"><div class="r"><span>المفروض حسب السيستم</span><b class="num">${money(bal)}</b></div></div>
+          <div class="field"><label for="wc-real">الرصيد الحقيقي</label><input id="wc-real" class="big-in num" data-input="wc" data-k="real" data-autofocus dir="ltr" inputmode="decimal" value="${esc(m.real)}" autocomplete="off"></div></div>
+        ${has ? `<div class="change-box ${diff < 0 ? 'short' : ''}"><span>${diff === 0 ? 'مظبوط' : diff < 0 ? 'عجز' : 'زيادة'}</span><b class="num">${money(Math.abs(diff))}</b></div>` : ''}
+        ${has && diff !== 0 ? `<div class="ni-row"><span class="label">السبب</span><div class="chips wrap">${COUNT_WHY.map((x) => `<button type="button" class="chip ${m.why === x ? 'on' : ''}" data-act="wcWhy" data-v="${x}" aria-pressed="${m.why === x}">${x}</button>`).join('')}</div></div>
+          <div class="field"><label for="wc-note">ملاحظة <span class="muted">(اختياري)</span></label><input id="wc-note" data-input="wc" data-k="note" value="${esc(m.note)}" autocomplete="off"></div>` : ''}
+        <div class="err-msg">${esc(m.err)}</div>
+      </div>
+      <div class="modal-f"><span class="muted">الفرق بيتسجّل «تسوية جرد» في السجل، والرصيد بيبقى زي الحقيقي</span><span class="sp"></span><button type="button" class="btn ghost" data-act="closeModal">قفل <kbd>Esc</kbd></button><button type="button" class="btn primary" data-act="wcDo">${icon('check')} سجّل الجرد <kbd>Enter</kbd></button></div>
+    </div>`;
+  },
+  enter: () => ACT.wcDo(),
+};
+
+/* --- إلغاء عملية: المالك بس وبسبب، والعملية بتفضل في السجل متشطّبة (زي «التراجع» في القديم، من غير مسح) --- */
+MODALS.walletVoid = {
+  html(m) {
+    const op = DATA.walletOps.find((o) => o.id === m.id), w = walById(op.wallet), [lbl] = W_TYPES[op.type];
+    return `<div class="modal md" role="dialog" aria-label="إلغاء عملية">
+      ${modalHead('إلغاء عملية', `${lbl} ${money(op.amount)} على ${esc(w ? w.name : '')}، ${opWhen(op.at)}`)}
+      <div class="modal-b stack"><div class="note warn">${icon('triangle-alert')} الإلغاء بيرجّع أثرها على الرصيد${opCash(op) ? ' والدرج' : ''}، والعملية بتفضل ظاهرة في السجل متشطّبة ومعاها السبب.</div>
+        <div class="field"><label for="wv-why">السبب</label><input id="wv-why" data-input="wv" value="${esc(m.why)}" data-autofocus placeholder="مثلًا: اتسجّلت مرتين" autocomplete="off"></div><div class="err-msg">${esc(m.err)}</div></div>
+      <div class="modal-f"><span class="sp"></span><button type="button" class="btn ghost" data-act="closeModal">رجوع <kbd>Esc</kbd></button><button type="button" class="btn danger" data-act="wvDo">${icon('undo-2')} ألغي العملية <kbd>Enter</kbd></button></div>
+    </div>`;
+  },
+  enter: () => ACT.wvDo(),
+};
+
+Object.assign(INPUT, {
+  wmv: (el) => { Object.assign(S.modal, { [el.dataset.k]: el.value, err: '' }); render(); },
+  wc: (el) => { Object.assign(S.modal, { [el.dataset.k]: el.value, err: '' }); render(); },
+  wv: (el) => { Object.assign(S.modal, { why: el.value, err: '' }); render(); },
+});
+Object.assign(ACT, {
+  walPick: (d) => { const W = walState(); W.w = W.w === d.id ? '' : d.id; W.all = false; render(); },
+  walPeriod: (d) => { const W = walState(); W.p = d.id; W.all = false; render(); },
+  walAll: () => { walState().all = true; render(); },
+  walSettings: () => { S.view = 'settings'; S.settingsTab = 'pay'; render(); },
+  walMove: () => openWalletMove(),
+  walCount: () => openWalletCount(walState().w),
+  walVoid: (d) => { if (!isOwner()) return; openModal({ type: 'walletVoid', id: d.id, why: '', err: '' }); },
+  wmvKind: (d) => { const m = S.modal; m.kind = d.id; m.err = ''; if (m.kind === 'move' && m.to === m.wallet) m.to = (walShown().find((x) => x.id !== m.wallet) || {}).id; render(); },
+  wmvWallet: (d) => { const m = S.modal; m.wallet = d.id; if (m.to === d.id) m.to = (walShown().find((x) => x.id !== d.id) || {}).id; m.err = ''; render(); },
+  wmvTo: (d) => { S.modal.to = d.id; render(); },
+  wmvVia: (d) => { S.modal.via = d.id; render(); },
+  wmvDo: () => {
+    const m = S.modal, w = walById(m.wallet), a = parseNum(m.amount);
+    if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
+    if (m.kind === 'move' && (!m.to || m.to === m.wallet)) { m.err = 'اختار المحفظة اللي هتحوّل لها'; beep(); render(); return; }
+    if (m.kind !== 'topup' && a > wBal(w)) { m.err = `في ${w.name} ${money(wBal(w))} بس`; beep(); render(); return; }
+    const op = { id: `w${DATA.walletOps.length + 1}`, at: new Date(), type: m.kind, wallet: w.id, amount: a, fee: 0, by: S.user.id, note: m.note.trim() };
+    if (m.kind === 'move') op.to = m.to; else op.via = m.via;
+    DATA.walletOps.push(op); refreshDash(); closeModal();
+    toast(m.kind === 'move' ? `اتحوّل ${money(a)} من ${w.name} لـ${walById(op.to).name}` : `${m.kind === 'topup' ? 'اتشحنت' : 'اتفرّغت'} ${w.name} بـ ${money(a)}${op.via === 'drawer' ? (m.kind === 'topup' ? '، وخرجوا من الدرج' : '، ودخلوا الدرج') : ''}`);
+  },
+  wcWallet: (d) => { Object.assign(S.modal, { wallet: d.id, real: '', why: '', err: '' }); render(); },
+  wcWhy: (d) => { S.modal.why = d.v; S.modal.err = ''; render(); },
+  wcDo: () => {
+    const m = S.modal, w = walById(m.wallet), real = parseNum(m.real);
+    if (String(m.real).trim() === '' || isNaN(real) || real < 0) { m.err = 'اكتب الرصيد اللي في تطبيق المحفظة'; beep(); render(); return; }
+    const diff = Math.round((real - wBal(w)) * 100) / 100;
+    if (diff === 0) { closeModal(); toast(`${w.name} مظبوطة: ${money(real)}`); return; }
+    if (!m.why) { m.err = 'اختار سبب الفرق'; beep(); render(); return; }
+    DATA.walletOps.push({ id: `w${DATA.walletOps.length + 1}`, at: new Date(), type: 'adjust', wallet: w.id, amount: diff, fee: 0, by: S.user.id, note: `جرد: ${m.why}${m.note.trim() ? `، ${m.note.trim()}` : ''}` });
+    refreshDash(); closeModal(); toast(`اتسجّل الجرد: ${diff < 0 ? 'عجز' : 'زيادة'} ${money(Math.abs(diff))}، و${w.name} بقت ${money(real)}`, 'info');
+  },
+  wvDo: () => {
+    const m = S.modal, op = DATA.walletOps.find((o) => o.id === m.id);
+    if (!m.why.trim()) { m.err = 'اكتب سبب الإلغاء'; beep(); render(); return; }
+    op.void = { by: S.user.id, at: new Date(), reason: m.why.trim() }; refreshDash(); closeModal(); toast('اتلغت العملية، وفضلت في السجل متشطّبة', 'info');
+  },
+});
+
+/* --- الإعدادات ← المحافظ والدفع: إدارة المحافظ (زي السيستم القديم: الترتيب، والرصيد الافتتاحي، وحد التنبيه) --- */
+const W_PRESETS = [['فودافون كاش', '#e60000'], ['اتصالات كاش', '#719e19'], ['أورنج كاش', '#ff7900'], ['وي باي', '#5c2d91'], ['إنستاباي', '#3b2a85'], ['حساب بنك', '#1d4f91'], ['محفظة تانية', '#59616b']];
+const W_PAY = [['', 'لأ'], ['vf', 'فودافون كاش'], ['instapay', 'إنستاباي']];
+function walletsManageHTML() {
+  const f = (w, k, label, attrs = '', hint = '') => `<div class="field"><label for="wm-${k}-${w.id}">${label}</label><input id="wm-${k}-${w.id}" data-change="wmField" data-id="${w.id}" data-k="${k}" value="${esc(w[k] || (k === 'number' ? '' : ''))}" ${attrs} autocomplete="off">${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+  const num0 = 'class="num" dir="ltr" inputmode="numeric" placeholder="0"';
+  return `<div class="card"><h3>محافظ المحل</h3>
+    <div class="muted" style="font-size:.85rem;margin-bottom:10px">زي السيستم القديم: الترتيب، والرصيد الافتتاحي، وحد التنبيه. بعد كده الرصيد بيتحسب لوحده من العمليات وفلوس البيع.</div>
+    ${DATA.wallets.length ? DATA.wallets.map((w, i) => { const used = DATA.walletOps.some((o) => o.wallet === w.id || o.to === w.id); return `<div class="wm-item ${w.hidden ? 'off' : ''}">
+      <div class="wm-h"><input type="color" class="wm-color" value="${w.color}" data-change="wmColor" data-id="${w.id}" aria-label="لون «${esc(w.name)}»">
+        <input class="cat-name" data-change="wmField" data-id="${w.id}" data-k="name" value="${esc(w.name)}" aria-label="اسم المحفظة" autocomplete="off">
+        <span class="muted num">الرصيد دلوقتي ${money(wBal(w))}</span>
+        <button type="button" class="icon-btn sm" data-act="wmMove" data-id="${w.id}" data-d="-1" title="لفوق" ${i === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
+        <button type="button" class="icon-btn sm" data-act="wmMove" data-id="${w.id}" data-d="1" title="لتحت" ${i === DATA.wallets.length - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
+        <label class="switch" title="تظهر في المحافظ والبيع"><input type="checkbox" data-change="wmShow" data-id="${w.id}" ${w.hidden ? '' : 'checked'} aria-label="تظهر"><span></span></label>
+        ${used ? '<span class="cat-del-sp"></span>' : `<button type="button" class="icon-btn sm danger" data-act="wmDel" data-id="${w.id}" title="امسح المحفظة">${icon('trash-2')}</button>`}</div>
+      <div class="wm-g">${f(w, 'number', 'رقم محفظة المحل', 'class="mono" dir="ltr" placeholder="01xxxxxxxxx"', 'بيظهر للعميل في السحب')}
+        ${f(w, 'opening', 'الرصيد الافتتاحي', num0, `يوم ${fmtDate(DATA.walletSince)}`)}${f(w, 'min', 'نبّهني لما تقل عن', num0)}${f(w, 'max', 'أقصى رصيد', num0, 'قبله بـ 10% تنبيه، و0 يعني من غير حد')}${f(w, 'limitDay', 'الحد اليومي', num0, 'للتحويلات، و0 يعني من غير حد')}
+        <div class="field"><label for="wm-pay-${w.id}">فلوس البيع بتنزل فيها؟</label><select id="wm-pay-${w.id}" data-change="wmPay" data-id="${w.id}">${W_PAY.map(([v, l]) => `<option value="${v}" ${(w.pay || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    </div>`; }).join('') : '<div class="muted">لسه مفيش محافظ. ضيف أول واحدة من تحت.</div>'}
+    <div class="wm-add"><span class="label">ضيف محفظة</span><div class="chips wrap">${W_PRESETS.map(([n, c]) => `<button type="button" class="chip" data-act="wmAdd" data-v="${esc(n)}" data-c="${c}">${icon('plus')} ${n}</button>`).join('')}</div></div>
+  </div>`;
+}
+const WM_NUM = ['opening', 'min', 'max', 'limitDay'];
+CHANGE.wmField = (el) => {
+  const w = walById(el.dataset.id), k = el.dataset.k, v = el.value.trim();
+  if (!w) return;
+  if (WM_NUM.includes(k)) { const n = v === '' ? 0 : parseNum(v); if (isNaN(n) || n < 0) { toast('الخانة دي رقم بس', 'err'); beep(); render(); return; } w[k] = n; }
+  else if (k === 'name') { if (!v) { toast('اسم المحفظة مايبقاش فاضي', 'err'); render(); return; } w.name = v; } else w[k] = toLatin(v);
+  refreshDash(); render();
+  if (k === 'opening') toast(`رصيد ${w.name} بقى ${money(wBal(w))}`, 'info');
+};
+CHANGE.wmColor = (el) => { const w = walById(el.dataset.id); if (w) { w.color = el.value; render(); } };
+CHANGE.wmShow = (el) => { const w = walById(el.dataset.id); if (w) { w.hidden = !el.checked; render(); } };
+CHANGE.wmPay = (el) => {
+  const w = walById(el.dataset.id); if (!w) return;
+  // طريقة الدفع الواحدة بتنزل في محفظة واحدة بس
+  if (el.value) DATA.wallets.forEach((x) => { if (x !== w && x.pay === el.value) x.pay = null; });
+  w.pay = el.value || null; refreshDash(); render();
+};
+Object.assign(ACT, {
+  wmMove: (d) => { const L = DATA.wallets, i = L.findIndex((w) => w.id === d.id), j = i + +d.d; if (i < 0 || !L[j]) return; [L[i], L[j]] = [L[j], L[i]]; render(); },
+  wmDel: (d) => { const w = walById(d.id); if (!w || DATA.walletOps.some((o) => o.wallet === w.id || o.to === w.id)) return; DATA.wallets.splice(DATA.wallets.indexOf(w), 1); render(); toast(`اتمسحت «${w.name}»`, 'info'); },
+  wmAdd: (d) => {
+    let name = d.v, k = 2;
+    while (DATA.wallets.some((w) => w.name === name)) name = `${d.v} ${num(k++)}`;
+    DATA.wallets.push({ id: `wl${Date.now().toString(36)}`, name, number: '', color: d.c, opening: 0, min: 0, max: 0, limitDay: 0, pay: null, hidden: false, custom: true });
+    render(); toast(`اتضافت «${name}». اكتب رقمها والرصيد اللي فيها`);
+    const el = document.getElementById(`wm-number-${DATA.wallets[DATA.wallets.length - 1].id}`); if (el) el.focus();
+  },
+});
+
+</script>
 <script>/* boot.js */
 'use strict';
 // التشغيل: آخر ملف بيتحمّل في index.html (بعد كل الشاشات). الدليل: docs/ENGINEERING.md
 /* ===== تشغيل ===== */
-S.mobile.recv = [DATA.makeImei(prod('p5').tac), DATA.makeImei(prod('p5').tac)];
+// شاشة الاستلام في الموبايل بتبدأ بجهازين اتمسحوا (بيانات التجربة بس: المحل الفاضي بيبدأ من غير أجهزة)
+if (prod('p5')) S.mobile.recv = [DATA.makeImei(prod('p5').tac), DATA.makeImei(prod('p5').tac)];
 applySettings();
 refreshDash();
 render();

@@ -1,6 +1,6 @@
 <div dir="rtl">
 
-# نموذج واجهة «موبايل ستور» — النسخة 1.5
+# نموذج واجهة «موبايل ستور» — النسخة 1.6
 
 نموذج **للتصميم بس** (HTML + JavaScript من غير مكتبات) عشان نتفق على الشكل والطريقة قبل كتابة البرنامج الحقيقي.
 البيانات تجريبية، ومفيش قاعدة بيانات: الإعدادات والصور بتتحفظ في المتصفح، والمبيعات بتتمسح لما تعمل تحديث للصفحة.
@@ -28,6 +28,19 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 > رابط المعاينة اللي بيتبعت في المحادثة بيشتغل **بس والجلسة شغالة**؛ لما الجلسة تقف الرابط يقف. الملف الواحد ده هو النسخة الدايمة.
 
 **أرقام سرية للتجربة:** بيتر (المالك) `1111` · يوسف (بيّاع) `2222` · مارينا (بيّاع) `3333`
+
+## الجديد في 1.6 (المخزن، والتسجيل من الصفر، والمحافظ — 17 أكتوبر 2026)
+
+التفاصيل والمراجعة بعد كل مرحلة: [`docs/ui/STORE-CATALOG-WALLETS.md`](../STORE-CATALOG-WALLETS.md).
+
+| طلبك | اللي اتعمل |
+|---|---|
+| «عاوزين نحوّل اسم المخزون لـ المخزن» | **«المخزن»** في القايمة والعناوين وكل الكلام، والفحص بيمنع إن «المخزون» ترجع. |
+| «أول مرة نسجّل بضاعة بتفاصيلها… أنا هبدأ من الصفر… الإكسسوار بتفرعاته، والموبايلات بشركاتها وأنواعها، والمستعمل» | **«صنف جديد»** من الاستلام ومن المخزن، بتلات أنواع:<ul><li>**موبايل جديد:** تاتش أو زراير، والشركة بزرار، والموديل، والمساحة والرام، والألوان. والاسم بيتكتب لوحده.</li><li>**مستعمل:** جهاز جهاز بالـ IMEI والحالة A/B/C والبطارية واللي معاه والعيوب وسعره، وبيانات اللي باعه (اختياري).</li><li>**إكسسوار أو أي صنف بالعدد:** التصنيف، و**التفرعات** (الموبايل، اللون، المقاس…) ولكل نوع عدده وسعره وباركوده، أو «اعمل كود» للمحل.</li></ul>وفي الاستلام **«بضاعة موجودة عندي (أول مرة)»** للمالك، من غير مورد. وشركات الموبايلات من **الإعدادات ← الأصناف والبيع**، وزرايرها تحت «موبايلات» في البيع والمخزن. والجراب بتفرعاته مربع واحد بيفتح اختيار النوع. |
+| (نفس الطلب) | **«جرّب من محل فاضي»** في **الإعدادات ← المحل**: نفس البرنامج من غير بيانات التجربة. المخزن بيبدأ بخطوات أول يوم، وتقدر تسجّل وتبيع وتشوف التقارير. ده تجربة بس: بيتمسح، ومش بيتنقل للبرنامج الحقيقي. و«رجّع بيانات التجربة» بيرجّع كل حاجة. |
+| «في المحافظ… تستورد الأفكار من السيستم القديم وتطوّرها… وفارض إني أكتب نمرة اللي بحوّله أو بسحب منه وده غلط» | **من غير رقم العميل**، وصفحة **«المحافظ»** جديدة:<ul><li>**من القديم:** الإجمالي وكارت لكل محفظة فوق، والرصيد الافتتاحي، وحد التنبيه، والترتيب، والسجل، والإلغاء بسبب، والملخص لكل محفظة بالشهر.</li><li>**التطوير:** المبلغ والعمولة خانتين؛ تحت «إيداع» و«سحب» مكتوب بيحصل إيه في الدرج والمحفظة؛ الإيداع ما يعدّيش الرصيد؛ السحب بيعرض رقم محفظتك؛ شحن وتفريغ وتحويل بين محفظتين وجرد (للمالك)؛ والفاتورة اللي اتدفعت بمحفظة بتزوّد رصيدها؛ وأرصدة المحافظ على موبايلك.</li><li>الإدارة من **الإعدادات ← المحافظ والدفع**.</li></ul> |
+
+**القديم اتقرا بس:** الأفكار جاية من `archive/legacy-project/` (المحافظ، ونموذج الموبايل)، ولا كود ولا بيانات اتنقلوا منه.
 
 ## الجديد في 1.5 (الشهور والتقارير والاستلام — 16 أكتوبر 2026)
 
@@ -115,7 +128,7 @@ It is **not** product code: no persistence of sales, mock data only, no security
 | `app.js` | Helpers, settings (`localStorage: mshop.mockup.settings.v1`), product images (`mshop.mockup.images.v1`), state `S`, render loop, rail/topbar, **user switcher**, delegated events (`data-act` / `data-input` / `data-change`). |
 | `pos.js` | Search (Arabic normalisation, transliterated keywords, last-4 IMEI, SKU), categories bar, cart/invoices/hold, optional-IMEI logic, keyboard map, modals: IMEI, customer, qty, discount (owner PIN over limit), pay (split / credit / instalments / receipt), done + receipt, services (wallets, recharge cards, bills), shift close. |
 | `analytics.js` | **The one computation layer**: dates and periods, comparisons (`prevPeriod`, `comparePeriod` up to the same time, `yearAgo`), grouping (`totalsOf`, `byProduct`, `byCategory`, `bySeller`, `byMethod`, `byDay`, `byMonth`, `withChange`), `monthReport` (totals, comparisons, projection, rank, evaluation), `refreshDash`, `histRecord`, and `receiveCost` (moving average). Pure functions, checked by `tools/unit.mjs`. |
-| `views/*.js` | One screen per file: `reports` (today + month report), `repairs`, `inventory`, `receive` (receiving window + `applyReceipt`, also used by the phone), `shortages`, `settings`, `lock`, `mobile`, `sales` (days and months, filters, invoice/day/product/category views, invoice window). |
+| `views/*.js` | One screen per file: `reports` (today + month report), `repairs`, `inventory`, `receive` (receiving window + `applyReceipt`, also used by the phone; supplier or first-time stock), `catalog` (new item in three kinds + the variant picker), `shortages`, `settings`, `lock`, `mobile`, `sales` (days and months, filters, invoice/day/product/category views, invoice window)., `wallets` (the wallets page, the deposit/withdraw form F9 uses, wallet settings) |
 | `boot.js` | Last file: applies the settings and draws the first screen. (`views.js` was split into `views/` + `boot.js` in v1.5 with no behaviour change, `84a748c`.) |
 | `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 1.4 MB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
 | `screens/` | Reference screenshots (1366×768), both looks; made by `tools/final.mjs` from the mockup itself (no generated imagery). |
@@ -137,6 +150,9 @@ It is **not** product code: no persistence of sales, mock data only, no security
 - **Months and month report (v1.5):** the sales screen picks any month (list + month arrows, stops at the first month) and has a «الأيام» view; the reports have a «الشهر» tab built on `monthReport()`. Evaluation thresholds live in `TH` (sales ±3%, average invoice ±5%, margin ±1 point, category ±10%); discount and credit are judged by their share of sales; no judgement without a month before.
 - **Comparison rule (v1.5):** a period that includes today is compared with the period before **up to the same clock time** (`comparePeriod`, `inSpan`), on every screen. Today vs yesterday uses `refreshDash().today.vsYesterday` (null when yesterday had no sales).
 - **Receiving (v1.5):** `views/receive.js`. Lines `{pid, qty, cost, imeis}`; unit cost for the owner only (a seller receives at the last cost, so the average stays); `receiveCost` = ceil((stock × avg + qty × cost) / (stock + qty)); IMEI units keep their own cost; IMEI checks = 15 digits + Luhn + not registered + not twice; `imeiMode: required` blocks a short line; shortages with that product close and name the waiting customer. `applyReceipt()` is the single path for the computer and the phone. Modals may define `canClose(m)`; the receiving window warns on the first close with unsaved lines.
+- **New item (v1.6):** `views/catalog.js`. Kinds follow the category kind (`phone` / `used` / `item`). Phones: `brand` (from `SET.brands`), `model`, `rom`, `ram`, `ptype` (touch/keypad); the name is `phoneTitle()`. Used: one product per device, details go on the unit through the receipt line's `meta`. Variants: products sharing `fam`, with `base`, `vr` (values) and `dims` (labels); the name is base + values. In-store barcodes: `ean13()` starting with 2. Receipts carry `kind: 'supplier' | 'opening'`.
+- **Empty shop (v1.6):** `?fresh=1` or the settings switch (`mshop.mockup.fresh`): `data.js` empties goods, units, customers, repairs, receipts, history and wallets; settings stay. Nothing registered there is saved.
+- **Wallets (v1.6):** `views/wallets.js`. `DATA.wallets` (opening at `DATA.walletSince`, `min`, `max`, `limitDay`, `number`, `pay`), `DATA.walletOps` (`deposit`, `withdraw`, `topup`/`unload` with `via: drawer|out`, `move` with `to`, `adjust`; `void` keeps the row), `DATA.bills`. Balances `walletBalance()` = opening + movements + invoices paid by `pay`; today's services `servicesOf()`; the shift drawer `shiftNow()`.
 - **Search ranking:** `rankProducts()` (pos.js) is shared by the sales search and the receiving window (name starts with the first word, then the whole phrase, then best sellers). An exact invoice number wins in the sales screen; Arabic-Indic digits are converted first.
 - **Sales record (v1.4):** `DATA.history` holds every invoice (demo + session). `refreshDash()` (analytics.js since v1.5) derives the reports
   and the phone view from it; `completeSale` appends via `histRecord()`. With a product/category filter the sales screen counts
@@ -174,5 +190,5 @@ MOCKUP_URL="file://$(cd .. && pwd)/mockup-offline.html" node qa.mjs   # full QA 
 ```
 
 `launch.mjs` unpacks Chromium's shared libs + fonts to `/tmp/al2023x` on first run (needed on minimal Linux sandboxes).
-Last QA run: **157 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16 (v1.5). Unit: **53 passed**.
+Last QA run: **222 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-17 (v1.6). Quick rules (`npm run unit`): 79. Design detector: 0 findings on 124 snapshots.
 Last detector run (`impeccable` 0.1.15): **0 findings** on 96 snapshots (24 screens × 2 looks × 2 themes). Single file: 1,419 KB, zero network requests.
