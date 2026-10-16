@@ -60,7 +60,7 @@ inventory-procurement يتصل أيضًا بـshop-operations عند استهل�
 
 **النقل:** ملفات التسليم إلى `archive/legacy-project/handoff/`، تقارير التدقيق/الأمان إلى `archive/legacy-project/reports/`، وADRs القديمة إلى `archive/legacy-project/source-docs/dev/docs/`.
 
-**المحفوظ دون نقل:** ملفات `dev_extracted/dev/js/` والاختبارات وملفات البناء والمخرج، ملفات ZIP والـmanifest، ملفات التشخيص، وعلامات `SECURITY-RETIRED-DO-NOT-DISTRIBUTE` بجوار ملفاتها.
+**المحفوظ دون نقل:** ملفات `dev_extracted/dev/js/` والاختبارات وملفات البناء والمخرج، ملفات ZIP والـmanifest، ملفات التشخيص، وعلامات `SECURITY-RETIRED-DO-NOT-DISTRIBUTE` بجوار ملفاتها. **(تحديث 2026-10-16: نُقلت كلها بـ`git mv` إلى `archive/legacy-project/` — انظر `archive/README.md`.)**
 
 **التحقق:** تطابق Git object hashes للوثائق المنقولة مع hashes قبل النقل؛ لا تُعدل محتوياتها.
 

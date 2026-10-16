@@ -75,7 +75,7 @@ NOT an architectural constraint
 | `plans/2026-09-28-mobile-shop-system.md` | أُعيد أساسها: أُسقطت مهام الاستيراد، وأُعيدت صياغة الباقي |
 | `decisions/ADR-002` | حُذفت الشروط المرتبطة بمعاملة البيانات القديمة |
 | `decisions/ADR-003` | أُعيدت صياغة شرط تصميم الصيغة |
-| `specs|plans/2026-10-02-historical-reference-snapshot-*` | **SUPERSEDED** — خارج النطاق |
+| `specs|plans/2026-10-02-historical-reference-snapshot-*` | **SUPERSEDED** — خارج النطاق (منذ 2026-10-16 في `archive/superseded-2026-10-16/superpowers/`) |
 | `decisions/ADR-006` | **SUPERSEDED** |
 
 ## أسئلة مفتوحة
