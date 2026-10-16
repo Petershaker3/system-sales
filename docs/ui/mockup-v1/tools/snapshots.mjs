@@ -42,6 +42,8 @@ for (const look of ['plate', 'box']) {
     // الرسايل بتختفي بعد ثواني: قبل باقي الشاشات بنشيل رسايل البيع اللي فاتت (زي ما الوقت يعدّي)، عشان ما تتحسبش على تصميم الصفحة
     await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove()));
     for (const v of ['repairs', 'inventory', 'dashboard', 'mobile']) { await nav(v); await sleep(200); await save(`${t}-${v}`); }
+    await nav('sales'); await sleep(200); await save(`${t}-sales`);
+    await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await save(`${t}-sales-cat`);
     await nav('settings'); await sleep(150);
     for (const tab of ['shop', 'look', 'catalog', 'pay', 'receipt', 'devices']) {
       await p.evaluate((id) => document.querySelector(`.s-nav [data-id="${id}"]`).click(), tab); await save(`${t}-settings-${tab}`);

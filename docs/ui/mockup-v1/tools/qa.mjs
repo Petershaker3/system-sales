@@ -422,6 +422,53 @@ await p.setViewport({ width: 1366, height: 768 }); await sleep(200);
 await shot('29-pos-large-1366');
 await checkOverflow('pos-large');
 await p.evaluate(() => ACT.resetSettings());
+// 23b) المبيعات: الأيام والفلترة والعرض بالفواتير والأصناف والتصنيفات
+const inRange = (days) => `(() => { const t = new Date(); const a = new Date(t.getFullYear(), t.getMonth(), t.getDate() - ${days}); return DATA.history.filter((x) => x.at >= a); })()`;
+await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; S.modal = null; render(); document.querySelector('.nav-btn[data-v="sales"]').click(); }); await sleep(200);
+ok(await p.evaluate(() => { const now = new Date(), td = DATA.history.filter((x) => x.at.toDateString() === now.toDateString());
+  return document.querySelectorAll('.sv-t tbody tr').length === Math.min(150, td.length) && document.querySelector('.cards .kpi .value').textContent.trim() === money(td.reduce((a, x) => a + x.total, 0)); }), 'sales screen: today by default, every invoice listed, total matches the record');
+await shot('36-sales-today'); await checkOverflow('sales-today');
+await p.evaluate(() => document.querySelector('[data-act="svShift"][data-d="-1"]').click()); await sleep(150);
+ok(await p.evaluate(() => { const y = new Date(); y.setDate(y.getDate() - 1); const yd = DATA.history.filter((x) => x.at.toDateString() === y.toDateString());
+  return document.querySelectorAll('.sv-t tbody tr').length === Math.min(150, yd.length) && S.salesv.range === 'yesterday' && !document.querySelector('[data-act="svShift"][data-d="1"]').disabled; }), 'previous-day arrow shows yesterday, and the next arrow comes back');
+await p.keyboard.press('ArrowLeft'); await sleep(150);
+ok(await p.evaluate(() => S.salesv.range === 'today' && document.querySelector('[data-act="svShift"][data-d="1"]').disabled), 'keyboard arrow goes forward to today, and never past today');
+await p.evaluate(() => document.querySelector('[data-act="svRange"][data-id="week"]').click()); await sleep(150);
+ok(await p.evaluate((src) => { const n = eval(src).length; return document.querySelectorAll('.cards .kpi .value')[1].textContent.trim() === num(n); }, inRange(6)), 'last 7 days: invoice count matches the record');
+await p.evaluate(() => { const el = document.querySelector('[data-change="svCat"]'); el.value = 'cases'; el.dispatchEvent(new Event('change', { bubbles: true })); }); await sleep(150);
+await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="prod"]').click()); await sleep(150);
+ok(await p.evaluate((src) => { const sum = eval(src).flatMap((x) => x.lines).filter((l) => l.cat === 'cases').reduce((a, l) => a + l.price * l.qty, 0);
+  const cats = [...document.querySelectorAll('.sv-t tbody tr td:nth-child(2)')].map((e) => e.textContent.trim());
+  return cats.length > 0 && cats.every((c) => c === 'جرابات') && document.querySelector('.cards .kpi .value').textContent.trim() === money(sum) && !!document.querySelector('.sv-note'); }, inRange(6)), 'category filter + products view: only cases, and the total is the cases lines');
+await shot('37-sales-products'); await checkOverflow('sales-products');
+await p.evaluate(() => document.querySelector('[data-act="svClear"]').click()); await sleep(100);
+await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await sleep(150);
+ok(await p.evaluate(() => { const shares = [...document.querySelectorAll('.sv-t tbody tr:not(.sub) td:nth-child(4) .num')].map((e) => parseInt(e.textContent.replace(/\D/g, ''), 10));
+  const sum = shares.reduce((a, b) => a + b, 0); return shares.length >= 3 && sum >= 98 && sum <= 102; }), 'categories view: main categories add up to about 100%');
+await checkOverflow('sales-categories');
+await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="inv"]').click()); await sleep(100);
+const probe = await p.evaluate((src) => { const x = eval(src).filter((y) => y.lines.some((l) => l.imei)).pop(); return { no: x.no, im: x.lines.find((l) => l.imei).imei.slice(-6) }; }, inRange(6));
+await p.focus('#sv-q'); await type(String(probe.no));
+ok(await p.evaluate((no) => { const r = [...document.querySelectorAll('.sv-t tbody tr')]; return r.length === 1 && r[0].dataset.no === String(no); }, probe.no), 'search by invoice number finds exactly that invoice');
+await p.evaluate(() => { const i = document.querySelector('#sv-q'); i.select(); }); await type(probe.im);
+ok(await p.evaluate((no) => [...document.querySelectorAll('.sv-t tbody tr')].some((r) => r.dataset.no === String(no)), probe.no), 'search by part of an IMEI finds the invoice');
+await p.evaluate((no) => document.querySelector(`.sv-t tbody tr[data-no="${no}"]`).click(), probe.no); await sleep(150);
+ok(await p.evaluate(() => !!document.querySelector('.modal[aria-label="تفاصيل الفاتورة"]') && document.querySelectorAll('.modal .t tbody tr').length >= 1 && !!document.querySelector('.modal .imei-tag')), 'an invoice opens with its lines and IMEI');
+await shot('38-sales-invoice'); await checkOverflow('sales-invoice'); await key('Escape');
+await p.evaluate(() => { S.user = DATA.users[1]; S.salesv = null; render(); }); await sleep(150);
+ok(await p.evaluate(() => { const t = new Date(), mine = DATA.history.filter((x) => x.at.toDateString() === t.toDateString() && x.sellerId === 'u2');
+  return !document.querySelector('[data-change="svSeller"]') && ![...document.querySelectorAll('.cards .kpi .label')].some((e) => e.textContent.includes('الربح'))
+    && document.querySelectorAll('.sv-t tbody tr').length === Math.min(150, mine.length) && document.querySelector('.page-h .sub').textContent.includes('مبيعاتك'); }), 'a seller sees only his own sales, with no profit and no seller filter');
+// الشهر: اللي قبله كامل، والرجوع للشهر ده لحد النهارده. والأسبوع: 7 أيام قبلها، والرجوع
+ok(await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; render(); ACT.svRange({ id: 'month' }); const t = dayStart(new Date());
+  svShift(-1); const v = S.salesv, pm = new Date(t.getFullYear(), t.getMonth() - 1, 1), pmEnd = new Date(t.getFullYear(), t.getMonth(), 0);
+  const prevOk = v.from.getTime() === pm.getTime() && v.to.getTime() === pmEnd.getTime() && !document.querySelector('[data-act="svShift"][data-d="1"]').disabled;
+  svShift(1); return prevOk && S.salesv.from.getTime() === new Date(t.getFullYear(), t.getMonth(), 1).getTime() && S.salesv.to.getTime() === t.getTime() && S.salesv.range === 'month'; }), 'month range: previous month in full, then back to this month up to today');
+ok(await p.evaluate(() => { ACT.svRange({ id: 'week' }); const t = dayStart(new Date()); svShift(-1); const a = S.salesv.from.getTime() === addDays(t, -13).getTime() && S.salesv.to.getTime() === addDays(t, -7).getTime();
+  svShift(1); return a && S.salesv.range === 'week' && S.salesv.to.getTime() === t.getTime(); }), 'week range moves back 7 days and returns');
+await p.evaluate(() => { S.user = DATA.users[0]; S.salesv = null; svSetDay(addDays(dayStart(new Date()), -75)); }); await sleep(120);
+ok(await p.evaluate(() => !!document.querySelector('.sv-empty') && document.querySelector('.sv-empty b').textContent.includes('اليوم ده')), 'a day without sales says so');
+await p.evaluate(() => { S.salesv = null; S.view = 'pos'; render(); });
 // 24) طابع «علبة الموبايل»: نفس الشاشات من غير ما الكلام يطلع برّه (الخط عرضه مختلف)
 await p.evaluate(() => { SET.look = 'box'; saveSettings(); applySettings(); render(); }); await sleep(200);
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);
@@ -434,6 +481,8 @@ await p.evaluate(() => document.querySelector('[data-act="toggleTheme"]').click(
 await shot('33-pos-box-dark'); await checkOverflow('pos-box-dark');
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').click()); await sleep(200);
 await shot('34-dashboard-box-dark'); await checkOverflow('dashboard-box-dark');
+await p.evaluate(() => document.querySelector('.nav-btn[data-v="sales"]').click()); await sleep(200);
+await shot('34b-sales-box-dark'); await checkOverflow('sales-box-dark');
 // 24b) العلبة بحجم كلام كبير على 1366 (أضيق حالة)
 await p.evaluate(() => { SET.theme = 'light'; SET.scale = 'large'; applySettings(); render(); }); await sleep(200);
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="pos"]').click()); await sleep(150);

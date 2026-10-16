@@ -246,13 +246,14 @@ const modalHead = (title, sub = '') => `<div class="modal-h"><h2><span class="mt
 /* ===== الهيكل: الشريط الجانبي والعلوي ===== */
 const NAV = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart' },
+  { id: 'sales', label: 'المبيعات', icon: 'receipt-text' },
   { id: 'repairs', label: 'الصيانة', icon: 'wrench' },
   { id: 'inventory', label: 'المخزون', icon: 'boxes' },
   { id: 'dashboard', label: 'التقارير', icon: 'chart-column', owner: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone' },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', owner: true },
 ];
-const TITLES = { pos: 'البيع', repairs: 'الصيانة', inventory: 'المخزون', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
+const TITLES = { pos: 'البيع', sales: 'المبيعات', repairs: 'الصيانة', inventory: 'المخزون', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
 function shell() {
   return `<div class="shell">${rail()}<main class="main">${topbar()}<div class="content" data-scroll="content-${S.view}">${VIEWS[S.view]()}</div></main></div>`;
 }
@@ -416,6 +417,7 @@ document.addEventListener('keydown', (e) => {
   if (S.sw && swKey(e)) return;
   if (S.modal) { modalKey(e); return; }
   if (S.view === 'pos') posKey(e);
+  else if (S.view === 'sales') salesKey(e);
 });
 setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(); }, 15000);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (SET.theme === 'auto') { applySettings(); render(); } });
