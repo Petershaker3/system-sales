@@ -191,7 +191,7 @@ input[dir="ltr"] { text-align: left; }
 .chip .cnt { font-size: .7rem; line-height: 1.5; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--muted); font-weight: 700; }
 .chip.on .cnt { background: color-mix(in srgb, var(--on-accent) 24%, transparent); color: var(--on-accent); }
 .chips.subcats { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 5px; gap: 4px; }
-.chip.sub { padding: 4px 8px; font-size: .82rem; gap: 5px; }
+.chip.sub { padding: 4px 7px; font-size: .82rem; gap: 5px; }
 .chip.sub.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent-text); }
 .chip.sub.on .cnt { background: transparent; color: var(--accent-text); }
 .tag {

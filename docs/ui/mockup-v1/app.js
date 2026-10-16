@@ -305,13 +305,15 @@ Object.assign(ACT, {
   swKey: (d) => swPress(d.k),
   swBack: () => { S.sw = { user: null, pin: '', err: '', pinned: true }; swSync(); },
 });
-// فتح بالتأشير (بعد لحظة صغيرة عشان مايفتحش لو الماوس معدّي) وقفل لما الماوس يبعد — إلا لو بتكتب الرقم السري
+// فتح بالتأشير (بعد لحظة صغيرة عشان مايفتحش لو الماوس معدّي) وقفل لما الماوس يبعد — إلا لو بتكتب الرقم السري.
+// الفتح بيحتاج حركة ماوس حقيقية (mousemove): لما الشاشة تترسم تاني والماوس واقف على الاسم، المتصفح بيبعت
+// mouseover لوحده — ده مايفتحش القايمة وانت شغّال بالكيبورد.
 let swOpenT = 0, swCloseT = 0;
-document.addEventListener('mouseover', (e) => {
+function swHover(e) {
   const inside = !!(e.target.closest && e.target.closest('.user-switch'));
   if (inside) {
     clearTimeout(swCloseT); swCloseT = 0;
-    if (!S.sw && !swOpenT && !swHoverBlock && !S.modal && !S.locked) {
+    if (e.type === 'mousemove' && !S.sw && !swOpenT && !swHoverBlock && !S.modal && !S.locked) {
       swOpenT = setTimeout(() => { swOpenT = 0; if (!S.sw && !swHoverBlock && !S.modal && !S.locked) swOpen(false); }, 140);
     }
   } else {
@@ -321,7 +323,9 @@ document.addEventListener('mouseover', (e) => {
       swCloseT = setTimeout(() => { swCloseT = 0; if (S.sw && !S.sw.user && !S.sw.pinned) { S.sw = null; swSync(); } }, 320);
     }
   }
-});
+}
+document.addEventListener('mouseover', swHover);
+document.addEventListener('mousemove', swHover);
 
 /* ===== أفعال عامة ===== */
 ACT.nav = (d) => {

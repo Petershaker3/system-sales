@@ -474,7 +474,6 @@ function pinPress(k) {
 }
 function unlockAs(u) {
   Object.assign(S, { user: u, locked: false, lockUser: null, pin: '', pinErr: '' });
-  swHoverBlock = true;
   const n = NAV.find((x) => x.id === S.view);
   if (n && n.owner && u.role !== 'owner') S.view = 'pos';
   render(); focusSearch(); toast(`أهلاً يا ${u.name}`);
