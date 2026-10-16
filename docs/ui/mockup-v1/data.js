@@ -219,8 +219,9 @@ const DATA = (() => {
       if (end <= OPEN) continue;
       const busy = day.getDay() === 4 || day.getDay() === 5 ? 9 : 0;
       const n = Math.round((34 + Math.floor(hr() * 15) + busy) * (end - OPEN) / (CLOSE - OPEN));
-      const mins = Array.from({ length: n }, () => OPEN + Math.floor(hr() * (end - OPEN))).sort((a, b) => a - b);
-      for (const m of mins) {
+      // الوقت بالثانية ومترتّب بالثانية: الرقم الأكبر عمره ما يبقى قبل الأصغر
+      const secs = Array.from({ length: n }, () => OPEN * 60 + Math.floor(hr() * (end - OPEN) * 60)).sort((a, b) => a - b);
+      for (const sec of secs) {
         const lines = [], r = hr();
         if (r < 0.1) { lines.push(unitLine(weighted(newPhones))); if (hr() < 0.6) lines.push(itemLine(weighted(addOns))); }
         else if (r < 0.13) lines.push(unitLine(weighted(usedPhones)));
@@ -234,7 +235,7 @@ const DATA = (() => {
         if (method === 'cash' && cust && hr() < 0.06) method = 'credit';
         const payments = [{ method, amount: total, provider: method === 'install' ? installProviders[Math.floor(hr() * installProviders.length)] : '' }];
         if (method === 'cash' && total >= 1000 && hr() < 0.08) { const part = Math.round((total * (0.3 + hr() * 0.4)) / 10) * 10; payments[0].amount = total - part; payments.push({ method: 'vf', amount: part, provider: '' }); }
-        const at = new Date(day); at.setHours(Math.floor(m / 60), m % 60, Math.floor(hr() * 60));
+        const at = new Date(day); at.setHours(Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60);
         out.push({ no: 0, at, sellerId: sellerOf(), customerId: cust, lines, disc, total, profit, payments });
       }
     }

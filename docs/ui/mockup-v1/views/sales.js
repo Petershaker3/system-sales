@@ -1,10 +1,6 @@
 'use strict';
 // شاشة «المبيعات». الكود متقسم ملف لكل شاشة — الترتيب في index.html، والدليل: docs/ENGINEERING.md
 /* ===== المبيعات: الأيام والفلترة، والعرض بالفواتير أو الأصناف أو التصنيفات (docs/ui/SALES-SHORTAGES.md) ===== */
-const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const catMain = (id) => { const c = catById(id); return c && c.parent ? c.parent : id; };
-const svCatName = (id) => (id === 'svc' ? 'خدمات وصيانة' : catName(id) || id);
 function salesState() {
   if (!S.salesv) { const t = dayStart(new Date()); S.salesv = { from: t, to: t, range: 'today', q: '', cat: '', seller: '', method: '', view: 'inv', limit: 150 }; }
   return S.salesv;
@@ -12,10 +8,8 @@ function salesState() {
 // الفواتير المطابقة في الفترة. فلتر التصنيف أو البحث باسم صنف أو IMEI بيخلّي المطابق هو السطور مش الفاتورة كلها (lineLevel)
 function salesRows(from, to) {
   const v = salesState(), own = isOwner(), q = normalize(v.q), qd = v.q.replace(/\D/g, '');
-  const a = from.getTime(), b = addDays(to, 1).getTime(), out = [];
-  for (const x of DATA.history) {
-    const t = x.at.getTime();
-    if (t < a || t >= b) continue;
+  const out = [];
+  for (const x of inRange(DATA.history, from, to)) {
     if (!own && x.sellerId !== S.user.id) continue;
     if (own && v.seller && x.sellerId !== v.seller) continue;
     if (v.method && !x.payments.some((p) => p.method === v.method)) continue;
@@ -30,37 +24,14 @@ function salesRows(from, to) {
   }
   return out;
 }
-const rowAmount = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + l.price * l.qty, 0) : r.x.total);
-const rowProfit = (r) => (r.lineLevel ? r.lines.reduce((a, l) => a + (l.price - l.cost) * l.qty, 0) : r.x.profit);
-function salesTotals(rows) {
-  const sales = rows.reduce((a, r) => a + rowAmount(r), 0), profit = rows.reduce((a, r) => a + rowProfit(r), 0);
-  const pcs = rows.reduce((a, r) => a + r.lines.reduce((b, l) => b + l.qty, 0), 0);
-  return { sales, profit, pcs, invoices: rows.length, avg: rows.length ? Math.round(sales / rows.length) : 0, partial: rows.some((r) => r.lineLevel) };
-}
-function salesByProduct(rows) {
-  const m = new Map();
-  for (const r of rows) for (const l of r.lines) {
-    const k = l.pid || l.name, e = m.get(k) || { name: l.name, cat: l.cat, qty: 0, sales: 0, profit: 0 };
-    e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e);
-  }
-  return [...m.values()].sort((a, b) => b.sales - a.sales);
-}
-function salesByCategory(rows) {
-  const m = new Map(), add = (k, l) => { const e = m.get(k) || { id: k, qty: 0, sales: 0, profit: 0, subs: new Map() }; e.qty += l.qty; e.sales += l.price * l.qty; e.profit += (l.price - l.cost) * l.qty; m.set(k, e); return e; };
-  for (const r of rows) for (const l of r.lines) {
-    const main = add(catMain(l.cat), l);
-    if (main.id !== l.cat) { const s = main.subs.get(l.cat) || { id: l.cat, qty: 0, sales: 0, profit: 0 }; s.qty += l.qty; s.sales += l.price * l.qty; s.profit += (l.price - l.cost) * l.qty; main.subs.set(l.cat, s); }
-  }
-  return [...m.values()].sort((a, b) => b.sales - a.sales);
-}
 // «وصنف كمان»، «وصنفين كمان»، «و3 أصناف كمان»
 const moreItems = (k) => (k === 1 ? 'وصنف كمان' : k === 2 ? 'وصنفين كمان' : `و${num(k)} ${k <= 10 ? 'أصناف' : 'صنف'} كمان`);
 const itemsSummary = (lines) => { const n = lines.length; return `<bdi dir="rtl">${esc(lines[0].name)}</bdi>${n > 1 ? ` <span class="muted">${moreItems(n - 1)}</span>` : ''}`; };
 function viewSales() {
   const v = salesState(), own = isOwner(), today = dayStart(new Date());
-  const rows = salesRows(v.from, v.to), T = salesTotals(rows);
+  const rows = salesRows(v.from, v.to), T = totalsOf(rows);
   const len = Math.round((v.to - v.from) / 864e5) + 1;
-  const prev = own ? salesTotals(salesRows(addDays(v.from, -len), addDays(v.to, -len))) : null;
+  const prev = own ? totalsOf(salesRows(addDays(v.from, -len), addDays(v.to, -len))) : null;
   const pct = prev && prev.sales ? Math.round(((T.sales - prev.sales) / prev.sales) * 100) : null;
   const atToday = v.to.getTime() >= today.getTime();
   const label = len === 1 ? fmtLong(v.from) : `من ${fmtDate(v.from)} لحد ${fmtDate(v.to)}`;
@@ -76,12 +47,12 @@ function viewSales() {
     table = `<div class="sv-empty">${icon('receipt-text')}<b>${filtered ? 'مفيش مبيعات بالفلاتر دي' : len === 1 ? 'مفيش مبيعات في اليوم ده' : 'مفيش مبيعات في الفترة دي'}</b>
       <span>${filtered ? 'شيل فلتر أو جرّب يوم تاني.' : 'جرّب يوم تاني بالأسهم أو اختار تاريخ.'}</span>${filtered ? `<button type="button" class="btn sm" data-act="svClear">${icon('x')} مسح الفلاتر</button>` : ''}</div>`;
   } else if (v.view === 'prod') {
-    const list = salesByProduct(rows);
+    const list = byProduct(rows);
     table = `<div class="table-wrap"><table class="t sv-t"><thead><tr><th>الصنف</th><th>التصنيف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
       ${list.map((e) => `<tr class="hov click" data-act="svProd" data-name="${esc(e.name)}" title="اعرض فواتيره"><td><bdi dir="rtl">${esc(e.name)}</bdi></td><td class="muted">${esc(svCatName(e.cat))}</td><td class="ta-n num">${num(e.qty)}</td><td class="ta-n num"><b>${money(e.sales)}</b></td>${own ? `<td class="ta-n num">${money(e.profit)}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>`;
   } else if (v.view === 'cat') {
-    const list = salesByCategory(rows), tot = list.reduce((a, e) => a + e.sales, 0) || 1;
+    const list = byCategory(rows), tot = list.reduce((a, e) => a + e.sales, 0) || 1;
     const row = (e, subRow) => { const share = Math.round((e.sales / tot) * 100); return `<tr class="hov click ${subRow ? 'sub' : ''}" data-act="svCatPick" data-id="${e.id}" title="اعرض أصنافه"><td>${esc(svCatName(e.id))}</td><td class="ta-n num">${num(e.qty)}</td><td class="ta-n num"><b>${money(e.sales)}</b></td><td><span class="sv-share"><i style="width:${share}%"></i></span><span class="num">${num(share)}%</span></td>${own ? `<td class="ta-n num">${money(e.profit)}</td>` : ''}</tr>`; };
     table = `<div class="table-wrap"><table class="t sv-t"><thead><tr><th>التصنيف</th><th class="ta-n">القطع</th><th class="ta-n">المبيعات</th><th>النسبة</th>${own ? '<th class="ta-n">الربح</th>' : ''}</tr></thead><tbody>
       ${list.map((e) => row(e, false) + [...e.subs.values()].sort((a, b) => b.sales - a.sales).map((s) => row(s, true)).join('')).join('')}
