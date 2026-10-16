@@ -851,21 +851,9 @@ function feeField(m, id, label, hint, autoVal, ok) {
   return `<div class="r fee-r"><label for="${id}">${label} <small>${hint}</small></label><input id="${id}" class="fee-in num" data-input="svcFee" ${m.focusFee ? 'data-autofocus' : ''} dir="ltr" inputmode="decimal" value="${esc(feeShown(m, autoVal, ok))}" placeholder="${feeAuto() ? '' : 'اكتبها'}" autocomplete="off"></div>`;
 }
 const svcReset = { fee: '', feeEdited: false, focusFee: false };
-function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', note: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
-function svcWallet(m) {
-  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ok = !isNaN(a) && a > 0;
-  const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), over = ok && w.limitDay && w.usedToday + a > w.limitDay;
-  const hint = feeAuto() ? `محسوبة ${num(SET.feePct)}%، وأقل حاجة ${money(SET.feeMin)}. تقدر تغيّرها` : 'مش ثابتة، اكتبها';
-  return `<div class="seg">${[['send', 'تحويل لرقم', 'arrow-up-from-line'], ['withdraw', 'سحب كاش', 'arrow-down-to-line']].map(([id, l, ic]) => `<button type="button" class="${m.op === id ? 'on' : ''}" data-act="svcOp" data-id="${id}">${icon(ic)} ${l}</button>`).join('')}</div>
-    <div class="wallets">${DATA.wallets.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${x.name}</b><small class="num">${money(x.balance)}</small></span></button>`).join('')}</div>
-    <div class="grid2">
-      <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
-      <div class="field"><label for="svc-note">ملاحظة <span class="muted">(اختياري)</span></label><input id="svc-note" class="big-in" data-input="svc" data-k="note" value="${esc(m.note)}" placeholder="لو حابب تكتب حاجة" autocomplete="off"></div>
-    </div>
-    <div class="due-box">${feeField(m, 'svc-fee', 'العمولة', hint, autoFee, ok)}
-      <div class="r grand"><span>${m.op === 'send' ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب العمولة</small>' : money(m.op === 'send' ? a + fee : a - fee)}</b></div></div>
-    ${over ? `<div class="note warn">${icon('triangle-alert')} كده هتعدّي الحد اليومي لـ${w.name} (${money(w.limitDay)})</div>` : ''}`;
-}
+function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'deposit', wallet: (walShown()[0] || {}).id || '', note: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
+// المحافظ: نفس نموذج شاشة «المحافظ» (views/wallets.js)، من غير رقم العميل
+const svcWallet = (m) => walletFormHTML(m);
 function svcCards(m) {
   return `<div class="wallets">${DATA.operators.map((o) => `<button type="button" class="wallet ${m.opr === o.id ? 'on' : ''}" data-act="svcOpr" data-id="${o.id}"><span class="dot" style="background:${o.color}"></span><span class="t"><b>${o.name}</b></span></button>`).join('')}</div>
     <div class="card-vals">${DATA.cardValues.map((v) => `<button type="button" class="btn" data-act="svcCard" data-v="${v}">${icon('signal')} كارت ${num(v)}</button>`).join('')}</div>
@@ -897,26 +885,13 @@ MODALS.services = {
   },
   enter: (m) => { if (m.tab === 'wallet') recordWallet(m); else if (m.tab === 'bills') recordBill(m); },
 };
-function recordWallet(m) {
-  // من غير رقم العميل (المالك 2026-10-17: «فارض إني أكتب نمرة اللي بحوّله أو بسحب منه وده غلط»)
-  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount);
-  if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
-  const fee = svcFee(m, walletFee(a));
-  if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة، ولو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
-  if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
-  const cash = m.op === 'send' ? a + fee : a - fee;
-  if (m.op === 'send') { w.balance -= a; DATA.shift.servicesIn += cash; } else { w.balance += a; DATA.shift.servicesOut += cash; }
-  w.usedToday += a; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
-  S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, note: m.note.trim(), amount: a, fee, at: new Date(), by: S.user.name });
-  toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name}. حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)}. ادفع للعميل ${money(cash)}`);
-  Object.assign(m, { amount: '', note: '', err: '', ...svcReset, _mounted: false }); render();
-}
+const recordWallet = (m) => walletRecord(m);
 function recordBill(m) {
   const a = parseNum(m.billAmt), fee = svcFee(m, +SET.billFee), b = DATA.billTypes.find((x) => x.id === m.bill);
   if (!(a > 0)) { m.err = 'اكتب مبلغ الفاتورة'; beep(); render(); return; }
   if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب رسوم الخدمة، ولو مفيش رسوم اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
-  DATA.shift.servicesIn += a + fee; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
-  S.services.push({ kind: 'bill', bill: b.id, acct: m.acct, amount: a, fee, at: new Date(), by: S.user.name });
+  // الفاتورة بتتسجّل في سجل الفواتير، والدرج والتقارير بيتحسبوا منه (servicesOf)
+  DATA.bills.push({ id: `b${DATA.bills.length + 1}`, at: new Date(), bill: b.id, acct: m.acct, amount: a, fee, by: S.user.id }); refreshDash();
   toast(`اتسجّل دفع فاتورة ${b.name}. حصّل ${money(a + fee)}`);
   Object.assign(m, { billAmt: '', acct: '', err: '', ...svcReset, _mounted: false }); render();
 }
@@ -938,7 +913,8 @@ Object.assign(ACT, {
 
 /* ===== نافذة: تقفيل الوردية — عدّ الفلوس بالفئات ===== */
 const DENOMS = [200, 100, 50, 20, 10, 5, 1, 0.5];
-function expectedCash() { const s = DATA.shift; return s.opening + s.cashSales + s.servicesIn - s.servicesOut - s.expenses.reduce((a, e) => a + e.amount, 0) - s.ownerDraw; }
+// المتوقع في الدرج: كل رقم من سجله (shiftNow في analytics.js)
+const expectedCash = () => shiftNow().expected;
 function openShiftClose() {
   if (!isOwner() && !SET.perms.closeShift) { toast('تقفيل الوردية للمالك بس (من الإعدادات)', 'err'); beep(); return; }
   openModal({ type: 'shift', counts: DENOMS.map(() => '') });
@@ -950,7 +926,7 @@ function shiftCalc(m) {
 MODALS.shift = {
   html(m) {
     const c = shiftCalc(m), s = DATA.shift;
-    const rows = [['رصيد أول الوردية', s.opening], ['مبيعات كاش', s.cashSales], ['خدمات داخلة كاش', s.servicesIn], ['خدمات خارجة كاش', -s.servicesOut], ...s.expenses.map((e) => [`مصروف: ${e.name}`, -e.amount]), ['سحب المالك', -s.ownerDraw]];
+    const z = shiftNow(), rows = [['رصيد أول الوردية', z.opening], ['مبيعات كاش', z.cashSales], ['خدمات داخلة كاش', z.svcIn], ['خدمات خارجة كاش', -z.svcOut], ...(z.drawer ? [['شحن وتفريغ المحافظ من الدرج', z.drawer]] : []), ...s.expenses.map((e) => [`مصروف: ${e.name}`, -e.amount]), ['سحب المالك', -s.ownerDraw]];
     return `<div class="modal wide" role="dialog" aria-label="تقفيل الوردية">
       ${modalHead(`تقفيل الوردية #${num(s.no)}`, `فتحها ${esc(s.by)} الساعة ${dg(s.opened)}`)}
       <div class="modal-b"><div class="shift">

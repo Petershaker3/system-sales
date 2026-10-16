@@ -199,6 +199,71 @@ function ean13(body12) {
 }
 const ean13Ok = (code) => /^\d{13}$/.test(code) && ean13(code.slice(0, 12)) === code;
 
+/* --- المحافظ (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 4): الرصيد والدرج من سجل واحد --- */
+// الحركات: deposit إيداع (العميل بيدفع كاش وانت بتحوّل من محفظتك)، withdraw سحب (العميل بيحوّل على محفظتك وبياخد كاش)،
+// topup شحن المحفظة و unload تفريغها (via: drawer من الدرج وليه، أو out من برّه وليه زي البنك)، move من محفظة لمحفظة، adjust تسوية جرد بالفرق.
+// العملية الملغية (void) بتفضل في السجل ومش بتحرّك حاجة. المبلغ بس اللي بيحرّك المحفظة، والعمولة دخل للمحل في الدرج
+function walletDelta(op, wid) {
+  if (op.void) return 0;
+  if (op.type === 'move') return op.wallet === wid ? -op.amount : op.to === wid ? op.amount : 0;
+  if (op.wallet !== wid) return 0;
+  return op.type === 'adjust' || op.type === 'withdraw' || op.type === 'topup' ? op.amount : -op.amount;
+}
+function opCash(op) {
+  if (op.void) return 0;
+  if (op.type === 'deposit') return op.amount + op.fee;
+  if (op.type === 'withdraw') return -(op.amount - op.fee);
+  if (op.via === 'drawer') return op.type === 'topup' ? -op.amount : op.type === 'unload' ? op.amount : 0;
+  return 0;
+}
+const isCustomerOp = (op) => op.type === 'deposit' || op.type === 'withdraw';
+// فلوس البيع اللي اتدفعت على المحفظة (فاتورة بفودافون كاش ← محفظة فودافون كاش)
+function walletPayIn(w, sales, from, end) {
+  if (!w.pay) return 0;
+  let s = 0;
+  for (const x of sales) if (x.at >= from && x.at < end) for (const p of x.payments) if (p.method === w.pay) s += p.amount;
+  return s;
+}
+const FAR = new Date(8.64e15);
+// الرصيد = الافتتاحي (يوم since) + كل حركاته + فلوس البيع اللي نزلت فيه. end اختياري: الرصيد لحد لحظة معيّنة
+function walletBalance(w, ops, sales, since, end = FAR) {
+  let b = w.opening || 0;
+  for (const op of ops) if (op.at < end) b += walletDelta(op, w.id);
+  return b + walletPayIn(w, sales, since, end);
+}
+// حالة الرصيد: بالسالب، أو قرب يخلص (تحت الأدنى)، أو عدّى أقصى رصيد، أو قرّب منه (90٪ زي السيستم القديم)
+const walletState = (w, bal) => (bal < 0 ? 'neg' : w.min && bal < w.min ? 'low' : w.max && bal > w.max ? 'over' : w.max && bal >= w.max * 0.9 ? 'near' : 'ok');
+// أرقام محفظة في فترة: الإيداع والسحب (عدد ومبلغ) والعمولة، وحركات المالك، وفلوس البيع. used = اللي اتحوّل للعملاء (للحد اليومي)
+function walletStats(w, ops, sales, from, end) {
+  const r = { ops: 0, depN: 0, dep: 0, witN: 0, wit: 0, fees: 0, other: 0, payIn: walletPayIn(w, sales, from, end) };
+  for (const op of ops) {
+    if (op.void || op.at < from || op.at >= end) continue;
+    if (isCustomerOp(op) && op.wallet === w.id) { r.ops++; r.fees += op.fee; if (op.type === 'deposit') { r.depN++; r.dep += op.amount; } else { r.witN++; r.wit += op.amount; } } else r.other += walletDelta(op, w.id);
+  }
+  r.used = r.dep + r.wit;
+  return r;
+}
+// الخدمات في فترة: عمليات العملاء على المحافظ + الفواتير (العمولة والرسوم دخل)، والكاش اللي دخل وخرج، وحركات المحافظ مع الدرج
+function servicesOf(ops, bills, from, end) {
+  const r = { count: 0, fees: 0, cashIn: 0, cashOut: 0, drawer: 0 };
+  for (const op of ops) {
+    if (op.void || op.at < from || op.at >= end) continue;
+    const c = opCash(op);
+    if (isCustomerOp(op)) { r.count++; r.fees += op.fee; if (c > 0) r.cashIn += c; else r.cashOut -= c; } else r.drawer += c;
+  }
+  for (const b of bills) { if (b.void || b.at < from || b.at >= end) continue; r.count++; r.fees += b.fee; r.cashIn += b.amount + b.fee; }
+  return r;
+}
+// الدرج في الوردية الحالية: كل رقم من سجله (المبيعات الكاش، والخدمات، والمحافظ)، والمتوقع مجموعهم
+function shiftNow() {
+  const s = DATA.shift, sv = servicesOf(DATA.walletOps, DATA.bills, s.from, FAR);
+  let cashSales = 0;
+  for (const x of DATA.history) if (x.at >= s.from) for (const p of x.payments) if (p.method === 'cash') cashSales += p.amount;
+  const expenses = s.expenses.reduce((a, e) => a + e.amount, 0);
+  return { opening: s.opening, cashSales, svcIn: sv.cashIn, svcOut: sv.cashOut, drawer: sv.drawer, expenses, ownerDraw: s.ownerDraw,
+    expected: s.opening + cashSales + sv.cashIn - sv.cashOut + sv.drawer - expenses - s.ownerDraw };
+}
+
 /* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */
 // البيعة اللي خلصت ← سطر في السجل بنفس شكل الفواتير التجريبية (والخدمات زي تسليم الصيانة تصنيفها «svc»)
 function histRecord(sale) {
@@ -221,7 +286,8 @@ function paySplit(pay, max = 5) {
 // أرقام التقارير والموبايل بتتحسب من السجل (عدادات الخدمات زي ما هي: مش فواتير بيع)
 function refreshDash() {
   const D = DATA.dash, now = new Date(), today = dayStart(now);
-  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: D.today.services, servicesFee: D.today.servicesFee };
+  const sv = servicesOf(DATA.walletOps, DATA.bills, today, FAR); // خدمات النهارده من سجل المحافظ والفواتير
+  const t = { sales: 0, invoices: 0, profit: 0, yesterday: 0, bySeller: {}, countBySeller: {}, services: sv.count, servicesFee: sv.fees };
   const week = [0, 0, 0, 0, 0, 0, 0], pay = {}, top = {}, todays = [];
   const ySame = spanEnd(addDays(today, -1), true, now); // امبارح لحد نفس الساعة: النهارده لسه ماخلصش
   for (const x of DATA.history) {

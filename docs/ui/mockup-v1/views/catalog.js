@@ -101,7 +101,7 @@ function niNameLine(m, title, extra = '') {
   return title ? `<div class="ni-name">${icon('tag')} هيتسجّل باسم <b><bdi dir="auto">${esc(title)}</bdi></b>${extra}</div>` : '';
 }
 function niPhone(m) {
-  const own = isOwner(), spec = m.ptype === 'touch' ? specText(m.rom, m.ram) : '';
+  const own = isOwner(), spec = m.ptype === 'touch' && m.ram ? `رام ${m.ram}` : ''; // المساحة جوه الاسم، والرام جنبه
   return `${niCatRow(m, kindCats('phone'), 'التصنيف')}${niPtypeRow(m)}${niBrandRow(m)}${niModelField(m)}${niSpecRows(m)}
     <div class="ni-row">${niLabel('الألوان', true)}${niTags(m.colors, 'colors', 'ni-color-q', 'colorQ', m.colorQ, 'اكتب لون ودوس Enter', NI_COLORS)}</div>
     <div class="grid3">${niMoney('ni-price', 'سعر البيع', 'price', m.price)}${own ? niMoney('ni-cost', 'التكلفة', 'cost', m.cost, true, 'بتتكتب في الاستلام') : ''}${niMoney('ni-min', 'نبّهني لما يفضل', 'min', m.min, true, '2')}</div>

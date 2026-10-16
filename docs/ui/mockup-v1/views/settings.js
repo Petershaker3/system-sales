@@ -178,10 +178,7 @@ function setUsers() {
     <div class="note">${icon('info')} في النموذج ده «أقصى خصم» و«يقفل الوردية» شغالين فعلًا، والباقي للعرض بس.</div></div>`;
 }
 function setPay() {
-  return `<div class="card"><h3>محافظ المحل</h3>
-    <div class="table-wrap" style="border:0"><table class="t"><thead><tr><th>المحفظة</th><th>الرقم</th><th>الرصيد</th><th>الحد اليومي</th></tr></thead><tbody>
-    ${DATA.wallets.map((w) => `<tr><td><div class="row"><span class="dot" style="background:${w.color}"></span><b>${w.name}</b></div></td><td><bdi dir="ltr" class="mono">${w.number}</bdi></td><td class="num">${money(w.balance)}</td><td class="num">${w.limitDay ? money(w.limitDay) : '<span class="muted">—</span>'}</td></tr>`).join('')}
-    </tbody></table></div></div>
+  return `${walletsManageHTML()}
   <div class="card"><h3>عمولات الخدمات</h3>
     <div class="s-row"><div class="t"><b>العمولة والرسوم</b><small>${feeAuto() ? 'بتتحسب لوحدها من النسبة والحد الأدنى، والبيّاع يقدر يغيّرها في العملية' : 'مش ثابتة: البيّاع بيكتبها في كل عملية، وبتتسجّل في دفتر الخدمات والتقارير'}</small></div>
       <div class="seg">${[['manual', 'تتكتب في كل عملية'], ['auto', 'محسوبة تلقائي']].map(([id, l]) => `<button type="button" class="${SET.feeMode === id ? 'on' : ''}" data-act="setFeeMode" data-id="${id}">${l}</button>`).join('')}</div></div>

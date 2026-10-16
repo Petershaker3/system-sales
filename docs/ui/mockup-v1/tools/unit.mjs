@@ -147,6 +147,33 @@ ok(fam.length === 12 && fam.every((p) => p.base === 'جراب سيليكون م�
 const skus = run('DATA.products').map((p) => p.sku).filter(Boolean);
 ok(has('ean13Ok') && new Set(skus).size === skus.length && fam.filter((p) => p.sku).every((p) => run('ean13Ok')(p.sku)), 'every barcode is unique, and the shop\'s own codes are valid EAN-13');
 
+// 10) المحافظ (docs/ui/STORE-CATALOG-WALLETS.md، المرحلة 4): كل رصيد وكل جنيه في الدرج من سجل واحد
+const fnW = (n) => (has(n) ? run(n) : () => NaN);
+const wd = fnW('walletDelta'), oc = fnW('opCash');
+const op = (o) => ({ at: new Date(), wallet: 'vf', amount: 1000, fee: 15, ...o });
+ok(wd(op({ type: 'deposit' }), 'vf') === -1000 && oc(op({ type: 'deposit' })) === 1015, 'إيداع: the customer pays 1,000 + 15 cash, and the shop\'s wallet sends 1,000 (wallet −1,000, drawer +1,015)');
+ok(wd(op({ type: 'withdraw' }), 'vf') === 1000 && oc(op({ type: 'withdraw' })) === -985, 'سحب: the customer sends 1,000 to the shop\'s wallet and takes 985 cash (wallet +1,000, drawer −985)');
+ok(wd(op({ type: 'topup', via: 'drawer', fee: 0 }), 'vf') === 1000 && oc(op({ type: 'topup', via: 'drawer', fee: 0 })) === -1000 && oc(op({ type: 'topup', via: 'out', fee: 0 })) === 0, 'شحن المحفظة: from the drawer moves cash into the wallet; from outside touches no cash');
+ok(wd(op({ type: 'unload', via: 'drawer', fee: 0 }), 'vf') === -1000 && oc(op({ type: 'unload', via: 'drawer', fee: 0 })) === 1000 && oc(op({ type: 'unload', via: 'out', fee: 0 })) === 0, 'تفريغ المحفظة: to the drawer brings cash in; to the bank touches no cash');
+ok(wd(op({ type: 'move', to: 'ip', fee: 0 }), 'vf') === -1000 && wd(op({ type: 'move', to: 'ip', fee: 0 }), 'ip') === 1000 && wd(op({ type: 'move', to: 'ip', fee: 0 }), 'et') === 0, 'تحويل بين محفظتين: one goes down, the other up, the rest untouched');
+ok(wd(op({ type: 'adjust', amount: -15, fee: 0 }), 'vf') === -15 && oc(op({ type: 'adjust', amount: -15, fee: 0 })) === 0, 'تسوية الجرد: the wallet moves by the difference, the drawer doesn\'t');
+ok(wd(op({ type: 'deposit', void: { by: 'u1', reason: 'غلط' } }), 'vf') === 0 && oc(op({ type: 'deposit', void: { by: 'u1', reason: 'غلط' } })) === 0, 'a cancelled operation moves nothing (it stays in the log, struck through)');
+const W = run('DATA.wallets'), WO = run('DATA.walletOps'), BL = run('DATA.bills'), since = run('DATA.walletSince');
+ok(Array.isArray(WO) && WO.length > 300 && WO.every((o, i) => i === 0 || o.at >= WO[i - 1].at) && WO.every((o) => o.at >= since) && !WO.some((o) => 'phone' in o), `the wallet log is in time order from the day tracking started, and keeps no customer number (${Array.isArray(WO) ? WO.length : 0} operations)`);
+const payIn = (w, from, end) => (w.pay ? sum(h.filter((x) => x.at >= from && x.at < end).flatMap((x) => x.payments).filter((p) => p.method === w.pay).map((p) => p.amount)) : 0);
+const wBal = (w) => w.opening + sum((WO || []).map((o) => (o.void ? 0 : o.type === 'move' ? (o.wallet === w.id ? -o.amount : o.to === w.id ? o.amount : 0) : o.wallet !== w.id ? 0 : o.type === 'adjust' ? o.amount : ['withdraw', 'topup'].includes(o.type) ? o.amount : -o.amount))) + payIn(w, since, new Date(8.64e15));
+ok(has('walletBalance') && W.every((w) => run('walletBalance')(w, WO, h, since) === wBal(w)), 'each wallet balance = opening + every movement + invoices paid into it (فاتورة بفودافون كاش ← رصيد فودافون كاش)');
+ok(has('walletBalance') && W.every((w) => { const b = run('walletBalance')(w, WO, h, since); return b >= 0 && (!w.max || b <= w.max * 1.25); }), 'the demo balances stay real: never below zero, and not far over each wallet\'s maximum');
+ok(W.some((w) => w.pay === 'vf') && W.some((w) => w.pay === 'instapay') && ['deposit', 'withdraw', 'topup', 'unload', 'move', 'adjust'].every((t) => (WO || []).some((o) => o.type === t)), 'the demo log has every kind of movement, and sales paid by wallet land in Vodafone Cash and InstaPay');
+const tday = run('dayStart')(new Date()), todayOps = (WO || []).filter((o) => o.at >= tday && !o.void), todayBills = (BL || []).filter((b) => b.at >= tday);
+run('refreshDash()'); const dsv = run('DATA.dash.today');
+ok(dsv.services === todayOps.filter((o) => o.type === 'deposit' || o.type === 'withdraw').length + todayBills.length && dsv.servicesFee === sum(todayOps.filter((o) => o.type === 'deposit' || o.type === 'withdraw').map((o) => o.fee)) + sum(todayBills.map((b) => b.fee)), "today's services and their commission come from the wallet log and the bills (not a fixed number)");
+const sh = has('shiftNow') ? run('shiftNow()') : {}, sFrom = run('DATA.shift.from');
+const cashIn = sum(todayOps.filter((o) => o.at >= sFrom && o.type === 'deposit').map((o) => o.amount + o.fee)) + sum(todayBills.filter((b) => b.at >= sFrom).map((b) => b.amount + b.fee));
+const cashSales = sum(h.filter((x) => x.at >= sFrom).flatMap((x) => x.payments).filter((p) => p.method === 'cash').map((p) => p.amount));
+ok(sh.svcIn === cashIn && sh.svcOut === sum(todayOps.filter((o) => o.at >= sFrom && o.type === 'withdraw').map((o) => o.amount - o.fee)) && sh.cashSales === cashSales, 'the shift drawer: cash sales, services in and out, each from its own record');
+ok(sh.expected === sh.opening + sh.cashSales + sh.svcIn - sh.svcOut + sh.drawer - sh.expenses - sh.ownerDraw, 'expected drawer = opening + cash sales + services in − out ± wallet top-ups/unloads − expenses − owner draw');
+
 // 6) كل اسم متعرّف في ملف واحد (اسم متكرر بين ملفين = الصفحة كلها تقف)
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const files = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), seen = new Map(), dups = [];

@@ -154,13 +154,16 @@ const DATA = (() => {
     { id: 'c7', name: 'كريم مصطفى', phone: '01011122233', balance: 0, visits: 1 },
   ];
 
-  // محافظ المحل (للخدمات وللتحصيل). الحدود الموثّقة بس: فودافون كاش وإنستاباي
+  // محافظ المحل (زي السيستم القديم: المالك بيضيف ويرتّب ويغيّر من الإعدادات). الرصيد مش رقم ثابت: بيتحسب من السجل (walletBalance).
+  // number = رقم محفظة المحل نفسه (بيظهر للعميل في السحب عشان يحوّل عليه). opening = الرصيد يوم ما التسجيل بدأ (walletSince).
+  // min = تحت كده «قرب يخلص»، max = أقصى رصيد (قرّب منه = تنبيه، زي «حد التنبيه» في القديم)، limitDay = حد التحويلات في اليوم.
+  // pay = طريقة الدفع في البيع اللي فلوسها بتنزل في المحفظة دي. الحدود الموثّقة بس: فودافون كاش (60 ألف) وإنستاباي (70 ألف)
   const wallets = [
-    { id: 'vf', name: 'فودافون كاش', number: '01001234567', balance: 18450, limitDay: 60000, usedToday: 18500, color: '#e60000' },
-    { id: 'et', name: 'اتصالات كاش', number: '01112345678', balance: 6200, usedToday: 4000, color: '#719e19' },
-    { id: 'or', name: 'أورنج كاش', number: '01223456789', balance: 4750, usedToday: 2500, color: '#ff7900' },
-    { id: 'we', name: 'وي باي', number: '01559876543', balance: 2100, usedToday: 0, color: '#5c2d91' },
-    { id: 'ip', name: 'إنستاباي', number: 'mobilestore@instapay', balance: 25300, limitDay: 70000, usedToday: 9000, color: '#3b2a85' },
+    { id: 'vf', name: 'فودافون كاش', number: '01001234567', color: '#e60000', opening: 15000, min: 3000, max: 90000, limitDay: 60000, pay: 'vf' },
+    { id: 'et', name: 'اتصالات كاش', number: '01112345678', color: '#719e19', opening: 5000, min: 1000, max: 50000, limitDay: 0, pay: null },
+    { id: 'or', name: 'أورنج كاش', number: '01223456789', color: '#ff7900', opening: 4000, min: 1000, max: 50000, limitDay: 0, pay: null },
+    { id: 'we', name: 'وي باي', number: '01559876543', color: '#5c2d91', opening: 2000, min: 500, max: 30000, limitDay: 0, pay: null },
+    { id: 'ip', name: 'إنستاباي', number: 'mobilestore@instapay', color: '#3b2a85', opening: 20000, min: 2000, max: 150000, limitDay: 70000, pay: 'instapay' },
   ];
 
   const payMethods = [
@@ -207,9 +210,10 @@ const DATA = (() => {
     { no: 'R-1045', device: 'Infinix Hot 30', issue: 'فلاتة باور', customer: 'أحمد سمير', phone: '01555123456', status: 'delivered', estimate: 400, deposit: 400, due: 'امبارح', tech: 'م. حسن', at: 'امبارح' },
   ];
 
-  // الوردية الحالية: المتوقع في الدرج = 1000 + 11730 + 4040 − 2970 − 150 − 1300 = 12350
+  // الوردية الحالية (من 9 الصبح): مبيعات الكاش والخدمات والمحافظ بتتحسب من سجلاتها (shiftNow في analytics.js)، والباقي هنا
+  const shiftFrom = new Date(); shiftFrom.setHours(9, 0, 0, 0);
   const shift = {
-    no: 142, opened: '9:00 ص', by: 'يوسف', opening: 1000, cashSales: 11730, servicesIn: 4040, servicesOut: 2970,
+    no: 142, opened: '9:00 ص', from: shiftFrom, by: 'يوسف', opening: 1000,
     expenses: [{ name: 'شاي وقهوة', amount: 50 }, { name: 'مواصلات توصيل', amount: 100 }], ownerDraw: 1300,
   };
 
@@ -308,15 +312,73 @@ const DATA = (() => {
     return out;
   })();
 
-  // المحل الفاضي: من غير أصناف ولا أجهزة ولا عملاء ولا فواتير ولا صيانة، والوردية والمحافظ من الصفر
+  /* ===== سجل المحافظ (تجريبي): من أول الشهر اللي فات، يوم ما المحل بدأ يسجّل المحافظ =====
+     عمليات العملاء (إيداع وسحب بعمولة، من غير رقم العميل) وفواتير الخدمات، وفلوس البيع اللي اتدفعت بمحفظة.
+     المالك بيشحن المحفظة لما تقرب تخلص، وبيفرّغها للبنك لما تقرب من أقصى رصيد، وفيه من كل حركة تانية واحدة.
+     مولّد لوحده بعد سجل المبيعات، فأرقام المبيعات ما تتغيّرش. */
+  const walletSince = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() - 1, 1); })();
+  const { walletOps, bills } = FRESH ? { walletOps: [], bills: [] } : (() => {
+    let ws = 17102026;
+    const wr = () => { ws = (ws * 1103515245 + 12345) % 2147483648; return ws / 2147483648; };
+    const now = new Date(), ops = [], bl = [], OPEN = 9 * 3600, CLOSE = 23 * 3600, bal = {};
+    for (const w of wallets) bal[w.id] = w.opening;
+    const share = { vf: 0.55, ip: 0.17, et: 0.12, or: 0.11, we: 0.05 };
+    const pickW = () => { let x = wr(); for (const w of wallets) { x -= share[w.id]; if (x <= 0) return w; } return wallets[0]; };
+    const AMOUNTS = [100, 200, 300, 500, 500, 700, 1000, 1000, 1500, 2000, 2500, 3000, 5000];
+    const NOTES = ['تحويل لأخوه', 'قسط', 'اشتراك نت', 'مرتب'];
+    const feeOf = (a) => Math.max(5, Math.round(a / 500) * 5); // حوالي 1%، والأقل 5
+    const at = (day, sec) => { const d = new Date(day); d.setHours(Math.floor(sec / 3600), Math.floor(sec / 60) % 60, sec % 60); return d; };
+    const payDay = {}; // فلوس البيع اللي نزلت في كل محفظة كل يوم
+    for (const x of history) { if (x.at < walletSince) continue; for (const p of x.payments) { const w = wallets.find((y) => y.pay === p.method); if (w) { const k = `${x.at.toDateString()}|${w.id}`; payDay[k] = (payDay[k] || 0) + p.amount; } } }
+    const sellerOf = () => { const r = wr(); return r < 0.45 ? 'u2' : r < 0.8 ? 'u3' : 'u1'; };
+    for (let day = new Date(walletSince); day <= now; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
+      const isToday = day.toDateString() === now.toDateString(), end = isToday ? Math.min(CLOSE, now.getHours() * 3600 + now.getMinutes() * 60) : CLOSE;
+      if (end <= OPEN) continue;
+      const part = (end - OPEN) / (CLOSE - OPEN), n = Math.round((9 + Math.floor(wr() * 8)) * part), nb = Math.round((2 + Math.floor(wr() * 4)) * part);
+      const secs = Array.from({ length: n + nb }, () => OPEN + Math.floor(wr() * (end - OPEN))).sort((a, b) => a - b);
+      const billIdx = new Set(); while (billIdx.size < nb) billIdx.add(Math.floor(wr() * secs.length));
+      secs.forEach((sec, i) => {
+        if (billIdx.has(i)) { bl.push({ at: at(day, sec), bill: billTypes[Math.floor(wr() * billTypes.length)].id, acct: '', amount: 50 * (2 + Math.floor(wr() * 14)), fee: 5, by: sellerOf() }); return; }
+        const w = pickW(), a = AMOUNTS[Math.floor(wr() * AMOUNTS.length)], type = wr() < 0.55 ? 'deposit' : 'withdraw';
+        // الإيداع ما يعدّيش الرصيد: المحفظة اللي قربت تخلص المالك بيشحنها قبلها (من حسابه)
+        if (type === 'deposit' && bal[w.id] - a < w.min / 2) { const t = Math.round((w.max * 0.4) / 1000) * 1000; ops.push({ at: at(day, sec - 60), type: 'topup', via: 'out', wallet: w.id, amount: t, fee: 0, by: 'u1', note: 'شحن من حساب المالك' }); bal[w.id] += t; }
+        ops.push({ at: at(day, sec), type, wallet: w.id, amount: a, fee: feeOf(a), by: sellerOf(), note: wr() < 0.05 ? NOTES[Math.floor(wr() * NOTES.length)] : '' });
+        bal[w.id] += type === 'deposit' ? -a : a;
+      });
+      // آخر اليوم: فلوس البيع اللي اتدفعت على المحفظة، والمحفظة اللي قربت من أقصى رصيد بتتفرّغ للبنك
+      for (const w of wallets) {
+        bal[w.id] += payDay[`${day.toDateString()}|${w.id}`] || 0;
+        if (!isToday && bal[w.id] > w.max * 0.75) { const t = Math.floor((bal[w.id] - w.max * 0.35) / 1000) * 1000; ops.push({ at: at(day, 22 * 3600 + 50 * 60), type: 'unload', via: 'out', wallet: w.id, amount: t, fee: 0, by: 'u1', note: 'تحويل لحساب البنك' }); bal[w.id] -= t; }
+      }
+    }
+    // من كل حركة داخلية واحدة قريبة: تفريغ للدرج، وتحويل بين محفظتين، وتسوية جرد، وشحن من الدرج النهارده
+    const back = (d, h, m) => { const x = new Date(now.getFullYear(), now.getMonth(), now.getDate() - d); x.setHours(h, m, 0, 0); return x; };
+    const extra = [
+      { at: back(3, 21, 30), type: 'unload', via: 'drawer', wallet: 'vf', amount: 3000, fee: 0, by: 'u1', note: 'سحبت كاش للدرج' },
+      { at: back(2, 10, 15), type: 'move', wallet: 'ip', to: 'vf', amount: 5000, fee: 0, by: 'u1', note: 'نقل رصيد' },
+      { at: back(1, 22, 55), type: 'adjust', wallet: 'vf', amount: -15, fee: 0, by: 'u1', note: 'جرد: رسوم الشبكة' },
+    ];
+    if (now.getHours() * 60 + now.getMinutes() > 9 * 60 + 5) extra.push({ at: back(0, 9, 5), type: 'topup', via: 'drawer', wallet: 'or', amount: 2000, fee: 0, by: 'u1', note: 'شحن من الدرج' });
+    ops.push(...extra.filter((o) => o.at >= walletSince));
+    // آخر عملية: إيداع كبير من «وي باي» يخلّيها تحت الأدنى، عشان تنبيه «قرب يخلص» يبان (لو المحل فاتح دلوقتي)
+    const mins = now.getHours() * 60 + now.getMinutes(), we = wallets.find((w) => w.id === 'we');
+    const weBal = we.opening + ops.reduce((a, o) => a + (o.wallet !== 'we' ? (o.to === 'we' ? o.amount : 0) : ['withdraw', 'topup', 'adjust'].includes(o.type) ? o.amount : -o.amount), 0);
+    const big = Math.floor((weBal - 300) / 100) * 100;
+    if (mins >= 9 * 60 + 30 && mins < 23 * 60 && big >= 500) ops.push({ at: new Date(now.getTime() - 120e3), type: 'deposit', wallet: 'we', amount: big, fee: feeOf(big), by: 'u2', note: '' });
+    ops.sort((a, b) => a.at - b.at);
+    ops.forEach((o, i) => { o.id = `w${i + 1}`; if (o.note === undefined) o.note = ''; });
+    bl.forEach((b, i) => { b.id = `b${i + 1}`; });
+    return { walletOps: ops, bills: bl };
+  })();
+
+  // المحل الفاضي: من غير أصناف ولا أجهزة ولا عملاء ولا فواتير ولا صيانة ولا محافظ (المالك بيضيف محافظه)، والوردية من الصفر
   if (FRESH) {
-    for (const list of [products, units, customers, repairs, receipts]) list.length = 0;
-    Object.assign(shift, { no: 1, by: users[0].name, opening: 0, cashSales: 0, servicesIn: 0, servicesOut: 0, expenses: [], ownerDraw: 0 });
+    for (const list of [products, units, customers, repairs, receipts, wallets]) list.length = 0;
+    Object.assign(shift, { no: 1, by: users[0].name, opening: 0, expenses: [], ownerDraw: 0 });
     Object.assign(dash, { today: { sales: 0, invoices: 0, profit: 0, services: 0, servicesFee: 0, yesterday: 0, bySeller: {}, countBySeller: {} }, week: [0, 0, 0, 0, 0, 0, 0], pay: [], top: [], recent: [] });
-    wallets.forEach((w) => Object.assign(w, { balance: 0, usedToday: 0 }));
   }
   return {
     fresh: FRESH, users, categories, brands, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
-    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
+    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, walletSince, walletOps, bills, makeImei, luhnDigit,
   };
 })();

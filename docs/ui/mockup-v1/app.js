@@ -210,7 +210,7 @@ const S = {
   view: 'pos', modal: null,
   invoices: [newInvoice()], active: 0, sel: -1,
   q: '', qi: 0, cat: 'top', _res: [],
-  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], services: [], showProfit: false,
+  nextNo: DATA.history.length ? DATA.history[DATA.history.length - 1].no + 1 : 1001, sales: [], showProfit: false,
   inv: { q: '', cat: 'all', tab: 'items', open: {} },
   repairs: DATA.repairs, settingsTab: 'shop',
   mobile: { lookupQ: 'نوت 14', last: null, recvPid: 'p5', recv: [], recvMode: 'imei', recvQty: 1 },
@@ -275,13 +275,14 @@ const modalHead = (title, sub = '') => `<div class="modal-h"><h2><span class="mt
 const NAV = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart' },
   { id: 'sales', label: 'المبيعات', icon: 'receipt-text' },
+  { id: 'wallets', label: 'المحافظ', icon: 'wallet' },
   { id: 'repairs', label: 'الصيانة', icon: 'wrench' },
   { id: 'inventory', label: 'المخزن', icon: 'boxes' },
   { id: 'dashboard', label: 'التقارير', icon: 'chart-column', owner: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone' },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', owner: true },
 ];
-const TITLES = { pos: 'البيع', sales: 'المبيعات', repairs: 'الصيانة', inventory: 'المخزن', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
+const TITLES = { pos: 'البيع', sales: 'المبيعات', wallets: 'المحافظ', repairs: 'الصيانة', inventory: 'المخزن', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
 function shell() {
   return `<div class="shell">${rail()}<main class="main">${topbar()}<div class="content" data-scroll="content-${S.view}">${VIEWS[S.view]()}</div></main></div>`;
 }
@@ -449,6 +450,7 @@ document.addEventListener('keydown', (e) => {
   if (S.view === 'pos') posKey(e);
   else if (S.view === 'sales') salesKey(e);
   else if (S.view === 'dashboard') reportsKey(e);
+  else if (S.view === 'wallets') walletsKey(e);
 });
 setInterval(() => { const c = $('#clock'); if (c) c.textContent = fmtTime(); }, 15000);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (SET.theme === 'auto') { applySettings(); render(); } });

@@ -72,7 +72,23 @@ await p.evaluate(() => { const c = document.querySelector('.content'); c.scrollT
 await snap('16-reports-12-months.png');
 await p.evaluate(() => { S.view = 'inventory'; S.rep = null; render(); ACT.recvOpen(); rcAdd('a7'); Object.assign(S.modal.lines[0], { qty: 20, qtyT: '20', cost: 85, costT: '85' }); rcAdd('p1'); ACT.rcPhone({ i: '1' }); ACT.rcPhone({ i: '1' }); S.modal.supplier = 'النور للتوزيع'; render(); });
 await snap('17-receive.png');
-await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); localStorage.clear(); });
+await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); });
+// 18–23) صنف جديد، والتفرعات، واختيار النوع، والمحافظ، وأول يوم في محل فاضي (docs/ui/STORE-CATALOG-WALLETS.md)
+await p.evaluate(() => { rcOpen({ mode: 'opening' }); openNewItem({ kind: 'phone' }); Object.assign(S.modal, { brand: 'Samsung', model: 'Galaxy A07', rom: '64GB', ram: '4GB', colors: ['أسود', 'أزرق'], price: '5200', cost: '4800' }); render(); });
+await snap('18-new-phone.png');
+await p.evaluate(() => { S.modal.saved = true; closeModal(); openNewItem({ kind: 'item' }); Object.assign(S.modal, { cat: 'cases', name: 'جراب شفاف مقوى', varOn: true, price: '130', cost: '40', dims: [{ label: 'الموبايل', vals: ['Galaxy A16', 'Redmi 14C', 'iPhone 16'], q: '' }, { label: 'اللون', vals: ['شفاف', 'أسود'], q: '' }], rows: { 'Galaxy A16|شفاف': { qty: '6' }, 'Galaxy A16|أسود': { qty: '4' }, 'Redmi 14C|شفاف': { qty: '5' }, 'iPhone 16|شفاف': { qty: '3', price: '160', cost: '55' } } }); render(); const t = document.querySelector('.ni-var'); if (t) t.scrollIntoView({ block: 'center' }); });
+await snap('19-new-variants.png');
+await p.evaluate(() => { S.modal.saved = true; closeModal(); S.modal.confirmClose = true; closeModal(); S.view = 'pos'; S.cat = 'cases'; render(); openVariantPicker('f1'); });
+await snap('20-variant-picker.png');
+await p.evaluate(() => { S.modal = null; S.cat = 'top'; S.view = 'wallets'; S.wal = null; render(); });
+await snap('21-wallets.png');
+await p.evaluate(() => { openServices(); Object.assign(S.modal, { op: 'withdraw', amount: '2000', fee: '20', feeEdited: true }); render(); });
+await snap('22-wallet-withdraw.png');
+await p.evaluate(() => { S.modal = null; render(); });
+await p.goto(URL + (URL.includes('?') ? '&' : '?') + 'fresh=1', { waitUntil: 'networkidle0' });
+await p.evaluate(() => { S.view = 'inventory'; render(); });
+await snap('23-store-first-day.png');
+await p.evaluate(() => localStorage.clear());
 console.log('screens:', fs.readdirSync(OUT).join(', '));
 console.log('screens ERRORS:', errs.length ? errs.join(' | ') : 'none');
 await b.close();

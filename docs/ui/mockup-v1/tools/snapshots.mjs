@@ -50,6 +50,14 @@ for (const look of ['plate', 'box']) {
     await p.evaluate(() => { S.view = 'inventory'; render(); ACT.recvOpen(); rcAdd('a7'); const l = S.modal.lines[0]; Object.assign(l, { qty: 20, qtyT: '20', cost: 85, costT: '85' }); rcAdd('p1'); ACT.rcPhone({ i: '1' }); ACT.rcPhone({ i: '1' }); rcImei(1, '123456789012345'); S.modal.supplier = 'النور للتوزيع'; render(); });
     await sleep(150); await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove())); await save(`${t}-receive`);
     await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); });
+    // صنف جديد (موبايل وتفرعات)، واختيار النوع في البيع، والمحافظ (docs/ui/STORE-CATALOG-WALLETS.md)
+    await p.evaluate(() => { rcOpen({ mode: 'opening' }); openNewItem({ kind: 'phone' }); Object.assign(S.modal, { brand: 'Samsung', model: 'Galaxy A07', rom: '64GB', ram: '4GB', colors: ['أسود', 'أزرق'], price: '5200', cost: '4800' }); render(); }); await sleep(150); await save(`${t}-new-phone`);
+    await p.evaluate(() => { S.modal.saved = true; closeModal(); openNewItem({ kind: 'item' }); Object.assign(S.modal, { cat: 'cases', name: 'جراب شفاف مقوى', varOn: true, price: '130', dims: [{ label: 'الموبايل', vals: ['Galaxy A16', 'Redmi 14C'], q: '' }, { label: 'اللون', vals: ['شفاف', 'أسود'], q: '' }], rows: { 'Galaxy A16|شفاف': { qty: '6' } } }); render(); }); await sleep(150); await save(`${t}-new-variants`);
+    await p.evaluate(() => { S.modal.saved = true; closeModal(); S.modal.confirmClose = true; closeModal(); S.view = 'pos'; S.cat = 'cases'; render(); openVariantPicker('f1'); }); await sleep(150); await save(`${t}-variant-picker`);
+    await p.evaluate(() => { S.modal = null; S.cat = 'top'; render(); }); await nav('wallets'); await sleep(200); await save(`${t}-wallets`);
+    await p.evaluate(() => { openServices(); S.modal.op = 'withdraw'; S.modal.amount = '2000'; render(); }); await sleep(150); await save(`${t}-wallet-withdraw`);
+    await p.evaluate(() => { S.modal = null; render(); ACT.walMove(); }); await sleep(150); await save(`${t}-wallet-move`);
+    await p.evaluate(() => { S.modal = null; render(); });
     await nav('sales'); await sleep(200); await save(`${t}-sales`);
     await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await save(`${t}-sales-cat`);
     await p.evaluate(() => { ACT.svRange({ id: 'month' }); svShift(-1); salesState().view = 'day'; render(); }); await sleep(150); await save(`${t}-sales-days`);
@@ -58,6 +66,9 @@ for (const look of ['plate', 'box']) {
       await p.evaluate((id) => document.querySelector(`.s-nav [data-id="${id}"]`).click(), tab); await save(`${t}-settings-${tab}`);
     }
     await p.evaluate(() => ACT.lock()); await save(`${t}-lock`);
+    // أول يوم في محل فاضي: خطوات التسجيل في المخزن
+    await p.goto(URL + (URL.includes('?') ? '&' : '?') + 'fresh=1', { waitUntil: 'networkidle0' }); await p.evaluate(() => document.fonts.ready);
+    await nav('inventory'); await sleep(200); await save(`${t}-store-first-day`);
   }
 }
 await b.close();
