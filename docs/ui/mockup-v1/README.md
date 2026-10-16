@@ -5,13 +5,27 @@
 نموذج **للتصميم بس** (HTML + JavaScript من غير مكتبات) عشان نتفق على الشكل والطريقة قبل كتابة البرنامج الحقيقي.
 البيانات تجريبية، ومفيش قاعدة بيانات: الإعدادات والصور بتتحفظ في المتصفح، والمبيعات بتتمسح لما تعمل تحديث للصفحة.
 
+**مكانه في الخطة:** ده مرجع الشكل والطريقة المعتمد للمرحلة 0 — الخطة الحاكمة في [`docs/PLAN.md`](../../PLAN.md).
+
 ## تفتحه إزاي
+
+**أسهل طريقة — ملف واحد من غير سيرفر ولا نت:**
+
+1. افتح المستودع على GitHub ← الفرع `arena/332710ba-system-sales` ← `docs/ui/mockup-v1/mockup-offline.html`.
+2. اضغط زرار التحميل (Download raw file).
+3. دبل كليك على الملف — هيفتح في Chrome أو Edge على طول، وبيشتغل حتى من غير إنترنت.
+
+الإعدادات (الاسم، الألوان، التصنيفات، الصور) بتتحفظ في المتصفح على نفس الجهاز.
+
+**أو بسيرفر محلي (للمطوّر):**
 
 ```bash
 cd docs/ui/mockup-v1
 python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.server 4173
 # وبعدين افتح http://localhost:4173
 ```
+
+> رابط المعاينة اللي بيتبعت في المحادثة بيشتغل **بس والجلسة شغالة**؛ لما الجلسة تقف الرابط يقف. الملف الواحد ده هو النسخة الدايمة.
 
 **أرقام سرية للتجربة:** بيتر (المالك) `1111` · يوسف (بيّاع) `2222` · مارينا (بيّاع) `3333`
 
@@ -32,7 +46,9 @@ python3 tools/serve.py --port 4173 --directory .     # أو: python3 -m http.ser
 ## Technical notes (for developers / agents)
 
 **What this is:** a static, dependency-free, RTL Arabic UI prototype of the desktop POS + an in-shop mobile helper.
-It is the **visual/behavioural reference** for the real app (Tauri 2 + Vue 3 + Rust + SQLite on branch `review/r1-bundle`).
+It is the **visual/behavioural reference** for the real app in this repository (`src/` + `src-tauri/`: Tauri 2 + Vue 3 +
+Rust + SQLite). Scope and priorities live in [`docs/PLAN.md`](../../PLAN.md); the decisions behind it in
+[`ADR-016`](../../decisions/ADR-016-owner-plan-2026-10-16.md).
 It is **not** product code: no persistence of sales, mock data only, no security.
 
 ### Files
@@ -47,6 +63,7 @@ It is **not** product code: no persistence of sales, mock data only, no security
 | `app.js` | Helpers, settings (`localStorage: mshop.mockup.settings.v1`), product images (`mshop.mockup.images.v1`), state `S`, render loop, rail/topbar, **user switcher**, delegated events (`data-act` / `data-input` / `data-change`). |
 | `pos.js` | Search (Arabic normalisation, transliterated keywords, last-4 IMEI, SKU), categories bar, cart/invoices/hold, optional-IMEI logic, keyboard map, modals: IMEI, customer, qty, discount (owner PIN over limit), pay (split / credit / instalments / receipt), done + receipt, services (wallets, recharge cards, bills), shift close. |
 | `views.js` | Reports, repairs board + intake, inventory (+ product images), settings (8 tabs incl. *الأصناف والبيع*), lock screen, mobile preview (live today's sales, scanner, lookup, receiving by IMEI or quantity). Startup at the end. |
+| `mockup-offline.html` | **Generated** single-file build (all CSS/JS/fonts inlined, ≈ 950 KB). Opens from disk (`file://`) with no server and no network. Never edit by hand — rebuild with `tools/build-offline.mjs`. |
 | `screens/` | Reference screenshots (1366×768). |
 | `tools/` | Build + QA tooling (below). `node_modules/` is git-ignored. |
 
@@ -63,7 +80,7 @@ It is **not** product code: no persistence of sales, mock data only, no security
   and attributed to whoever completes it. Menu updates without full re-render (`swSync`) so outside clicks are never lost.
 - **Mobile "today's sales":** owner sees shop total, profit, per-seller split, latest invoices; sellers see only their own.
 - **Product images:** optional; centre-crop 192×192 JPEG ≈ 10–20 KB; can be hidden globally.
-- Money in the mockup is plain numbers; the real app uses integer piastres (see `review/r1-bundle` rules).
+- Money in the mockup is plain numbers; the real app uses integer piastres (`ADR-010`).
 
 ### Tooling
 
@@ -75,7 +92,10 @@ python3 serve.py --bind 0.0.0.0 --port 4173 --directory ..   # preview server: a
 node smoke.mjs              # title / tiles / focus / console errors
 node qa.mjs                 # 71 behaviour checks + layout-overflow detection (1366, 1920, large text, dark); shots → /tmp/shots
 node final.mjs              # regenerate screens/
+node build-offline.mjs      # rebuild ../mockup-offline.html after ANY change to the mockup sources
+node offline-check.mjs      # file:// check: zero network requests, Arabic fonts loaded, no console errors
+MOCKUP_URL="file://$(cd .. && pwd)/mockup-offline.html" node qa.mjs   # full QA against the single file
 ```
 
 `launch.mjs` unpacks Chromium's shared libs + fonts to `/tmp/al2023x` on first run (needed on minimal Linux sandboxes).
-Last QA run: **71 passed, 0 failed, 0 console errors** (2026-10-16).
+Last QA run: **71 passed, 0 failed, 0 console errors** — served (`serve.py`) and single-file (`file://`), 2026-10-16.
