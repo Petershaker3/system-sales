@@ -202,6 +202,12 @@ const DATA = (() => {
      التقارير والموبايل وشاشة المبيعات بيحسبوا كلهم من السجل ده (analytics.js)، والبيعات الجديدة بتتضاف عليه.
      مولّد لوحده عشان الـ IMEI والأرقام اللي فوق ما تتغيّرش. المحل بيفتح 9 الصبح ويقفل 11 بالليل، والنهارده لحد الساعة دلوقتي.
      فيه نمو على السنة ومواسم السوق المصري، عشان مقارنات الشهور يبقى ليها معنى. */
+  // آخر الاستلامات (تجريبي). المورد اسم بيكتبه المحل من غير سجل موردين، زي البرنامج الحقيقي (receive_stock)
+  const receipts = [
+    { no: 41, at: new Date(Date.now() - 9 * 864e5), supplier: 'الأمل للموبايلات', by: 'u1', lines: [{ pid: 'p1', qty: 3, cost: 8600, imeis: [] }, { pid: 'p4', qty: 4, cost: 5800, imeis: [] }] },
+    { no: 42, at: new Date(Date.now() - 5 * 864e5), supplier: 'المصرية للإكسسوارات', by: 'u2', lines: [{ pid: 'a1', qty: 40, cost: 35, imeis: [] }, { pid: 'a2', qty: 60, cost: 25, imeis: [] }] },
+    { no: 43, at: new Date(Date.now() - 2 * 864e5), supplier: 'النور للتوزيع', by: 'u1', lines: [{ pid: 'a6', qty: 30, cost: 60, imeis: [] }] },
+  ];
   const history = (() => {
     let hs = 20261016;
     const hr = () => { hs = (hs * 1103515245 + 12345) % 2147483648; return hs / 2147483648; };
@@ -263,6 +269,6 @@ const DATA = (() => {
 
   return {
     users, categories, products, units, customers, wallets, payMethods, installProviders, operators, cardValues,
-    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, makeImei, luhnDigit,
+    billTypes, repairStatuses, repairIssues, repairs, shift, dash, devices, history, receipts, makeImei, luhnDigit,
   };
 })();

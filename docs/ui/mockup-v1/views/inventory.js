@@ -33,7 +33,7 @@ function viewInventory() {
   const tabs = `<div class="seg inv-seg"><button type="button" class="${I.tab !== 'short' ? 'on' : ''}" data-act="invView" data-id="items">الأصناف</button><button type="button" class="${I.tab === 'short' ? 'on' : ''}" data-act="invView" data-id="short">النواقص <span class="cnt num">${num(SHORT.length)}</span></button></div>`;
   if (I.tab === 'short') return `<div class="page">
     <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">اكتب الناقص بإيدك، أو ضيفه من اقتراحات السيستم</span><span class="sp"></span>
-      <button type="button" class="btn" data-act="goMobileRecv">${icon('package-plus')} استلام بضاعة</button></div>
+      <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button></div>
     ${shortView()}
   </div>`;
   const qd = toLatin(I.q).replace(/\D/g, '');
@@ -44,7 +44,7 @@ function viewInventory() {
   return `<div class="page">
     <div class="page-h"><h2>المخزون</h2>${tabs}<span class="sub">${num(DATA.products.length)} صنف و${num(DATA.units.filter((u) => u.status === 'in').length)} جهاز بالـ IMEI</span>${own ? `<span class="tag accent">قيمة المخزون بالتكلفة ${money(value)}</span>` : ''}<span class="sp"></span>
       <label class="inline-search">${icon('search')}<input id="inv-q" data-input="invQ" value="${esc(I.q)}" placeholder="اسم أو كود أو IMEI…" autocomplete="off"></label>
-      <button type="button" class="btn" data-act="goMobileRecv">${icon('package-plus')} استلام بضاعة</button>
+      <button type="button" class="btn" data-act="recvOpen">${icon('package-plus')} استلام بضاعة</button>
       <button type="button" class="btn" data-act="soon">${icon('tag')} طباعة ملصقات</button></div>
     ${catChipsHTML(I.cat, 'invCat')}
     <div class="table-wrap"><table class="t">
@@ -87,5 +87,4 @@ Object.assign(ACT, {
   invOpen: (d) => { S.inv.open[d.id] = !S.inv.open[d.id]; render(); },
   imgPick: (d) => { S._imgFor = d.id; const f = $('#img-file'); if (f) f.click(); },
   imgDel: (d) => { delete IMGS[d.id]; saveImages(); render(); toast('اتشالت الصورة، والصنف رجع بالأيقونة', 'info'); },
-  goMobileRecv: () => { S.view = 'mobile'; render(); toast('الاستلام بيتعمل من الموبايل، بالـ IMEI أو بالعدد', 'info'); },
 });

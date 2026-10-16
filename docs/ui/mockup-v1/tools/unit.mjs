@@ -118,6 +118,13 @@ ok(Rf.PT.sales === 0 && Rf.verdict.key === 'few' && !Rf.notes.some((n) => ['marg
 run('refreshDash()'); const yEnd = new Date(run('addDays')(today, -1).getTime() + (Date.now() - today.getTime())), yd = run('DATA.dash.today');
 ok(yd.yesterday === sum(h.filter((x) => run('sameDay')(x.at, run('addDays')(today, -1)) && x.at < yEnd).map((x) => x.total)) && yd.vsYesterday === (yd.yesterday ? run('pct')(yd.sales, yd.yesterday) : null), 'reports: yesterday is counted up to the same time as now');
 
+// 8) تكلفة الاستلام بالمتوسط المرجح (ADR-002): (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق
+const rc = run('receiveCost');
+ok(rc(4, 90, 20, 85) === 86, 'receiving cost: 4 at 90 + 20 at 85 = 85.83 → 86 (rounded up, like the real app)');
+ok(rc(3, 520, 5, 480) === 495, 'receiving cost: an exact average stays exact (495)');
+ok(rc(0, 999, 5, 480) === 480 && rc(-2, 100, 3, 120) === 120, 'receiving cost: empty or negative stock takes the new unit cost');
+ok(rc(10, 100, 10, 100) === 100, 'receiving cost: the same cost keeps the average as it was');
+
 // 6) كل اسم متعرّف في ملف واحد (اسم متكرر بين ملفين = الصفحة كلها تقف)
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const files = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]), seen = new Map(), dups = [];

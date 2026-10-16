@@ -1,6 +1,6 @@
 'use strict';
 /* ===== طبقة الحسابات: كل أرقام المبيعات بتتحسب هنا بس =====
-   التقارير وشاشة المبيعات والموبايل بيعرضوا بس، والأرقام كلها من سجل الفواتير DATA.history.
+   التقارير وشاشة المبيعات والموبايل بيعرضوا بس، والأرقام كلها من سجل الفواتير DATA.history. وتكلفة الاستلام (المتوسط المرجح) هنا كمان.
    الدوال دي من غير رسم ولا DOM، فبتتفحص من غير متصفح (tools/unit.mjs). الدليل: docs/ENGINEERING.md */
 
 /* --- التواريخ --- */
@@ -167,6 +167,14 @@ function monthReport(list, month, now = new Date()) {
   const of = months.length;
   const verdict = rank === null ? { key: 'early', tone: 'info' } : of < 3 ? { key: 'few', tone: 'info' } : rank === 1 ? { key: 'best', tone: 'good' } : rank <= 3 ? { key: 'top3', tone: 'good' } : of >= 6 && rank > of - 3 ? { key: 'low3', tone: 'warn' } : { key: 'mid', tone: 'info' };
   return { from, to, last, live, rows, T, P, PT, Y, YT, days, done: done.length, perDay, projection, phones, mix, cats, products, sellers, methods, months, rank, of, verdict, notes, disc };
+}
+
+/* --- المخزون: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
+// (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق زي البرنامج الحقيقي (domain/costing/moving_average.rs):
+// تقريب لفوق بيقلّل الربح قرش ولا يعمل ربح وهمي. الرصيد بالسالب بيتحسب صفر
+function receiveCost(stock, avg, qty, unitCost) {
+  const q0 = Math.max(0, stock), q = q0 + qty;
+  return q > 0 ? Math.ceil((q0 * avg + qty * unitCost) / q) : unitCost;
 }
 
 /* --- سجل المبيعات: البيعة اللي خلصت بتتضاف، والتقارير والموبايل بيتحسبوا من السجل --- */

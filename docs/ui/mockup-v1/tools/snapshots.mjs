@@ -47,6 +47,9 @@ for (const look of ['plate', 'box']) {
     await p.evaluate(() => { S.rep = null; });
     await p.evaluate(() => { S.inv.tab = 'short'; S.view = 'inventory'; render(); }); await sleep(150); await save(`${t}-inventory-short`);
     await p.evaluate(() => { S.inv.tab = 'items'; render(); });
+    await p.evaluate(() => { S.view = 'inventory'; render(); ACT.recvOpen(); rcAdd('a7'); const l = S.modal.lines[0]; Object.assign(l, { qty: 20, qtyT: '20', cost: 85, costT: '85' }); rcAdd('p1'); ACT.rcPhone({ i: '1' }); ACT.rcPhone({ i: '1' }); rcImei(1, '123456789012345'); S.modal.supplier = 'النور للتوزيع'; render(); });
+    await sleep(150); await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove())); await save(`${t}-receive`);
+    await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); });
     await nav('sales'); await sleep(200); await save(`${t}-sales`);
     await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await save(`${t}-sales-cat`);
     await p.evaluate(() => { ACT.svRange({ id: 'month' }); svShift(-1); salesState().view = 'day'; render(); }); await sleep(150); await save(`${t}-sales-days`);

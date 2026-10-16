@@ -243,6 +243,9 @@ function render() {
 function focusSearch() { const q = $('#q'); if (q && !S.modal && !S.locked && !(S.sw && S.sw.user)) q.focus({ preventScroll: true }); }
 function openModal(m) { S.sw = null; S.modal = m; render(); }
 function closeModal() {
+  // نافذة فيها شغل لسه ماتحفظش (زي الاستلام) بتطلب تأكيد الأول بدل ما تقفل وتضيّعه
+  const def = S.modal && MODALS[S.modal.type];
+  if (def && def.canClose && !def.canClose(S.modal)) return;
   const prev = S.modal && S.modal.prev;
   if (prev) { prev._mounted = false; S.modal = prev; render(); return; }
   S.modal = null; render(); focusSearch();

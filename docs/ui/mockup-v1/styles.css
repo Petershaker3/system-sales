@@ -817,6 +817,23 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 .page .card .sv-t td.ta-n { white-space: nowrap; }
 .card.narrow .sv-share { width: 54px; }
 .card.narrow .sv-t td { white-space: nowrap; }
+/* الاستلام */
+.rc-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 12px; align-items: end; }
+.rc-res { display: grid; gap: 2px; border: 1px solid var(--border); border-radius: var(--r-m); padding: 4px; max-height: 300px; overflow: auto; }
+.rc-none { padding: 12px; }
+.rc-t td small { display: block; font-size: .8rem; }
+.rc-in { width: 96px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 8px; background: var(--surface); color: var(--text); text-align: end; font: inherit; }
+.rc-in:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.rc-t tr.rc-imrow td { background: var(--surface-2); padding-top: 8px; padding-bottom: 10px; }
+.rc-imei { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rc-imei .inline-search.rc-ims { height: 40px; min-width: 300px; flex: 0 1 340px; }
+.rc-cnt, .rc-err { font-size: .86rem; display: inline-flex; align-items: center; gap: 4px; }
+.rc-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.rc-chips .tag { gap: 6px; }
+.rc-x { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-inline-start: 2px; border: 0; border-radius: var(--r-xs); background: transparent; color: inherit; cursor: pointer; }
+.rc-x:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+.rc-x:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+.rc-x svg.i { width: 14px; height: 14px; }
 .sv-days tr.zero td, .sv-days tr.zero b { color: var(--muted); font-weight: 400; }
 .sv-days .tag { margin-inline-start: 6px; }
 .sv-cust { display: flex; align-items: center; gap: 8px; }

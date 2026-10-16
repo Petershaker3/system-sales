@@ -57,8 +57,12 @@ function searchAll(q) {
     DATA.products.filter((p) => p.sku && p.sku.includes(digits)).slice(0, 4).forEach((p) => out.push({ type: 'prod', p }));
     if (out.length) return out;
   }
-  const toks = qn.split(' ');
-  const scored = [];
+  return rankProducts(qn).map((p) => ({ type: 'prod', p }));
+}
+// الأصناف بالاسم (شاشة البيع والاستلام): كل كلمة لازم تكون موجودة، واللي اسمه بيبدأ بأول كلمة الأول،
+// بعده اللي اسمه فيه الجملة كلها، وبعدها الأكتر بيعًا. qn متطبّع بـ normalize
+function rankProducts(qn, limit = 8) {
+  const toks = qn.split(' '), scored = [];
   for (const p of DATA.products) {
     if (!toks.every((t) => p._hay.includes(t))) continue;
     let sc = p.sold;
@@ -67,7 +71,7 @@ function searchAll(q) {
     scored.push([sc, p]);
   }
   scored.sort((a, b) => b[0] - a[0]);
-  return scored.slice(0, 8).map(([, p]) => ({ type: 'prod', p }));
+  return scored.slice(0, limit).map(([, p]) => p);
 }
 function resultsHTML() {
   if (!S.q.trim()) return '';

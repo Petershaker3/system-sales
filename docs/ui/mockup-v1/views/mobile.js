@@ -98,15 +98,15 @@ Object.assign(ACT, {
   mRecvQty: (d) => { S.mobile.recvQty = clamp(S.mobile.recvQty + +d.d, 1, 99); render(); },
   mRecvSaveQty: () => {
     const M = S.mobile, p = prod(M.recvPid), n = M.recvQty;
-    p.stock += n; M.recvQty = 1; render();
-    toast(`اتضاف ${num(n)} جهاز «${p.name}» للمخزون من غير IMEI`);
+    const arrived = applyReceipt('', [{ pid: p.id, qty: n, cost: p.cost, imeis: [] }]); // نفس استلام الكمبيوتر (views/receive.js)
+    M.recvQty = 1; render();
+    toast(`اتضاف ${num(n)} جهاز «${p.name}» للمخزون من غير IMEI`); arrivedToasts(arrived);
   },
   mRecvScan: () => { const M = S.mobile, im = DATA.makeImei(prod(M.recvPid).tac); M.recv.push(im); render(); toast(`اتمسح IMEI …${im.slice(-4)}`); },
   mRecvSave: () => {
-    const M = S.mobile, p = prod(M.recvPid), today = new Date().toISOString().slice(0, 10);
-    M.recv.forEach((im, i) => DATA.units.push({ imei: im, imei2: DATA.makeImei(p.tac), pid: p.id, color: p.colors[i % p.colors.length], storage: p.storage, condition: 'جديد', battery: null, customs: null, cost: p.cost, received: today, status: 'in' }));
-    p.stock += M.recv.length;
-    toast(`اتضاف ${num(M.recv.length)} جهاز «${p.name}» للمخزون`);
+    const M = S.mobile, p = prod(M.recvPid);
+    const arrived = applyReceipt('', [{ pid: p.id, qty: M.recv.length, cost: p.cost, imeis: [...M.recv] }]); // نفس استلام الكمبيوتر (views/receive.js)
+    toast(`اتضاف ${num(M.recv.length)} جهاز «${p.name}» للمخزون`); arrivedToasts(arrived);
     M.recv = []; render();
   },
 });
