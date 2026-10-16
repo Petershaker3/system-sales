@@ -39,6 +39,8 @@ for (const look of ['plate', 'box']) {
     await key('Enter'); await sleep(200); await save(`${t}-done`); await key('Escape');
     await key('F9'); await save(`${t}-services`); await key('Escape');
     await p.evaluate(() => document.querySelector('[data-act="shiftClose"]').click()); await save(`${t}-shift`); await key('Escape');
+    // الرسايل بتختفي بعد ثواني: قبل باقي الشاشات بنشيل رسايل البيع اللي فاتت (زي ما الوقت يعدّي)، عشان ما تتحسبش على تصميم الصفحة
+    await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove()));
     for (const v of ['repairs', 'inventory', 'dashboard', 'mobile']) { await nav(v); await sleep(200); await save(`${t}-${v}`); }
     await nav('settings'); await sleep(150);
     for (const tab of ['shop', 'look', 'catalog', 'pay', 'receipt', 'devices']) {

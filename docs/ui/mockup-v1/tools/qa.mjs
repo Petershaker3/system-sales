@@ -224,6 +224,10 @@ ok(await p.evaluate(() => typeof IMGS.a1 === 'string' && IMGS.a1.startsWith('dat
 // 18) التقارير
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="dashboard"]').click()); await sleep(200);
 await shot('16-dashboard-light');
+// تقسيم طرق الدفع: كل جزء ونقطته ليهم لون فعلي (الألوان بتتبني بالاسم var(--c${i}) فلازم تكون معرّفة)
+ok(await p.evaluate(() => { const seg = [...document.querySelectorAll('.split i')]; const dots = [...document.querySelectorAll('.li .dot')];
+  const painted = (el) => { const c = getComputedStyle(el).backgroundColor; return c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; };
+  return seg.length >= 3 && seg.every(painted) && dots.length >= 3 && dots.every(painted) && new Set(seg.map((e) => getComputedStyle(e).backgroundColor)).size === seg.length; }), 'payment split bar and legend dots are painted, each segment a distinct shade');
 await checkOverflow('dashboard');
 // 19) الموبايل: مسح -> الفاتورة
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="mobile"]').click()); await sleep(200);
