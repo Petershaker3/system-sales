@@ -1,8 +1,23 @@
 ﻿# Mobile Shop System
 
-Offline-first point-of-sale for a mobile shop. Tauri 2 + Vue 3 + SQLite, with
-Android and Windows both acting as full POS clients, each owning its own local
-database.
+Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQLite.
+
+> **Plan of record (2026-10-16): [`docs/PLAN.md`](docs/PLAN.md)** — decisions in
+> [`ADR-016`](docs/decisions/ADR-016-owner-plan-2026-10-16.md). The **Windows desktop is the
+> point of sale and the single source of truth** (one SQLite database, sells with no internet);
+> the **Android app becomes a companion** over the shop's Wi-Fi with **no database of its own**
+> (live sales, price/stock lookup, camera scanner, photos). Cloud / remote viewing is a later,
+> optional phase. This replaces the earlier "two independent full POS devices, no sync" scope
+> (`ADR-008`, superseded).
+>
+> **UI reference:** [`docs/ui/mockup-v1/`](docs/ui/mockup-v1/README.md) — download
+> `mockup-offline.html` and double-click it; it runs with no server and no internet.
+>
+> **This README describes the code as it is today.** Pieces the plan replaces are marked
+> **→ plan** below: the Pattern step-up (→ owner PIN), FIFO and the costing-method switch
+> (→ retired; `ADR-002` only), cash-only sales (→ payments), and the full-POS Android build
+> (→ companion). Work order: [`tasks/todo.md`](tasks/todo.md). Archived material and why:
+> [`archive/README.md`](archive/README.md).
 
 > **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1) + Inventory & costing (SP-2) slices.**
 > Accounts, sessions, roles, the login flow, password management, user
@@ -168,8 +183,10 @@ Vue ──▶ commands ──▶ services ──▶ domain ──▶ repositorie
 
 ## Database
 
-Each device owns one file. No shared database, no synchronisation, no server
-(`ADR-008`). Migrations are forward-only; rollback means restore a backup then
+One database file, owned by the shop desktop — the single source of truth
+(`ADR-016`; the companion phone keeps no database). No cloud. *(Today's build still
+gives each device its own file, per the superseded `ADR-008`; the companion
+arrives in phase 3 of `docs/PLAN.md`.)* Migrations are forward-only; rollback means restore a backup then
 fix forward, not run a `Down` script.
 
 Eleven migrations (`0001`…`0011`), forward-only. Tables:
@@ -288,21 +305,27 @@ Implemented and tested:
   rather than being hidden or defaulted. Login and session resolution refuse such
   an account; the management list still shows it, flagged
 - Departments: create, edit, re-order, archive and restore, each with its own cost
-  method and VAT. Classification only — no stock (SP-1b)
+  method and VAT. Classification only — no stock (SP-1b). **→ plan:** a 2-level
+  category tree managed by the owner; the per-department cost method goes unused
+  (phases 1.2 / 1.3)
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)
-- Pattern step-up approval: set, prove, reset with the Manager password (the only
+- **→ plan: replaced by owner-PIN approvals (phase 1.1, `ADR-016`).** Pattern step-up
+  approval: set, prove, reset with the Manager password (the only
   recovery path) and disable. Approvals are five minutes, epoch-invalidated, and
   never leave an audit trace (`SP-1c`, `ADR-014`)
 - Price history: changing a product's sale price writes the old and new value in
   the same transaction as the change itself (SP-1b)
-- Stock and costing (SP-2): one stock counter per product, Moving Average and FIFO
+- **→ plan: FIFO and the costing-method switch are retired; Moving Average + actual
+  per-unit cost stay (`ADR-002`, phase 1.3).** Stock and costing (SP-2): one stock
+  counter per product, Moving Average and FIFO
   cost arithmetic with the ceiling rounding rule of `ADR-013`, receiving and
   consumption, and a costing-method switch that converts the stock that already
   exists rather than relabelling it
 - Receiving a delivery is routine; declaring an opening balance and switching the
   costing method are sensitive and sit behind re-authentication and the Pattern
+  (**→ plan:** approvals move to the owner PIN)
   (`ADR-015`)
 - Insufficient stock refuses the whole operation: no partial consumption, and a
   negative balance is impossible at the storage layer
@@ -314,27 +337,34 @@ Implemented and tested:
   never merged; explicit one-time sale links and free-text snapshots on
   unlinked sales, entered at invoice time in the sales panel. Browsing is
   manager-only; sellers create at invoice time.
-  Warranty dates at sale time only (no preset periods)
+  Warranty dates at sale time (`0013_warranty.sql`, `YYYY-MM-DD` on `sale_lines`).
+  **→ plan:** presets by product type pre-fill them, editable per line (phase 1.8)
+- Receiving records an optional supplier name (decision D1,
+  `0014_receiving_supplier.sql`); no supplier table, no purchase orders
 
 Not started, and deliberately so:
 
 | Item | Blocked on |
 |---|---|
 | Sale-line cost snapshot | Shipped with the sales slice: each line stores price/cost/profit at sale time, never recomputed (`sale_lines.unit_cost_minor`) |
-| Customer returns at original cost | Later slice (needs decision D7: damaged/non-resellable accounting) |
+| Customer returns at original cost | Phase 1.11. Decided: original line cost (D7); damaged goods go to a damaged-stock bucket and are never resold (`ADR-016`) |
 | Movement ledger | Shipped with the sales slice (`stock_movements` in `migrations/0011`); stocktakes and adjustments stay a later slice |
 | Sales recording and cancellation | Shipped (`record_sale` / `cancel_sale` with reversal, no double-cancel). Receipts and reports stay later slices |
-| Serialised units, IMEI tracking | A later slice. `disposition` names the class; nothing tracks units yet |
+| Serialised units, IMEI tracking | Phase 1.4. **Optional** IMEI (setting: optional / required); quantity stays authoritative (`docs/PLAN.md` §7). `disposition` names the class; nothing tracks units yet |
 | Suppliers, purchase orders, payables | Deferred by `spec` §231. Receiving is a unit cost and a quantity, not a procurement document |
-| Barcode scanning, generation, label printing | BLOCKED in `ADR-008`. Needs hardware evidence. Typed and pasted lookup needs neither, so it shipped |
+| Barcode scanning, generation, label printing | No scanner in the shop today: typed search (name, code, last 4 IMEI digits) plus the **companion phone's camera** with a non-Google-services decoder (phase 3); a USB scanner can be added later and needs no change. Labels: phase 2 (content decided, D5) |
 | Wholesale price | Deferred. A shop selling both retail and wholesale will need it |
-| Rounding on weighted average, discounts, tax | OPEN. Settled in principle by the delivery specification (ceiling at each fractional piastre, `ADR-013`) but **not implemented** — SP-1 applies no rounding, and `spec:239` closes only when the costing engine lands |
-| Synchronisation | Out of scope for V1 (`ADR-008`) |
+| Rounding on weighted average, discounts, tax | Costing rounding shipped with SP-2 (ceiling at each fractional piastre, `ADR-013` §5). Discounts: phase 1.6 (seller limit, owner PIN above it). Tax: data-model defaults, hidden in the UI; e-receipt in phase 4 |
+| Synchronisation | In-shop companion over Wi-Fi in phase 3 (`ADR-016`); the phone keeps no database, so there is nothing to merge. Cloud / remote viewing: phase 4, optional |
+| Payments beyond cash, split, credit | Phase 1.5 (`docs/PLAN.md` §8) — replaces the cash-only V1 (D3) |
+| Desktop POS screen, receipts, shift, services | Phases 1.6, 1.7, 1.9, 1.10 — per the mockup |
+| PIN sign-in and quick user switch | Phase 1.1 — PIN on every switch |
+| Repairs, used devices / trade-in, stocktake | Phase 2 |
 
 ### Schema foundation (SP-1)
 
 Shipped in the `inventory-procurement` slice, deliberately without any costing
-arithmetic. Full plan: `docs/superpowers/plans/2026-10-07-sp1-schema-foundation-plan.md`.
+arithmetic. Full plan (archived): `archive/superseded-2026-10-16/superpowers/plans/2026-10-07-sp1-schema-foundation-plan.md`.
 
 | Item | State |
 |---|---|
@@ -362,7 +392,7 @@ nullable, so these boundaries cannot erode unnoticed.
 Shipped as one body on top of SP-1. Authority = who may run a sensitive
 operation and under what freshly-proven conditions; settings = the device's
 configuration store. Full plan:
-`docs/superpowers/plans/2026-10-07-sp1bc-authority-settings-plan.md`.
+`archive/superseded-2026-10-16/superpowers/plans/2026-10-07-sp1bc-authority-settings-plan.md` (archived).
 
 | Item | State |
 |---|---|
@@ -384,6 +414,10 @@ later slice reads them (`ADR-013`).
 
 Verification is tracked per slice, because "it works" means different things for
 a slice that has been on a phone and one that has not.
+
+> The phone runs below concern the **former full-POS Android build**. Under `ADR-016`
+> the phone becomes a companion with no database (phase 3), so these results are
+> history for the identity and catalogue code, not acceptance for the companion.
 
 | Slice | Desktop | Physical SM-N976N |
 |---|---|---|

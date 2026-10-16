@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Offline-first mobile shop POS. Android and Windows are both full POS clients; each device owns its local SQLite database. No automatic sync in V1 (ADR-008).",
+  "description": "Offline-first POS for a mobile-phone shop. The Windows desktop is the point of sale and the single source of truth (one local SQLite database); the Android app is a companion over the shop Wi-Fi with no database of its own (ADR-016, docs/PLAN.md).",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
