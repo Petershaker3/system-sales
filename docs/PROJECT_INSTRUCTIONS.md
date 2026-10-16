@@ -20,12 +20,32 @@ When an instruction from the Owner appears to conflict with a lower-level
 instruction, the Owner's most recent explicit statement wins. If two Owner
 statements genuinely conflict, stop and ask.
 
+**Order of authority** (highest first), as of 2026-10-16:
+
+1. The Owner's most recent explicit statement.
+2. This document.
+3. **The current plan**, [`docs/PLAN.md`](PLAN.md), and its decision record
+   [`ADR-016`](decisions/ADR-016-owner-plan-2026-10-16.md). The Owner said on
+   2026-10-16: «ملناش دعوة بالقديم، خلينا في اللي بنتفق عليه أنا وانت» — only
+   what the Owner and the agent agreed counts; older decisions that conflict
+   with it are void.
+4. Other accepted ADRs in `docs/decisions/`, where not superseded.
+5. The 2026-09-28 specification, as amended at its end.
+6. The UI mockup `docs/ui/mockup-v1/` as the visual and behavioural reference.
+7. `tasks/todo.md` (working list). Handoffs and reports are non-normative.
+
 ## 2. Independent New System
 
 **Decision of record:** ADR-007 establishes that the new system is independent and
 designed from first principles (docs/decisions/ADR-007-independent-new-system.md).
 
-ADR-008 defines the V1 product scope: offline-first local POS on both Android and Windows, each with its own local SQLite; no automatic sync, no central server, and no cloud database in V1; future sync is deliberately deferred.
+**V1 product scope (ADR-016, 2026-10-16 — supersedes ADR-008):** the Windows
+desktop app is the point of sale and the **single source of truth**, with one
+local SQLite database, and it sells with no internet. The Android app is a
+**companion** that connects to the desktop over the shop's Wi-Fi: it has **no
+database of its own** and does not sell in V1. No cloud in V1; viewing from
+outside the shop is a later, optional phase. Full scope, priorities and roadmap:
+[`docs/PLAN.md`](PLAN.md).
 The new shop system is **designed and built from first principles**. The legacy
 shop system is **archival material** — kept for audit and reference only.
 
@@ -38,8 +58,9 @@ shop system is **archival material** — kept for audit and reference only.
   no migration path, and no legacy-shaped record in the new data model.
 - **No legacy report formula, KPI definition, or total** is reproduced,
   reconciled against, or calibrated with.
-- Legacy archives under `dev_extracted/` and `archive/` remain **read-only** and
-  are never cited as an acceptance criterion for any slice of the new system.
+- Legacy archives under `archive/` (including the legacy app source in
+  `archive/legacy-project/dev_extracted/`) remain **read-only** and are never
+  cited as an acceptance criterion for any slice of the new system.
 
 Required relationship:
 
@@ -149,6 +170,12 @@ failure, not an efficiency gain.
 Stop at the end of every phase and report: what was verified, what changed, test
 results, and the diff. Do not continue into the next phase uninvited.
 
+Keep reports **short** — the effort belongs in what the seller and the Owner
+see. A roadmap phase is accepted by **one criterion: a real working day in the
+shop**, run alongside the current way of working, with the drawer and the stock
+matching at the end of the day (difference zero) and the phase's speed targets
+met (`docs/PLAN.md` §1).
+
 ## 6. Avoid Wasted Work
 
 - Do not investigate archived or legacy behaviour merely because it exists.
@@ -159,8 +186,9 @@ works somewhere else.
 
 ## 7. Safety Rules
 
-- Treat all data under `dev_extracted/`, `archive/`, and any real export as
-  **read-only**. Never edit, normalize, or rewrite it.
+- Treat all data under `archive/` and any real export as **read-only**. Never
+  edit, normalize, or rewrite it. Archiving means `git mv` into `archive/` with
+  a reason in `archive/README.md` — never deletion.
 - Real exports may contain credentials in plaintext. Never copy such content into
   the repository, into fixtures, or into reports. Name the risk instead.
 - Never commit secrets. Never place a real export inside the repository.

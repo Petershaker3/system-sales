@@ -1,6 +1,6 @@
 # ADR-014: Pattern Approval (Step-Up Authorization)
 
-**Status:** Accepted — Product Owner decision 2026-10-07 (SP-1b / SP-1c)
+**Status:** Superseded on 2026-10-16 by `ADR-016` (owner-PIN approvals) — was accepted by the Product Owner 2026-10-07 (SP-1b / SP-1c). See the addendum at the end.
 
 **Related:** `ADR-003` (local backup encryption), `ADR-010` (EGP / piastres), `ADR-012` (inventory schema)
 
@@ -128,3 +128,17 @@ Pattern text or a derived key.
 - `spec:138` — atomicity of database operations that include authorization.
 - `spec:177` — attribution from the session, never the caller.
 - `plan:151` — authorization is resolved at the session layer, not per command.
+
+---
+
+## Addendum 2026-10-16 — superseded by ADR-016
+
+- Sensitive approvals move from the Pattern to the **owner's PIN** (4–6 digits, Argon2id, lockout after 5 failures), the
+  pattern used by the reference POS systems in the market research. Daily sign-in and quick user switching also use
+  per-user PINs, with a PIN required on **every** switch.
+- The **TTL + epoch** design above (exact expiry, no renewal, epoch invalidation without sweeping sessions) is sound and may
+  be reused for PIN approvals.
+- The manager-password recovery flow (cargo feature `recovery`) currently requires the device Pattern; it must be
+  redesigned when the Pattern is retired (phase 1.1 of `docs/PLAN.md`).
+- Code is unchanged so far: `manager_pattern`, the session columns and the commands still exist. Applied migrations are
+  never edited; retiring the Pattern is a new migration plus service/UI changes.
