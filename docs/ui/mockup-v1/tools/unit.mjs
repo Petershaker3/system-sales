@@ -118,6 +118,12 @@ ok(Rf.PT.sales === 0 && Rf.verdict.key === 'few' && !Rf.notes.some((n) => ['marg
 run('refreshDash()'); const yEnd = new Date(run('addDays')(today, -1).getTime() + (Date.now() - today.getTime())), yd = run('DATA.dash.today');
 ok(yd.yesterday === sum(h.filter((x) => run('sameDay')(x.at, run('addDays')(today, -1)) && x.at < yEnd).map((x) => x.total)) && yd.vsYesterday === (yd.yesterday ? run('pct')(yd.sales, yd.yesterday) : null), 'reports: yesterday is counted up to the same time as now');
 
+// تقسيم طرق الدفع: 5 درجات بس من لون المحل (styles.css: --c0…--c4)، فاليوم اللي فيه 6 طرق بيجمع الزيادة في «تاني»
+const ps = run('typeof paySplit === "function" ? paySplit : null');
+const six = ps ? ps({ 'كاش': 5000, 'فودافون كاش': 2000, 'إنستاباي': 1500, 'فيزا / ميزة': 900, 'تقسيط': 300, 'آجل': 100 }) : [];
+ok(ps && six.length === 5 && six[4].name === 'تاني' && six.reduce((a, x) => a + x.v, 0) === 100 && six[0].name === 'كاش', 'payment split: at most 5 parts (6 methods → the smallest two become «تاني»), summing to 100%');
+ok(ps && ps({ 'كاش': 1 }).length === 1 && ps({}).length === 0, 'payment split: one method is one part, and no sales is no parts');
+
 // 8) تكلفة الاستلام بالمتوسط المرجح (ADR-002): (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق
 const rc = run('receiveCost');
 ok(rc(4, 90, 20, 85) === 86, 'receiving cost: 4 at 90 + 20 at 85 = 85.83 → 86 (rounded up, like the real app)');
@@ -132,6 +138,11 @@ for (const f of files) for (const m of fs.readFileSync(path.join(ROOT, f), 'utf8
   if (seen.has(m[1])) dups.push(`${m[1]} (${seen.get(m[1])} + ${f})`); else seen.set(m[1], f);
 }
 ok(files.length >= 13 && !dups.length, `every top-level name is declared once across ${files.length} files${dups.length ? `: ${dups.join(', ')}` : ''}`);
+
+// 7) قاموس الكلام (DESIGN.md): كلمات المالك قرر نشيلها ما ترجعش في أي ملف
+const WORDS = [['المخزون', 'المخزن (المالك 2026-10-17)'], ['تعليق', 'انتظار (الجولة 2)']], badWords = [];
+for (const f of files) { const src = fs.readFileSync(path.join(ROOT, f), 'utf8'); for (const [w, use] of WORDS) if (src.includes(w)) badWords.push(`«${w}» في ${f} — استعمل «${use}»`); }
+ok(!badWords.length, `the wording rules hold in every file${badWords.length ? `: ${badWords.join('، ')}` : ''}`);
 
 console.log(`UNIT PASSED: ${pass}`);
 console.log('UNIT FAILS:', fails.length ? `\n${fails.join('\n')}` : 'none');

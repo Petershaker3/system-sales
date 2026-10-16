@@ -54,7 +54,7 @@ function recvScreen() {
   if (byQty) {
     return `${head}
     <div class="ph-card"><div class="r"><b>العدد</b><div class="qty"><button type="button" data-act="mRecvQty" data-d="1" title="زوّد">${icon('plus')}</button><span class="num">${num(M.recvQty)}</span><button type="button" data-act="mRecvQty" data-d="-1" title="قلّل">${icon('minus')}</button></div></div>
-      <div class="muted" style="font-size:.8rem">الأجهزة بتدخل المخزون من غير IMEI، ولو حبيت تسجّله بيتسجّل وقت البيع</div></div>
+      <div class="muted" style="font-size:.8rem">الأجهزة بتدخل المخزن من غير IMEI، ولو حبيت تسجّله بيتسجّل وقت البيع</div></div>
     <button type="button" class="btn primary block" data-act="mRecvSaveQty">${icon('save')} حفظ الاستلام</button>
   </div>`;
   }

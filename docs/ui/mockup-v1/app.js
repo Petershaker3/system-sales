@@ -208,7 +208,7 @@ const logoHTML = (cls = 'logo') => `<div class="${cls}">${SET.logo ? `<img src="
 
 /* سجلات تتملي من الملفات التانية */
 // كل اسم (شاشة، نافذة، إجراء) لازم يتعرّف مرة واحدة: التعريف التاني بيلغي الأول من غير ما حد ياخد باله،
-// فبنكتب خطأ في الكونسول والفحص الآلي بيلقطه (حصل مع invTab: تبويب المخزون كان بيلغي تبويب الفواتير)
+// فبنكتب خطأ في الكونسول والفحص الآلي بيلقطه (حصل مع invTab: تبويب المخزن كان بيلغي تبويب الفواتير)
 const registry = (name) => new Proxy({}, { set(t, k, v) { if (Object.prototype.hasOwnProperty.call(t, k)) console.error(`${name}.${String(k)} اتعرّف مرتين`); t[k] = v; return true; } });
 const VIEWS = registry('VIEWS'), MODALS = registry('MODALS'), ACT = registry('ACT'), INPUT = registry('INPUT'), CHANGE = registry('CHANGE');
 
@@ -259,12 +259,12 @@ const NAV = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart' },
   { id: 'sales', label: 'المبيعات', icon: 'receipt-text' },
   { id: 'repairs', label: 'الصيانة', icon: 'wrench' },
-  { id: 'inventory', label: 'المخزون', icon: 'boxes' },
+  { id: 'inventory', label: 'المخزن', icon: 'boxes' },
   { id: 'dashboard', label: 'التقارير', icon: 'chart-column', owner: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone' },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', owner: true },
 ];
-const TITLES = { pos: 'البيع', sales: 'المبيعات', repairs: 'الصيانة', inventory: 'المخزون', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
+const TITLES = { pos: 'البيع', sales: 'المبيعات', repairs: 'الصيانة', inventory: 'المخزن', dashboard: 'التقارير', mobile: 'تطبيق الموبايل', settings: 'الإعدادات' };
 function shell() {
   return `<div class="shell">${rail()}<main class="main">${topbar()}<div class="content" data-scroll="content-${S.view}">${VIEWS[S.view]()}</div></main></div>`;
 }

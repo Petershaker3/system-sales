@@ -78,12 +78,13 @@ Contrast is tested **after rounding** to hex. Coloured buttons and chips get a b
 
 ## Writing
 
-- Egyptian colloquial, plain verbs, the shop's own words («انتظار»، «آجل»، «بيّاع»).
+- Egyptian colloquial, plain verbs, the shop's own words («انتظار»، «آجل»، «بيّاع»، «المخزن»). Owner's replacements: «انتظار» not «تعليق» (round 2), **«المخزن» not «المخزون»** (2026-10-17). `tools/unit.mjs` fails if a replaced word comes back in any mockup file.
 - **No joins with « · » or « — ».** Two ideas = two sentences; a detail = «،» or a subtitle line; a list = «و».
 - Errors say what happened and how to fix it: «الرقم ده مش IMEI صحيح: رقم المراجعة غلط. راجع الرقم».
 - An action keeps its name through the flow (the button «ادفع» → the screen «تم البيع»).
 - **Counts agree with the number** (`pcsWord`): «قطعة»، «قطعتين»، «5 قطع»، «12 قطعة».
 - **Short figures over bars** are words, not «k»: «2.37 مليون»، «171.5 ألف».
+- **Payment split:** at most 5 parts, the shades `--c0`…`--c4`; more methods fold their smallest into «تاني» (`paySplit`).
 - **Comparisons say against what:** «عن امبارح لنفس الساعة»، «عن نفس الوقت من سبتمبر»، «عن أكتوبر 2025». A category inside a sentence goes in «» («مبيعات «مستعمل» قلّت 28%»).
 - **The evaluation states facts from the figures, never opinions,** and gives the reason only when the figures show it («لأن الموبايلات بقت 87% من المبيعات»).
 

@@ -34,7 +34,7 @@ await snap('03-mobile-sales.png');
 // 4) الإعدادات ← الأصناف والبيع (الـ IMEI + الصور + التصنيفات)
 await p.evaluate(() => { S.view = 'settings'; S.settingsTab = 'catalog'; render(); });
 await snap('04-settings-catalog.png');
-// 5) المخزون: «إكسسوارات» + عدد اللي بالـ IMEI والأجهزة اللي من غير IMEI
+// 5) المخزن: «إكسسوارات» + عدد اللي بالـ IMEI والأجهزة اللي من غير IMEI
 await p.evaluate(() => { S.view = 'inventory'; S.inv.cat = 'phones'; S.inv.open = { p4: true }; render(); });
 await snap('05-inventory.png');
 // 6) التقارير غامق

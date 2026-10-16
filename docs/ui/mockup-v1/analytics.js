@@ -169,7 +169,7 @@ function monthReport(list, month, now = new Date()) {
   return { from, to, last, live, rows, T, P, PT, Y, YT, days, done: done.length, perDay, projection, phones, mix, cats, products, sellers, methods, months, rank, of, verdict, notes, disc };
 }
 
-/* --- المخزون: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
+/* --- المخزن: التكلفة بعد الاستلام بالمتوسط المرجح المتحرك (ADR-002) --- */
 // (قيمة الرصيد + قيمة الاستلام) ÷ العدد الجديد، والكسر لفوق زي البرنامج الحقيقي (domain/costing/moving_average.rs):
 // تقريب لفوق بيقلّل الربح قرش ولا يعمل ربح وهمي. الرصيد بالسالب بيتحسب صفر
 function receiveCost(stock, avg, qty, unitCost) {
@@ -185,6 +185,16 @@ function histRecord(sale) {
     lines: sale.lines.map((l) => { const p = l.pid ? prod(l.pid) : null; return { pid: p ? p.id : null, name: l.name, cat: p ? p.cat : 'svc', qty: l.qty || 1, price: l.price, cost: p ? p.cost : 0, imei: l.imei || null, warranty: l.warranty || 0 }; }),
     disc: sale.disc || 0, total: sale.total, profit: sale.profit, payments: sale.payments.map((x) => ({ method: x.method, amount: x.amount, provider: x.provider || '' })),
   };
+}
+// تقسيم طرق الدفع بالنسبة: الألوان 5 درجات بس من لون المحل (styles.css: --c0…--c4)، فلو الطرق أكتر من 5
+// الأصغر بيتجمعوا في «تاني» (يوم فيه الست طرق كان الجزء السادس بيطلع من غير لون). المجموع 100 دايمًا
+function paySplit(pay, max = 5) {
+  const sum = Object.values(pay).reduce((a, v) => a + v, 0);
+  let rows = Object.entries(pay).sort((a, b) => b[1] - a[1]);
+  if (rows.length > max) rows = [...rows.slice(0, max - 1), ['تاني', rows.slice(max - 1).reduce((a, r) => a + r[1], 0)]];
+  const split = rows.map(([name, v]) => ({ name, v: sum ? Math.round((v / sum) * 100) : 0 }));
+  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
+  return split;
 }
 // أرقام التقارير والموبايل بتتحسب من السجل (عدادات الخدمات زي ما هي: مش فواتير بيع)
 function refreshDash() {
@@ -202,9 +212,7 @@ function refreshDash() {
     for (const p of x.payments) { const n = methodName(p.method); pay[n] = (pay[n] || 0) + p.amount; }
     for (const l of x.lines) { const r = top[l.name] || (top[l.name] = [l.name, 0, 0]); r[1] += l.qty; r[2] += l.price * l.qty; }
   }
-  const paySum = Object.values(pay).reduce((a, v) => a + v, 0);
-  const split = Object.entries(pay).sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, v: paySum ? Math.round((v / paySum) * 100) : 0 }));
-  if (split.length) split[0].v += 100 - split.reduce((a, p) => a + p.v, 0);
+  const split = paySplit(pay);
   Object.assign(D, {
     today: { ...t, vsYesterday: t.yesterday ? pct(t.sales, t.yesterday) : null }, week, pay: split, top: Object.values(top).sort((a, b) => b[1] - a[1] || b[2] - a[2]).slice(0, 5),
     recent: todays.slice().reverse().slice(0, 8).map((x) => {

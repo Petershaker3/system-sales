@@ -139,12 +139,13 @@ await key('F9');
 ok(await p.$('.modal[aria-label="خدمات سريعة"]'), 'F9 opens services');
 await type('1000');
 ok(await p.evaluate(() => document.querySelector('#svc-fee').value === '' && document.querySelector('.due-box .grand').textContent.includes('اكتب العمولة')), 'commission is typed per transaction (empty by default)');
-await p.focus('#svc-ph'); await type('01012345678'); await key('Enter');
+ok(await p.evaluate(() => !document.querySelector('#svc-ph') && !!document.querySelector('#svc-note')), 'wallet form asks for no customer number (owner 2026-10-17), only an optional note');
+await key('Enter');
 ok(await p.evaluate(() => document.querySelector('.err-msg').textContent.includes('العمولة') && document.activeElement.id === 'svc-fee' && !S.services.length), 'missing commission refused → cursor jumps to it');
 await type('15'); await shot('09-services-wallet');
 ok(await p.evaluate(() => document.querySelector('.due-box .grand').textContent.includes('1,015')), 'typed commission updates the total (1,015)');
 await key('Enter');
-ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('1,015')) && S.services.at(-1).fee === 15), 'wallet transfer recorded with the typed commission');
+ok(await p.evaluate(() => [...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('1,015')) && S.services.at(-1).fee === 15 && !('phone' in S.services.at(-1))), 'wallet transfer recorded with the typed commission, no number');
 await checkOverflow('services-wallet');
 await clickText('.seg button', 'كروت شحن'); await clickText('.btn', 'كارت 50');
 await shot('10-services-cards');
@@ -210,13 +211,14 @@ await key('Enter');
 ok(await p.evaluate(() => S.repairs[0].no === 'R-1053'), 'intake saved as R-1053');
 await clickText('.btn', 'سلّم وحصّل');
 ok(await p.evaluate(() => S.view === 'pos' && cur().lines.some((l) => l.repairNo)), 'deliver adds repair to invoice');
-// 17) المخزون
+// 17) المخزن
 await p.evaluate(() => document.querySelector('.nav-btn[data-v="inventory"]').click()); await sleep(200);
+ok(await p.evaluate(() => document.querySelector('.topbar h1').textContent.trim() === 'المخزن' && document.querySelector('.nav-btn[data-v="inventory"]').textContent.includes('المخزن') && !document.body.innerText.includes('المخزون')), 'the screen is called «المخزن», and «المخزون» appears nowhere (owner 2026-10-17)');
 await p.evaluate(() => document.querySelector('[data-act="invOpen"]').click()); await sleep(150);
 ok(await p.evaluate(() => document.querySelectorAll('tr.sub').length > 1), 'inventory expands IMEI units');
 await shot('15-inventory');
 await checkOverflow('inventory');
-// 17b) صور الأصناف (اختياري): رفع صورة ← بتتصغّر ← تظهر في المخزون
+// 17b) صور الأصناف (اختياري): رفع صورة ← بتتصغّر ← تظهر في المخزن
 const b64 = await p.evaluate(() => {
   const c = document.createElement('canvas'); c.width = 640; c.height = 420; const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 640, 420); gr.addColorStop(0, '#dbeafe'); gr.addColorStop(1, '#93c5fd'); g.fillStyle = gr; g.fillRect(0, 0, 640, 420);

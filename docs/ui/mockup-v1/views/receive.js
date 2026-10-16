@@ -44,7 +44,7 @@ function rcLineHTML(m, l, i, own) {
   let html = `<tr><td><bdi dir="rtl">${esc(p.name)}</bdi><small class="muted">${esc(catFull(p.cat))}</small></td><td class="ta-n num">${num(stockOf(p))}</td>
     <td class="ta-n"><input id="rc-qty-${i}" class="rc-in num" data-input="rcQty" data-i="${i}" value="${esc(l.qtyT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="عدد «${esc(p.name)}»"></td>
     ${own ? `<td class="ta-n"><input id="rc-cost-${i}" class="rc-in num" data-input="rcCost" data-i="${i}" value="${esc(l.costT)}" inputmode="numeric" dir="ltr" autocomplete="off" aria-label="تكلفة الوحدة «${esc(p.name)}»"></td>
-      <td class="ta-n num">${money(l.qty * l.cost)}</td><td class="ta-n num" title="بالمتوسط المرجح: (قيمة المخزون + قيمة الاستلام) ÷ العدد الجديد">${after}</td>` : ''}
+      <td class="ta-n num">${money(l.qty * l.cost)}</td><td class="ta-n num" title="بالمتوسط المرجح: (قيمة اللي في المخزن + قيمة الاستلام) ÷ العدد الجديد">${after}</td>` : ''}
     <td class="ta-n"><button type="button" class="icon-btn sm danger" data-act="rcDel" data-i="${i}" title="شيل الصنف ده" aria-label="شيل «${esc(p.name)}»">${icon('x')}</button></td></tr>`;
   if (p.serial) {
     html += `<tr class="rc-imrow"><td colspan="${cols}"><div class="rc-imei">
@@ -105,7 +105,7 @@ MODALS.receive = {
     return false;
   },
 };
-// الاستلام نفسه، من الكمبيوتر ومن الموبايل: المخزون، والتكلفة بالمتوسط المرجح، والأجهزة بالـ IMEI بتكلفتها،
+// الاستلام نفسه، من الكمبيوتر ومن الموبايل: رصيد المخزن، والتكلفة بالمتوسط المرجح، والأجهزة بالـ IMEI بتكلفتها،
 // والسجل، والنواقص. lines: [{ pid, qty, cost, imeis }]، وcost هي تكلفة الوحدة (اللي بيكتبها المالك، وغير كده آخر تكلفة).
 // بترجّع النواقص اللي اتقفلت عشان الشاشة تقول عليها
 function applyReceipt(supplier, lines) {

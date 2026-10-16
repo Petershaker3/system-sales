@@ -65,7 +65,7 @@ function setCatalog() {
   </div>
   <div class="card"><h3>صور الأصناف</h3>
     <div class="s-row"><div class="t"><b>اعرض صور الأصناف</b><small>في مربعات البيع ونتايج البحث وتطبيق الموبايل، والصنف اللي ملوش صورة بتفضل أيقونته</small></div><label class="switch"><input type="checkbox" data-change="showImages" ${SET.showImages ? 'checked' : ''} aria-label="اعرض صور الأصناف"><span></span></label></div>
-    <div class="note" style="margin-top:12px">${icon('info')} اختيارية: بتتضاف من المخزون بالدوس على أيقونة الصنف. الصورة بتتقص مربع وتتصغّر لوحدها (حوالي 15 ك.ب)، يعني ألف صنف بصورهم حوالي 15 م.ب بس. ${nImg ? `عندك ${num(nImg)} صنف بصورة دلوقتي.` : 'لسه مفيش صور.'}</div>
+    <div class="note" style="margin-top:12px">${icon('info')} اختيارية: بتتضاف من المخزن بالدوس على أيقونة الصنف. الصورة بتتقص مربع وتتصغّر لوحدها (حوالي 15 ك.ب)، يعني ألف صنف بصورهم حوالي 15 م.ب بس. ${nImg ? `عندك ${num(nImg)} صنف بصورة دلوقتي.` : 'لسه مفيش صور.'}</div>
   </div>
   <div class="card"><h3>التصنيفات في شاشة البيع</h3>
     <div class="muted" style="font-size:.85rem;margin-bottom:8px">«الأكثر مبيعًا» و«الكل» ثابتين في الأول. غيّر الاسم بالكتابة عليه، ورتّب بالأسهم، واقفل اللي مش عايزه يظهر.</div>

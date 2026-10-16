@@ -30,7 +30,7 @@ function catChipsHTML(sel, act) {
 }
 const prod = (id) => DATA.products.find((p) => p.id === id);
 const inAnyCart = (imei) => S.invoices.some((inv) => inv.lines.some((l) => l.imei === imei));
-/* المخزون: p.stock = كل الأجهزة. منهم اللي متسجّل له IMEI (units) واللي اتسلّم بالعدد من غير IMEI */
+/* المخزن: p.stock = كل الأجهزة. منهم اللي متسجّل له IMEI (units) واللي اتسلّم بالعدد من غير IMEI */
 const imeiRequired = () => SET.imeiMode === 'required';
 const unitsIn = (pid) => DATA.units.filter((u) => u.pid === pid && u.status === 'in');
 const unitsFree = (pid) => unitsIn(pid).filter((u) => !inAnyCart(u.imei));
@@ -129,10 +129,10 @@ function pickProduct(p) {
   if (!p) return;
   if (p.serial) {
     if (imeiRequired()) { openImeiPicker(p); return; }
-    if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+    if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
     addPhone(p); return;
   }
-  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
   addItem(p);
 }
 function addItem(p, qty = 1) {
@@ -164,7 +164,7 @@ function addUnit(u) {
   // لو السطر المختار نفس الموبايل ومن غير IMEI: الـ IMEI بيتسجّل عليه (ضفت الموبايل وبعدين مسحت العلبة)
   const sl = inv.lines[S.sel];
   if (sl && sl.kind === 'unit' && sl.pid === p.id && !sl.imei) { attachUnit(S.sel, u); return; }
-  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزون`, 'err'); beep(); render(); return; }
+  if (stockOf(p) <= 0) { toast(`«${p.name}» خلصان من المخزن`, 'err'); beep(); render(); return; }
   inv.lines.push({ ...phoneLine(p), cost: u.cost, imei: u.imei, color: u.color });
   S.sel = inv.lines.length - 1; S._scrollSel = true;
   render(); focusSearch();
@@ -228,7 +228,7 @@ function tilesHTML() {
   let list = DATA.products;
   if (S.cat === 'top') list = [...list].sort((a, b) => b.sold - a.sold).slice(0, 12);
   else if (S.cat !== 'all') list = list.filter((p) => inCat(p, S.cat)).sort((a, b) => b.sold - a.sold);
-  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزون. وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
+  if (!list.length) return `<div class="tiles-empty">${icon('folder-plus')}<b>التصنيف ده لسه فاضي</b><span>الأصناف بتتضاف له من المخزن. وتقدر تغيّر اسمه أو تخفيه من الإعدادات ← الأصناف والبيع</span></div>`;
   return list.map(tileHTML).join('');
 }
 function tileHTML(p) {
@@ -821,7 +821,7 @@ function feeField(m, id, label, hint, autoVal, ok) {
   return `<div class="r fee-r"><label for="${id}">${label} <small>${hint}</small></label><input id="${id}" class="fee-in num" data-input="svcFee" ${m.focusFee ? 'data-autofocus' : ''} dir="ltr" inputmode="decimal" value="${esc(feeShown(m, autoVal, ok))}" placeholder="${feeAuto() ? '' : 'اكتبها'}" autocomplete="off"></div>`;
 }
 const svcReset = { fee: '', feeEdited: false, focusFee: false };
-function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', phone: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
+function openServices() { openModal({ type: 'services', tab: 'wallet', op: 'send', wallet: 'vf', note: '', amount: '', opr: 'vf', bill: 'net', acct: '', billAmt: '', added: 0, err: '', ...svcReset }); }
 function svcWallet(m) {
   const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ok = !isNaN(a) && a > 0;
   const autoFee = ok ? walletFee(a) : 0, fee = svcFee(m, autoFee), over = ok && w.limitDay && w.usedToday + a > w.limitDay;
@@ -830,7 +830,7 @@ function svcWallet(m) {
     <div class="wallets">${DATA.wallets.map((x) => `<button type="button" class="wallet ${m.wallet === x.id ? 'on' : ''}" data-act="svcWallet" data-id="${x.id}"><span class="dot" style="background:${x.color}"></span><span class="t"><b>${x.name}</b><small class="num">${money(x.balance)}</small></span></button>`).join('')}</div>
     <div class="grid2">
       <div class="field"><label for="svc-amt">المبلغ</label><input id="svc-amt" class="big-in num" data-input="svc" data-k="amount" ${m.focusFee ? '' : 'data-autofocus'} dir="ltr" inputmode="decimal" value="${esc(m.amount)}" autocomplete="off"></div>
-      <div class="field"><label for="svc-ph">${m.op === 'send' ? 'الرقم اللي هيتحوّل له' : 'رقم محفظة العميل'}</label><input id="svc-ph" class="big-in mono" data-input="svc" data-k="phone" dir="ltr" inputmode="tel" value="${esc(m.phone)}" placeholder="01xxxxxxxxx" autocomplete="off"></div>
+      <div class="field"><label for="svc-note">ملاحظة <span class="muted">(اختياري)</span></label><input id="svc-note" class="big-in" data-input="svc" data-k="note" value="${esc(m.note)}" placeholder="لو حابب تكتب حاجة" autocomplete="off"></div>
     </div>
     <div class="due-box">${feeField(m, 'svc-fee', 'العمولة', hint, autoFee, ok)}
       <div class="r grand"><span>${m.op === 'send' ? 'تحصّل من العميل كاش' : 'تدفع للعميل كاش'}</span><b class="num">${!ok ? money(0) : isNaN(fee) ? '<small class="muted">اكتب العمولة</small>' : money(m.op === 'send' ? a + fee : a - fee)}</b></div></div>
@@ -868,18 +868,18 @@ MODALS.services = {
   enter: (m) => { if (m.tab === 'wallet') recordWallet(m); else if (m.tab === 'bills') recordBill(m); },
 };
 function recordWallet(m) {
-  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount), ph = toLatin(m.phone).replace(/\D/g, '');
+  // من غير رقم العميل (المالك 2026-10-17: «فارض إني أكتب نمرة اللي بحوّله أو بسحب منه وده غلط»)
+  const w = DATA.wallets.find((x) => x.id === m.wallet), a = parseNum(m.amount);
   if (!(a > 0)) { m.err = 'اكتب المبلغ'; beep(); render(); return; }
-  if (!/^01\d{9}$/.test(ph)) { m.err = 'رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01'; beep(); render(); return; }
   const fee = svcFee(m, walletFee(a));
   if (isNaN(fee) || fee < 0) { Object.assign(m, { err: 'اكتب العمولة، ولو مفيش عمولة اكتب 0', focusFee: true, _mounted: false }); beep(); render(); return; }
   if (m.op === 'withdraw' && fee > a) { m.err = 'العمولة أكبر من مبلغ السحب'; beep(); render(); return; }
   const cash = m.op === 'send' ? a + fee : a - fee;
   if (m.op === 'send') { w.balance -= a; DATA.shift.servicesIn += cash; } else { w.balance += a; DATA.shift.servicesOut += cash; }
   w.usedToday += a; DATA.dash.today.services++; DATA.dash.today.servicesFee += fee;
-  S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, phone: ph, amount: a, fee, at: new Date(), by: S.user.name });
+  S.services.push({ kind: 'wallet', op: m.op, wallet: w.id, note: m.note.trim(), amount: a, fee, at: new Date(), by: S.user.name });
   toast(m.op === 'send' ? `اتسجّل تحويل ${money(a)} على ${w.name}. حصّل ${money(cash)} من العميل` : `اتسجّل سحب ${money(a)}. ادفع للعميل ${money(cash)}`);
-  Object.assign(m, { amount: '', phone: '', err: '', ...svcReset, _mounted: false }); render();
+  Object.assign(m, { amount: '', note: '', err: '', ...svcReset, _mounted: false }); render();
 }
 function recordBill(m) {
   const a = parseNum(m.billAmt), fee = svcFee(m, +SET.billFee), b = DATA.billTypes.find((x) => x.id === m.bill);
