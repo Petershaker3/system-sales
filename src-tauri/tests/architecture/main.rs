@@ -362,6 +362,7 @@ fn every_registered_command_is_a_named_function() {
         "create_first_manager",
         "list_users_for_picker",
         "login",
+        "login_with_pin",
         "logout",
         "whoami",
         "reauthenticate",

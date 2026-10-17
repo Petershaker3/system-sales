@@ -31,6 +31,11 @@ pub enum DomainError {
     AccountDisabled,
     /// The supplied password does not meet the policy in force.
     WeakPassword,
+    /// The supplied PIN is not 4 to 6 digits (ADR-017 §1).
+    WeakPin,
+    /// The account has no PIN yet, so it cannot sign in or approve with one
+    /// (ADR-017 §1–3). The password still works; a PIN is set from the session.
+    PinNotSet,
     /// The session has passed its idle deadline.
     SessionIdleExpired,
     /// The session has passed its absolute lifetime.
@@ -172,6 +177,8 @@ impl DomainError {
             DomainError::RecoveryRateLimited => "RECOVERY_RATE_LIMITED",
             DomainError::CannotDisableSelf => "CANNOT_DISABLE_SELF",
             DomainError::WeakPassword => "PASSWORD_DOES_NOT_MEET_POLICY",
+            DomainError::WeakPin => "PIN_DOES_NOT_MEET_POLICY",
+            DomainError::PinNotSet => "PIN_NOT_SET",
             DomainError::SessionIdleExpired => "SESSION_IDLE_EXPIRED",
             DomainError::SessionAbsoluteExpired => "SESSION_LIFETIME_EXPIRED",
             DomainError::SessionNotFound => "NO_ACTIVE_SESSION",
@@ -199,6 +206,8 @@ impl fmt::Display for DomainError {
             }
             DomainError::AccountLocked => write!(f, "account is temporarily locked"),
             DomainError::WeakPassword => write!(f, "password does not meet the policy"),
+            DomainError::WeakPin => write!(f, "PIN must be 4 to 6 digits"),
+            DomainError::PinNotSet => write!(f, "this account has no PIN yet"),
             DomainError::SessionIdleExpired => write!(f, "session expired after inactivity"),
             DomainError::SessionAbsoluteExpired => {
                 write!(f, "session reached its maximum lifetime")

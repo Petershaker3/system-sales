@@ -74,6 +74,19 @@ export async function resetUserPassword(
  * Required before any user administration, because creating an account, resetting
  * a password, changing a role and disabling an operator all alter who can do what.
  */
+/**
+ * Set or change your own daily PIN (ADR-017 §1). The current password is needed
+ * only when a PIN already exists.
+ */
+export async function setMyPin(pin: string, currentPassword: string | null = null): Promise<void> {
+  await invoke('set_my_pin', { pin, currentPassword });
+}
+
+/** The owner sets an account's daily PIN (needs the owner's fresh password). */
+export async function setUserPin(userId: string, pin: string): Promise<void> {
+  await invoke('set_user_pin', { userId, pin });
+}
+
 export async function reauthenticate(password: string): Promise<void> {
   await invoke('reauthenticate', { password });
 }

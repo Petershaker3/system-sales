@@ -7,6 +7,7 @@ pub mod auth;
 pub mod bootstrap;
 pub mod crypto;
 pub mod password;
+pub mod pin;
 /// One-time supervised manager-password recovery (plan R1, Design B).
 ///
 /// Recovery builds only. Without `--features recovery` this module does not

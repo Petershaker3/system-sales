@@ -40,6 +40,11 @@ export interface UserSummary {
   readonly role: Role;
   /** Present but unusable. Shown so it is visible rather than mysteriously absent. */
   readonly disabled: boolean;
+  /**
+   * Whether the account has a daily PIN (ADR-017 §2): the lock screen offers the
+   * PIN pad when it does, the password when it does not. The fact only.
+   */
+  readonly hasPin: boolean;
 }
 
 export interface BootstrapStatus {
@@ -63,6 +68,11 @@ export function listUsers(): Promise<UserSummary[]> {
 
 export function login(userId: string, password: string): Promise<Session> {
   return invoke<Session>('login', { userId, password });
+}
+
+/** Sign in with the daily PIN (ADR-017 §2). Switching user is this, with the next person's PIN. */
+export function loginWithPin(userId: string, pin: string): Promise<Session> {
+  return invoke<Session>('login_with_pin', { userId, pin });
 }
 
 export function logout(): Promise<void> {

@@ -427,6 +427,8 @@ fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
         DomainError::InvalidCredentials,
         DomainError::AccountLocked,
         DomainError::WeakPassword,
+        DomainError::WeakPin,
+        DomainError::PinNotSet,
         DomainError::SessionIdleExpired,
         DomainError::SessionAbsoluteExpired,
         DomainError::SessionNotFound,

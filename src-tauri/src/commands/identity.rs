@@ -17,7 +17,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::domain::identity::DomainError;
-use crate::services::identity::{auth, bootstrap, session};
+use crate::services::identity::{auth, bootstrap, pin, session};
 use crate::services::identity::IdentityContext;
 
 type Ctx<'a> = State<'a, IdentityContext>;
@@ -82,6 +82,10 @@ pub struct UserSummaryDto {
     username: String,
     role: String,
     disabled: bool,
+    /// Whether the account has a daily PIN, so the lock screen offers the PIN
+    /// pad or the password (ADR-017 §2). The fact only: never the PIN or its
+    /// verifier.
+    has_pin: bool,
 }
 
 fn to_session_dto(user: &auth::AuthenticatedUser) -> SessionDto {
@@ -145,6 +149,7 @@ pub async fn create_first_manager(
 #[tauri::command]
 pub async fn list_users_for_picker(ctx: Ctx<'_>) -> Result<Vec<UserSummaryDto>, CommandError> {
     let users = auth::list_users(&ctx.pool).await.map_err(CommandError::from)?;
+    let pin_holders = pin::pin_holders(&ctx.pool).await.map_err(CommandError::from)?;
 
     // An account with no credentials row is reported as an integrity failure rather
     // than projected with an empty identifier. The alternative - hiding the account -
@@ -167,6 +172,7 @@ pub async fn list_users_for_picker(ctx: Ctx<'_>) -> Result<Vec<UserSummaryDto>, 
                 .to_string(),
             role: user.role.as_str().to_string(),
             disabled: user.disabled,
+            has_pin: pin_holders.contains(&user.id.as_str()),
         })
         .collect())
 }
@@ -186,6 +192,30 @@ pub async fn login(
         ctx.tokens.as_ref(),
         crate::domain::identity::UserId::from_uuid(parsed),
         &password,
+    )
+    .await
+    .map_err(CommandError::from)?;
+
+    Ok(to_session_dto(&signed_in))
+}
+
+/// Sign in with the daily PIN and open a session (ADR-017 §2). The same session,
+/// lockout and refusals as [`login`]; switching user is this, with the next
+/// person's PIN.
+#[tauri::command]
+pub async fn login_with_pin(
+    ctx: Ctx<'_>,
+    user_id: String,
+    pin: String,
+) -> Result<SessionDto, CommandError> {
+    let parsed = uuid::Uuid::parse_str(&user_id)
+        .map_err(|_| CommandError::from(DomainError::InvalidCredentials))?;
+
+    let signed_in = auth::login_with_pin(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        crate::domain::identity::UserId::from_uuid(parsed),
+        &pin,
     )
     .await
     .map_err(CommandError::from)?;

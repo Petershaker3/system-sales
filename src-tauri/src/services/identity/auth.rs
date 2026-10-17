@@ -61,8 +61,8 @@ pub async fn list_users(pool: &SqlitePool) -> Result<Vec<UserSummary>, DomainErr
 ///
 /// 1. Resolve the account.
 /// 2. Check the lockout window.
-/// 3. Verify the password, always spending the same work whether or not the
-///    account exists.
+/// 3. Verify the password (or, for [`login_with_pin`], the PIN), always spending
+///    the same work whether or not the account exists.
 /// 4. Reset counters, then write the token to the OS credential store.
 /// 5. Only then record the session row.
 ///
@@ -77,6 +77,55 @@ pub async fn login(
     user_id: UserId,
     password: &str,
 ) -> Result<AuthenticatedUser, DomainError> {
+    sign_in(pool, tokens, user_id, SignInSecret::Password(password)).await
+}
+
+/// Sign in with the daily PIN (ADR-017 §2).
+///
+/// The same session, lockout, disabled-account and forced-change rules as
+/// [`login`], because it is the same code path ([`sign_in`]). A wrong PIN counts
+/// in the same failure counter as a wrong password: a lock is a lock. An account
+/// with no PIN yet is refused with `PinNotSet` and nothing is counted.
+pub async fn login_with_pin(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    user_id: UserId,
+    pin: &str,
+) -> Result<AuthenticatedUser, DomainError> {
+    sign_in(pool, tokens, user_id, SignInSecret::Pin(pin)).await
+}
+
+/// The secret a sign-in proves.
+#[derive(Clone, Copy)]
+enum SignInSecret<'a> {
+    Password(&'a str),
+    Pin(&'a str),
+}
+
+impl<'a> SignInSecret<'a> {
+    fn text(self) -> &'a str {
+        match self {
+            SignInSecret::Password(text) | SignInSecret::Pin(text) => text,
+        }
+    }
+
+    /// The audit `reason` recorded for a wrong secret.
+    fn failure_reason(self) -> &'static str {
+        match self {
+            SignInSecret::Password(_) => "bad_password",
+            SignInSecret::Pin(_) => "bad_pin",
+        }
+    }
+}
+
+/// The one sign-in path behind [`login`] and [`login_with_pin`]; the steps are
+/// listed on [`login`].
+async fn sign_in(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    user_id: UserId,
+    secret: SignInSecret<'_>,
+) -> Result<AuthenticatedUser, DomainError> {
     let now = Timestamp::now();
     let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -89,7 +138,7 @@ pub async fn login(
             // Spend the same Argon2 work as a real check, then answer exactly as
             // a wrong password would. Without this, response time discloses
             // which identifiers are real.
-            let _ = crypto::verify_password(password, crypto::dummy_verifier());
+            let _ = crypto::verify_password(secret.text(), crypto::dummy_verifier());
             let _ = audit::append_for(
                 &mut conn,
                 None,
@@ -139,7 +188,35 @@ pub async fn login(
         return Err(DomainError::AccountLocked);
     }
 
-    if !crypto::verify_password(password, user.verifier.expose()) {
+    let verified = match secret {
+        SignInSecret::Password(password) => {
+            crypto::verify_password(password, user.verifier.expose())
+        }
+        SignInSecret::Pin(pin) => {
+            let stored = credential_repo::pin_verifier(&mut conn, user.id)
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+            match stored {
+                Some(Some(verifier)) => crypto::verify_password(pin, &verifier),
+                Some(None) => {
+                    let _ = audit::append(
+                        &mut conn,
+                        user.id,
+                        audit::event::LOGIN_FAILED,
+                        now,
+                        Some(r#"{"reason":"no_pin"}"#.to_string()),
+                    )
+                    .await;
+                    return Err(DomainError::PinNotSet);
+                }
+                // No credentials row at all: the same integrity refusal as the
+                // forced-change read below, never a fabricated "no PIN".
+                None => return Err(DomainError::AccountDataIntegrityError),
+            }
+        }
+    };
+
+    if !verified {
         let transition = register_failure(&state, now);
 
         user_repo::update_lockout(
@@ -158,7 +235,8 @@ pub async fn login(
             audit::event::LOGIN_FAILED,
             now,
             Some(format!(
-                r#"{{"reason":"bad_password","failed_attempts":{}}}"#,
+                r#"{{"reason":"{}","failed_attempts":{}}}"#,
+                secret.failure_reason(),
                 transition.failed_attempts
             )),
         )
@@ -256,7 +334,12 @@ pub async fn login(
         user.id,
         audit::event::LOGIN_SUCCEEDED,
         now,
-        Some(format!(r#"{{"role":"{}"}}"#, user.role.as_str())),
+        Some(match secret {
+            SignInSecret::Password(_) => format!(r#"{{"role":"{}"}}"#, user.role.as_str()),
+            SignInSecret::Pin(_) => {
+                format!(r#"{{"role":"{}","method":"pin"}}"#, user.role.as_str())
+            }
+        }),
     )
     .await
     .is_err()

@@ -74,3 +74,5 @@ pub const WARRANTY: &str = include_str!("0013_warranty.sql");
 /// receipt's own movement row: the supplier list is derived from history rather
 /// than stored twice, and there is no counterparty entity in V1.
 pub const RECEIVING_SUPPLIER: &str = include_str!("0014_receiving_supplier.sql");
+/// `0015`: the daily PIN, owner-PIN approvals and the recovery code (ADR-017).
+pub const PIN_APPROVAL_RECOVERY: &str = include_str!("0015_pin_approval_recovery.sql");

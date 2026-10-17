@@ -147,6 +147,45 @@ pub async fn update_username(
 }
 
 /// Count accounts, used by tests to prove a refusal wrote nothing.
+/// The daily PIN's Argon2id verifier (ADR-017 §1), keeping three states apart:
+/// `None` — no credentials row at all, an integrity fault the caller reports;
+/// `Some(None)` — the account has no PIN yet; `Some(Some(_))` — a PIN is set.
+pub async fn pin_verifier(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+) -> Result<Option<Option<String>>, sqlx::Error> {
+    let value: Option<Option<String>> =
+        sqlx::query_scalar("SELECT pin_verifier FROM user_credentials WHERE user_id = ?1")
+            .bind(user_id.as_str())
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(value)
+}
+
+/// Store a new PIN verifier, replacing any earlier one. Returns how many rows
+/// changed: `0` means the account has no credentials row, which the caller
+/// reports instead of inventing one.
+pub async fn set_pin_verifier(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+    verifier: &str,
+) -> Result<u64, sqlx::Error> {
+    let done = sqlx::query("UPDATE user_credentials SET pin_verifier = ?2 WHERE user_id = ?1")
+        .bind(user_id.as_str())
+        .bind(verifier)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// The ids of the accounts that have a PIN, for the sign-in picker's `hasPin`.
+/// Only the fact crosses: never the verifier.
+pub async fn users_with_pin(conn: &mut SqliteConnection) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT user_id FROM user_credentials WHERE pin_verifier IS NOT NULL")
+        .fetch_all(&mut *conn)
+        .await
+}
+
 pub async fn count_all(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_credentials")
         .fetch_one(&mut *conn)

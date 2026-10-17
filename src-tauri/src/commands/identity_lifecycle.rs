@@ -19,6 +19,7 @@ use tauri::State;
 
 use crate::domain::identity::{DomainError, Role, Session, UserId};
 use crate::services::identity::password as password_use_cases;
+use crate::services::identity::pin as pin_use_cases;
 use crate::services::identity::session as session_service;
 use crate::services::identity::users::{self as user_use_cases, ManagedUser};
 use crate::services::identity::IdentityContext;
@@ -174,6 +175,35 @@ pub async fn reset_user_password(
     )
     .await
     .map_err(IdentityCommandError::from)?;
+    Ok(())
+}
+
+/// Set or change the signed-in user's daily PIN (ADR-017 §1). The current
+/// password is needed only when a PIN already exists.
+#[tauri::command]
+pub async fn set_my_pin(
+    ctx: Ctx<'_>,
+    current_password: Option<String>,
+    pin: String,
+) -> Result<(), IdentityCommandError> {
+    let session = require_session(&ctx).await.map_err(IdentityCommandError::from)?;
+    pin_use_cases::set_own_pin(&ctx.pool, &session, current_password.as_deref(), &pin)
+        .await
+        .map_err(IdentityCommandError::from)?;
+    Ok(())
+}
+
+/// A manager sets an account's daily PIN (ADR-017 §1).
+#[tauri::command]
+pub async fn set_user_pin(
+    ctx: Ctx<'_>,
+    user_id: String,
+    pin: String,
+) -> Result<(), IdentityCommandError> {
+    let session = require_session(&ctx).await.map_err(IdentityCommandError::from)?;
+    pin_use_cases::manager_set_pin(&ctx.pool, &session, parse_user_id(&user_id)?, &pin)
+        .await
+        .map_err(IdentityCommandError::from)?;
     Ok(())
 }
 

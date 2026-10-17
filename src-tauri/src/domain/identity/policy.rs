@@ -16,6 +16,11 @@ pub const LOCKOUT_MS: i64 = 15 * 60 * 1000;
 /// The minimum a password must be to be accepted.
 pub const MIN_PASSWORD_LEN: usize = 8;
 
+/// The daily PIN is 4 to 6 digits (`docs/PLAN.md` §4, ADR-017).
+pub const MIN_PIN_LEN: usize = 4;
+/// See [`MIN_PIN_LEN`].
+pub const MAX_PIN_LEN: usize = 6;
+
 /// Delay before the first failed recovery attempt may be followed by another.
 ///
 /// A delay, never a lock: the window is measured from the previous attempt and
@@ -112,4 +117,13 @@ pub fn register_success() -> LockoutTransition {
 /// which `PROJECT_INSTRUCTIONS.md` §4 forbids.
 pub fn password_is_acceptable(password: &str) -> bool {
     password.chars().count() >= MIN_PASSWORD_LEN
+}
+
+/// Whether `pin` is a PIN the shop accepts: 4 to 6 ASCII digits, nothing else.
+///
+/// No further rule (no ban on `1111` or `1234`): the owner chose a short daily
+/// secret for speed at the counter, and what protects it is the lockout after
+/// [`MAX_FAILED_ATTEMPTS`] failures, shared with the password (ADR-017 §1).
+pub fn pin_is_acceptable(pin: &str) -> bool {
+    (MIN_PIN_LEN..=MAX_PIN_LEN).contains(&pin.len()) && pin.bytes().all(|b| b.is_ascii_digit())
 }

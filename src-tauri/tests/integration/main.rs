@@ -777,3 +777,7 @@ mod pos_catalog;
 // Display choices (`ui.*`): readable before sign-in, theme for everyone, the rest
 // the owner's; never able to fail a sale.
 mod appearance;
+
+// Plan item 1.1 (ADR-017): the daily PIN — its shape, setting it, signing in with
+// it, and the lockout it shares with the password.
+mod pin;

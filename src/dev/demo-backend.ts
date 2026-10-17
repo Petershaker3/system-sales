@@ -20,6 +20,8 @@ interface DemoUser {
   username: string;
   role: Role;
   password: string;
+  /** The daily PIN (ADR-017); `null` = none yet. Plain text: this is the demo, never Rust. */
+  pin: string | null;
   disabled: boolean;
 }
 
@@ -53,9 +55,9 @@ const fail = (code: string): never => {
 const DEMO_PASSWORD = '1234';
 
 const users: DemoUser[] = [
-  { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, disabled: false },
-  { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, disabled: false },
-  { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, disabled: false },
+  { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
+  { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
+  { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
 ];
 
 const departments: DemoDepartment[] = [
@@ -196,13 +198,43 @@ const handlers: Record<string, (args: Args) => unknown> = {
   bootstrap_status: () => ({ needsSetup: false }),
   whoami: () => session(),
   list_users_for_picker: () =>
-    users.map((u) => ({ id: u.id, displayName: u.displayName, username: u.username, role: u.role, disabled: u.disabled })),
+    users.map((u) => ({
+      id: u.id,
+      displayName: u.displayName,
+      username: u.username,
+      role: u.role,
+      disabled: u.disabled,
+      hasPin: u.pin !== null,
+    })),
   login: (args) => {
     const user = users.find((u) => u.id === str(args, 'userId') && !u.disabled);
     if (user === undefined || user.password !== str(args, 'password')) fail('INVALID_CREDENTIALS');
     current = user ?? null;
     freshUntil = 0;
     return session();
+  },
+  // The same rules as Rust (ADR-017): 4–6 digits; changing needs the password.
+  login_with_pin: (args) => {
+    const user = users.find((u) => u.id === str(args, 'userId') && !u.disabled) ?? fail('INVALID_CREDENTIALS');
+    if (user.pin === null) fail('PIN_NOT_SET');
+    if (user.pin !== str(args, 'pin')) fail('INVALID_CREDENTIALS');
+    current = user;
+    freshUntil = 0;
+    return session();
+  },
+  set_my_pin: (args) => {
+    const user = requireUser();
+    const pin = str(args, 'pin');
+    if (!/^\d{4,6}$/.test(pin)) fail('PIN_DOES_NOT_MEET_POLICY');
+    if (user.pin !== null && args?.['currentPassword'] !== user.password) fail('INVALID_CREDENTIALS');
+    user.pin = pin;
+  },
+  set_user_pin: (args) => {
+    requireManager(true);
+    const pin = str(args, 'pin');
+    if (!/^\d{4,6}$/.test(pin)) fail('PIN_DOES_NOT_MEET_POLICY');
+    const target = users.find((u) => u.id === str(args, 'userId')) ?? fail('INVALID_CREDENTIALS');
+    target.pin = pin;
   },
   logout: () => {
     current = null;

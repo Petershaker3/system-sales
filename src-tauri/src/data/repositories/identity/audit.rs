@@ -40,6 +40,12 @@ pub mod event {
     pub const USER_DISABLED: &str = "user_disabled";
     pub const USER_ENABLED: &str = "user_enabled";
     pub const USERNAME_CHANGED: &str = "username_changed";
+    /// The daily PIN was set or changed by its owner (ADR-017 §1). Detail says
+    /// whether it was the first PIN; it never carries the PIN or its verifier.
+    pub const PIN_SET: &str = "pin_set";
+    /// A manager set a seller's PIN (ADR-017 §1). Detail names the target and
+    /// how many of the target's sessions were ended.
+    pub const PIN_SET_BY_MANAGER: &str = "pin_set_by_manager";
 
 /// Departments: the product classification.
 ///

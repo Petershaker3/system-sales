@@ -21,6 +21,8 @@ export const ErrorCode = {
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   ACCOUNT_TEMPORARILY_LOCKED: 'ACCOUNT_TEMPORARILY_LOCKED',
   PASSWORD_DOES_NOT_MEET_POLICY: 'PASSWORD_DOES_NOT_MEET_POLICY',
+  PIN_DOES_NOT_MEET_POLICY: 'PIN_DOES_NOT_MEET_POLICY',
+  PIN_NOT_SET: 'PIN_NOT_SET',
   BOOTSTRAP_ALREADY_COMPLETED: 'BOOTSTRAP_ALREADY_COMPLETED',
   SESSION_IDLE_EXPIRED: 'SESSION_IDLE_EXPIRED',
   SESSION_LIFETIME_EXPIRED: 'SESSION_LIFETIME_EXPIRED',
@@ -150,6 +152,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'الحساب مقفل مؤقتًا بسبب محاولات دخول فاشلة. حاول مرة أخرى بعد قليل.',
   [ErrorCode.PASSWORD_DOES_NOT_MEET_POLICY]:
     'كلمة المرور لا تحقق الحد المطلوب، ثمانية أحرف على الأقل.',
+  [ErrorCode.PIN_DOES_NOT_MEET_POLICY]: 'الـPIN لازم يكون من 4 لـ6 أرقام.',
+  [ErrorCode.PIN_NOT_SET]: 'الحساب ده لسه ماعندوش PIN. ادخل بكلمة السر وحطّ PIN.',
   [ErrorCode.BOOTSTRAP_ALREADY_COMPLETED]:
     'تم إعداد هذا الجهاز بالفعل ولا يمكن إنشاء حساب آخر.',
   [ErrorCode.SESSION_IDLE_EXPIRED]:
