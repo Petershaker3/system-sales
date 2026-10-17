@@ -85,6 +85,20 @@ export function approveWithOwnerPin(approverId: string, pin: string): Promise<vo
   return invoke<void>('approve_with_owner_pin', { approverId, pin });
 }
 
+/**
+ * Replace a forgotten password with the recovery code (ADR-017 §4), from the
+ * lock card, without a session. A wrong code counts against the lockout. On
+ * success every session has ended and the new code comes back once, to be
+ * written down; the owner then signs in with the new password or a PIN.
+ */
+export function recoverPasswordWithCode(
+  userId: string,
+  code: string,
+  newPassword: string
+): Promise<{ readonly code: string }> {
+  return invoke<{ readonly code: string }>('recover_password_with_code', { userId, code, newPassword });
+}
+
 export function logout(): Promise<void> {
   return invoke<void>('logout');
 }

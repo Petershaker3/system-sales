@@ -281,13 +281,19 @@ await shot('09-store');
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with
-// the page. On a static build that module path does not exist; the checks say so.
+// the page. The exact URL the app loaded is used — after an edit Vite adds a
+// `?t=` stamp, and another URL would be another module instance. On a static
+// build that module does not exist; the checks say so.
 const APPROVAL_MODULE = '/src/shell/approval.ts';
 const ask = (label) =>
   page.evaluate(
     async (spec, what) => {
       try {
-        const approval = await import(spec);
+        const loaded = performance
+          .getEntriesByType('resource')
+          .map((entry) => entry.name)
+          .find((name) => new URL(name).pathname === spec);
+        const approval = await import(loaded ?? spec);
         window.__approval = approval.requestOwnerApproval(what);
         return true;
       } catch {
@@ -323,6 +329,68 @@ if (!(await ask('رصيد بداية: شاحن آيفون'))) {
   await sleep(150);
   check('Esc backs out of the approval', backedOut === false && (await count('.modal .approver')) === 0);
 }
+
+// --- the recovery code (ADR-017 §4) ----------------------------------------
+// The owner makes a new code in الإعدادات (his password), it is shown once in
+// groups, and «تمام» waits for «كتبته». Then, locked out of his password, he
+// uses it from the card: a wrong code is refused, the right one sets a new
+// password and shows the next code once.
+const CODE_SHAPE = /^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){4}$/;
+const shownCode = () => page.$$eval('.rc-code span', (els) => els.map((e) => e.textContent?.trim() ?? '').join('-'));
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('.recovery-card', { timeout: 3000 });
+await sleep(200);
+check('the settings show the recovery code card with its date', (await text('.recovery-card .s-row b')).includes('اتعمل'));
+await clickText('.recovery-card button', 'اعمل كود جديد');
+await page.waitForSelector('#rc-current', { timeout: 3000 });
+await page.type('#rc-current', '1234');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.rc-code', { timeout: 3000 });
+const madeCode = await shownCode();
+check('a new code is shown once, in five groups of four without 0/O/1/I/L', CODE_SHAPE.test(madeCode), madeCode);
+const okLocked = await page.$eval('.modal-f .btn.primary', (b) => b.disabled);
+await sleep(300); // the window fades in
+await shot('13-recovery-code');
+await page.click('.rc-check input');
+const okFree = await page.$eval('.modal-f .btn.primary', (b) => !b.disabled);
+check('«تمام» waits until the code is written down', okLocked && okFree);
+await page.click('.modal-f .btn.primary');
+await page.waitForSelector('.rc-code', { hidden: true, timeout: 3000 });
+
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over');
+await clickText('.lock.over .user-card', 'بيتر');
+await page.waitForSelector('.lock.over .pinpad');
+await clickText('.lock.over .link-btn', 'دخول بكلمة السر');
+await page.waitForSelector('#login-pass');
+await clickText('.lock.over .link-btn', 'نسيت كلمة السر؟');
+await page.waitForSelector('#rc-code', { timeout: 3000 });
+await page.type('#rc-code', '2222-3333-4444-5555-6666');
+await page.type('#rc-pass', 'new password 9');
+await page.type('#rc-again', 'new password 9');
+await page.keyboard.press('Enter');
+await sleep(250);
+check('a wrong recovery code is refused', (await text('.modal .err-msg')).includes('الكود غلط'));
+await shot('14-recover-wrong-code');
+await page.$eval('#rc-code', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.type('#rc-code', madeCode.toLowerCase().replaceAll('-', ' '));
+await page.keyboard.press('Enter');
+await page.waitForSelector('.rc-code', { timeout: 3000 });
+const nextCode = await shownCode();
+check('the right code (typed loosely) sets a new password and shows the next code', CODE_SHAPE.test(nextCode) && nextCode !== madeCode, nextCode);
+await page.click('.rc-check input');
+await page.click('.modal-f .btn.primary');
+await page.waitForSelector('.rc-code', { hidden: true, timeout: 3000 });
+check('the card asks for the new password', (await text('.lock.over .ok-msg')).includes('اتغيّرت'));
+await page.type('#login-pass', 'new password 9');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 }).catch(() => {});
+check('the new password signs the owner in', (await count('.lock.over')) === 0 && (await chipName()).includes('بيتر'));
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();

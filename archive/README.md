@@ -33,6 +33,20 @@
 |---|---|---|
 | `src/components/SalesPanel.vue` | <ul><li>لم تعد معروضة منذ شاشة «البيع» (البند 1.6).</li><li>كانت الوحيدة التي تستعمل `PatternPrompt`.</li><li>مرجع لمن يبني شاشة المبيعات.</li></ul> | «البيع» للبيع، وشاشة المبيعات في البند 1.14 للإلغاء من القائمة |
 
+### `superseded-2026-10-17/recovery-feature/` — نسخة الاسترجاع الخاصة (`--features recovery`)
+
+**القرار:** [`ADR-017`](../docs/decisions/ADR-017-pin-approval-recovery-code.md) §4، تنفيذًا لاختيار المالك «كود استرجاع» (`ADR-016` 32). والتنفيذ هو البند 1.1، الخطوة 4.
+
+**ما بقي في مكانه:** جدولا `recovery_approval` (`0009`) و`recovery_attempt` (`0010`)، لأن الترحيلات المطبَّقة لا تُعدَّل. والكود لا يقرأ أيًّا منهما.
+
+| كان في | لماذا | ما يحل محله |
+|---|---|---|
+| `src-tauri/src/services/identity/recovery.rs` | استرجاع كلمة سر المالك بموافقة تتجهّز للجهاز وبالـPattern، في نسخة خاصة فقط | `services/identity/recovery_code.rs`: كود الاسترجاع |
+| `src-tauri/src/commands/recovery.rs` | أمراه `stage_recovery_approval` و`execute_manager_recovery` | `recover_password_with_code` و`create_recovery_code` و`recovery_code_status` |
+| `src-tauri/src/data/repositories/identity/recovery.rs` | قراءة وكتابة جدولي `0009` و`0010` | `credentials.rs`: `recovery_verifier` و`set_recovery_verifier` |
+| `src-tauri/tests/integration/recovery.rs`<br>`src-tauri/tests/integration/recovery_reset.rs` | فحوصها | `tests/integration/recovery_code.rs` |
+| `src/components/RecoveryPanel.vue`<br>`src/api/recovery.ts` | لوحتها، خلف علامة البناء `VITE_RECOVERY` | «نسيت كلمة السر؟» على كارت المالك (`src/shell/RecoverPassword.vue`)، وكارت «كود الاسترجاع» في الإعدادات |
+
 ---
 
 ## أرشفة 2026-10-16 — بعد اعتماد الخطة الحالية

@@ -43,6 +43,7 @@ pub fn run() {
             commands::identity::login,
             commands::identity::login_with_pin,
             commands::identity::approve_with_owner_pin,
+            commands::identity::recover_password_with_code,
             commands::identity::logout,
             commands::identity::whoami,
             commands::identity::reauthenticate,
@@ -58,6 +59,8 @@ pub fn run() {
             commands::identity_lifecycle::reset_user_password,
             commands::identity_lifecycle::set_my_pin,
             commands::identity_lifecycle::set_user_pin,
+            commands::identity_lifecycle::create_recovery_code,
+            commands::identity_lifecycle::recovery_code_status,
             commands::identity_lifecycle::change_user_role,
             commands::identity_lifecycle::disable_user,
             commands::identity_lifecycle::enable_user,
@@ -77,10 +80,6 @@ pub fn run() {
             commands::inventory::remove_stock,
             commands::inventory::get_position,
             commands::pos::pos_catalog,
-            #[cfg(feature = "recovery")]
-            commands::recovery::stage_recovery_approval,
-            #[cfg(feature = "recovery")]
-            commands::recovery::execute_manager_recovery,
             commands::sales::record_sale,
             commands::sales::cancel_sale,
             commands::sales::link_sale_customer,

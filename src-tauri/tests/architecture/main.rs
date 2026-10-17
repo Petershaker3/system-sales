@@ -2193,140 +2193,135 @@ fn every_costing_error_code_is_declared_and_has_an_arabic_message() {
     }
 }
 
-const RECOVERY_COMMANDS: &str = include_str!("../../src/commands/recovery.rs");
-const RECOVERY_SERVICE: &str = include_str!("../../src/services/identity/recovery.rs");
+// ---------------------------------------------------------------------------
+// The recovery code (ADR-017 §4), and the retired `recovery` build (plan R1)
+// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Recovery path containment (plan R1, Design B)
-// ---------------------------------------------------------------------------
+const CARGO_MANIFEST: &str = include_str!("../../Cargo.toml");
+const RECOVERY_CODE_SERVICE: &str = include_str!("../../src/services/identity/recovery_code.rs");
+const FRONTEND_RECOVER_PASSWORD: &str = include_str!("../../../src/shell/RecoverPassword.vue");
+const FRONTEND_RECOVERY_CODE_SHOW: &str = include_str!("../../../src/shell/RecoveryCodeShow.vue");
+const FRONTEND_RECOVERY_CODE_CARD: &str =
+    include_str!("../../../src/screens/settings/RecoveryCodeCard.vue");
 
 #[test]
-fn recovery_path_exists_only_behind_the_recovery_feature() {
-    // The bypass must be ungraftable from a production build: the module, the
-    // service and the handler registration all carry the same gate, so
-    // removing any one of them breaks the build loudly rather than silently
-    // widening the path.
+fn the_retired_recovery_build_stays_retired() {
+    // ADR-017 §4 retired the `recovery` cargo feature and its supervised
+    // single-use path. Its tables (0009, 0010) stay, inert, because applied
+    // migrations never change; the flag, its commands and the panel behind
+    // VITE_RECOVERY may not come back.
+    let manifest: String = CARGO_MANIFEST
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !manifest.contains("recovery ="),
+        "Cargo.toml must not declare the `recovery` feature again"
+    );
+    let lib = code_only(LIB);
+    for gone in [
+        "feature = \"recovery\"",
+        "commands::recovery::",
+        "stage_recovery_approval",
+        "execute_manager_recovery",
+    ] {
+        assert!(!lib.contains(gone), "lib.rs must not carry `{gone}` again");
+    }
+    assert!(
+        !code_only(COMMANDS_MOD).contains("mod recovery"),
+        "commands/mod.rs must not declare the retired recovery module"
+    );
+    for gone in ["VITE_RECOVERY", "RecoveryPanel"] {
+        assert!(
+            !FRONTEND_APP.contains(gone),
+            "App.vue must not bring back `{gone}`"
+        );
+    }
+}
+
+#[test]
+fn the_recovery_code_commands_stay_registered() {
+    // Registration is what makes them reachable; an unregistered command
+    // compiles, passes its tests and silently does not exist for the owner.
+    let lib = code_only(LIB);
+    for command in [
+        "commands::identity::recover_password_with_code",
+        "commands::identity_lifecycle::create_recovery_code",
+        "commands::identity_lifecycle::recovery_code_status",
+    ] {
+        assert!(
+            lib.contains(command),
+            "`{command}` must stay registered in lib.rs"
+        );
+    }
+}
+
+#[test]
+fn the_recovery_code_comes_from_the_os_generator_and_is_kept_only_as_a_verifier() {
+    // The code is shown once and never kept: what is stored is its Argon2id
+    // verifier, drawn from the same CSPRNG as the session token. The service
+    // holds no SQL of its own, and a wrong code advances the shared lockout.
+    let service = code_only(RECOVERY_CODE_SERVICE);
+    for required in [
+        "crypto::generate_recovery_code()",
+        "crypto::hash_password(&code)",
+        "set_recovery_verifier(",
+        "register_failure(",
+        "update_lockout(",
+        "delete_all(",
+    ] {
+        assert!(
+            service.contains(required),
+            "the recovery-code service must keep `{required}`"
+        );
+    }
+    assert!(
+        !service.contains("sqlx::query"),
+        "queries belong in the repository layer, not in the recovery-code use case"
+    );
+    // No audit detail is built from a secret.
+    for secret in ["{code}", "{next_code}", "{new_password}", "{current_password}", "{normalized}"] {
+        assert!(
+            !service.contains(secret),
+            "the recovery-code service must never format `{secret}` into text"
+        );
+    }
+}
+
+#[test]
+fn the_recovery_screens_keep_nothing_copy_nothing_and_open_no_channel() {
+    // The guards of the retired panel, carried over to the screens that
+    // replaced it. The code belongs on paper: never stored in the WebView,
+    // never put on the clipboard. Each attempt is one press, never a timed
+    // retry. And the path is driven by a person at the device — no deep link,
+    // URI scheme or external opener.
     for (name, source) in [
-        ("commands/recovery.rs", RECOVERY_COMMANDS),
-        ("services/identity/recovery.rs", RECOVERY_SERVICE),
+        ("shell/RecoverPassword.vue", FRONTEND_RECOVER_PASSWORD),
+        ("shell/RecoveryCodeShow.vue", FRONTEND_RECOVERY_CODE_SHOW),
+        ("screens/settings/RecoveryCodeCard.vue", FRONTEND_RECOVERY_CODE_CARD),
     ] {
-        assert!(
-            source.contains("cfg(feature = \"recovery\")"),
-            "{name} must be gated on the recovery feature"
-        );
+        for banned in [
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "document.cookie",
+            "clipboard",
+            "setTimeout",
+            "setInterval",
+            "deep-link",
+            "deeplink",
+            "register_uri_scheme",
+            "tauri://",
+            "invoke('open",
+            "window.open",
+        ] {
+            assert!(
+                !source.contains(banned),
+                "{name} must not contain `{banned}`"
+            );
+        }
     }
-    assert!(
-        COMMANDS_MOD.contains("#[cfg(feature = \"recovery\")]"),
-        "commands/mod.rs must gate the recovery module declaration"
-    );
-    let registrations = LIB.matches("commands::recovery::").count();
-    assert_eq!(
-        registrations, 2,
-        "lib.rs must register exactly the two recovery commands, got {registrations}"
-    );
-    let gated = LIB.matches("#[cfg(feature = \"recovery\")]").count();
-    assert!(
-        gated >= 2,
-        "each recovery registration in lib.rs must carry the feature gate"
-    );
-}
-
-#[test]
-fn recovery_commands_take_no_identity_from_the_caller() {
-    // Same transport rule as every other command: no token, user id, role or
-    // actor parameter. The recovery screen sends what the owner typed (the
-    // approval fields and the new password); identity is resolved from the
-    // staged approval row, never asserted by the WebView.
-    let forbidden = ["token", "user_id", "role", "actor", "session"];
-    for parameter in command_parameters(&code_only(RECOVERY_COMMANDS)) {
-        assert!(
-            !forbidden.contains(&parameter.as_str()),
-            "recovery command parameter `{parameter}` would let the caller assert identity"
-        );
-    }
-}
-
-const RECOVERY_PANEL: &str = include_str!("../../../src/components/RecoveryPanel.vue");
-const RECOVERY_API: &str = include_str!("../../../src/api/recovery.ts");
-
-// ---------------------------------------------------------------------------
-// The recovery panel must never ride along in a production bundle (plan R1-T5)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn the_recovery_panel_is_mounted_only_behind_the_build_flag() {
-    // Not a security control - the Rust `recovery` feature is - but the panel and
-    // its strings have no business in the bundle a customer receives, so the
-    // gate is asserted here rather than trusted to a build run someone remembers.
-    assert!(
-        FRONTEND_APP.contains("import.meta.env.VITE_RECOVERY"),
-        "App.vue must gate the recovery panel on the VITE_RECOVERY build flag"
-    );
-    assert!(
-        FRONTEND_APP.contains("defineAsyncComponent(() => import('./components/RecoveryPanel.vue'))"),
-        "the panel must be imported dynamically, or it is hoisted into production \
-         whatever the flag evaluates to"
-    );
-    assert!(
-        FRONTEND_APP.contains(": null"),
-        "the panel reference must fall back to null when the flag is absent"
-    );
-
-    // The dot form matters and is not cosmetic: Vite statically replaces
-    // `import.meta.env.X`, which is what lets the bundler drop the guarded
-    // branch. A bracket access typechecks but is not reliably replaced, and the
-    // panel then ships in production anyway.
-    assert!(
-        !FRONTEND_APP.contains("import.meta.env['VITE_RECOVERY']"),
-        "bracket access on a build flag defeats the replacement the gate depends on"
-    );
-    assert!(
-        !RECOVERY_API.contains("import.meta.env['VITE_RECOVERY']"),
-        "bracket access on a build flag defeats the replacement the gate depends on"
-    );
-}
-
-#[test]
-fn the_recovery_panel_opens_no_external_channel() {
-    // An intent handler, deep link or URL scheme would make the recovery path
-    // reachable from outside the app, which the Product Owner ruled out. The
-    // panel is driven by a person operating the device, and nothing else.
-    for banned in [
-        "intent",
-        "deep-link",
-        "deeplink",
-        "register_uri_scheme",
-        "onNewIntent",
-        "tauri://",
-        "invoke('open",
-    ] {
-        assert!(
-            !RECOVERY_PANEL.contains(banned),
-            "the recovery panel must not contain `{banned}`"
-        );
-        assert!(
-            !RECOVERY_API.contains(banned),
-            "the recovery api must not contain `{banned}`"
-        );
-    }
-}
-
-#[test]
-fn the_recovery_panel_persists_nothing_and_retries_nothing() {
-    // No credential may be written anywhere: there is no storage access in
-    // `src/` and the panel must not add any.
-    for banned in ["localStorage", "sessionStorage", "indexedDB", "document.cookie"] {
-        assert!(
-            !RECOVERY_PANEL.contains(banned),
-            "the recovery panel must not use `{banned}`"
-        );
-    }
-    // A retry loop would turn the attempt throttle straight back into a
-    // guessing loop, so every call is one-shot.
-    assert!(
-        !RECOVERY_PANEL.contains("setTimeout"),
-        "the recovery panel must not schedule retries"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2336,16 +2331,12 @@ fn the_recovery_panel_persists_nothing_and_retries_nothing() {
 
 #[test]
 fn a_built_bundle_carries_no_recovery_call() {
-    // Behavioural, deliberately: the three guards above read source text and
-    // would all pass while a recovery panel sat in the bundle. This one reads
-    // the built output.
+    // The retired `recovery` build must never be what sits in `dist/`: its
+    // panel and its two commands are gone from the sources, and this reads the
+    // built output to prove no stale bundle still carries them.
     //
     // It skips when there is no bundle, because `dist/` is a build artefact and
-    // is gitignored. When one exists it must be a production one: a recovery
-    // build left on disk is a leak waiting to be shipped, and this fails until
-    // the production build is re-run. `cargo test --test architecture
-    // -- --ignored` is not required — this runs by default when a bundle is
-    // present.
+    // is gitignored.
     let assets = std::path::Path::new("../dist/assets");
     let Ok(entries) = std::fs::read_dir(assets) else {
         eprintln!("no dist/assets to inspect; skipping the built-bundle check");
@@ -2366,8 +2357,8 @@ fn a_built_bundle_carries_no_recovery_call() {
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         assert!(
             !name.contains("RecoveryPanel"),
-            "dist/assets/{name} is the recovery panel: the bundle on disk is a RECOVERY \
-             build. Re-run the production build (`npm run build`) before shipping."
+            "dist/assets/{name} is the retired recovery panel: re-run the production \
+             build (`npm run build`)."
         );
         let Ok(contents) = std::fs::read_to_string(&path) else {
             continue;
@@ -2375,8 +2366,8 @@ fn a_built_bundle_carries_no_recovery_call() {
         for marker in ["stage_recovery_approval", "execute_manager_recovery"] {
             assert!(
                 !contents.contains(marker),
-                "dist/assets/{name} calls `{marker}`: a recovery build is sitting in \
-                 dist/. Re-run the production build (`npm run build`)."
+                "dist/assets/{name} calls the retired `{marker}`: re-run the production \
+                 build (`npm run build`)."
             );
         }
     }
@@ -2386,12 +2377,11 @@ fn a_built_bundle_carries_no_recovery_call() {
         return;
     }
 
-    // The entry document must not pull in a recovery chunk either.
     if let Ok(index) = std::fs::read_to_string(std::path::Path::new("../dist/index.html")) {
         assert!(
             !index.contains("RecoveryPanel"),
-            "dist/index.html references the recovery panel chunk: the bundle on disk \
-             is a RECOVERY build. Re-run the production build."
+            "dist/index.html references the retired recovery panel: re-run the \
+             production build."
         );
     }
 }

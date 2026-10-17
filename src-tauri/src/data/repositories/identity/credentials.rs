@@ -6,7 +6,7 @@
 
 use sqlx::{Row, SqliteConnection};
 
-use crate::domain::identity::{UserId, Username};
+use crate::domain::identity::{Timestamp, UserId, Username};
 
 /// The credential-side facts about one account.
 pub struct Credentials {
@@ -146,7 +146,6 @@ pub async fn update_username(
     Ok(())
 }
 
-/// Count accounts, used by tests to prove a refusal wrote nothing.
 /// The daily PIN's Argon2id verifier (ADR-017 §1), keeping three states apart:
 /// `None` — no credentials row at all, an integrity fault the caller reports;
 /// `Some(None)` — the account has no PIN yet; `Some(Some(_))` — a PIN is set.
@@ -186,6 +185,56 @@ pub async fn users_with_pin(conn: &mut SqliteConnection) -> Result<Vec<String>, 
         .await
 }
 
+/// The recovery code's Argon2id verifier (ADR-017 §4), in the three states the
+/// PIN's has: `None` — no credentials row, an integrity fault; `Some(None)` —
+/// no code was ever made; `Some(Some(_))` — a code is set.
+pub async fn recovery_verifier(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+) -> Result<Option<Option<String>>, sqlx::Error> {
+    let value: Option<Option<String>> =
+        sqlx::query_scalar("SELECT recovery_verifier FROM user_credentials WHERE user_id = ?1")
+            .bind(user_id.as_str())
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(value)
+}
+
+/// When the current recovery code was made, in the same three states.
+pub async fn recovery_created_at(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+) -> Result<Option<Option<i64>>, sqlx::Error> {
+    let value: Option<Option<i64>> =
+        sqlx::query_scalar("SELECT recovery_created_at FROM user_credentials WHERE user_id = ?1")
+            .bind(user_id.as_str())
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(value)
+}
+
+/// Store a new recovery code's verifier and when it was made, replacing the
+/// old code — which stops working at once. Returns how many rows changed: `0`
+/// means no credentials row, which the caller reports instead of inventing one.
+pub async fn set_recovery_verifier(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+    verifier: &str,
+    created_at: Timestamp,
+) -> Result<u64, sqlx::Error> {
+    let done = sqlx::query(
+        "UPDATE user_credentials SET recovery_verifier = ?2, recovery_created_at = ?3
+          WHERE user_id = ?1",
+    )
+    .bind(user_id.as_str())
+    .bind(verifier)
+    .bind(created_at.as_millis())
+    .execute(&mut *conn)
+    .await?;
+    Ok(done.rows_affected())
+}
+
+/// Count accounts, used by tests to prove a refusal wrote nothing.
 pub async fn count_all(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_credentials")
         .fetch_one(&mut *conn)

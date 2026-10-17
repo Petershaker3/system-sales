@@ -7,6 +7,10 @@
 // top of the running screens so open invoices survive a lock and a switch
 // (`docs/PLAN.md` §4). While mounted it owns the keyboard: every key stops here,
 // so nothing reaches a screen underneath.
+//
+// A manager who forgot the password has «نسيت كلمة السر؟» here (ADR-017 §4):
+// the recovery code from the paper and a new password; then the new code is
+// shown once, and the card waits for the new password.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import * as api from '../api/identity';
@@ -15,6 +19,8 @@ import type { Session, UserSummary } from '../api/identity';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
 import { avatarColour, roleName } from './nav';
+import RecoverPassword from './RecoverPassword.vue';
+import RecoveryCodeShow from './RecoveryCodeShow.vue';
 
 const props = defineProps<{ users: readonly UserSummary[]; hint?: string }>();
 const emit = defineEmits<{ signedIn: [session: Session, method: 'pin' | 'password'] }>();
@@ -26,6 +32,12 @@ const error = ref('');
 const busy = ref(false);
 const pad = ref<InstanceType<typeof PinPad> | null>(null);
 const passwordInput = ref<HTMLInputElement | null>(null);
+/** «نسيت كلمة السر؟» is open. */
+const recovering = ref(false);
+/** The new recovery code after a recovery, until the owner has written it down. */
+const newCode = ref<string | null>(null);
+/** Said under the password field once the password was replaced. */
+const notice = ref('');
 
 const people = computed(() => props.users.filter((user) => !user.disabled));
 const picked = computed(() => people.value.find((user) => user.id === pickedId.value) ?? null);
@@ -36,6 +48,7 @@ function pick(user: UserSummary): void {
   usePassword.value = !user.hasPin;
   password.value = '';
   error.value = '';
+  notice.value = '';
   if (usePassword.value) void nextTick(() => passwordInput.value?.focus());
 }
 
@@ -44,6 +57,22 @@ function back(): void {
   usePassword.value = false;
   password.value = '';
   error.value = '';
+  notice.value = '';
+}
+
+function onRecovered(code: string): void {
+  recovering.value = false;
+  newCode.value = code;
+}
+
+/** The new code is written down: sign in with the new password. */
+function afterNewCode(): void {
+  newCode.value = null;
+  usePassword.value = true;
+  password.value = '';
+  error.value = '';
+  notice.value = 'اتغيّرت كلمة السر. ادخل بالجديدة.';
+  void nextTick(() => passwordInput.value?.focus());
 }
 
 function withPassword(): void {
@@ -88,6 +117,8 @@ async function submitPassword(): Promise<void> {
 /** Every key stops here; the pad's keys are the pad's, digits pick a person. */
 function onKey(event: KeyboardEvent): void {
   event.stopPropagation();
+  // A recovery window is open: it has the keyboard (its Esc and Enter).
+  if (recovering.value || newCode.value !== null) return;
   if (picked.value === null) {
     const n = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
     const person = n ? people.value[Number(n[1]) - 1] : undefined;
@@ -169,6 +200,7 @@ defineExpose({ open });
         </div>
         <button type="submit" class="btn primary lg block" :disabled="busy">دخول</button>
         <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
+        <p v-else-if="notice" class="ok-msg" role="status">{{ notice }}</p>
         <p v-if="!picked.hasPin" class="muted small">
           الحساب ده لسه ماعندوش PIN. بعد الدخول هتقدر تعمل واحد عشان تدخل أسرع.
         </p>
@@ -178,7 +210,19 @@ defineExpose({ open });
       <button v-else-if="picked.hasPin" type="button" class="link-btn" @click="usePassword = false">
         الرجوع للـ PIN
       </button>
+      <button v-if="!showPad && picked.role === 'manager'" type="button" class="link-btn" @click="recovering = true">
+        نسيت كلمة السر؟
+      </button>
     </template>
+
+    <RecoverPassword v-if="recovering && picked" :user="picked" @close="recovering = false" @recovered="onRecovered" />
+    <RecoveryCodeShow
+      v-if="newCode"
+      :code="newCode"
+      title="كود الاسترجاع الجديد"
+      sub="القديم اتحرق. ده اللي هيرجّعك المرة الجاية"
+      @done="afterNewCode"
+    />
 
     <div v-if="hint" class="demo-hint">{{ hint }}</div>
   </div>
@@ -220,5 +264,11 @@ defineExpose({ open });
 }
 .link-btn:hover {
   text-decoration: underline;
+}
+.ok-msg {
+  margin-top: 4px;
+  color: var(--ok);
+  font-weight: 600;
+  font-size: 0.88rem;
 }
 </style>

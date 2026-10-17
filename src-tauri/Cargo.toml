@@ -12,13 +12,6 @@ rust-version = "1.98.1"
 name = "mobile_shop_system_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# Optional recovery build (plan R1, Design B). The single-use manager-password
-# recovery path exists ONLY when this feature is enabled. Production builds
-# must never enable it; an architecture test pins the command inventory with
-# and without the flag.
-[features]
-recovery = []
-
 [build-dependencies]
 tauri-build = { version = "=2.7.0", features = [] }
 

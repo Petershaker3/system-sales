@@ -12,11 +12,5 @@ pub mod identity;
 pub mod identity_lifecycle;
 pub mod inventory;
 pub mod pos;
-/// One-time supervised manager-password recovery (plan R1, Design B).
-///
-/// Recovery builds only. Without `--features recovery` this module does not
-/// exist.
-#[cfg(feature = "recovery")]
-pub mod recovery;
 pub mod sales;
 pub mod settings;

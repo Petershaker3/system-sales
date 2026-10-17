@@ -41,9 +41,7 @@ export const ErrorCode = {
   CANNOT_DISABLE_LAST_MANAGER: 'CANNOT_DISABLE_LAST_MANAGER',
   CANNOT_DISABLE_SELF: 'CANNOT_DISABLE_SELF',
   ACCOUNT_DATA_INTEGRITY_ERROR: 'ACCOUNT_DATA_INTEGRITY_ERROR',
-  RECOVERY_NOT_APPROVED: 'RECOVERY_NOT_APPROVED',
-  RECOVERY_ALREADY_USED: 'RECOVERY_ALREADY_USED',
-  RECOVERY_RATE_LIMITED: 'RECOVERY_RATE_LIMITED',
+  RECOVERY_CODE_NOT_SET: 'RECOVERY_CODE_NOT_SET',
   // Catalogue
   PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
   BARCODE_ALREADY_EXISTS: 'BARCODE_ALREADY_EXISTS',
@@ -184,12 +182,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'لا يُمكن تعطيل حسابك الشخصي.',
   [ErrorCode.ACCOUNT_DATA_INTEGRITY_ERROR]:
     'بيانات هذا الحساب غير مكتملة. كلّم المسؤول الفني عن الجهاز.',
-  [ErrorCode.RECOVERY_NOT_APPROVED]:
-    'لا توجد موافقة استرداد صالحة لهذا الجهاز. لا يمكن المتابعة.',
-  [ErrorCode.RECOVERY_ALREADY_USED]:
-    'تم استخدام موافقة الاسترداد من قبل. لا يمكن إعادة استخدامها.',
-  [ErrorCode.RECOVERY_RATE_LIMITED]:
-    'محاولات كثيرة متتالية. يُرجى الانتظار قليلاً قبل إعادة المحاولة.',
+  [ErrorCode.RECOVERY_CODE_NOT_SET]:
+    'الحساب ده ماعندوش كود استرجاع. الكود بيتعمل من الإعدادات وانت فاكر كلمة السر.',
 
   // الكتالوغ
   [ErrorCode.PRODUCT_NOT_FOUND]: 'المنتج غير موجود.',

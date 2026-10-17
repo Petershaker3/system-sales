@@ -82,6 +82,24 @@ export async function setMyPin(pin: string, currentPassword: string | null = nul
   await invoke('set_my_pin', { pin, currentPassword });
 }
 
+/** A recovery code, shown once, to be written on paper: five groups of four. */
+export interface RecoveryCode {
+  readonly code: string;
+}
+
+/**
+ * Make a new recovery code for the signed-in owner (ADR-017 §4), replacing the
+ * old one, with the current password. The code comes back this once.
+ */
+export function createRecoveryCode(currentPassword: string): Promise<RecoveryCode> {
+  return invoke<RecoveryCode>('create_recovery_code', { currentPassword });
+}
+
+/** When the owner's recovery code was made (milliseconds), or `null` if none yet. */
+export function recoveryCodeStatus(): Promise<{ readonly createdAt: number | null }> {
+  return invoke<{ readonly createdAt: number | null }>('recovery_code_status');
+}
+
 /** The owner sets an account's daily PIN (needs the owner's fresh password). */
 export async function setUserPin(userId: string, pin: string): Promise<void> {
   await invoke('set_user_pin', { userId, pin });

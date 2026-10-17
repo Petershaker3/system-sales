@@ -20,7 +20,7 @@
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
-import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import * as api from './api/identity';
 import { describeError } from './api/errors';
 import type { Session, UserSummary } from './api/identity';
@@ -31,33 +31,11 @@ import ApprovalPrompt from './shell/ApprovalPrompt.vue';
 import { dismissApproval, pendingApproval } from './shell/approval';
 import LockCard from './shell/LockCard.vue';
 import PinSetup from './shell/PinSetup.vue';
+import RecoveryCodeShow from './shell/RecoveryCodeShow.vue';
 import Toasts from './ui/Toasts.vue';
 import { clearToasts, toast } from './ui/toast';
 
 type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
-
-/**
- * The recovery panel, present only in a recovery build.
- *
- * Two things matter here, and they are not the same thing:
- *
- *   * The SECURITY control is the Rust `recovery` cargo feature. In a
- *     production build the commands this panel calls do not exist, so the panel
- *     could not perform a recovery even if it were reachable.
- *   * The build flag below is therefore hygiene, not protection: it keeps the
- *     panel and its strings out of the bundle a customer actually receives.
- *
- * The import is dynamic on purpose. A static import would be hoisted into the
- * production bundle whatever the condition evaluated to; behind a condition
- * that the bundler can evaluate to false, it is dropped instead.
- *
- * It is `null` when the flag is absent, so the default production build has
- * no recovery UI at all.
- */
-const RecoveryPanel =
-  import.meta.env.VITE_RECOVERY === '1'
-    ? defineAsyncComponent(() => import('./components/RecoveryPanel.vue'))
-    : null;
 
 const view = ref<View>('loading');
 const session = ref<Session | null>(null);
@@ -81,6 +59,8 @@ const locked = ref(false);
 const lockCard = ref<InstanceType<typeof LockCard> | null>(null);
 /** The «اعمل PIN» / «غيّر الـ PIN» window, when open. */
 const pinSetup = ref<{ first: boolean; offered: boolean } | null>(null);
+/** The first recovery code, made with the owner's account and shown once (ADR-017 §4). */
+const firstCode = ref<string | null>(null);
 
 // Rust sends a stable code, never prose. Rendering happens here so the Arabic
 // wording lives in one reviewable file (`api/errors.ts`) rather than in domain
@@ -136,15 +116,29 @@ async function loadUsers(): Promise<void> {
 async function submitSetup(): Promise<void> {
   busy.value = true;
   error.value = '';
+  const chosen = password.value;
   try {
-    session.value = await api.createFirstManager(displayName.value, password.value);
+    session.value = await api.createFirstManager(displayName.value, chosen);
     password.value = '';
-    await afterSignIn('password');
+    // The way back in if the password is ever forgotten, made now while the
+    // password is in hand, and shown once before anything else.
+    try {
+      firstCode.value = (await lifecycle.createRecoveryCode(chosen)).code;
+    } catch {
+      toast('كود الاسترجاع ماتعملش. اعمله من الإعدادات.', 'err');
+    }
+    if (firstCode.value === null) await afterSignIn('password');
   } catch (err) {
     report(err);
   } finally {
     busy.value = false;
   }
+}
+
+/** The first recovery code is written down: carry on into the shop. */
+async function afterFirstCode(): Promise<void> {
+  firstCode.value = null;
+  await afterSignIn('password');
 }
 
 /** Someone signed in on the lock card: the first sign-in, or after a lock. */
@@ -253,7 +247,7 @@ function settleApproval(approved: boolean): void {
 /** The browser demo's sign-in hint; an empty string (and no text) in real builds. */
 const demoHint =
   import.meta.env.VITE_DEMO === '1'
-    ? 'للتجربة بس: الـ PIN بيتر 1111، يوسف 2222، مارينا 3333، وكلمة السر لكل الحسابات 1234. البيانات وهمية ومش بتتحفظ.'
+    ? 'للتجربة بس: الـ PIN بيتر 1111، يوسف 2222، مارينا 3333، وكلمة السر لكل الحسابات 1234. كود استرجاع بيتر 2345-6789-ABCD-EFGH-JKMN. البيانات وهمية ومش بتتحفظ.'
     : '';
 
 async function afterSignOut(): Promise<void> {
@@ -301,12 +295,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
     <div class="stack-center">
       <LockCard :users="users" :hint="demoHint" @signed-in="onSignedIn" />
       <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
-      <!--
-        Recovery builds only. `RecoveryPanel` is null in a default production
-        build, so this renders nothing there; the guard is that the Rust commands
-        do not exist at all.
-      -->
-      <component :is="RecoveryPanel" v-if="RecoveryPanel" />
     </div>
   </div>
 
@@ -327,7 +315,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
         <div class="field">
           <label for="setup-pass">كلمة السر</label>
           <input id="setup-pass" v-model="password" type="password" autocomplete="new-password" required minlength="8" />
-          <span class="hint">ثمانية حروف على الأقل. بعدها هتعمل PIN للدخول اليومي.</span>
+          <span class="hint">ثمانية حروف على الأقل. بعدها هيظهر كود استرجاع تكتبه على ورقة، وتعمل PIN للدخول اليومي.</span>
         </div>
         <button type="submit" class="btn primary lg block" :disabled="busy">اعمل الحساب وادخل</button>
       </form>
@@ -351,6 +339,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
     :offered="pinSetup.offered"
     @close="pinSetup = null"
     @saved="afterPinSaved"
+  />
+
+  <!-- The first recovery code, right after the owner's account (ADR-017 §4). -->
+  <RecoveryCodeShow
+    v-if="firstCode"
+    :code="firstCode"
+    sub="ده طريقك الوحيد لو نسيت كلمة السر"
+    @done="afterFirstCode"
   />
 
   <!-- The owner's PIN for one sensitive operation (ADR-017 §3). -->

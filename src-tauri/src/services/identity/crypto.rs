@@ -11,7 +11,7 @@
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
 use sha2::{Digest, Sha256};
 
-use crate::domain::identity::SessionToken;
+use crate::domain::identity::{SessionToken, RECOVERY_CODE_ALPHABET, RECOVERY_CODE_LEN};
 
 /// Argon2id memory cost in kibibytes: 19 MiB.
 ///
@@ -117,6 +117,39 @@ pub fn generate_token() -> Result<SessionToken, CryptoError> {
     }
 
     Ok(SessionToken::new(bytes))
+}
+
+/// A fresh recovery code (ADR-017 §4): `RECOVERY_CODE_LEN` symbols drawn
+/// uniformly from the recovery alphabet, from the same OS CSPRNG as the session
+/// token.
+///
+/// The alphabet has 31 symbols, so a byte is used only below 248 — the largest
+/// multiple of 31 that fits — and the rest are thrown away: `byte % 31` on the
+/// whole byte range would favour the first eight symbols.
+pub fn generate_recovery_code() -> Result<String, CryptoError> {
+    let alphabet = RECOVERY_CODE_ALPHABET.as_bytes();
+    let size = alphabet.len();
+    let limit = 256 - (256 % size);
+    let mut code = String::with_capacity(RECOVERY_CODE_LEN);
+    let mut pool = [0u8; 64];
+    while code.len() < RECOVERY_CODE_LEN {
+        getrandom::fill(&mut pool).map_err(|_| CryptoError::NoRandomness)?;
+        // All zeroes means a broken RNG, not entropy (the token's rule).
+        if pool.iter().all(|byte| *byte == 0) {
+            return Err(CryptoError::NoRandomness);
+        }
+        for byte in pool {
+            let value = usize::from(byte);
+            if value >= limit {
+                continue;
+            }
+            code.push(char::from(alphabet[value % size]));
+            if code.len() == RECOVERY_CODE_LEN {
+                break;
+            }
+        }
+    }
+    Ok(code)
 }
 
 /// SHA-256 of the token, as stored in SQLite.

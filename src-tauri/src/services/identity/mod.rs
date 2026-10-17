@@ -9,12 +9,9 @@ pub mod bootstrap;
 pub mod crypto;
 pub mod password;
 pub mod pin;
-/// One-time supervised manager-password recovery (plan R1, Design B).
-///
-/// Recovery builds only. Without `--features recovery` this module does not
-/// exist, and no recovery path can be reached from any command.
-#[cfg(feature = "recovery")]
-pub mod recovery;
+/// The owner's recovery code (ADR-017 §4): make one, and replace a forgotten
+/// password with it.
+pub mod recovery_code;
 pub mod secure_store;
 pub mod session;
 pub mod users;

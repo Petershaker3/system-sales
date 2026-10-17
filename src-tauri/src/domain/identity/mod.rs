@@ -8,6 +8,7 @@
 mod error;
 mod ids;
 mod policy;
+mod recovery_code;
 mod role;
 mod sensitivity;
 mod session;
@@ -16,11 +17,13 @@ mod user;
 pub use error::DomainError;
 pub use ids::UserId;
 pub use policy::{
-    is_locked, password_is_acceptable, pin_is_acceptable, recovery_delay_ms, register_failure,
-    register_success, MAX_PIN_LEN, MIN_PIN_LEN,
-    LockoutState,
-    LockoutTransition, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN,
-    RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
+    is_locked, password_is_acceptable, pin_is_acceptable, register_failure, register_success,
+    LockoutState, LockoutTransition, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MAX_PIN_LEN,
+    MIN_PASSWORD_LEN, MIN_PIN_LEN,
+};
+pub use recovery_code::{
+    group_recovery_code, normalize_recovery_code, RECOVERY_CODE_ALPHABET, RECOVERY_CODE_GROUP,
+    RECOVERY_CODE_LEN,
 };
 pub use role::{Permission, Role};
 pub use sensitivity::{OwnerApproval, Sensitivity, OWNER_APPROVAL_TTL_MS};

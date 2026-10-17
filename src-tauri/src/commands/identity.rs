@@ -17,7 +17,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::domain::identity::DomainError;
-use crate::services::identity::{approval, auth, bootstrap, pin, session};
+use crate::services::identity::{approval, auth, bootstrap, pin, recovery_code, session};
 use crate::services::identity::IdentityContext;
 
 type Ctx<'a> = State<'a, IdentityContext>;
@@ -250,6 +250,42 @@ pub async fn approve_with_owner_pin(
     )
     .await
     .map_err(CommandError::from)
+}
+
+/// A recovery code, shown once, to be written on paper (ADR-017 §4): five
+/// groups of four, joined by dashes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCodeDto {
+    pub code: String,
+}
+
+/// Replace a forgotten password with the recovery code (ADR-017 §4), from the
+/// lock card — there is no session, as there is none for `login`.
+///
+/// A wrong code counts against the same lockout as a wrong password. On
+/// success every session ends, the code is burnt, and the new one comes back
+/// once; the owner then signs in with the new password or a PIN.
+#[tauri::command]
+pub async fn recover_password_with_code(
+    ctx: Ctx<'_>,
+    user_id: String,
+    code: String,
+    new_password: String,
+) -> Result<RecoveryCodeDto, CommandError> {
+    let parsed = uuid::Uuid::parse_str(&user_id)
+        .map_err(|_| CommandError::from(DomainError::InvalidCredentials))?;
+
+    let next = recovery_code::recover_password_with_code(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        crate::domain::identity::UserId::from_uuid(parsed),
+        &code,
+        &new_password,
+    )
+    .await
+    .map_err(CommandError::from)?;
+    Ok(RecoveryCodeDto { code: next })
 }
 
 /// End the current session.

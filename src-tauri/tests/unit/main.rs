@@ -9,12 +9,13 @@ use mobile_shop_system_lib::domain::catalog::{
     CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
 };
 use mobile_shop_system_lib::domain::identity::{
-    is_locked, password_is_acceptable, recovery_delay_ms, register_failure, register_success,
+    group_recovery_code, is_locked, normalize_recovery_code, password_is_acceptable,
+    register_failure, register_success,
     Assurance,
     CredentialVerifier, DomainError, LockoutState, OwnerApproval, Permission, Role, Sensitivity,
     Session, SessionFacts, SessionToken, Timestamp, UserId, ABSOLUTE_LIFETIME_MS,
     IDLE_TIMEOUT_MS, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN, OWNER_APPROVAL_TTL_MS,
-    RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
+    RECOVERY_CODE_ALPHABET, RECOVERY_CODE_GROUP, RECOVERY_CODE_LEN,
 };
 use mobile_shop_system_lib::domain::money::{MoneyError, Piastres};
 use mobile_shop_system_lib::domain::organisation::{
@@ -350,69 +351,78 @@ fn infrastructure_failures_have_their_own_codes() {
 }
 
 #[test]
-fn recovery_throttle_grows_exponentially_and_never_exceeds_its_cap() {
-    // No prior failure means no delay: the owner's first correct attempt is
-    // never penalised.
-    assert_eq!(recovery_delay_ms(0), 0);
+fn a_recovery_code_alphabet_has_no_character_misread_on_paper() {
+    // ADR-017 §4: written by hand and typed back from paper.
+    for misread in ['0', 'O', '1', 'I', 'L'] {
+        assert!(
+            !RECOVERY_CODE_ALPHABET.contains(misread),
+            "`{misread}` is misread on paper"
+        );
+    }
+    assert_eq!(RECOVERY_CODE_ALPHABET.len(), 31, "digits 2-9 and 23 capitals");
+    let mut seen: Vec<char> = RECOVERY_CODE_ALPHABET.chars().collect();
+    seen.sort_unstable();
+    seen.dedup();
+    assert_eq!(seen.len(), 31, "no symbol twice");
+    assert_eq!(RECOVERY_CODE_LEN, 20);
+    assert_eq!(RECOVERY_CODE_GROUP, 4);
+    // 20 symbols of 31: about 99 bits, far beyond guessing.
+    assert!(RECOVERY_CODE_LEN as f64 * 31f64.log2() > 99.0);
+}
 
-    assert_eq!(recovery_delay_ms(1), RECOVERY_BASE_DELAY_MS);
-    assert_eq!(recovery_delay_ms(2), RECOVERY_BASE_DELAY_MS * 2);
-    assert_eq!(recovery_delay_ms(3), RECOVERY_BASE_DELAY_MS * 4);
+#[test]
+fn a_typed_recovery_code_forgives_case_spaces_dashes_and_arabic_digits() {
+    let stored = "23456789ABCDEFGHJKMN";
+    assert_eq!(normalize_recovery_code(stored).as_deref(), Some(stored));
+    assert_eq!(
+        normalize_recovery_code("2345-6789-abcd-efgh-jkmn").as_deref(),
+        Some(stored)
+    );
+    assert_eq!(
+        normalize_recovery_code(" 2345 6789\tABCD EFGH JKMN ").as_deref(),
+        Some(stored)
+    );
+    assert_eq!(
+        normalize_recovery_code("\u{0662}\u{0663}\u{0664}\u{0665}-6789-ABCD-EFGH-JKMN").as_deref(),
+        Some(stored),
+        "Arabic-Indic digits typed on an Arabic keyboard"
+    );
+    assert_eq!(
+        normalize_recovery_code("\u{06F2}345-6789-ABCD-EFGH-JKMN").as_deref(),
+        Some(stored),
+        "Eastern Arabic-Indic digits too"
+    );
+}
 
-    // Capped, and capped for absurd counts too: the delay must never overflow
-    // into a negative value, which would silently disable the throttle.
-    assert_eq!(recovery_delay_ms(20), RECOVERY_MAX_DELAY_MS);
-    assert_eq!(recovery_delay_ms(i32::MAX), RECOVERY_MAX_DELAY_MS);
-    assert!(recovery_delay_ms(i32::MAX) > 0);
-    for failed in 0..64 {
-        assert!(recovery_delay_ms(failed) >= 0, "failed={failed} produced a negative delay");
-        assert!(recovery_delay_ms(failed) <= RECOVERY_MAX_DELAY_MS);
+#[test]
+fn a_typed_recovery_code_with_a_misread_character_or_a_wrong_length_is_no_code() {
+    for typed in [
+        "",
+        "2345-6789-ABCD-EFGH-JKM",
+        "2345-6789-ABCD-EFGH-JKMNP",
+        "O345-6789-ABCD-EFGH-JKMN",
+        "0345-6789-ABCD-EFGH-JKMN",
+        "1345-6789-ABCD-EFGH-JKMN",
+        "I345-6789-ABCD-EFGH-JKMN",
+        "L345-6789-ABCD-EFGH-JKMN",
+        "2345_6789_ABCD_EFGH_JKMN",
+        "2345-6789-ABCD-EFGH-JKM\u{0645}",
+    ] {
+        assert_eq!(normalize_recovery_code(typed), None, "{typed:?} is not a code");
     }
 }
 
 #[test]
-fn recovery_throttle_is_time_bounded_and_never_permanent() {
-    // A permanent bar would leave the owner with no legitimate path at all,
-    // which is the failure mode this throttle must never have: the delay is a
-    // delay, not a lock.
-    assert!(RECOVERY_MAX_DELAY_MS < i64::from(i32::MAX));
-    assert_eq!(recovery_delay_ms(1), 5_000);
-    assert_eq!(RECOVERY_MAX_DELAY_MS, 5 * 60 * 1000);
-}
-
-#[test]
-fn recovery_rate_limited_is_distinguishable_from_a_wrong_secret() {
-    // Reporting a throttle as invalid credentials would tell the owner their
-    // Pattern is wrong when the real answer is "wait", and would look like a
-    // credential problem in the log.
-    assert_eq!(DomainError::RecoveryRateLimited.code(), "RECOVERY_RATE_LIMITED");
-    assert_ne!(
-        DomainError::RecoveryRateLimited.code(),
-        DomainError::InvalidCredentials.code()
-    );
-}
-
-#[test]
-fn recovery_failures_have_distinct_stable_codes() {
-    // The recovery gate must fail closed with codes the frontend can render.
-    // Reusing INVALID_CREDENTIALS would conflate a missing approval with a
-    // wrong password and send the operator round a retry loop that can never
-    // succeed; reusing anything else would leak the gate's state.
+fn a_recovery_code_is_shown_in_five_groups_of_four() {
     assert_eq!(
-        DomainError::RecoveryNotApproved.code(),
-        "RECOVERY_NOT_APPROVED"
+        group_recovery_code("23456789ABCDEFGHJKMN"),
+        "2345-6789-ABCD-EFGH-JKMN"
     );
+    let grouped = group_recovery_code("23456789ABCDEFGHJKMN");
     assert_eq!(
-        DomainError::RecoveryAlreadyUsed.code(),
-        "RECOVERY_ALREADY_USED"
-    );
-    assert_ne!(
-        DomainError::RecoveryNotApproved.code(),
-        DomainError::InvalidCredentials.code()
-    );
-    assert_ne!(
-        DomainError::RecoveryAlreadyUsed.code(),
-        DomainError::InvalidCredentials.code()
+        normalize_recovery_code(&grouped).as_deref(),
+        Some("23456789ABCDEFGHJKMN"),
+        "what is shown reads back as what is stored"
     );
 }
 
@@ -441,9 +451,7 @@ fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
         DomainError::DisplayNameRequired,
         DomainError::CannotDisableLastManager,
         DomainError::CannotDisableSelf,
-        DomainError::RecoveryNotApproved,
-        DomainError::RecoveryAlreadyUsed,
-        DomainError::RecoveryRateLimited,
+        DomainError::RecoveryCodeNotSet,
         DomainError::StorageUnavailable,
         DomainError::SecureStorageUnavailable,
     ];

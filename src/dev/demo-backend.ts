@@ -54,6 +54,30 @@ const fail = (code: string): never => {
 
 const DEMO_PASSWORD = '1234';
 
+// The owner's recovery code (ADR-017 §4). The demo starts with one for بيتر,
+// shown in the demo's sign-in hint, so «نسيت كلمة السر؟» can be tried. Plain
+// text, like the demo PINs: this is the demo, never Rust.
+const RECOVERY_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+const recoveryCodes: Record<string, { code: string; createdAt: number }> = {
+  'u-peter': { code: '23456789ABCDEFGHJKMN', createdAt: Date.now() - 86_400_000 },
+};
+const readCode = (typed: string): string | null => {
+  const code = typed.replace(/[\s-]/g, '').toUpperCase();
+  return code.length === 20 && [...code].every((ch) => RECOVERY_ALPHABET.includes(ch)) ? code : null;
+};
+const groupCode = (code: string): string => code.match(/.{4}/g)?.join('-') ?? code;
+function drawCode(): string {
+  let code = '';
+  while (code.length < 20) {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte < 248 && code.length < 20) code += RECOVERY_ALPHABET.charAt(byte % 31);
+    }
+  }
+  return code;
+}
+
 const users: DemoUser[] = [
   { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
   { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
@@ -246,6 +270,32 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (approver.disabled) fail('ACCOUNT_DISABLED');
     if (approver.pin === null) fail('PIN_NOT_SET');
     if (approver.pin !== str(args, 'pin')) fail('INVALID_CREDENTIALS');
+  },
+  // The recovery code (ADR-017 §4): the same rules as Rust, minus the lockout.
+  recover_password_with_code: (args) => {
+    const user = users.find((u) => u.id === str(args, 'userId')) ?? fail('INVALID_CREDENTIALS');
+    if (user.disabled) fail('ACCOUNT_DISABLED');
+    const newPassword = str(args, 'newPassword');
+    if (newPassword.length < 8) fail('PASSWORD_DOES_NOT_MEET_POLICY');
+    const held = recoveryCodes[user.id] ?? fail('RECOVERY_CODE_NOT_SET');
+    if (readCode(str(args, 'code')) !== held.code) fail('INVALID_CREDENTIALS');
+    user.password = newPassword;
+    current = null;
+    freshUntil = 0;
+    const next = drawCode();
+    recoveryCodes[user.id] = { code: next, createdAt: now() };
+    return { code: groupCode(next) };
+  },
+  create_recovery_code: (args) => {
+    const user = requireManager();
+    if (str(args, 'currentPassword') !== user.password) fail('INVALID_CREDENTIALS');
+    const next = drawCode();
+    recoveryCodes[user.id] = { code: next, createdAt: now() };
+    return { code: groupCode(next) };
+  },
+  recovery_code_status: () => {
+    const user = requireManager();
+    return { createdAt: recoveryCodes[user.id]?.createdAt ?? null };
   },
   logout: () => {
     current = null;

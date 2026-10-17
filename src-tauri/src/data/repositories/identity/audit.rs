@@ -30,12 +30,22 @@ pub mod event {
     /// A manager set someone else's password. Distinct from
     /// `PASSWORD_CHANGED` so a report can separate self-service from recovery.
     pub const PASSWORD_RESET: &str = "password_reset";
-    /// An owner approved a single-use recovery (plan R1). The detail carries
-    /// the approval reference, device and approver — never a credential.
+    /// The retired single-use recovery of plan R1 (the `recovery` build,
+    /// replaced by the recovery code, ADR-017 §4). Nothing writes these two any
+    /// more; they stay so the rows written before keep a name.
     pub const RECOVERY_APPROVED: &str = "recovery_approved";
-    /// A single-use recovery approval was executed. The detail carries the
-    /// approval reference, device and target — never a credential.
     pub const RECOVERY_EXECUTED: &str = "recovery_executed";
+    /// The owner made a recovery code (ADR-017 §4), replacing any earlier one.
+    /// Detail says whether it was the first; never the code or its verifier.
+    pub const RECOVERY_CODE_CREATED: &str = "recovery_code_created";
+    /// A recovery-code attempt was refused. Detail carries the reason —
+    /// bad_code, no_code, disabled or no_such_user — and, for a wrong code,
+    /// the failure count the sign-in lockout shares.
+    pub const RECOVERY_CODE_FAILED: &str = "recovery_code_failed";
+    /// A forgotten password was replaced with the recovery code. Every session
+    /// on the device ended and the code was replaced by a new one, which the
+    /// detail records; never the code, the password or a verifier.
+    pub const PASSWORD_RECOVERED_WITH_CODE: &str = "password_recovered_with_code";
     pub const ROLE_CHANGED: &str = "role_changed";
     pub const USER_DISABLED: &str = "user_disabled";
     pub const USER_ENABLED: &str = "user_enabled";

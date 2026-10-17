@@ -10,15 +10,6 @@
 // anyway. `npm run build` plus a `dist/` check is what keeps that honest.
 interface ImportMetaEnv {
   /**
-   * Includes the one-time recovery panel (plan R1, Design B).
-   *
-   * Unset by default, which is the safe state: the production bundle contains
-   * no recovery UI. This flag is hygiene, NOT a security control - the control
-   * is the Rust `recovery` cargo feature, without which the commands the panel
-   * calls do not exist at all.
-   */
-  readonly VITE_RECOVERY?: string;
-  /**
    * Builds the browser demo: an in-memory stand-in for the Rust backend
    * (src/dev/demo-backend.ts) so the screens can be seen in a plain browser.
    *

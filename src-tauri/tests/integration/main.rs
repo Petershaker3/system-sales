@@ -733,14 +733,10 @@ mod migration_backward_compat;
 // separate reversal sale.
 mod sales;
 
-// Single-use recovery approvals: provision, atomic consume, replay refusal
-// (plan R1). No password logic here; the reset is proved with the use case.
-mod recovery;
-
-// The recovery use case itself. Recovery-build only: production builds never
-// contain this path (plan R1, Design B).
-#[cfg(feature = "recovery")]
-mod recovery_reset;
+// Plan item 1.1 (ADR-017 §4): the owner's recovery code — made with the
+// password, shown once, replacing a forgotten password, sharing the lockout,
+// and burnt by use. Replaces the retired `recovery` build of plan R1.
+mod recovery_code;
 
 // Encrypted backup and crash-safe restore (ADR-003): the envelope, the
 // manifest, refusals, and recovery from an interrupted restore.

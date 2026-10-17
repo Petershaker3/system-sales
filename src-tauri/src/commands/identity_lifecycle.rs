@@ -19,7 +19,9 @@ use tauri::State;
 
 use crate::domain::identity::{DomainError, Role, Session, UserId};
 use crate::services::identity::password as password_use_cases;
+use crate::commands::identity::RecoveryCodeDto;
 use crate::services::identity::pin as pin_use_cases;
+use crate::services::identity::recovery_code as recovery_code_use_cases;
 use crate::services::identity::session as session_service;
 use crate::services::identity::users::{self as user_use_cases, ManagedUser};
 use crate::services::identity::IdentityContext;
@@ -205,6 +207,43 @@ pub async fn set_user_pin(
         .await
         .map_err(IdentityCommandError::from)?;
     Ok(())
+}
+
+/// When the signed-in owner's recovery code was made, or `null` while there is
+/// none (ADR-017 §4). The fact only: never the code, never its verifier.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCodeStatusDto {
+    created_at: Option<i64>,
+}
+
+/// Make a new recovery code for the signed-in owner, replacing the old one,
+/// with the current password proven in the same call (ADR-017 §4). The code
+/// comes back this once, to be written on paper.
+#[tauri::command]
+pub async fn create_recovery_code(
+    ctx: Ctx<'_>,
+    current_password: String,
+) -> Result<RecoveryCodeDto, IdentityCommandError> {
+    let session = require_session(&ctx).await.map_err(IdentityCommandError::from)?;
+    let code = recovery_code_use_cases::create_recovery_code(&ctx.pool, &session, &current_password)
+        .await
+        .map_err(IdentityCommandError::from)?;
+    Ok(RecoveryCodeDto { code })
+}
+
+/// Whether the signed-in owner has a recovery code, and since when.
+#[tauri::command]
+pub async fn recovery_code_status(
+    ctx: Ctx<'_>,
+) -> Result<RecoveryCodeStatusDto, IdentityCommandError> {
+    let session = require_session(&ctx).await.map_err(IdentityCommandError::from)?;
+    let created = recovery_code_use_cases::recovery_code_status(&ctx.pool, &session)
+        .await
+        .map_err(IdentityCommandError::from)?;
+    Ok(RecoveryCodeStatusDto {
+        created_at: created.map(|at| at.as_millis()),
+    })
 }
 
 #[tauri::command]
