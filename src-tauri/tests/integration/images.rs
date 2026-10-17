@@ -297,23 +297,11 @@ async fn product_image_is_packed_into_the_encrypted_backup_and_restored_after_wi
     let reopened = db::open(&dir.path().join("shop.db"))
         .await
         .expect("reopen restored db");
-    let user_id: String =
-        sqlx::query_scalar("SELECT id FROM users WHERE username = 'peter' LIMIT 1")
-            .fetch_one(&reopened)
-            .await
-            .expect("manager id");
-    let uid = mobile_shop_system_lib::domain::identity::UserId::from_uuid(
-        uuid::Uuid::parse_str(&user_id).expect("uuid"),
-    );
-    let fresh_tokens = Arc::new(InMemoryTokenStore::new());
-    auth::login(&reopened, fresh_tokens.as_ref(), uid, PASSWORD)
-        .await
-        .expect("login after restore");
-
-    let listed = images::list_images(&reopened, fresh_tokens.as_ref(), dir.path())
+    let listed = images::list_images(&reopened, tokens.as_ref(), dir.path())
         .await
         .expect("list images after restore");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].image, saved.image);
     assert_eq!(listed[0].data_url, url);
 }
+
