@@ -128,7 +128,7 @@ pub async fn list(
 pub async fn internal_codes(conn: &mut SqliteConnection) -> Result<Vec<String>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT barcode FROM products
-         WHERE barcode GLOB '2[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'",
+         WHERE barcode GLOB '2[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'",
     )
     .fetch_all(&mut *conn)
     .await?;
