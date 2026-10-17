@@ -32,14 +32,13 @@ async fn shop_with_stocked_item() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
     auth::login(&pool, tokens.as_ref(), created.user_id, PASSWORD)
         .await
         .expect("login");
-    pin::set_my_pin(&pool, tokens.as_ref(), PASSWORD, OWNER_PIN)
-        .await
-        .expect("set owner PIN");
-
     let catalog_ctx = CatalogContext::new(pool.clone(), tokens.clone());
     let current = session::resolve(&pool, tokens.as_ref())
         .await
         .expect("session");
+    pin::set_own_pin(&pool, &current, None, OWNER_PIN)
+        .await
+        .expect("set owner PIN");
     let product = catalog::create(
         &catalog_ctx,
         &current,
@@ -62,7 +61,7 @@ async fn shop_with_stocked_item() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
         10,
         300_00,
         Sensitivity::Routine,
-        Some("مورد التحرير"),
+        None,
     )
     .await
     .expect("receive stock");
