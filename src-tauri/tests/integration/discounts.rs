@@ -187,6 +187,7 @@ async fn discount_above_limit_requires_owner_pin_approval_and_records_approved_b
         .await
         .expect("find sale")
         .expect("sale exists");
+    drop(conn);
     assert_eq!(stored_sale.discount_minor, 600);
     assert_eq!(
         stored_sale.approved_by.as_deref(),
