@@ -770,3 +770,6 @@ mod schema_probe;
 // XC-11: no silent drop of a financial transaction — failure injected late in
 // the transaction, so the rollback actually has something to roll back.
 mod no_drop;
+
+// Plan item 1.6: the sales screen's catalogue, readable by a seller, with no cost.
+mod pos_catalog;

@@ -3,6 +3,7 @@
 //! Orchestration across the catalogue repository and the identity session. No
 //! SQL here.
 
+pub mod pos;
 pub mod product;
 
 use std::sync::Arc;
