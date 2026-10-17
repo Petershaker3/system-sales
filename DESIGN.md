@@ -2,7 +2,7 @@
 
 > The visual system of the approved mockup (`docs/ui/mockup-v1/`, v1.3), written at the end of the 2026-10-16 redesign, and extended for the screens added in v1.4 and v1.5.
 > Product facts: [`PRODUCT.md`](PRODUCT.md). Plan of record: [`docs/PLAN.md`](docs/PLAN.md). How it was built and reviewed, phase by phase: [`docs/ui/REDESIGN.md`](docs/ui/REDESIGN.md).
-> The source of truth for values is `docs/ui/mockup-v1/styles.css` (tokens at the top) and `accentTokens()` in `app.js`. The real app (items 1.6 and 1.13) should port these, not re-invent them.
+> The source of truth for values is `docs/ui/mockup-v1/styles.css` (tokens at the top) and `accentTokens()` in `app.js`. The real app (items 1.6 and 1.13) should port these, not re-invent them. **Ported (2026-10-17):** `src/styles/*.css` (the same tokens and classes, split by area) and `accentTokens()` in `src/ui/color.ts`. Change a value in both places, then run `npm run test:unit` and `scripts/demo-smoke.mjs`.
 
 ## Principles
 

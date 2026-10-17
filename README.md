@@ -14,22 +14,26 @@ Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQ
 > `mockup-offline.html` and double-click it; it runs with no server and no internet.
 >
 > **This README describes the code as it is today.** Pieces the plan replaces are marked
-> **→ plan** below: the Pattern step-up (→ owner PIN), FIFO and the costing-method switch
-> (→ retired; `ADR-002` only), cash-only sales (→ payments), and the full-POS Android build
-> (→ companion). Work order: [`tasks/todo.md`](tasks/todo.md). Archived material and why:
-> [`archive/README.md`](archive/README.md).
+> **→ plan** below: the Pattern step-up (→ owner PIN), cash-only sales (→ payments), and the
+> full-POS Android build (→ companion). FIFO and the costing-method switch are already retired
+> (phase 1.3, 2026-10-17; `ADR-002` only). Work order: [`tasks/todo.md`](tasks/todo.md).
+> Archived material and why: [`archive/README.md`](archive/README.md).
 
 > **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1) + Inventory & costing (SP-2) slices.**
 > Accounts, sessions, roles, the login flow, password management, user
 > administration, the product identity catalogue, department classification,
 > device settings and the Pattern step-up approval are implemented and tested.
-> **Moving Average and FIFO costing are now implemented too**: stock positions,
-> FIFO cost layers, receiving and consumption, and the costing-method switch.
+> **Moving Average costing is implemented**: stock positions, receiving and
+> consumption. FIFO and the costing-method switch, built in SP-2, were retired in
+> phase 1.3 (2026-10-17): every quantity product is Moving Average, and a position
+> recorded under FIFO collapses into an average the first time it is touched.
 > The sales slice is also implemented: atomic invoice + lines + stock + cost +
 > ledger + audit with line-level cost snapshots (`commands/sales.rs`,
-> `migrations/0011`, `SalesPanel.vue`). Receipt documents and barcode capture
-> are still absent. See
-> [Current scope](#current-scope).
+> `migrations/0011`). **Phase 1 has started (2026-10-17):** the approved design is
+> ported (`src/styles/`, `src/shell/`), the desktop sales screen sells cash and
+> quantity products (`src/screens/pos/`, `pos_catalog`), and Settings → الشكل
+> stores the look (`ui.*` keys). Receipt documents and barcode capture are still
+> absent. See [Current scope](#current-scope).
 >
 > **Verification status differs by slice, and the difference is deliberate.** The
 > Identity slice is verified on the physical SM-N976N. The Product catalogue and
@@ -92,13 +96,25 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 84 unit + 152 integration + 50 architecture tests
+cargo test                        # 520 on CI (854212d): 31 lib + 145 unit + 268 integration + 76 architecture
 cd ..
 
 # Frontend
-npm install
+npm ci
 npm run typecheck                 # vue-tsc --noEmit, strict
+npm run test:unit                 # node --test on src/**/*.test.ts (pure screen logic, no extra dependency)
 npm run build                     # typecheck + vite build -> dist/
+
+# Browser demo: the real screens on an in-memory stand-in for Rust (demo data,
+# password 1234 for every account). Never part of dist/ or of a Tauri build.
+npm run demo                      # vite --mode demo, on 0.0.0.0:5173
+node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 24 browser checks + screenshots
+                                  # (borrows docs/ui/mockup-v1/tools: run `npm ci` there once)
+
+# CI (GitHub Actions, .github/workflows/ci.yml): every push runs the frontend
+# checks and `cargo test` on Linux; "[windows]" in the commit message adds the
+# Windows `cargo test` and the NSIS installer as an artifact.
+scripts/ci-results.sh             # latest run: jobs, test counts, failures (as annotations)
 
 # Android: build a debug APK
 .\scripts\android-build.ps1 -Apk
@@ -117,6 +133,8 @@ npm run build                     # typecheck + vite build -> dist/
 | `src-tauri/tests/unit/` | Domain rules only — no Tauri, no SQLite, no OS |
 | `src-tauri/tests/integration/` | Real SQLite and the real service layer. No mock database |
 | `src-tauri/tests/architecture/` | Invariants asserted against source text at compile time |
+| `src/**/*.test.ts` | Pure frontend logic (cart, search, money format, Arabic normalisation, colour contrast) with `node --test` — no extra dependency |
+| `scripts/demo-smoke.mjs` | The screens in headless Chromium against the browser demo: a seller's and the owner's journey |
 
 The architecture tests exist because some guarantees here are not runtime
 behaviour. They fail **the build** if, for example, a command grows a token
@@ -215,6 +233,18 @@ There are deliberately **no** `sync_outbox` or `sync_cursors` tables.
 
 ### The costing authority rule
 
+> **Since phase 1.3 (2026-10-17)** every quantity product costs by Moving Average
+> (`QUANTITY_COST_METHOD` in `services/inventory/stock.rs`), whatever its
+> department's `cost_method` says, and nothing writes `fifo_layers` any more. The
+> table below still describes the two shapes a stored position can have: one
+> recorded under FIFO before 1.3 has layers and a `NULL` total. Reading it
+> (`position()`) reports the summed layers and writes nothing; the first receipt,
+> removal, sale or reversal that touches it collapses the layers into
+> `total_cost_minor` in the same transaction, audited as `cost_layers_collapsed`.
+> A position that contradicts itself is refused with `STOCK_COST_AUTHORITY_CONFLICT`.
+> `departments.cost_method` and `app_settings.default_cost_method` are kept, and
+> inert. No migration.
+
 A product's cost lives in exactly one place, decided by its department's
 `cost_method`. Storing both would mean two sources of truth that drift; storing
 one with no rule would leave a reader unable to tell which (`ADR-015`).
@@ -305,9 +335,9 @@ Implemented and tested:
   rather than being hidden or defaulted. Login and session resolution refuse such
   an account; the management list still shows it, flagged
 - Departments: create, edit, re-order, archive and restore, each with its own cost
-  method and VAT. Classification only — no stock (SP-1b). **→ plan:** a 2-level
-  category tree managed by the owner; the per-department cost method goes unused
-  (phases 1.2 / 1.3)
+  method and VAT. Classification only — no stock (SP-1b). The per-department cost
+  method is stored and unused since phase 1.3. **→ plan:** a 2-level category tree
+  managed by the owner (phase 1.2)
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)
@@ -317,16 +347,14 @@ Implemented and tested:
   never leave an audit trace (`SP-1c`, `ADR-014`)
 - Price history: changing a product's sale price writes the old and new value in
   the same transaction as the change itself (SP-1b)
-- **→ plan: FIFO and the costing-method switch are retired; Moving Average + actual
-  per-unit cost stay (`ADR-002`, phase 1.3).** Stock and costing (SP-2): one stock
-  counter per product, Moving Average and FIFO
-  cost arithmetic with the ceiling rounding rule of `ADR-013`, receiving and
-  consumption, and a costing-method switch that converts the stock that already
-  exists rather than relabelling it
-- Receiving a delivery is routine; declaring an opening balance and switching the
-  costing method are sensitive and sit behind re-authentication and the Pattern
-  (**→ plan:** approvals move to the owner PIN)
-  (`ADR-015`)
+- Stock and costing (SP-2, simplified in phase 1.3): one stock counter per product,
+  Moving Average cost arithmetic with the ceiling rounding rule of `ADR-013`,
+  receiving and consumption. FIFO and the costing-method switch were retired in
+  phase 1.3 (`ADR-002`); positions recorded under FIFO collapse into an average on
+  first touch (see [the costing authority rule](#the-costing-authority-rule))
+- Receiving a delivery is routine; declaring an opening balance is sensitive and
+  sits behind re-authentication and the Pattern (**→ plan:** approvals move to the
+  owner PIN) (`ADR-015`)
 - Insufficient stock refuses the whole operation: no partial consumption, and a
   negative balance is impossible at the storage layer
 - Encrypted backup in-app (P2a, `ADR-003`): manager-only create/restore
@@ -341,6 +369,22 @@ Implemented and tested:
   **→ plan:** presets by product type pre-fill them, editable per line (phase 1.8)
 - Receiving records an optional supplier name (decision D1,
   `0014_receiving_supplier.sql`); no supplier table, no purchase orders
+- **Desktop sales screen (phase 1.6, partial — 2026-10-17):** `pos_catalog`
+  (requires Sell; price, on-hand and 30-day best sellers, never cost) and
+  `src/screens/pos/` as in the mockup: Arabic-normalised search where an exact
+  barcode wins, tiles and cart, several open invoices with F8 «انتظار» and stock
+  checked across all of them, F2 / F12 and the other shortcuts, cash with change.
+  Cash and quantity products only until phases 1.4 / 1.5. `SalesPanel.vue` is no
+  longer mounted
+- **Display choices (phase 1.13, the الشكل part — 2026-10-17):** look, theme, shop
+  colour (kept readable), font, size and digits as `ui.*` rows in `app_settings`,
+  no migration. `read_appearance` needs no session, so the sign-in screen wears
+  the shop's look; the theme is anyone's, the rest needs `ManageSettings` plus
+  re-authentication. The settings snapshot a sale reads skips the `ui.` prefix by
+  name, so a display key can never block a sale
+- **Browser demo** (`npm run demo`): the real screens on an in-memory stand-in for
+  Rust (`src/dev/demo-backend.ts`), labelled as demo data and left out of `dist/`
+  and of every Tauri build
 
 Not started, and deliberately so:
 
@@ -357,7 +401,7 @@ Not started, and deliberately so:
 | Rounding on weighted average, discounts, tax | Costing rounding shipped with SP-2 (ceiling at each fractional piastre, `ADR-013` §5). Discounts: phase 1.6 (seller limit, owner PIN above it). Tax: data-model defaults, hidden in the UI; e-receipt in phase 4 |
 | Synchronisation | In-shop companion over Wi-Fi in phase 3 (`ADR-016`); the phone keeps no database, so there is nothing to merge. Cloud / remote viewing: phase 4, optional |
 | Payments beyond cash, split, credit | Phase 1.5 (`docs/PLAN.md` §8) — replaces the cash-only V1 (D3) |
-| Desktop POS screen, receipts, shift, services | Phases 1.6, 1.7, 1.9, 1.10 — per the mockup |
+| Receipts, shift, services; the rest of the POS screen (IMEI, payments, discounts) | Phases 1.7, 1.9, 1.10; 1.4, 1.5, 1.6 — per the mockup |
 | PIN sign-in and quick user switch | Phase 1.1 — PIN on every switch |
 | Repairs, used devices / trade-in, stocktake | Phase 2 |
 

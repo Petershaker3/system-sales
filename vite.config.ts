@@ -58,8 +58,10 @@ export default defineConfig(({ mode }) => {
     // the key is spread in only when there is something to pass.
     ...(devHost ? { hmr: { protocol: 'ws', host: devHost, port: 1421 } } : {}),
     watch: {
-      // Never watch the Rust side; Vite has no reason to reload on it.
-      ignored: ['**/src-tauri/**'],
+      // Never watch the Rust side; Vite has no reason to reload on it. Nor the
+      // build outputs: a `npm run build` beside a running demo would otherwise
+      // reload the page, and the demo's in-memory data with it.
+      ignored: ['**/src-tauri/**', '**/dist/**', '**/dist-demo/**'],
     },
   },
 
