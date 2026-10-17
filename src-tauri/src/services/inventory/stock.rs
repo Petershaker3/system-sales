@@ -46,7 +46,9 @@ use sqlx::SqlitePool;
 
 use crate::data::repositories::identity::audit;
 use crate::data::repositories::inventory::stock as repo;
+use crate::data::repositories::inventory::unit::{self as unit_repo, UnitRecord};
 use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
+use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::domain::costing::fifo::{FifoLayer, FifoPosition};
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
@@ -55,6 +57,7 @@ use crate::domain::identity::{
 };
 use crate::domain::organisation::{CostMethod, DepartmentError};
 use crate::domain::supplier::SupplierName;
+use crate::domain::unit::{Imei, ReceiptKind, UnitError};
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::approval as approval_service;
 use crate::services::identity::session as identity_session;
@@ -131,6 +134,7 @@ pub enum StockServiceError {
     Identity(DomainError),
     Stock(StockError),
     Department(DepartmentError),
+    Unit(UnitError),
 }
 
 impl From<DomainError> for StockServiceError {
@@ -157,6 +161,12 @@ impl From<DepartmentError> for StockServiceError {
     }
 }
 
+impl From<UnitError> for StockServiceError {
+    fn from(error: UnitError) -> Self {
+        Self::Unit(error)
+    }
+}
+
 impl StockServiceError {
     /// Delegates to whichever domain enum produced it, so no code is invented at
     /// this layer and the drift guard keeps covering every table.
@@ -165,6 +175,7 @@ impl StockServiceError {
             Self::Identity(error) => error.code(),
             Self::Stock(error) => error.code(),
             Self::Department(error) => error.code(),
+            Self::Unit(error) => error.code(),
         }
     }
 }
@@ -175,6 +186,7 @@ impl fmt::Display for StockServiceError {
             Self::Identity(error) => write!(f, "{error}"),
             Self::Stock(error) => write!(f, "{error}"),
             Self::Department(error) => write!(f, "{error}"),
+            Self::Unit(error) => write!(f, "{error}"),
         }
     }
 }
@@ -397,6 +409,9 @@ pub struct RemovalInTx {
     pub cost_removed_minor: i64,
     pub remaining_quantity: i64,
     pub segments: Vec<ConsumedSegment>,
+    /// Oldest `in_stock` units retired because an unlinked removal reduced
+    /// `remaining_quantity` below the number of registered IMEIs (`PLAN.md` §7.3).
+    pub retired_unit_ids: Vec<String>,
 }
 
 /// Consume stock inside the caller's transaction, returning what it cost.
@@ -420,17 +435,80 @@ pub(crate) async fn remove_in_tx(
     let position = load_position(conn, product_id).await?;
 
     let current = average_position(product_id, position.as_ref())?;
-    // The quoted average, read before the removal, is the per-unit figure a
-    // screen shows for this line. The exact `cost_removed_minor` stays the
-    // authority; this is a reference, not a base for totals.
-    let quoted = current.unit_cost_minor().unwrap_or(0);
-    let removal = current.remove(quantity)?;
+    let in_stock_units = unit_repo::list_in_stock_for_product(conn, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let (cost_removed_minor, remaining_on_hand, remaining_total_cost, quoted, retired_unit_ids) =
+        if in_stock_units.is_empty() {
+            // The quoted average, read before the removal, is the per-unit figure a
+            // screen shows for this line. The exact `cost_removed_minor` stays the
+            // authority; this is a reference, not a base for totals.
+            let quoted = current.unit_cost_minor().unwrap_or(0);
+            let removal = current.remove(quantity)?;
+            (
+                removal.cost_removed_minor,
+                removal.remaining.on_hand,
+                removal.remaining.total_cost_minor,
+                quoted,
+                Vec::new(),
+            )
+        } else {
+            // Ensure overall quantity is sufficient (`CostError::InsufficientStock`
+            // or `ZeroUnits` / `NegativeQuantity` is produced by `current.remove`).
+            let _ = current.remove(quantity)?;
+
+            let registered_count = in_stock_units.len() as i64;
+            let registered_cost: i64 = in_stock_units.iter().map(|u| u.unit_cost_minor).sum();
+            let unregistered_qty = (current.on_hand - registered_count).max(0);
+            let unregistered_cost = (current.total_cost_minor - registered_cost).max(0);
+
+            if quantity <= unregistered_qty {
+                let unreg_pos = AveragePosition::new(unregistered_cost, unregistered_qty)?;
+                let quoted = unreg_pos.unit_cost_minor().unwrap_or(0);
+                let unreg_removal = unreg_pos.remove(quantity)?;
+                let remaining_on_hand = current.on_hand - quantity;
+                let remaining_total = registered_cost
+                    .checked_add(unreg_removal.remaining.total_cost_minor)
+                    .ok_or(CostError::Overflow)?;
+                (
+                    unreg_removal.cost_removed_minor,
+                    remaining_on_hand,
+                    remaining_total,
+                    quoted,
+                    Vec::new(),
+                )
+            } else {
+                // `quantity > unregistered_qty`: consume all `unregistered_qty`
+                // plus the `overflow` oldest registered units (`PLAN.md` §7.3).
+                let overflow = (quantity - unregistered_qty) as usize;
+                let retired_slice = &in_stock_units[..overflow];
+                let retired_cost: i64 = retired_slice.iter().map(|u| u.unit_cost_minor).sum();
+                let cost_removed = unregistered_cost
+                    .checked_add(retired_cost)
+                    .ok_or(CostError::Overflow)?;
+                let remaining_on_hand = current.on_hand - quantity;
+                let remaining_total = (current.total_cost_minor - cost_removed).max(0);
+                let quoted = AveragePosition::new(cost_removed, quantity)?
+                    .unit_cost_minor()
+                    .unwrap_or(0);
+                let retired_ids = retired_slice.iter().map(|u| u.id.clone()).collect();
+                (
+                    cost_removed,
+                    remaining_on_hand,
+                    remaining_total,
+                    quoted,
+                    retired_ids,
+                )
+            }
+        };
+
     repo::upsert_position(
         conn,
         &repo::StockPosition {
             product_id: product_id.to_owned(),
-            quantity: removal.remaining.on_hand,
-            total_cost_minor: Some(removal.remaining.total_cost_minor),
+            quantity: remaining_on_hand,
+            total_cost_minor: Some(remaining_total_cost),
         },
         acting_user,
         now.as_millis(),
@@ -440,8 +518,8 @@ pub(crate) async fn remove_in_tx(
 
     Ok(RemovalInTx {
         method: QUANTITY_COST_METHOD,
-        cost_removed_minor: removal.cost_removed_minor,
-        remaining_quantity: removal.remaining.on_hand,
+        cost_removed_minor,
+        remaining_quantity: remaining_on_hand,
         segments: vec![ConsumedSegment {
             fifo_layer_id: None,
             fifo_received_at: None,
@@ -449,7 +527,137 @@ pub(crate) async fn remove_in_tx(
             unit_cost_minor: quoted,
             // The exact removal, not `quantity × quoted`: `ceil` makes the two
             // differ, and the ledger must carry the exact one.
-            cost_minor: removal.cost_removed_minor,
+            cost_minor: cost_removed_minor,
+        }],
+        retired_unit_ids,
+    })
+}
+
+/// What consuming a single IMEI unit inside a sale transaction returned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitSaleConsumption {
+    pub unit_id: String,
+    pub method: CostMethod,
+    pub cost_removed_minor: i64,
+    pub remaining_quantity: i64,
+    pub segments: Vec<ConsumedSegment>,
+}
+
+/// Consume one specific device by IMEI inside the caller's sale transaction (`ADR-019`).
+///
+/// - If the IMEI is already registered (`status = 'in_stock'`) for this product,
+///   consumes that unit at its exact `unit_cost_minor`.
+/// - If the IMEI is not yet registered, and the product has unregistered stock
+///   on hand (`on_hand > in_stock_units.len()`), late-registers the unit at the
+///   unregistered pool's moving average and consumes it (`PLAN.md` §7.2).
+/// - The returned `unit_id` is still `status = 'in_stock'` so the caller can
+///   insert `sale_lines` referencing `unit_id` first and then call
+///   `unit_repo::mark_sold`.
+pub(crate) async fn consume_unit_in_tx(
+    conn: &mut sqlx::SqliteConnection,
+    acting_user: &UserId,
+    product_id: &str,
+    raw_imei: &str,
+    now: Timestamp,
+) -> Result<UnitSaleConsumption, StockServiceError> {
+    ensure_product(conn, product_id).await?;
+    let tracking = unit_repo::product_tracking(conn, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(StockError::ProductNotFound)?;
+    if !tracking.allows_imei() {
+        return Err(UnitError::ProductNotSerialTracked.into());
+    }
+
+    let imei = Imei::parse(raw_imei)?;
+
+    collapse_legacy_in_tx(conn, acting_user, product_id, now).await?;
+    let position = load_position(conn, product_id).await?;
+    let current = average_position(product_id, position.as_ref())?;
+    // Ensure at least 1 unit is on hand.
+    let _ = current.remove(1)?;
+
+    let existing = unit_repo::find_by_imei(conn, imei.as_str())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let (unit_id, cost_removed) = match existing {
+        Some(unit) => {
+            if unit.product_id != product_id {
+                return Err(UnitError::UnitProductMismatch.into());
+            }
+            if unit.status != "in_stock" {
+                return Err(UnitError::UnitNotAvailable.into());
+            }
+            let cost = unit.unit_cost_minor.min(current.total_cost_minor);
+            (unit.id, cost)
+        }
+        None => {
+            // Late registration from an unrecorded box on the shelf (`PLAN.md` §7.2).
+            let in_stock_units = unit_repo::list_in_stock_for_product(conn, product_id)
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+            let registered_count = in_stock_units.len() as i64;
+            if current.on_hand <= registered_count {
+                return Err(UnitError::NoUnregisteredStockForLateImei.into());
+            }
+            let registered_cost: i64 = in_stock_units.iter().map(|u| u.unit_cost_minor).sum();
+            let unregistered_qty = current.on_hand - registered_count;
+            let unregistered_cost = (current.total_cost_minor - registered_cost).max(0);
+            let unreg_pos = AveragePosition::new(unregistered_cost, unregistered_qty)?;
+            let removal = unreg_pos.remove(1)?;
+            let cost = removal.cost_removed_minor;
+            let new_unit_id = uuid::Uuid::now_v7().to_string();
+            unit_repo::insert_unit(
+                conn,
+                &UnitRecord {
+                    id: new_unit_id.clone(),
+                    product_id: product_id.to_owned(),
+                    imei: imei.as_str().to_owned(),
+                    imei2: None,
+                    color: None,
+                    unit_cost_minor: cost,
+                    status: "in_stock".to_owned(),
+                    received_movement_id: None,
+                    sale_line_id: None,
+                    retired_reason: None,
+                    created_by: acting_user.as_str().to_owned(),
+                    created_at: now.as_millis(),
+                },
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+            (new_unit_id, cost)
+        }
+    };
+
+    let remaining_on_hand = current.on_hand - 1;
+    let remaining_total_cost = (current.total_cost_minor - cost_removed).max(0);
+
+    repo::upsert_position(
+        conn,
+        &repo::StockPosition {
+            product_id: product_id.to_owned(),
+            quantity: remaining_on_hand,
+            total_cost_minor: Some(remaining_total_cost),
+        },
+        acting_user,
+        now.as_millis(),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(UnitSaleConsumption {
+        unit_id,
+        method: QUANTITY_COST_METHOD,
+        cost_removed_minor: cost_removed,
+        remaining_quantity: remaining_on_hand,
+        segments: vec![ConsumedSegment {
+            fifo_layer_id: None,
+            fifo_received_at: None,
+            quantity: 1,
+            unit_cost_minor: cost_removed,
+            cost_minor: cost_removed,
         }],
     })
 }
@@ -476,6 +684,50 @@ pub async fn receive(
     sensitivity: Sensitivity,
     supplier: Option<SupplierName>,
 ) -> Result<StockOutcome, StockServiceError> {
+    let receipt_kind = match sensitivity {
+        Sensitivity::Routine => ReceiptKind::Supplier,
+        Sensitivity::Sensitive => ReceiptKind::Opening,
+    };
+    receive_with_units(
+        pool,
+        tokens,
+        product_id,
+        quantity,
+        unit_cost_minor,
+        receipt_kind,
+        sensitivity,
+        supplier,
+        &[],
+    )
+    .await
+}
+
+/// Receive stock with optional IMEI units and an explicit receipt kind (`ADR-019`).
+///
+/// - `ReceiptKind::Supplier` is a normal purchase (`Sensitivity::Routine`), and
+///   may carry an optional supplier name.
+/// - `ReceiptKind::Opening` is first-time stock already on the shelf (`ADR-016` #30,
+///   `Sensitivity::Sensitive`), spends one owner PIN approval inside the
+///   transaction, and refuses any supplier name (`UnitError::OpeningReceiptHasSupplier`).
+/// - Each IMEI in `imeis` is validated (15 digits + Luhn + unique in batch and
+///   in the shop) and recorded in `units` with its actual `unit_cost_minor`.
+#[allow(clippy::too_many_arguments)]
+pub async fn receive_with_units(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    product_id: &str,
+    quantity: i64,
+    unit_cost_minor: i64,
+    receipt_kind: ReceiptKind,
+    sensitivity: Sensitivity,
+    supplier: Option<SupplierName>,
+    imeis: &[String],
+) -> Result<StockOutcome, StockServiceError> {
+    if receipt_kind == ReceiptKind::Opening && supplier.is_some() {
+        return Err(UnitError::OpeningReceiptHasSupplier.into());
+    }
+    let parsed_imeis = Imei::parse_batch(imeis)?;
+
     let (session, approval) = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
     let actor = session.user_id();
@@ -486,6 +738,33 @@ pub async fn receive(
     let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
 
     ensure_product(&mut *tx, product_id).await?;
+    let tracking = unit_repo::product_tracking(&mut *tx, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(StockError::ProductNotFound)?;
+    let appearance = settings_repo::load_appearance(&mut *tx)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if !parsed_imeis.is_empty() && !tracking.allows_imei() {
+        return Err(UnitError::ProductNotSerialTracked.into());
+    }
+    if (parsed_imeis.len() as i64) > quantity {
+        return Err(UnitError::ImeiCountExceedsQuantity.into());
+    }
+    if tracking.requires_imei(&appearance.imei_mode) && (parsed_imeis.len() as i64) != quantity {
+        return Err(UnitError::ImeiRequiredForAllUnits.into());
+    }
+    for imei in &parsed_imeis {
+        if unit_repo::find_by_imei(&mut *tx, imei.as_str())
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?
+            .is_some()
+        {
+            return Err(UnitError::ImeiAlreadyRegistered.into());
+        }
+    }
+
     collapse_legacy_in_tx(&mut *tx, &actor, product_id, now).await?;
     let position = load_position(&mut *tx, product_id).await?;
 
@@ -514,10 +793,11 @@ pub async fn receive(
     let receipt_cost = quantity
         .checked_mul(unit_cost_minor)
         .ok_or(CostError::Overflow)?;
+    let movement_id = uuid::Uuid::now_v7().to_string();
     sales_repo::insert_movement(
         &mut tx,
         &MovementRecord {
-            id: uuid::Uuid::now_v7().to_string(),
+            id: movement_id.clone(),
             product_id: product_id.to_owned(),
             kind: "receipt".to_owned(),
             quantity_delta: quantity,
@@ -533,10 +813,33 @@ pub async fn receive(
             // The one movement that is a purchase, so the one that may name a
             // supplier (D1). Trimmed once here; the column stores it verbatim.
             supplier_name: supplier.as_ref().map(|name| name.as_str().to_owned()),
+            receipt_kind: Some(receipt_kind.as_str().to_owned()),
         },
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    for imei in &parsed_imeis {
+        unit_repo::insert_unit(
+            &mut tx,
+            &UnitRecord {
+                id: uuid::Uuid::now_v7().to_string(),
+                product_id: product_id.to_owned(),
+                imei: imei.as_str().to_owned(),
+                imei2: None,
+                color: None,
+                unit_cost_minor,
+                status: "in_stock".to_owned(),
+                received_movement_id: Some(movement_id.clone()),
+                sale_line_id: None,
+                retired_reason: None,
+                created_by: actor.as_str().to_owned(),
+                created_at: now.as_millis(),
+            },
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     audit::append(
         &mut tx,
@@ -587,6 +890,11 @@ pub async fn remove(
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
 
     let removal = remove_in_tx(&mut tx, &actor, product_id, quantity, now).await?;
+    for uid in &removal.retired_unit_ids {
+        unit_repo::mark_retired_manual(&mut tx, uid, "manual_stock_removal")
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     // Manual removal is a stock adjustment, not a sale: one ledger row per
     // segment, so the movement sums still reconcile with the position.
@@ -610,6 +918,7 @@ pub async fn remove(
                 // A manual removal corrects stock; it is not a purchase and names
                 // no supplier. The table refuses one here, and rightly so.
                 supplier_name: None,
+                receipt_kind: None,
             },
         )
         .await
@@ -729,3 +1038,23 @@ pub async fn position(
 
     Ok(view)
 }
+
+/// Read the registered `in_stock` units for a product, oldest first (`ADR-019`).
+///
+/// Requires `Permission::ManageInventory`.
+pub async fn list_units_in_stock(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    product_id: &str,
+) -> Result<Vec<UnitRecord>, StockServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageInventory)?;
+
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    ensure_product(&mut conn, product_id).await?;
+    let units = unit_repo::list_in_stock_for_product(&mut conn, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(units)
+}
+

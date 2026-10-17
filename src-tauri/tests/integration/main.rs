@@ -801,3 +801,8 @@ mod approval;
 // metadata in `product_images`, and round-tripped through the encrypted backup.
 mod images;
 
+// Plan item 1.4 (ADR-019): optional IMEI units, opening-stock receipts, phone
+// unit sales, late IMEI registration, oldest-unit auto-retirement, and required mode.
+mod imei_units;
+
+

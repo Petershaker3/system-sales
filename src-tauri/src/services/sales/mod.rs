@@ -18,6 +18,7 @@ use crate::data::repositories::catalog::product as product_repo;
 use crate::data::repositories::customer as customer_repo;
 use crate::data::repositories::identity::audit;
 use crate::data::repositories::inventory::stock as stock_repo;
+use crate::data::repositories::inventory::unit as unit_repo;
 use crate::data::repositories::sales as sales_repo;
 use crate::data::repositories::sales::{MovementRecord, SaleLineRecord, SaleRecord};
 use crate::data::repositories::settings::app_settings as settings_repo;
@@ -29,6 +30,7 @@ use crate::domain::organisation::CostMethod;
 use crate::domain::sales::{
     civil_ymd_from_millis, format_invoice_reference, SaleError, WarrantyDate,
 };
+use crate::domain::unit::{Imei, UnitError};
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::identity::approval as approval_service;
@@ -48,6 +50,28 @@ pub struct SaleLineInput {
     /// never has to imagine a duration the operator did not state.
     pub warranty_start: Option<WarrantyDate>,
     pub warranty_end: Option<WarrantyDate>,
+}
+
+/// One line of a sale with an optional serialized device IMEI (`ADR-019`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleLineWithUnitInput {
+    pub product_id: String,
+    pub quantity: i64,
+    pub warranty_start: Option<WarrantyDate>,
+    pub warranty_end: Option<WarrantyDate>,
+    pub imei: Option<String>,
+}
+
+impl From<&SaleLineInput> for SaleLineWithUnitInput {
+    fn from(line: &SaleLineInput) -> Self {
+        Self {
+            product_id: line.product_id.clone(),
+            quantity: line.quantity,
+            warranty_start: line.warranty_start.clone(),
+            warranty_end: line.warranty_end.clone(),
+            imei: None,
+        }
+    }
 }
 
 /// What recording or cancelling a sale produced.
@@ -76,6 +100,7 @@ pub enum SaleServiceError {
     Stock(inventory::StockServiceError),
     Catalog(CatalogError),
     Customer(CustomerError),
+    Unit(UnitError),
 }
 
 impl From<DomainError> for SaleServiceError {
@@ -114,6 +139,12 @@ impl From<CustomerError> for SaleServiceError {
     }
 }
 
+impl From<UnitError> for SaleServiceError {
+    fn from(error: UnitError) -> Self {
+        Self::Unit(error)
+    }
+}
+
 impl SaleServiceError {
     /// Delegates to whichever domain enum produced it, so no code is invented at
     /// this layer and the drift guard keeps covering every table.
@@ -124,6 +155,7 @@ impl SaleServiceError {
             Self::Stock(error) => error.code(),
             Self::Catalog(error) => error.code(),
             Self::Customer(error) => error.code(),
+            Self::Unit(error) => error.code(),
         }
     }
 }
@@ -136,6 +168,7 @@ impl std::fmt::Display for SaleServiceError {
             Self::Stock(error) => write!(f, "{error}"),
             Self::Catalog(error) => write!(f, "{error}"),
             Self::Customer(error) => write!(f, "{error}"),
+            Self::Unit(error) => write!(f, "{error}"),
         }
     }
 }
@@ -155,8 +188,34 @@ pub async fn record_sale(
     lines: &[SaleLineInput],
     confirmed_total_minor: Option<i64>,
 ) -> Result<SaleOutcome, SaleServiceError> {
+    let mapped: Vec<SaleLineWithUnitInput> = lines.iter().map(SaleLineWithUnitInput::from).collect();
+    record_sale_with_units(pool, tokens, &mapped, confirmed_total_minor).await
+}
+
+/// Record a cash sale with optional serialized device IMEIs (`ADR-019`).
+pub async fn record_sale_with_units(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    lines: &[SaleLineWithUnitInput],
+    confirmed_total_minor: Option<i64>,
+) -> Result<SaleOutcome, SaleServiceError> {
     if lines.is_empty() {
         return Err(SaleError::Empty.into());
+    }
+
+    // Refuse duplicate IMEIs across lines in the same sale before touching the database.
+    let provided_imeis: Vec<String> = lines
+        .iter()
+        .filter_map(|line| {
+            line.imei
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+    if !provided_imeis.is_empty() {
+        Imei::parse_batch(&provided_imeis)?;
     }
 
     let session = identity_session::resolve(pool, tokens).await?;
@@ -172,6 +231,9 @@ pub async fn record_sale(
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
 
     let snapshot = settings_repo::load_snapshot(&mut *tx)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let appearance = settings_repo::load_appearance(&mut *tx)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     let prefix = snapshot.invoice_prefix.clone();
@@ -190,6 +252,8 @@ pub async fn record_sale(
         segments: Vec<inventory::ConsumedSegment>,
         warranty_start: Option<String>,
         warranty_end: Option<String>,
+        unit_id: Option<String>,
+        retired_unit_ids: Vec<String>,
     }
 
     let mut pending: Vec<PendingLine> = Vec::with_capacity(lines.len());
@@ -229,12 +293,17 @@ pub async fn record_sale(
         if product.status == ProductStatus::Archived {
             return Err(SaleError::ProductArchived.into());
         }
-        // V1 sells quantity-tracked products only. A `serialized` product needs
-        // per-piece identity and a `one_off` keeps no balance; both are refused
-        // rather than approximated, so no sale is recorded the ledger cannot cost.
+        // V1 sells quantity-tracked products (including phones with optional or
+        // required IMEIs, ADR-019). Legacy `serialized` / `one_off` dispositions
+        // stay refused.
         if product.disposition != Disposition::Quantity {
             return Err(SaleError::DispositionNotSupported.into());
         }
+
+        let tracking = unit_repo::product_tracking(&mut *tx, &line.product_id)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?
+            .ok_or(CatalogError::NoProductWithThisId)?;
 
         let price = product.sale_price.ok_or(SaleError::PriceNotSet)?;
         let unit_price_minor = price.as_minor();
@@ -242,17 +311,58 @@ pub async fn record_sale(
             .checked_mul(line.quantity)
             .ok_or(CostError::Overflow)?;
 
-        // Consume the stock first: it settles the authority check, the cost
-        // method and the exact cost this line removes, all inside this
-        // transaction and so all abandoned together if any line refuses.
-        let removal =
-            inventory::remove_in_tx(&mut tx, &actor, &line.product_id, line.quantity, now).await?;
+        let raw_imei = line
+            .imei
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let (method, cost_removed_minor, segments, unit_id, retired_unit_ids) =
+            if let Some(raw_imei) = raw_imei {
+                if line.quantity != 1 {
+                    return Err(UnitError::ImeiCountExceedsQuantity.into());
+                }
+                let unit_consumption = inventory::consume_unit_in_tx(
+                    &mut tx,
+                    &actor,
+                    &line.product_id,
+                    raw_imei,
+                    now,
+                )
+                .await?;
+                (
+                    unit_consumption.method,
+                    unit_consumption.cost_removed_minor,
+                    unit_consumption.segments,
+                    Some(unit_consumption.unit_id),
+                    Vec::new(),
+                )
+            } else {
+                if tracking.requires_imei(&appearance.imei_mode) {
+                    return Err(UnitError::ImeiRequiredForAllUnits.into());
+                }
+                let removal = inventory::remove_in_tx(
+                    &mut tx,
+                    &actor,
+                    &line.product_id,
+                    line.quantity,
+                    now,
+                )
+                .await?;
+                (
+                    removal.method,
+                    removal.cost_removed_minor,
+                    removal.segments,
+                    None,
+                    removal.retired_unit_ids,
+                )
+            };
 
         // The line's unit cost is a quoted reference: exact for a single layer,
         // and `None` when a FIFO line spans layers of different cost, because
         // there is then no single honest unit figure. `line_cost_minor` is the
         // profit authority either way.
-        let unit_cost_minor = match removal.segments.as_slice() {
+        let unit_cost_minor = match segments.as_slice() {
             [single] => Some(single.unit_cost_minor),
             _ => None,
         };
@@ -261,7 +371,7 @@ pub async fn record_sale(
             .checked_add(line_total_minor)
             .ok_or(CostError::Overflow)?;
         cost_total_minor = cost_total_minor
-            .checked_add(removal.cost_removed_minor)
+            .checked_add(cost_removed_minor)
             .ok_or(CostError::Overflow)?;
 
         pending.push(PendingLine {
@@ -272,12 +382,14 @@ pub async fn record_sale(
             unit_price_minor,
             line_total_minor,
             unit_cost_minor,
-            line_cost_minor: removal.cost_removed_minor,
+            line_cost_minor: cost_removed_minor,
             department_id: product.department.as_ref().map(|d| d.as_str()),
-            method: removal.method,
-            segments: removal.segments,
+            method,
+            segments,
             warranty_start,
             warranty_end,
+            unit_id,
+            retired_unit_ids,
         });
     }
 
@@ -328,10 +440,22 @@ pub async fn record_sale(
                 cost_method: line.method.as_str().to_owned(),
                 warranty_start: line.warranty_start.clone(),
                 warranty_end: line.warranty_end.clone(),
+                unit_id: line.unit_id.clone(),
             },
         )
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+
+        if let Some(ref uid) = line.unit_id {
+            unit_repo::mark_sold(&mut *tx, uid, &line_id)
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+        }
+        for uid in &line.retired_unit_ids {
+            unit_repo::mark_retired_for_sale_line(&mut *tx, uid, &line_id, "untracked_sale_overflow")
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+        }
 
         // One movement per consumed layer, so the movement sums reconcile with
         // the position. A sale leaves stock, so every delta is negative.
@@ -354,6 +478,7 @@ pub async fn record_sale(
                     reverses_movement_id: None,
                     // A sale is not a purchase and names no supplier (D1).
                     supplier_name: None,
+                    receipt_kind: None,
                 },
             )
             .await
@@ -488,6 +613,7 @@ pub async fn cancel_sale(
                 // about what was sold is worse than no reversal at all.
                 warranty_start: line.warranty_start.clone(),
                 warranty_end: line.warranty_end.clone(),
+                unit_id: line.unit_id.clone(),
             },
         )
         .await
@@ -630,6 +756,11 @@ async fn restore_line(
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
 
+    // Restore any serialized unit (`sold` or auto-`retired` by this line) back to `in_stock`.
+    unit_repo::restore_units_for_sale_line(tx, &line.id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
     Ok(())
 }
 
@@ -666,6 +797,7 @@ async fn write_reversal_movement(
             reverses_movement_id: Some(reverses_movement_id),
             // Undoing a sale is not a purchase, so it names no supplier (D1).
             supplier_name: None,
+            receipt_kind: None,
         },
     )
     .await

@@ -17,7 +17,7 @@ use crate::domain::identity::Permission;
 use crate::domain::sales::WarrantyDate;
 use crate::services::identity::{session as identity_session};
 use crate::services::identity::IdentityContext;
-use crate::services::sales::{self as use_cases, SaleLineInput, SaleOutcome, SaleServiceError};
+use crate::services::sales::{self as use_cases, SaleLineWithUnitInput, SaleOutcome, SaleServiceError};
 
 type Ctx<'a> = State<'a, IdentityContext>;
 
@@ -45,6 +45,8 @@ pub struct SaleLineInputDto {
     pub quantity: i64,
     pub warranty_start: Option<String>,
     pub warranty_end: Option<String>,
+    #[serde(default)]
+    pub imei: Option<String>,
 }
 
 impl SaleLineInputDto {
@@ -53,14 +55,15 @@ impl SaleLineInputDto {
     /// Falls rather than defaulting: a mistyped date is the operator's to see
     /// and fix, and inventing a coverage the shop never agreed to is exactly the
     /// claim this software must not make.
-    fn into_input(self) -> Result<SaleLineInput, SalesCommandError> {
+    fn into_input(self) -> Result<SaleLineWithUnitInput, SalesCommandError> {
         let warranty_start = parse_warranty(self.warranty_start)?;
         let warranty_end = parse_warranty(self.warranty_end)?;
-        Ok(SaleLineInput {
+        Ok(SaleLineWithUnitInput {
             product_id: self.product_id,
             quantity: self.quantity,
             warranty_start,
             warranty_end,
+            imei: self.imei,
         })
     }
 }
@@ -132,8 +135,8 @@ pub async fn record_sale(
     let lines = lines
         .into_iter()
         .map(SaleLineInputDto::into_input)
-        .collect::<Result<Vec<SaleLineInput>, SalesCommandError>>()?;
-    let outcome = use_cases::record_sale(&ctx.pool, ctx.tokens.as_ref(), &lines, confirmed_total_minor)
+        .collect::<Result<Vec<SaleLineWithUnitInput>, SalesCommandError>>()?;
+    let outcome = use_cases::record_sale_with_units(&ctx.pool, ctx.tokens.as_ref(), &lines, confirmed_total_minor)
         .await?;
     // Authorize cost visibility from the session, not from caller role alone.
     let session = identity_session::resolve(&ctx.pool, ctx.tokens.as_ref()).await

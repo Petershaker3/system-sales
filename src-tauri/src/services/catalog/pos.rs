@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 
 use crate::data::repositories::catalog::brand as brand_repo;
 use crate::data::repositories::catalog::pos as repo;
+use crate::data::repositories::inventory::unit as unit_repo;
 use crate::domain::catalog::brand_aliases;
 use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::services::identity::secure_store::SecureTokenStore;
@@ -26,6 +27,20 @@ pub struct PosCatalog {
     /// Every phone company in the owner's order, with its Arabic spellings for
     /// search (ADR-018 §2). Hidden ones too: their phones are still sold.
     pub brands: Vec<PosBrand>,
+    /// Available `in_stock` device units for active products (`ADR-019`).
+    /// Carries no cost figure.
+    pub units: Vec<PosUnit>,
+}
+
+/// One available device unit on the sales screen (`ADR-019`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PosUnit {
+    pub id: String,
+    pub product_id: String,
+    pub imei: String,
+    pub imei2: Option<String>,
+    pub color: Option<String>,
+    pub created_at: i64,
 }
 
 /// A phone company on the sales screen: a chip under a phone category, and
@@ -68,10 +83,24 @@ pub async fn read(
             sort_order: brand.sort_order,
         })
         .collect();
+    let units = unit_repo::list_all_in_stock_for_active_products(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .into_iter()
+        .map(|u| PosUnit {
+            id: u.id,
+            product_id: u.product_id,
+            imei: u.imei,
+            imei2: u.imei2,
+            color: u.color,
+            created_at: u.created_at,
+        })
+        .collect();
 
     Ok(PosCatalog {
         products,
         categories,
         brands,
+        units,
     })
 }

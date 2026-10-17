@@ -1674,6 +1674,8 @@ fn every_authority_command_is_registered_in_lib() {
         ("settings", "read_settings"),
         ("settings", "update_setting"),
         ("inventory", "receive_stock"),
+        ("inventory", "receive_opening_stock"),
+        ("inventory", "list_product_units"),
         ("inventory", "remove_stock"),
         ("inventory", "get_position"),
     ] {
@@ -1790,6 +1792,8 @@ const COSTING_MOD: &str = include_str!("../../src/domain/costing/mod.rs");
 const COSTING_MOVING_AVERAGE: &str = include_str!("../../src/domain/costing/moving_average.rs");
 const COSTING_FIFO: &str = include_str!("../../src/domain/costing/fifo.rs");
 const STOCK_MIGRATION: &str = include_str!("../../src/data/migrations/0008_stock_and_cost_layers.sql");
+const IMEI_UNITS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0020_imei_units_and_receiving.sql");
 const COSTING_SERVICE: &str = include_str!("../../src/services/inventory/stock.rs");
 const INVENTORY_COMMANDS: &str = include_str!("../../src/commands/inventory.rs");
 const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts");
@@ -2245,6 +2249,30 @@ fn the_stock_schema_stays_one_counter_per_product_and_opens_no_location() {
         sql.contains("product_id") && sql.contains("references products (id)"),
         "stock_levels must be keyed by product_id alone (ADR-012)"
     );
+}
+
+#[test]
+fn the_imei_units_migration_enforces_15_digits_and_opening_stock_rules() {
+    // ADR-019 (plan item 1.4): 15-digit IMEIs, non-negative integer costs,
+    // tracking modes on products, and opening-stock receipts that cannot name
+    // a supplier.
+    let sql = sql_only(IMEI_UNITS_MIGRATION);
+    for required in [
+        "check (tracking in ('none', 'serial_optional', 'serial_required'))",
+        "check (receipt_kind is null or receipt_kind in ('supplier', 'opening'))",
+        "when new.receipt_kind = 'opening' and new.supplier_name is not null",
+        "create table units",
+        "length(imei) = 15",
+        "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
+        "unit_cost_minor      integer not null check (unit_cost_minor >= 0)",
+        "check (status in ('in_stock', 'sold', 'retired'))",
+        "alter table sale_lines add column unit_id text null",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0020_imei_units_and_receiving.sql must contain `{required}`"
+        );
+    }
 }
 
 #[test]

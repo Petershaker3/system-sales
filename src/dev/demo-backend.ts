@@ -38,6 +38,7 @@ interface DemoProduct {
   deviceType: 'touch' | 'keypad' | null;
   storageGb: number | null;
   ramGb: number | null;
+  tracking?: 'none' | 'serial_optional' | 'serial_required';
   /** A variant's parent and combination details (ADR-018 §4); null for standalone products. */
   parentId?: string | null;
   parentName?: string | null;
@@ -224,9 +225,9 @@ const products: DemoProduct[] = [
   p('ساعة ذكية T500', 550, 3, 2, 'c-smart'),
   p('وصلة OTG', null, 8, 0, 'c-cables'),
   p('موبايل سامسونج A15', 7500, 3, 0, 'c-phones', null, 'serialized'),
-  { ...p('Samsung Galaxy A16 128GB', 9250, 4, 3, 'c-phones'), brandId: 'b-samsung', model: 'Galaxy A16', deviceType: 'touch', storageGb: 128, ramGb: 6 },
-  { ...p('iPhone 16 128GB', 57500, 1, 1, 'c-phones'), brandId: 'b-apple', model: 'iPhone 16', deviceType: 'touch', storageGb: 128, ramGb: null },
-  { ...p('Redmi 14C 128GB', 6299, 3, 2, 'c-phones'), brandId: 'b-xiaomi', model: 'Redmi 14C', deviceType: 'touch', storageGb: 128, ramGb: 4 },
+  { ...p('Samsung Galaxy A16 128GB', 9250, 4, 3, 'c-phones'), brandId: 'b-samsung', model: 'Galaxy A16', deviceType: 'touch', storageGb: 128, ramGb: 6, tracking: 'serial_optional' },
+  { ...p('iPhone 16 128GB', 57500, 1, 1, 'c-phones'), brandId: 'b-apple', model: 'iPhone 16', deviceType: 'touch', storageGb: 128, ramGb: null, tracking: 'serial_optional' },
+  { ...p('Redmi 14C 128GB', 6299, 3, 2, 'c-phones'), brandId: 'b-xiaomi', model: 'Redmi 14C', deviceType: 'touch', storageGb: 128, ramGb: 4, tracking: 'serial_optional' },
 ];
 
 // The shop's own barcode (ADR-018 §3 & §4, PLAN §6), mirroring
@@ -273,7 +274,40 @@ const appearance = {
   scale: 'normal',
   digits: 'latin',
   images: 'on',
+  imeiMode: 'optional',
 };
+interface DemoUnit {
+  id: string;
+  productId: string;
+  imei: string;
+  imei2: string | null;
+  color: string | null;
+  unitCostMinor: number;
+  status: 'in_stock' | 'sold' | 'retired';
+  createdAt: number;
+}
+const productUnits: DemoUnit[] = [];
+function demoNormalizeImei(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .replace(/[\s-]/g, '');
+}
+function demoLuhn(imei: string): boolean {
+  if (!/^\d{15}$/.test(imei)) return false;
+  let sum = 0;
+  for (let i = 0; i < 15; i++) {
+    let d = imei.charCodeAt(i) - 48;
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+let approvedOnce = false;
 interface DemoProductImage {
   productId: string;
   file: string;
@@ -432,6 +466,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (approver.disabled) fail('ACCOUNT_DISABLED');
     if (approver.pin === null) fail('PIN_NOT_SET');
     if (approver.pin !== str(args, 'pin')) fail('INVALID_CREDENTIALS');
+    approvedOnce = true;
   },
   // The recovery code (ADR-017 §4): the same rules as Rust, minus the lockout.
   recover_password_with_code: (args) => {
@@ -474,10 +509,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
   // display choices
   read_appearance: () => ({ ...appearance }),
   update_appearance: (args) => {
-    const key = str(args, 'key').replace(/^ui\./, '') as keyof typeof appearance;
+    const rawKey = str(args, 'key');
+    const key = (
+      rawKey === 'ui.imei_mode' ? 'imeiMode' : rawKey.replace(/^ui\./, '')
+    ) as keyof typeof appearance;
     if (!(key in appearance)) fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
-    else if (key === 'images') requireManager(false);
+    else if (key === 'images' || key === 'imeiMode') requireManager(false);
     else requireManager(true);
     appearance[key] = str(args, 'value').toLowerCase();
     return { ...appearance };
@@ -494,6 +532,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
           id: x.id,
           name: x.name,
           disposition: x.disposition,
+          tracking: x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none'),
           barcode: x.barcode,
           salePriceMinor: x.salePriceMinor,
           categoryId: x.categoryId,
@@ -513,15 +552,24 @@ const handlers: Record<string, (args: Args) => unknown> = {
       brands: [...brands]
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((b) => ({ id: b.id, name: b.name, aliases: b.aliases, sortOrder: b.sortOrder })),
+      units: productUnits
+        .filter((u) => u.status === 'in_stock')
+        .map((u) => ({
+          id: u.id,
+          productId: u.productId,
+          imei: u.imei,
+          imei2: u.imei2,
+          color: u.color,
+        })),
     };
   },
 
   record_sale: (args) => {
     requireUser();
-    const lines = (args?.['lines'] as { productId: string; quantity: number }[] | undefined) ?? [];
+    const lines =
+      (args?.['lines'] as { productId: string; quantity: number; imei?: string | null }[] | undefined) ?? [];
     if (lines.length === 0) fail('SALE_EMPTY');
     let total = 0;
-    let cost = 0;
     for (const line of lines) {
       const x = findProduct(line.productId);
       if (x.status !== 'active') fail('SALE_PRODUCT_ARCHIVED');
@@ -529,17 +577,81 @@ const handlers: Record<string, (args: Args) => unknown> = {
       if (x.salePriceMinor === null) fail('SALE_PRICE_NOT_SET');
       if (!(line.quantity > 0)) fail('SALE_INVALID_QUANTITY');
       if (line.quantity > x.onHand) fail('COST_INSUFFICIENT_STOCK');
+      const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
+      const rawImei = typeof line.imei === 'string' && line.imei.trim() !== '' ? demoNormalizeImei(line.imei) : null;
+      if (rawImei === null && tracking !== 'none' && (tracking === 'serial_required' || appearance.imeiMode === 'required')) {
+        fail('IMEI_REQUIRED_FOR_ALL_UNITS');
+      }
+      if (rawImei !== null) {
+        if (tracking === 'none') fail('IMEI_PRODUCT_NOT_SERIAL_TRACKED');
+        if (line.quantity !== 1) fail('SALE_INVALID_QUANTITY');
+        if (!demoLuhn(rawImei)) fail('IMEI_CHECK_DIGIT_INVALID');
+      }
       total += (x.salePriceMinor ?? 0) * line.quantity;
-      cost += Math.ceil((x.totalCostMinor * line.quantity) / Math.max(1, x.onHand));
     }
     const confirmed = args?.['confirmedTotalMinor'];
     if (typeof confirmed === 'number' && confirmed !== total) fail('SALE_PRICE_CHANGED');
+    let cost = 0;
     for (const line of lines) {
       const x = findProduct(line.productId);
-      const removed = Math.ceil((x.totalCostMinor * line.quantity) / Math.max(1, x.onHand));
-      x.totalCostMinor -= removed;
-      x.onHand -= line.quantity;
-      x.soldRecently += line.quantity;
+      const rawImei = typeof line.imei === 'string' && line.imei.trim() !== '' ? demoNormalizeImei(line.imei) : null;
+      const inStockUnits = productUnits
+        .filter((u) => u.productId === x.id && u.status === 'in_stock')
+        .sort((a, b) => a.createdAt - b.createdAt);
+      const unitsCost = inStockUnits.reduce((s, u) => s + u.unitCostMinor, 0);
+      const unregQty = Math.max(0, x.onHand - inStockUnits.length);
+      const unregCost = Math.max(0, x.totalCostMinor - unitsCost);
+
+      if (rawImei !== null) {
+        const existing = productUnits.find((u) => u.imei === rawImei || u.imei2 === rawImei);
+        if (existing) {
+          if (existing.productId !== x.id || existing.status !== 'in_stock') fail('IMEI_UNIT_NOT_AVAILABLE');
+          existing.status = 'sold';
+          const removed = Math.min(x.totalCostMinor, existing.unitCostMinor);
+          x.totalCostMinor -= removed;
+          x.onHand -= 1;
+          x.soldRecently += 1;
+          cost += removed;
+        } else {
+          if (unregQty < 1) fail('IMEI_NO_UNREGISTERED_STOCK');
+          const removed = Math.ceil(unregCost / Math.max(1, unregQty));
+          productUnits.push({
+            id: newId('u'),
+            productId: x.id,
+            imei: rawImei,
+            imei2: null,
+            color: null,
+            unitCostMinor: removed,
+            status: 'sold',
+            createdAt: now(),
+          });
+          x.totalCostMinor -= removed;
+          x.onHand -= 1;
+          x.soldRecently += 1;
+          cost += removed;
+        }
+      } else {
+        if (line.quantity <= unregQty) {
+          const removed = Math.ceil((unregCost * line.quantity) / Math.max(1, unregQty));
+          x.totalCostMinor -= removed;
+          x.onHand -= line.quantity;
+          x.soldRecently += line.quantity;
+          cost += removed;
+        } else {
+          const overflow = line.quantity - unregQty;
+          const retired = inStockUnits.slice(0, overflow);
+          let removed = unregCost;
+          for (const u of retired) {
+            u.status = 'retired';
+            removed += u.unitCostMinor;
+          }
+          removed = Math.min(x.totalCostMinor, removed);
+          x.totalCostMinor -= removed;
+          x.onHand -= line.quantity;
+          x.soldRecently += line.quantity;
+          cost += removed;
+        }
+      }
     }
     const reference = `${settings.invoicePrefix}-${today()}-${String(sales.length + 1).padStart(4, '0')}`;
     const sale = { id: newId('s'), reference, totalMinor: total };
@@ -776,9 +888,65 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireManager();
     const x = findProduct(str(args, 'productId'));
     const quantity = numArg(args, 'quantity');
+    const unitCost = numArg(args, 'unitCostMinor');
+    const rawImeis = Array.isArray(args?.['imeis']) ? (args['imeis'] as string[]) : [];
+    const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
+    if (rawImeis.length > 0 && tracking === 'none') fail('IMEI_PRODUCT_NOT_SERIAL_TRACKED');
+    if (rawImeis.length > quantity) fail('IMEI_COUNT_EXCEEDS_QUANTITY');
+    if (
+      tracking !== 'none' &&
+      (tracking === 'serial_required' || appearance.imeiMode === 'required') &&
+      rawImeis.length !== quantity
+    ) {
+      fail('IMEI_REQUIRED_FOR_ALL_UNITS');
+    }
+    const seen = new Set<string>();
+    const cleanImeis: string[] = [];
+    for (const raw of rawImeis) {
+      const digits = demoNormalizeImei(raw);
+      if (!/^\d{15}$/.test(digits)) fail('IMEI_LENGTH_INVALID');
+      if (!demoLuhn(digits)) fail('IMEI_CHECK_DIGIT_INVALID');
+      if (seen.has(digits)) fail('IMEI_DUPLICATE_IN_BATCH');
+      if (productUnits.some((u) => u.imei === digits || u.imei2 === digits)) fail('IMEI_ALREADY_REGISTERED');
+      seen.add(digits);
+      cleanImeis.push(digits);
+    }
+    for (const digits of cleanImeis) {
+      productUnits.push({
+        id: newId('u'),
+        productId: x.id,
+        imei: digits,
+        imei2: null,
+        color: null,
+        unitCostMinor: unitCost,
+        status: 'in_stock',
+        createdAt: now(),
+      });
+    }
     x.onHand += quantity;
-    x.totalCostMinor += quantity * numArg(args, 'unitCostMinor');
+    x.totalCostMinor += quantity * unitCost;
     return { productId: x.id, quantity: x.onHand, costMinor: 0 };
+  },
+  receive_opening_stock: (args) => {
+    requireManager();
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    approvedOnce = false;
+    return handlers['receive_stock']!(args);
+  },
+  list_product_units: (args) => {
+    requireUser();
+    const pid = str(args, 'productId');
+    return productUnits
+      .filter((u) => u.productId === pid && u.status === 'in_stock')
+      .map((u) => ({
+        id: u.id,
+        productId: u.productId,
+        imei: u.imei,
+        imei2: u.imei2,
+        color: u.color,
+        unitCostMinor: u.unitCostMinor,
+        status: u.status,
+      }));
   },
   remove_stock: (args) => {
     requireManager();
@@ -890,6 +1058,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       deviceType: device,
       storageGb: storage,
       ramGb: ram,
+      tracking: 'serial_optional',
       onHand: 0,
       totalCostMinor: 0,
       soldRecently: 0,

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// Stock and costing panel (SP-2, `ADR-013`, `ADR-015`).
+// Stock and costing panel (SP-2, `ADR-013`, `ADR-015`, `ADR-019`).
 //
 // Two use cases, and the panel's job is to show what Rust computed rather
 // than to compute anything:
 //
-//   - receive: add units at a known unit cost. Routine.
+//   - receive: add units at a known unit cost (from supplier or opening stock,
+//     with optional 15-digit Luhn-checked IMEIs for phones).
 //   - remove:  consume units and show what they cost. Routine.
 //
 // Every product counted by quantity is costed by moving average (ADR-016 #7).
@@ -25,14 +26,19 @@
 // produce a second, different rounding rule — the exact drift `ADR-013` exists
 // to prevent.
 
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 import * as catalog from '../api/catalog';
-import * as inventory from '../api/inventory';
-import * as lifecycle from '../api/lifecycle';
-import { describeError } from '../api/errors';
 import type { Product } from '../api/catalog';
-import type { StockPosition } from '../api/inventory';
+import { describeError } from '../api/errors';
+import * as inventory from '../api/inventory';
+import type { ProductUnit, StockPosition } from '../api/inventory';
+import * as lifecycle from '../api/lifecycle';
+import * as posApi from '../api/pos';
+import type { PosProduct } from '../api/pos';
+import { imeiLuhn, normalizeImeiDigits } from '../screens/pos/imei';
+import { withOwnerApproval } from '../shell/approval';
+import { appearance } from '../ui/appearance';
 import Icon from '../ui/Icon.vue';
 
 const emit = defineEmits<{ 'new-item': [] }>();
@@ -40,11 +46,13 @@ const emit = defineEmits<{ 'new-item': [] }>();
 // --- product picker --------------------------------------------------------
 
 const products = ref<Product[]>([]);
+const posById = ref<Map<string, PosProduct>>(new Map());
 
 const selectedProductId = ref('');
 
 // --- movement forms --------------------------------------------------------
 
+const receiptMode = ref<'supplier' | 'opening'>('supplier');
 const receiveQuantity = ref('');
 /**
  * Who delivered this lot (decision D1): a label the operator types, optional.
@@ -53,6 +61,8 @@ const receiveQuantity = ref('');
  */
 const receiveSupplier = ref('');
 const receiveUnitCost = ref('');
+const imeiDraft = ref('');
+const receiveImeis = ref<string[]>([]);
 const removeQuantity = ref('');
 const error = ref('');
 const notice = ref('');
@@ -62,10 +72,30 @@ const selectedProduct = computed(
   () => products.value.find((product) => product.id === selectedProductId.value) ?? null
 );
 
+const selectedIsSerial = computed(() => {
+  const p = selectedProduct.value;
+  if (p === null) return false;
+  if (p.disposition === 'serialized') return true;
+  const posProd = posById.value.get(p.id);
+  return (
+    posProd !== undefined &&
+    (posProd.tracking === 'serial_optional' ||
+      posProd.tracking === 'serial_required' ||
+      posProd.brandId !== null)
+  );
+});
+
 async function loadPickers(): Promise<void> {
   busy.value = true;
   try {
-    products.value = await catalog.listProducts('active');
+    const [prods, cat] = await Promise.all([
+      catalog.listProducts('active'),
+      posApi.posCatalog().catch(() => null),
+    ]);
+    products.value = prods;
+    if (cat) {
+      posById.value = new Map(cat.products.map((p) => [p.id, p]));
+    }
     error.value = '';
   } catch (err) {
     error.value = describeError(err);
@@ -77,6 +107,7 @@ async function loadPickers(): Promise<void> {
 // --- the read-only position ------------------------------------------------
 
 const position = ref<StockPosition | null>(null);
+const units = ref<ProductUnit[]>([]);
 const showReauth = ref(false);
 const reauthPassword = ref('');
 
@@ -112,22 +143,80 @@ async function confirmReauth(): Promise<void> {
   }
 }
 
+async function loadUnits(): Promise<void> {
+  if (selectedProductId.value === '' || !selectedIsSerial.value) {
+    units.value = [];
+    return;
+  }
+  try {
+    units.value = await inventory.listProductUnits(selectedProductId.value);
+  } catch {
+    units.value = [];
+  }
+}
+
 async function loadPosition(): Promise<void> {
   if (selectedProductId.value === '') {
     error.value = 'اختر منتجًا أولًا.';
     return;
   }
   position.value = await inventory.getPosition(selectedProductId.value);
+  await loadUnits();
 }
 
 async function refreshPosition(): Promise<void> {
   if (selectedProductId.value === '' || position.value === null) return;
   try {
     position.value = await inventory.getPosition(selectedProductId.value);
+    await loadUnits();
   } catch {
     // The panel still shows what it has; a stale position is better than a
     // cleared screen, and the next explicit load reports any real problem.
   }
+}
+
+watch(selectedProductId, async () => {
+  imeiDraft.value = '';
+  receiveImeis.value = [];
+  error.value = '';
+  notice.value = '';
+  if (position.value !== null && selectedProductId.value !== '') {
+    await refreshPosition();
+  }
+});
+
+// --- IMEI entry on receive -------------------------------------------------
+
+function addImeiToBatch(): void {
+  const digits = normalizeImeiDigits(imeiDraft.value);
+  if (digits === '') return;
+  if (!/^\d{15}$/.test(digits)) {
+    error.value = 'رقم الـ IMEI لازم يكون 15 رقم بالظبط.';
+    return;
+  }
+  if (!imeiLuhn(digits)) {
+    error.value = 'رقم الـ IMEI فيه رقم غلط (فحص Luhn).';
+    return;
+  }
+  if (receiveImeis.value.includes(digits)) {
+    error.value = 'الـ IMEI ده مضاف بالفعل في الدفعة دي.';
+    return;
+  }
+  if (units.value.some((u) => u.imei === digits || u.imei2 === digits)) {
+    error.value = 'الـ IMEI ده متسجّل بالفعل في المخزن.';
+    return;
+  }
+  receiveImeis.value.push(digits);
+  imeiDraft.value = '';
+  error.value = '';
+  const currentQty = parseNonNegativeInteger(receiveQuantity.value) ?? 0;
+  if (receiveImeis.value.length > currentQty) {
+    receiveQuantity.value = String(receiveImeis.value.length);
+  }
+}
+
+function removeImeiFromBatch(idx: number): void {
+  receiveImeis.value.splice(idx, 1);
 }
 
 // --- receive / remove ------------------------------------------------------
@@ -149,22 +238,48 @@ async function submitReceive(): Promise<void> {
     error.value = 'سعر الوحدة يجب أن يكون عددًا صحيحًا غير سالب.';
     return;
   }
+  if (selectedIsSerial.value && receiveImeis.value.length > quantity) {
+    error.value = 'عدد أرقام الـ IMEI أكبر من الكمية.';
+    return;
+  }
+  if (
+    selectedIsSerial.value &&
+    appearance.imeiMode === 'required' &&
+    receiveImeis.value.length !== quantity
+  ) {
+    error.value = `وضع الـ IMEI إلزامي: سجّل ${quantity} رقم IMEI قبل الحفظ.`;
+    return;
+  }
 
   busy.value = true;
   notice.value = '';
   try {
-    const outcome = await inventory.receiveStock(
-      selectedProductId.value,
-      quantity,
-      unitCost,
-      receiveSupplier.value.trim()
-    );
+    const imeis = selectedIsSerial.value ? [...receiveImeis.value] : [];
+    let outcome;
+    if (receiptMode.value === 'opening') {
+      const approved = await withOwnerApproval(
+        () => inventory.receiveOpeningStock(selectedProductId.value, quantity, unitCost, imeis),
+        'تسجيل بضاعة أول المدة'
+      );
+      if (approved.status === 'cancelled') return;
+      outcome = approved.value;
+    } else {
+      outcome = await inventory.receiveStock(
+        selectedProductId.value,
+        quantity,
+        unitCost,
+        receiveSupplier.value.trim(),
+        imeis
+      );
+    }
     notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
     receiveQuantity.value = '';
     receiveUnitCost.value = '';
     // The supplier is cleared with the rest of the delivery: the next delivery is
     // usually from somebody else, and a stale label would be a false record.
     receiveSupplier.value = '';
+    imeiDraft.value = '';
+    receiveImeis.value = [];
     error.value = '';
     await refreshPosition();
   } catch (err) {
@@ -224,7 +339,7 @@ void loadPickers();
     <!-- Product picker -->
     <label class="field">
       <span>المنتج</span>
-      <select v-model="selectedProductId">
+      <select id="stock-product" v-model="selectedProductId">
         <option value="">— اختر منتجًا —</option>
         <option v-for="product in products" :key="product.id" :value="product.id">
           {{ product.name }}
@@ -249,20 +364,55 @@ void loadPickers();
         <dd>{{ position.quantity }}</dd>
         <dt>إجمالي التكلفة (متوسط مرجح)</dt>
         <dd>{{ formatPiastres(position.effectiveCostMinor) }}</dd>
+        <template v-if="selectedIsSerial">
+          <dt>أجهزة بـ IMEI مسجّل</dt>
+          <dd>متسجّل {{ units.length }} من {{ position.quantity }}</dd>
+        </template>
       </dl>
+
+      <div v-if="selectedIsSerial && units.length > 0" class="units-box">
+        <div class="units-head">أجهزة متسجّل ليها IMEI في المخزن ({{ units.length }})</div>
+        <div class="units-chips">
+          <span v-for="u in units" :key="u.id" class="unit-tag mono" dir="ltr">
+            {{ u.imei }}
+          </span>
+        </div>
+      </div>
 
       <!-- Receive -->
       <form class="form" @submit.prevent="submitReceive">
-        <h4 class="form-title">استلام توريد</h4>
+        <div class="form-head">
+          <h4 class="form-title">استلام بضاعة</h4>
+          <div class="seg" role="group" aria-label="نوع الاستلام">
+            <button
+              id="stock-mode-supplier"
+              type="button"
+              class="seg-b"
+              :class="{ on: receiptMode === 'supplier' }"
+              @click="receiptMode = 'supplier'"
+            >
+              من مورد
+            </button>
+            <button
+              id="stock-mode-opening"
+              type="button"
+              class="seg-b"
+              :class="{ on: receiptMode === 'opening' }"
+              @click="receiptMode = 'opening'"
+            >
+              بضاعة موجودة عندي (أول مرة)
+            </button>
+          </div>
+        </div>
         <label class="field">
           <span>الكمية</span>
-          <input v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
+          <input id="stock-qty" v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
         </label>
         <label class="field">
           <span>سعر الوحدة (قرش)</span>
-          <input v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
+          <input id="stock-cost" v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
         </label>
-        <label class="field">
+        <label v-if="receiptMode === 'supplier'" class="field">
           <span>المورد (اختياري)</span>
           <input
             v-model="receiveSupplier"
@@ -271,8 +421,55 @@ void loadPickers();
             placeholder="اسم من كتبته"
           />
         </label>
-        <p class="hint">
+
+        <div v-if="selectedIsSerial" class="imei-box">
+          <div class="imei-box-head">
+            <span>
+              أرقام الـ IMEI ({{ appearance.imeiMode === 'required' ? 'إلزامي' : 'اختياري' }}) —
+              {{ receiveImeis.length }} مضاف
+            </span>
+          </div>
+          <div class="imei-entry-row">
+            <input
+              id="stock-imei-input"
+              v-model="imeiDraft"
+              :class="{ mono: imeiDraft !== '' }"
+              :dir="imeiDraft ? 'ltr' : 'rtl'"
+              inputmode="numeric"
+              maxlength="17"
+              autocomplete="off"
+              placeholder="امسح أو اكتب 15 رقم…"
+              @keydown.enter.prevent="addImeiToBatch"
+            />
+            <button
+              id="stock-imei-add"
+              type="button"
+              class="btn sm soft"
+              @click="addImeiToBatch"
+            >
+              أضف IMEI
+            </button>
+          </div>
+          <div v-if="receiveImeis.length > 0" class="imei-chips">
+            <span v-for="(im, idx) in receiveImeis" :key="im" class="imei-chip mono" dir="ltr">
+              {{ im }}
+              <button
+                type="button"
+                class="chip-x"
+                title="حذف"
+                @click="removeImeiFromBatch(idx)"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        </div>
+
+        <p v-if="receiptMode === 'supplier'" class="hint">
           المورد اسم تكتبه أنت على التوريد نفسه. سيبه فاضي لو مش عارف.
+        </p>
+        <p v-else class="hint">
+          بضاعة أول المدة بتدخل المخزن من غير اسم مورد ومش بتتحسب في مشتريات الموردين.
         </p>
         <button type="submit" :disabled="busy">استلام</button>
       </form>
@@ -344,14 +541,77 @@ void loadPickers();
   grid-template-columns: auto 1fr;
   gap: 0.25rem 1rem;
 }
+.units-box {
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.units-head {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.units-chips,
+.imei-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.unit-tag,
+.imei-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: 0.82rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.chip-x {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 0 2px;
+}
 .form {
   margin: 1rem 0;
   padding: 0.75rem;
   border: 1px solid #ddd;
 }
+.form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
 .form-title {
   font-size: 0.95rem;
-  margin: 0 0 0.5rem;
+  margin: 0;
+}
+.imei-box {
+  margin: 0.75rem 0;
+  padding: 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+}
+.imei-box-head {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.imei-entry-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.imei-entry-row input {
+  flex: 1;
 }
 .notice {
   margin-top: 0.75rem;

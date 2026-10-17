@@ -49,6 +49,8 @@ pub struct SaleLineRecord {
     /// days, never recomputed and never inferred from a period.
     pub warranty_start: Option<String>,
     pub warranty_end: Option<String>,
+    /// The serialized unit (`units.id`) sold on this line (`ADR-019`), if any.
+    pub unit_id: Option<String>,
 }
 
 /// One row of the append-only movement ledger.
@@ -71,6 +73,8 @@ pub struct MovementRecord {
     /// The supplier label on a receipt (P4b, decision D1). NULL for everything
     /// that is not a purchase — a sale, a reversal, a removal, an adjustment.
     pub supplier_name: Option<String>,
+    /// `"supplier"` or `"opening"` on a receipt (`ADR-019`); NULL otherwise.
+    pub receipt_kind: Option<String>,
 }
 
 pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Result<(), sqlx::Error> {
@@ -102,8 +106,8 @@ pub async fn insert_sale_line(
              (id, sale_id, line_no, product_id, product_name, disposition,
               quantity, unit_selling_price_minor, line_total_minor,
               unit_cost_minor, line_cost_minor, department_id, cost_method,
-              warranty_start, warranty_end)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              warranty_start, warranty_end, unit_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
     )
     .bind(&line.id)
     .bind(&line.sale_id)
@@ -120,6 +124,7 @@ pub async fn insert_sale_line(
     .bind(&line.cost_method)
     .bind(line.warranty_start.as_deref())
     .bind(line.warranty_end.as_deref())
+    .bind(line.unit_id.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -133,8 +138,8 @@ pub async fn insert_movement(
         "INSERT INTO stock_movements
              (id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
               occurred_at, actor_id, sale_id, sale_line_id,
-              fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+              fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )
     .bind(&movement.id)
     .bind(&movement.product_id)
@@ -150,6 +155,7 @@ pub async fn insert_movement(
     .bind(movement.fifo_received_at)
     .bind(movement.reverses_movement_id.as_deref())
     .bind(movement.supplier_name.as_deref())
+    .bind(movement.receipt_kind.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -239,7 +245,7 @@ pub async fn list_lines(
         "SELECT id, sale_id, line_no, product_id, product_name, disposition,
                 quantity, unit_selling_price_minor, line_total_minor,
                 unit_cost_minor, line_cost_minor, department_id, cost_method,
-                warranty_start, warranty_end
+                warranty_start, warranty_end, unit_id
          FROM sale_lines
          WHERE sale_id = ?1
          ORDER BY line_no",
@@ -266,6 +272,7 @@ pub async fn list_lines(
             cost_method: row.get("cost_method"),
             warranty_start: row.get("warranty_start"),
             warranty_end: row.get("warranty_end"),
+            unit_id: row.get("unit_id"),
         })
         .collect())
 }
@@ -278,7 +285,7 @@ pub async fn list_movements_for_sale(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind
          FROM stock_movements
          WHERE sale_id = ?1
          ORDER BY occurred_at, id",
@@ -298,7 +305,7 @@ pub async fn list_movements_for_line(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind
          FROM stock_movements
          WHERE sale_line_id = ?1
          ORDER BY occurred_at, id",
@@ -402,5 +409,6 @@ fn row_to_movement(row: sqlx::sqlite::SqliteRow) -> MovementRecord {
         fifo_received_at: row.get("fifo_received_at"),
         reverses_movement_id: row.get("reverses_movement_id"),
         supplier_name: row.get("supplier_name"),
+        receipt_kind: row.get("receipt_kind"),
     }
 }

@@ -16,8 +16,10 @@ import {
   newCart,
   removeLine,
   reprice,
+  setLineImei,
   setQuantity,
   switchTo,
+  takenImeis,
   totals,
 } from './cart.ts';
 import type { SellableProduct } from './cart.ts';
@@ -154,3 +156,26 @@ test('a fresh catalogue reprices open lines and drops what can no longer be sold
   assert.equal(cart.invoices[0]?.lines[0]?.unitPriceMinor, 6000);
   assert.equal(current(cart).lines[0]?.unitPriceMinor, 6000);
 });
+
+test('serial phones add one line per unit and prevent duplicate IMEIs across open invoices', () => {
+  const phone: SellableProduct = {
+    id: 'ph1',
+    name: 'Samsung Galaxy A16 128GB',
+    priceMinor: 925000,
+    onHand: 3,
+    serial: true,
+  };
+  const cart = newCart();
+  assert.deepEqual(addProduct(cart, phone, 1, null), { ok: true });
+  assert.deepEqual(addProduct(cart, phone, 1, '356938035643809'), { ok: true });
+  assert.equal(current(cart).lines.length, 2, 'each serial phone is its own line');
+  assert.equal(current(cart).lines[0]?.imei, null);
+  assert.equal(current(cart).lines[1]?.imei, '356938035643809');
+
+  // Cannot attach the same IMEI to the first line.
+  assert.equal(setLineImei(cart, 0, '356938035643809'), false);
+  // Can attach a different IMEI to the first line.
+  assert.equal(setLineImei(cart, 0, '490154203237518'), true);
+  assert.deepEqual([...takenImeis(cart)].sort(), ['356938035643809', '490154203237518']);
+});
+

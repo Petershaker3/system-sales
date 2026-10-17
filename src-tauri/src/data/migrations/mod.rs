@@ -96,4 +96,10 @@ pub const PRODUCT_VARIANTS: &str = include_str!("0018_product_variants.sql");
 /// ADR-018 §5), storing only the external file reference and verified metadata.
 pub const PRODUCT_IMAGES: &str = include_str!("0019_product_images.sql");
 
+/// `0020`: optional IMEI units, opening-stock receipts, and phone unit sales
+/// (`units`, `products.tracking`, `stock_movements.receipt_kind`,
+/// `sale_lines.unit_id`, ADR-019).
+pub const IMEI_UNITS_AND_RECEIVING: &str = include_str!("0020_imei_units_and_receiving.sql");
+
+
 

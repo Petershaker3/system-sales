@@ -55,7 +55,11 @@ async function pay(): Promise<void> {
   error.value = '';
   try {
     const outcome = await salesApi.recordSale(
-      props.lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+      props.lines.map((line) => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        imei: line.imei ?? null,
+      })),
       props.totalMinor
     );
     const name = customerName.value.trim();

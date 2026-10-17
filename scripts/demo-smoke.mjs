@@ -787,6 +787,128 @@ check(
   (await count('[data-act="imgDel"]')) === 0 &&
     (await text('.catalog .notice')).includes('اتشالت الصورة، والصنف رجع بالأيقونة')
 );
+
+// --- optional IMEI units & receiving (ADR-019, plan item 1.4) --------------
+await page.evaluate(() => {
+  const sel = document.querySelector('#stock-product');
+  if (!sel) return;
+  const opt = [...sel.options].find((o) => o.textContent?.includes('Samsung Galaxy A26 256GB'));
+  if (opt) {
+    sel.value = opt.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+await clickText('.stock .gate button', 'عرض المخزن');
+await page.waitForSelector('.stock .overlay form.modal input[type=password]');
+await page.type('.stock .overlay form.modal input[type=password]', '1234');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.stock .position');
+await sleep(150);
+check(
+  'selecting a phone in the stock panel shows the optional IMEI box and receipt mode switcher',
+  (await count('#stock-imei-input')) === 1 && (await count('#stock-mode-opening')) === 1
+);
+await page.type('#stock-imei-input', '356938035643800');
+await page.click('#stock-imei-add');
+await sleep(100);
+check(
+  'an IMEI with a wrong Luhn check digit is refused before receiving',
+  (await count('.imei-chip')) === 0
+);
+await page.$eval('#stock-imei-input', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.type('#stock-imei-input', '356938035643809');
+await page.click('#stock-imei-add');
+await sleep(100);
+check(
+  'a valid 15-digit Luhn IMEI is added as a chip in the stock panel',
+  (await count('.imei-chip')) === 1 && (await text('.imei-chip')).includes('356938035643809')
+);
+await page.$eval('#stock-qty', (el) => {
+  el.value = '2';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.$eval('#stock-cost', (el) => {
+  el.value = '800000';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.click('.stock form button[type="submit"]');
+await sleep(250);
+check(
+  'receiving 2 phones with 1 registered IMEI updates on-hand to 2 and lists the registered IMEI in stock',
+  (await text('.stock')).includes('متسجّل 1 من 2') &&
+    (await text('.units-box')).includes('356938035643809')
+);
+await shot('25-store-imei-units');
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(150);
+await page.type('#q', '3809');
+await sleep(120);
+check(
+  'typing the last 4 digits of a registered IMEI in POS search finds that exact device',
+  (await count('.result.unit-res')) === 1 && (await text('.result.unit-res')).includes('…3809')
+);
+await page.keyboard.press('Escape');
+await sleep(80);
+
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(100);
+await clickText('.tile', 'Samsung Galaxy A26 256GB');
+await sleep(150);
+check(
+  'in optional IMEI mode, clicking a phone tile adds it to the invoice immediately with «سجّل IMEI»',
+  (await count('.line')) === 1 && (await text('.line-imei-btn')).includes('سجّل IMEI')
+);
+await page.click('.line-imei-btn');
+await page.waitForSelector('#imei-in');
+await sleep(100);
+await page.type('#imei-in', '490154203237518');
+await sleep(120);
+check(
+  'typing an unregistered Luhn-valid 15-digit IMEI in the picker offers late registration from unregistered stock',
+  (await count('#imei-register-btn')) === 1
+);
+await page.click('#imei-register-btn');
+await sleep(150);
+check(
+  'picking the late-registered IMEI links it to the phone line on the invoice',
+  (await text('.line-imei-btn')).includes('…7518')
+);
+await shot('26-pos-imei-linked');
+await page.click('.line .icon-btn.danger');
+await sleep(100);
+
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#imei-mode-required');
+await page.$eval('#imei-mode-required', (el) => el.click());
+await sleep(150);
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(120);
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(100);
+await clickText('.tile', 'Samsung Galaxy A26 256GB');
+await sleep(150);
+check(
+  'in required IMEI mode, clicking a phone tile opens the IMEI picker modal before adding to the invoice',
+  (await count('#imei-in')) === 1 && (await count('.line')) === 0
+);
+await page.click('.imei-row');
+await sleep(150);
+check(
+  'choosing a registered unit in required IMEI mode adds the phone line with its IMEI linked',
+  (await count('.line')) === 1 && (await text('.line-imei-btn')).includes('…3809')
+);
+await page.click('.line .icon-btn.danger');
+await sleep(100);
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#imei-mode-optional');
+await page.$eval('#imei-mode-optional', (el) => el.click());
+await sleep(150);
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('.tile');
 await sleep(80);

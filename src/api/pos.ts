@@ -9,11 +9,13 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type Disposition = 'quantity' | 'serialized' | 'one_off';
+export type TrackingMode = 'none' | 'serial_optional' | 'serial_required';
 
 export interface PosProduct {
   readonly id: string;
   readonly name: string;
   readonly disposition: Disposition;
+  readonly tracking?: TrackingMode;
   readonly barcode: string | null;
   /** `null` when no price was ever set: such a product cannot be sold yet. */
   readonly salePriceMinor: number | null;
@@ -59,10 +61,21 @@ export interface PosBrand {
   readonly sortOrder: number;
 }
 
+/** One available serialized unit (`ADR-019`), carrying no cost figure. */
+export interface PosUnit {
+  readonly id: string;
+  readonly productId: string;
+  readonly imei: string;
+  readonly imei2: string | null;
+  readonly color: string | null;
+  readonly createdAt: number;
+}
+
 export interface PosCatalog {
   readonly products: readonly PosProduct[];
   readonly categories: readonly PosCategory[];
   readonly brands: readonly PosBrand[];
+  readonly units?: readonly PosUnit[];
 }
 
 export function posCatalog(): Promise<PosCatalog> {

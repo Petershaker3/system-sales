@@ -94,6 +94,8 @@ pub fn run() {
             commands::settings::read_appearance,
             commands::settings::update_appearance,
             commands::inventory::receive_stock,
+            commands::inventory::receive_opening_stock,
+            commands::inventory::list_product_units,
             commands::inventory::remove_stock,
             commands::inventory::get_position,
             commands::pos::pos_catalog,

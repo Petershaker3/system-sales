@@ -15,6 +15,7 @@ pub struct PosProductRow {
     pub id: String,
     pub name: String,
     pub disposition: String,
+    pub tracking: String,
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
     pub department_id: Option<String>,
@@ -47,7 +48,7 @@ pub async fn list_sellable(
     sold_since: i64,
 ) -> Result<Vec<PosProductRow>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT p.id, p.name, p.disposition, p.barcode, p.sale_price_minor, p.department_id,
+        "SELECT p.id, p.name, p.disposition, p.tracking, p.barcode, p.sale_price_minor, p.department_id,
                 p.brand_id,
                 p.parent_id,
                 vp.name AS parent_name,
@@ -81,6 +82,7 @@ pub async fn list_sellable(
             id: row.get("id"),
             name: row.get("name"),
             disposition: row.get("disposition"),
+            tracking: row.get("tracking"),
             barcode: row.get("barcode"),
             sale_price_minor: row.get("sale_price_minor"),
             department_id: row.get("department_id"),

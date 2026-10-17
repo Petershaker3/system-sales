@@ -160,8 +160,8 @@ async fn all_migrations_apply_in_order_on_a_fresh_database() {
 
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-        "every migration must be recorded in order, with 0019 (product images) last"
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+        "every migration must be recorded in order, with 0020 (IMEI units and receiving) last"
     );
 
 

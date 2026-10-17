@@ -24,6 +24,7 @@ use tauri::State;
 
 use crate::domain::identity::Sensitivity;
 use crate::domain::supplier::SupplierName;
+use crate::domain::unit::ReceiptKind;
 use crate::services::identity::IdentityContext;
 use crate::services::inventory::stock::{self as use_cases, StockServiceError};
 
@@ -77,6 +78,18 @@ pub struct StockOutcomeDto {
     pub cost_minor: i64,
 }
 
+/// One registered `in_stock` device unit (`ADR-019`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductUnitDto {
+    pub id: String,
+    pub product_id: String,
+    pub imei: String,
+    pub imei2: Option<String>,
+    pub color: Option<String>,
+    pub created_at: i64,
+}
+
 /// Receive stock at a known unit cost.
 ///
 /// `Routine`: receiving a delivery is ordinary work (`ADR-015`).
@@ -91,17 +104,21 @@ pub async fn receive_stock(
     quantity: i64,
     unit_cost_minor: i64,
     supplier_name: Option<String>,
+    imeis: Option<Vec<String>>,
 ) -> Result<StockOutcomeDto, InventoryCommandError> {
     let supplier = SupplierName::parse_optional(supplier_name.as_deref().unwrap_or(""))
         .map_err(|error| InventoryCommandError { code: error.code() })?;
-    let outcome = use_cases::receive(
+    let imeis = imeis.unwrap_or_default();
+    let outcome = use_cases::receive_with_units(
         &ctx.pool,
         ctx.tokens.as_ref(),
         &product_id,
         quantity,
         unit_cost_minor,
+        ReceiptKind::Supplier,
         Sensitivity::Routine,
         supplier,
+        &imeis,
     )
     .await?;
 
@@ -110,6 +127,59 @@ pub async fn receive_stock(
         quantity: outcome.quantity,
         cost_minor: outcome.cost_minor,
     })
+}
+
+/// Receive first-time opening stock already on the shelf (`ADR-016` #30, `ADR-019`).
+///
+/// `Sensitive`: spends one owner PIN approval inside the transaction, and
+/// takes no supplier name because opening stock is not a supplier purchase.
+#[tauri::command]
+pub async fn receive_opening_stock(
+    ctx: Ctx<'_>,
+    product_id: String,
+    quantity: i64,
+    unit_cost_minor: i64,
+    imeis: Option<Vec<String>>,
+) -> Result<StockOutcomeDto, InventoryCommandError> {
+    let imeis = imeis.unwrap_or_default();
+    let outcome = use_cases::receive_with_units(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &product_id,
+        quantity,
+        unit_cost_minor,
+        ReceiptKind::Opening,
+        Sensitivity::Sensitive,
+        None,
+        &imeis,
+    )
+    .await?;
+
+    Ok(StockOutcomeDto {
+        product_id,
+        quantity: outcome.quantity,
+        cost_minor: outcome.cost_minor,
+    })
+}
+
+/// List registered `in_stock` device units for a product (`ADR-019`).
+#[tauri::command]
+pub async fn list_product_units(
+    ctx: Ctx<'_>,
+    product_id: String,
+) -> Result<Vec<ProductUnitDto>, InventoryCommandError> {
+    let units = use_cases::list_units_in_stock(&ctx.pool, ctx.tokens.as_ref(), &product_id).await?;
+    Ok(units
+        .into_iter()
+        .map(|u| ProductUnitDto {
+            id: u.id,
+            product_id: u.product_id,
+            imei: u.imei,
+            imei2: u.imei2,
+            color: u.color,
+            created_at: u.created_at,
+        })
+        .collect())
 }
 
 /// Remove stock, reporting what the units cost at the moving average.

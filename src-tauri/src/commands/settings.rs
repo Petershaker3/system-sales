@@ -91,6 +91,7 @@ pub struct AppearanceDto {
     pub scale: String,
     pub digits: String,
     pub images: String,
+    pub imei_mode: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -103,6 +104,7 @@ impl From<Appearance> for AppearanceDto {
             scale: a.scale,
             digits: a.digits,
             images: a.images,
+            imei_mode: a.imei_mode,
         }
     }
 }

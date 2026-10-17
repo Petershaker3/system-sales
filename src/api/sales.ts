@@ -41,6 +41,7 @@ export interface SaleLine {
   readonly quantity: number;
   readonly warrantyStart?: string;
   readonly warrantyEnd?: string;
+  readonly imei?: string | null;
 }
 
 /**
@@ -89,6 +90,7 @@ export async function recordSale(
       quantity: line.quantity,
       warrantyStart: line.warrantyStart ?? null,
       warrantyEnd: line.warrantyEnd ?? null,
+      imei: line.imei ?? null,
     })),
     confirmedTotalMinor: confirmedTotalMinor ?? null,
   });

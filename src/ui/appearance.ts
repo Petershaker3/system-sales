@@ -33,6 +33,7 @@ export type ThemeChoice = 'light' | 'dark' | 'auto';
 export type FontChoice = 'auto' | 'plex' | 'cairo' | 'tajawal' | 'readex';
 export type Scale = 'normal' | 'large';
 export type ImagesChoice = 'on' | 'off';
+export type ImeiModeChoice = 'optional' | 'required';
 
 export interface Appearance {
   look: Look;
@@ -42,6 +43,7 @@ export interface Appearance {
   scale: Scale;
   digits: Digits;
   images: ImagesChoice;
+  imeiMode: ImeiModeChoice;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -52,6 +54,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   scale: 'normal',
   digits: 'latin',
   images: 'on',
+  imeiMode: 'optional',
 };
 
 
@@ -94,6 +97,7 @@ export function normalizeAppearance(raw: unknown): Appearance {
     scale: oneOf(r['scale'], ['normal', 'large'] as const, DEFAULT_APPEARANCE.scale),
     digits: oneOf(r['digits'], ['latin', 'arabic'] as const, DEFAULT_APPEARANCE.digits),
     images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
+    imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
   };
 }
 
@@ -149,6 +153,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   scale: 'ui.scale',
   digits: 'ui.digits',
   images: 'ui.images',
+  imeiMode: 'ui.imei_mode',
 };
 
 

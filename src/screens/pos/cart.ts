@@ -15,14 +15,18 @@ export interface SellableProduct {
   readonly name: string;
   readonly priceMinor: number | null;
   readonly onHand: number;
+  readonly serial?: boolean;
 }
 
 export interface CartLine {
+  readonly lineId?: string;
   readonly productId: string;
   name: string;
   /** The catalogue price when the line was added; refreshed by `reprice`. */
   unitPriceMinor: number;
   quantity: number;
+  readonly serial?: boolean;
+  imei?: string | null;
 }
 
 export interface Invoice {
@@ -41,12 +45,21 @@ export interface CartState {
 
 export type AddResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: 'no-price' | 'out-of-stock' | 'limit'; readonly available: number };
+  | {
+      readonly ok: false;
+      readonly reason: 'no-price' | 'out-of-stock' | 'limit' | 'imei-taken';
+      readonly available: number;
+    };
 
 let counter = 0;
 function nextId(): string {
   counter += 1;
   return `inv-${Date.now().toString(36)}-${counter}`;
+}
+
+function nextLineId(): string {
+  counter += 1;
+  return `ln-${Date.now().toString(36)}-${counter}`;
 }
 
 export function newInvoice(id: string = nextId()): Invoice {
@@ -75,24 +88,87 @@ export function available(state: CartState, product: SellableProduct): number {
   return Math.max(0, product.onHand - reserved(state, product.id));
 }
 
-/** Add units of a product to the current invoice, merging with its line. */
-export function addProduct(state: CartState, product: SellableProduct, quantity = 1): AddResult {
+/** Every IMEI already promised on any open or held invoice. */
+export function takenImeis(
+  state: CartState,
+  ignore?: { readonly invoiceIndex: number; readonly lineIndex: number }
+): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i < state.invoices.length; i++) {
+    const inv = state.invoices[i];
+    if (!inv) continue;
+    for (let j = 0; j < inv.lines.length; j++) {
+      if (ignore && ignore.invoiceIndex === i && ignore.lineIndex === j) continue;
+      const imei = inv.lines[j]?.imei;
+      if (imei) out.add(imei);
+    }
+  }
+  return out;
+}
+
+/** Add units of a product to the current invoice, merging non-serial lines and keeping serial phones one line per unit. */
+export function addProduct(
+  state: CartState,
+  product: SellableProduct,
+  quantity = 1,
+  imei: string | null = null
+): AddResult {
   if (product.priceMinor === null) return { ok: false, reason: 'no-price', available: 0 };
   const free = available(state, product);
   if (free <= 0) return { ok: false, reason: 'out-of-stock', available: 0 };
   if (quantity > free) return { ok: false, reason: 'limit', available: free };
+  if (imei !== null && takenImeis(state).has(imei)) {
+    return { ok: false, reason: 'imei-taken', available: free };
+  }
 
   const inv = current(state);
-  const at = inv.lines.findIndex((line) => line.productId === product.id);
+  if (product.serial) {
+    for (let k = 0; k < quantity; k++) {
+      inv.lines.push({
+        lineId: nextLineId(),
+        productId: product.id,
+        name: product.name,
+        unitPriceMinor: product.priceMinor,
+        quantity: 1,
+        serial: true,
+        imei: k === 0 ? imei : null,
+      });
+    }
+    state.selected = inv.lines.length - 1;
+    return { ok: true };
+  }
+
+  const at = inv.lines.findIndex((line) => line.productId === product.id && !line.serial);
   if (at >= 0) {
     const line = inv.lines[at];
     if (line !== undefined) line.quantity += quantity;
     state.selected = at;
   } else {
-    inv.lines.push({ productId: product.id, name: product.name, unitPriceMinor: product.priceMinor, quantity });
+    inv.lines.push({
+      lineId: nextLineId(),
+      productId: product.id,
+      name: product.name,
+      unitPriceMinor: product.priceMinor,
+      quantity,
+    });
     state.selected = inv.lines.length - 1;
   }
   return { ok: true };
+}
+
+/** Attach or clear an IMEI on a phone line in the active invoice. */
+export function setLineImei(state: CartState, lineIndex: number, imei: string | null): boolean {
+  const inv = current(state);
+  const line = inv.lines[lineIndex];
+  if (!line || !line.serial) return false;
+  if (
+    imei !== null &&
+    takenImeis(state, { invoiceIndex: state.active, lineIndex }).has(imei)
+  ) {
+    return false;
+  }
+  line.imei = imei;
+  return true;
 }
 
 /** Set the selected line's quantity outright (F2). Zero removes the line. */

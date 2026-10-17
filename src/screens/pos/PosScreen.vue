@@ -30,6 +30,8 @@ import * as cart from './cart';
 import type { SellableProduct } from './cart';
 import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
 import { asIconName, tileIcon } from './icons';
+import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
+import ImeiPickerModal from './ImeiPickerModal.vue';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
@@ -50,6 +52,11 @@ const highlighted = ref(0);
 const chip = ref<string>('top');
 const modal = ref<null | 'pay' | 'qty' | 'clear'>(null);
 const openFamily = ref<Extract<PosTileEntry<PosProduct>, { kind: 'family' }> | null>(null);
+const imeiTarget = ref<
+  | null
+  | { readonly mode: 'add'; readonly product: PosProduct }
+  | { readonly mode: 'line'; readonly lineIndex: number; readonly product: PosProduct }
+>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
 
 const linesBox = ref<HTMLElement | null>(null);
@@ -115,7 +122,13 @@ const sellable = computed<PosProduct[]>(() =>
 const notYetSellable = computed(() => (catalogue.value?.products.length ?? 0) - sellable.value.length);
 
 function asSellable(p: PosProduct): SellableProduct {
-  return { id: p.id, name: p.name, priceMinor: p.salePriceMinor, onHand: p.onHand };
+  return {
+    id: p.id,
+    name: p.name,
+    priceMinor: p.salePriceMinor,
+    onHand: p.onHand,
+    serial: isSerialProduct(p),
+  };
 }
 
 const byId = computed(() => new Map(sellable.value.map((p) => [p.id, p])));
@@ -127,6 +140,12 @@ const index = computed(() =>
       categoryWords: `${searchWords(tree.value, p.categoryId)} ${brandWords(p.brandId)}`,
     }))
   )
+);
+
+const unitMatches = computed(() =>
+  query.value.trim() === ''
+    ? []
+    : searchUnitsByImei(catalogue.value?.units ?? [], query.value, cart.takenImeis(state), 4)
 );
 
 const results = computed(() => (query.value.trim() === '' ? [] : search(index.value, query.value, 8)));
@@ -202,7 +221,7 @@ const totals = computed(() => cart.totals(invoice.value));
 const empty = computed(() => invoice.value.lines.length === 0);
 
 function focusSearch(): void {
-  if (modal.value === null && openFamily.value === null) {
+  if (modal.value === null && openFamily.value === null && imeiTarget.value === null) {
     searchInput.value?.focus({ preventScroll: true });
   }
 }
@@ -218,13 +237,32 @@ function refuse(message: string): void {
   beep();
 }
 
-function pick(p: PosProduct, quantity = 1): void {
-  const result = cart.addProduct(state, asSellable(p), quantity);
+function pick(p: PosProduct, quantity = 1, imei: string | null = null): void {
+  if (p.salePriceMinor === null) {
+    refuse(
+      isOwner.value
+        ? `«${p.name}» مالوش سعر بيع. حدد السعر من المخزن الأول`
+        : `«${p.name}» مالوش سعر بيع. كلّم المالك`
+    );
+    return;
+  }
+  const free = freeOf(p);
+  if (free <= 0) {
+    refuse(`«${p.name}» خلصان من المخزن`);
+    return;
+  }
+  if (imei === null && requiresImeiOnSale(p, appearance.imeiMode)) {
+    imeiTarget.value = { mode: 'add', product: p };
+    return;
+  }
+  const result = cart.addProduct(state, asSellable(p), quantity, imei);
   if (!result.ok) {
     if (result.reason === 'no-price') {
       refuse(isOwner.value ? `«${p.name}» مالوش سعر بيع. حدد السعر من المخزن الأول` : `«${p.name}» مالوش سعر بيع. كلّم المالك`);
     } else if (result.reason === 'out-of-stock') {
       refuse(`«${p.name}» خلصان من المخزن`);
+    } else if (result.reason === 'imei-taken') {
+      refuse('الـ IMEI ده محطوط بالفعل في فاتورة مفتوحة');
     } else {
       refuse(`المتاح من «${p.name}» ${num(result.available)} بس`);
     }
@@ -234,7 +272,55 @@ function pick(p: PosProduct, quantity = 1): void {
   focusSearch();
 }
 
+function openLineImei(at: number): void {
+  state.selected = at;
+  const line = invoice.value.lines[at];
+  if (!line) return;
+  const p = byId.value.get(line.productId);
+  if (!p) return;
+  imeiTarget.value = { mode: 'line', lineIndex: at, product: p };
+}
+
+function onPickImei(imei: string | null): void {
+  const target = imeiTarget.value;
+  imeiTarget.value = null;
+  if (!target) {
+    void nextTick(focusSearch);
+    return;
+  }
+  if (target.mode === 'add') {
+    if (imei !== null) pick(target.product, 1, imei);
+  } else {
+    if (!cart.setLineImei(state, target.lineIndex, imei)) {
+      refuse('الـ IMEI ده محطوط بالفعل في فاتورة مفتوحة');
+    } else if (imei !== null) {
+      toast(`اتربط الجهاز بآخر 4 أرقام (${imei.slice(-4)})`, 'ok');
+    } else {
+      toast('اتشال الـ IMEI من السطر', 'info');
+    }
+  }
+  void nextTick(focusSearch);
+}
+
+function closeImeiModal(): void {
+  imeiTarget.value = null;
+  void nextTick(focusSearch);
+}
+
+function pickUnitMatch(imei: string, productId: string): void {
+  const p = byId.value.get(productId);
+  if (!p) return;
+  query.value = '';
+  highlighted.value = 0;
+  pick(p, 1, imei);
+}
+
 function pickResult(at: number): void {
+  const u = unitMatches.value[0];
+  if (at === 0 && results.value.length === 0 && u !== undefined) {
+    pickUnitMatch(u.imei, u.productId);
+    return;
+  }
   const p = results.value[at];
   if (p === undefined) return;
   query.value = '';
@@ -312,6 +398,14 @@ function clearInvoice(): void {
 
 function openPay(): void {
   if (empty.value) return;
+  if (appearance.imeiMode === 'required') {
+    const missingIdx = invoice.value.lines.findIndex((line) => line.serial && !line.imei);
+    if (missingIdx >= 0) {
+      refuse('وضع الـ IMEI إلزامي: سجّل الـ IMEI الأول');
+      openLineImei(missingIdx);
+      return;
+    }
+  }
   query.value = '';
   modal.value = 'pay';
 }
@@ -356,6 +450,7 @@ function onKey(event: KeyboardEvent): void {
   if (
     modal.value !== null ||
     openFamily.value !== null ||
+    imeiTarget.value !== null ||
     document.querySelector('.overlay') !== null
   ) {
     return;
@@ -393,7 +488,7 @@ function onKey(event: KeyboardEvent): void {
   if (key === 'Enter') {
     event.preventDefault();
     if (hasQuery) {
-      if (results.value.length > 0) pickResult(highlighted.value);
+      if (results.value.length > 0 || unitMatches.value.length > 0) pickResult(highlighted.value);
       else notFound();
     } else if (!empty.value) openPay();
     return;
@@ -467,8 +562,30 @@ const KEYS: readonly [string, string][] = [
               <kbd>/</kbd>
             </label>
             <div v-if="query.trim() !== ''" class="results">
-              <div v-if="results.length === 0" class="no-res">
-                <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم
+              <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
+                <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
+              </div>
+              <div
+                v-for="u in unitMatches"
+                :key="u.id"
+                class="result unit-res"
+                @mousedown.prevent="pickUnitMatch(u.imei, u.productId)"
+              >
+                <div class="ico"><Icon name="smartphone" /></div>
+                <div class="t">
+                  <div class="n"><bdi dir="rtl">{{ byId.get(u.productId)?.name ?? 'موبايل' }}</bdi></div>
+                  <div class="s">
+                    <span>IMEI <bdi dir="ltr" class="mono">…{{ u.imei.slice(-4) }}</bdi></span>
+                    <span v-if="u.color">{{ u.color }}</span>
+                  </div>
+                </div>
+                <div class="p num">
+                  {{
+                    byId.get(u.productId)?.salePriceMinor === null || byId.get(u.productId)?.salePriceMinor === undefined
+                      ? 'بدون سعر'
+                      : money(byId.get(u.productId)!.salePriceMinor!)
+                  }}
+                </div>
               </div>
               <div
                 v-for="(p, at) in results"
@@ -649,19 +766,31 @@ const KEYS: readonly [string, string][] = [
           <div
             v-for="(line, at) in invoice.lines"
             v-else
-            :key="line.productId"
+            :key="line.lineId ?? `${line.productId}-${at}`"
             class="line"
             :class="{ sel: at === state.selected }"
             @click="state.selected = at"
           >
             <div class="lm">
               <div class="ln"><bdi dir="rtl">{{ line.name }}</bdi></div>
+              <div v-if="line.serial" class="ls">
+                <button
+                  type="button"
+                  class="line-imei-btn"
+                  :class="{ linked: !!line.imei }"
+                  @click.stop="openLineImei(at)"
+                >
+                  <Icon name="scan-barcode" />
+                  <bdi v-if="line.imei" dir="ltr" class="mono">IMEI …{{ line.imei.slice(-4) }}</bdi>
+                  <template v-else>سجّل IMEI</template>
+                </button>
+              </div>
             </div>
             <div class="side">
               <span class="lt num">{{ money(line.unitPriceMinor * line.quantity) }}</span>
               <span v-if="line.quantity > 1" class="lu num">{{ num(line.quantity) }} × {{ money(line.unitPriceMinor) }}</span>
               <div class="ctl">
-                <div class="qty">
+                <div v-if="!line.serial" class="qty">
                   <button type="button" title="زوّد (+)" @click.stop="bump(at, 1)"><Icon name="plus" /></button>
                   <span class="num">{{ num(line.quantity) }}</span>
                   <button type="button" title="قلّل (−)" @click.stop="bump(at, -1)"><Icon name="minus" /></button>
@@ -734,6 +863,25 @@ const KEYS: readonly [string, string][] = [
       @close="closeVariantModal"
       @pick="onPickVariant"
     />
+    <ImeiPickerModal
+      v-if="imeiTarget !== null"
+      :product="imeiTarget.product"
+      :units="catalogue?.units ?? []"
+      :taken-imeis="
+        imeiTarget.mode === 'line'
+          ? cart.takenImeis(state, { invoiceIndex: state.active, lineIndex: imeiTarget.lineIndex })
+          : cart.takenImeis(state)
+      "
+      :free-stock="freeOf(imeiTarget.product)"
+      :current-imei="
+        imeiTarget.mode === 'line'
+          ? (invoice.lines[imeiTarget.lineIndex]?.imei ?? null)
+          : null
+      "
+      :can-clear="imeiTarget.mode === 'line' && !requiresImeiOnSale(imeiTarget.product, appearance.imeiMode)"
+      @close="closeImeiModal"
+      @pick="onPickImei"
+    />
   </div>
 </template>
 
@@ -749,5 +897,24 @@ const KEYS: readonly [string, string][] = [
 .btn-pay kbd,
 .cart-actions kbd {
   margin-inline-start: 2px;
+}
+.line-imei-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.line-imei-btn.linked {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--ink);
 }
 </style>

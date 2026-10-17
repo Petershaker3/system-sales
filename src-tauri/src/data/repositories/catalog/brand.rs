@@ -144,7 +144,8 @@ pub async fn set_phone_details(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE products
-         SET brand_id = ?2, model = ?3, device_type = ?4, storage_gb = ?5, ram_gb = ?6
+         SET brand_id = ?2, model = ?3, device_type = ?4, storage_gb = ?5, ram_gb = ?6,
+             tracking = 'serial_optional'
          WHERE id = ?1",
     )
     .bind(product.as_str())

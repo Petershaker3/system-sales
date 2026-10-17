@@ -102,6 +102,22 @@ export const ErrorCode = {
   IMAGE_NOT_JPEG: 'IMAGE_NOT_JPEG',
   IMAGE_DIMENSIONS_INVALID: 'IMAGE_DIMENSIONS_INVALID',
   IMAGE_NOT_FOUND: 'IMAGE_NOT_FOUND',
+
+  // وحدات IMEI والاستلام (ADR-019)
+  IMEI_LENGTH_INVALID: 'IMEI_LENGTH_INVALID',
+  IMEI_CHECK_DIGIT_INVALID: 'IMEI_CHECK_DIGIT_INVALID',
+  IMEI_ALREADY_REGISTERED: 'IMEI_ALREADY_REGISTERED',
+  IMEI_DUPLICATE_IN_BATCH: 'IMEI_DUPLICATE_IN_BATCH',
+  IMEI_COUNT_EXCEEDS_QUANTITY: 'IMEI_COUNT_EXCEEDS_QUANTITY',
+  IMEI_REQUIRED_FOR_ALL_UNITS: 'IMEI_REQUIRED_FOR_ALL_UNITS',
+  IMEI_PRODUCT_NOT_SERIAL_TRACKED: 'IMEI_PRODUCT_NOT_SERIAL_TRACKED',
+  IMEI_UNIT_NOT_AVAILABLE: 'IMEI_UNIT_NOT_AVAILABLE',
+  IMEI_UNIT_PRODUCT_MISMATCH: 'IMEI_UNIT_PRODUCT_MISMATCH',
+  IMEI_NO_UNREGISTERED_STOCK: 'IMEI_NO_UNREGISTERED_STOCK',
+  RECEIPT_OPENING_HAS_SUPPLIER: 'RECEIPT_OPENING_HAS_SUPPLIER',
+  RECEIPT_KIND_INVALID: 'RECEIPT_KIND_INVALID',
+  UNIT_COLOR_TOO_LONG: 'UNIT_COLOR_TOO_LONG',
+
   // الإعدادات
 
 
@@ -306,6 +322,22 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.IMAGE_NOT_JPEG]: 'ملف الصورة مش شغّال. اختار صورة تانية.',
   [ErrorCode.IMAGE_DIMENSIONS_INVALID]: 'الصورة لازم تكون مربع 192×192.',
   [ErrorCode.IMAGE_NOT_FOUND]: 'الصنف ده ملوش صورة متسجّلة.',
+
+  // وحدات IMEI والاستلام (ADR-019)
+  [ErrorCode.IMEI_LENGTH_INVALID]: 'الـ IMEI لازم يكون 15 رقم بالظبط.',
+  [ErrorCode.IMEI_CHECK_DIGIT_INVALID]: 'رقم الـ IMEI فيه رقم غلط (فحص Luhn). راجع العلبة أو اكتب *#06#.',
+  [ErrorCode.IMEI_ALREADY_REGISTERED]: 'الـ IMEI ده متسجّل بالفعل في المحل.',
+  [ErrorCode.IMEI_DUPLICATE_IN_BATCH]: 'نفس الـ IMEI مكتوب مرتين.',
+  [ErrorCode.IMEI_COUNT_EXCEEDS_QUANTITY]: 'عدد أرقام الـ IMEI أكتر من الكمية المستلمة.',
+  [ErrorCode.IMEI_REQUIRED_FOR_ALL_UNITS]: 'وضع الـ IMEI إلزامي: سجّل IMEI لكل جهاز.',
+  [ErrorCode.IMEI_PRODUCT_NOT_SERIAL_TRACKED]: 'الصنف ده بيتعد بالعدد بس وملوش IMEI.',
+  [ErrorCode.IMEI_UNIT_NOT_AVAILABLE]: 'الجهاز ده مباع أو متشال من المخزن ومش متاح للبيع.',
+  [ErrorCode.IMEI_UNIT_PRODUCT_MISMATCH]: 'الـ IMEI ده متسجّل تحت موبايل تاني.',
+  [ErrorCode.IMEI_NO_UNREGISTERED_STOCK]: 'كل الأجهزة المتاحة من الموبايل ده متسجّل ليها IMEI بالفعل — اختار واحد من القائمة.',
+  [ErrorCode.RECEIPT_OPENING_HAS_SUPPLIER]: 'رصيد أول المدة بضاعة موجودة عندك ومينفعش يتحط ليها اسم مورد.',
+  [ErrorCode.RECEIPT_KIND_INVALID]: 'نوع الاستلام غير معروف.',
+  [ErrorCode.UNIT_COLOR_TOO_LONG]: 'اسم اللون طويل زيادة عن اللزوم.',
+
 
   // الإعدادات
 

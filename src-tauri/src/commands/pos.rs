@@ -33,6 +33,7 @@ pub struct PosProductDto {
     pub id: String,
     pub name: String,
     pub disposition: String,
+    pub tracking: String,
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
     /// The category it is in (ADR-018 §1), or `null`.
@@ -71,6 +72,18 @@ pub struct PosCategoryDto {
     pub sort_order: i64,
 }
 
+/// One available serialized unit (`ADR-019`), carrying no cost figure.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosUnitDto {
+    pub id: String,
+    pub product_id: String,
+    pub imei: String,
+    pub imei2: Option<String>,
+    pub color: Option<String>,
+    pub created_at: i64,
+}
+
 /// The sales screen's catalogue.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +91,7 @@ pub struct PosCatalogDto {
     pub products: Vec<PosProductDto>,
     pub categories: Vec<PosCategoryDto>,
     pub brands: Vec<PosBrandDto>,
+    pub units: Vec<PosUnitDto>,
 }
 
 /// A phone company: a chip under a phone category, and words search matches.
@@ -103,6 +117,7 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 id: row.id,
                 name: row.name,
                 disposition: row.disposition,
+                tracking: row.tracking,
                 barcode: row.barcode,
                 sale_price_minor: row.sale_price_minor,
                 category_id: row.department_id,
@@ -140,6 +155,18 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 name: brand.name,
                 aliases: brand.aliases,
                 sort_order: brand.sort_order,
+            })
+            .collect(),
+        units: catalog
+            .units
+            .into_iter()
+            .map(|u| PosUnitDto {
+                id: u.id,
+                product_id: u.product_id,
+                imei: u.imei,
+                imei2: u.imei2,
+                color: u.color,
+                created_at: u.created_at,
             })
             .collect(),
     })

@@ -44,6 +44,7 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.scale, "normal");
     assert_eq!(read.digits, "latin");
     assert_eq!(read.images, "on");
+    assert_eq!(read.imei_mode, "optional");
 }
 
 

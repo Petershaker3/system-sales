@@ -1,4 +1,4 @@
-﻿//! Business rules and domain types.
+//! Business rules and domain types.
 //!
 //! Depends on nothing from Tauri, SQLx, SQLite or any operating-system API
 //! (`spec:99`, `ADR-008:121`). Sub-modules are added one per domain slice, and
@@ -29,3 +29,5 @@ pub mod organisation;
 pub mod sales;
 pub mod settings;
 pub mod supplier;
+pub mod unit;
+

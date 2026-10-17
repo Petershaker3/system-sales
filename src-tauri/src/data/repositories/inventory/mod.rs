@@ -5,3 +5,4 @@
 //! becomes arithmetic.
 
 pub mod stock;
+pub mod unit;

@@ -25,10 +25,11 @@ pub enum AppearanceKey {
     Scale,
     Digits,
     Images,
+    ImeiMode,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 7] = [
+    pub const ALL: [AppearanceKey; 8] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -36,6 +37,7 @@ impl AppearanceKey {
         AppearanceKey::Scale,
         AppearanceKey::Digits,
         AppearanceKey::Images,
+        AppearanceKey::ImeiMode,
     ];
 
     /// The stored key.
@@ -48,6 +50,7 @@ impl AppearanceKey {
             AppearanceKey::Scale => "ui.scale",
             AppearanceKey::Digits => "ui.digits",
             AppearanceKey::Images => "ui.images",
+            AppearanceKey::ImeiMode => "ui.imei_mode",
         }
     }
 
@@ -67,7 +70,7 @@ impl AppearanceKey {
     /// Whether the owner may toggle this choice under [`Permission::ManageCatalog`]
     /// alongside category and brand visibility in «الأصناف والبيع».
     pub fn is_catalog_choice(self) -> bool {
-        matches!(self, AppearanceKey::Images)
+        matches!(self, AppearanceKey::Images | AppearanceKey::ImeiMode)
     }
 }
 
@@ -81,12 +84,13 @@ pub struct Appearance {
     pub scale: String,
     pub digits: String,
     pub images: String,
+    pub imei_mode: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
-    /// look's own font, normal size, Latin digits, product images on
-    /// (docs/ui/REDESIGN.md, ADR-018 §5).
+    /// look's own font, normal size, Latin digits, product images on, IMEI
+    /// mode optional (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -96,6 +100,7 @@ impl Default for Appearance {
             scale: "normal".to_owned(),
             digits: "latin".to_owned(),
             images: "on".to_owned(),
+            imei_mode: "optional".to_owned(),
         }
     }
 }
@@ -123,6 +128,7 @@ impl Appearance {
             AppearanceKey::Scale => matches!(value, "normal" | "large"),
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
+            AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -139,6 +145,7 @@ impl Appearance {
             AppearanceKey::Scale => self.scale = value,
             AppearanceKey::Digits => self.digits = value,
             AppearanceKey::Images => self.images = value,
+            AppearanceKey::ImeiMode => self.imei_mode = value,
         }
         Ok(())
 

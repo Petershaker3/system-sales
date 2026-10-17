@@ -2529,3 +2529,91 @@ fn every_image_error_has_a_stable_screaming_snake_code() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Plan item 1.4 (ADR-019): IMEI units, Luhn validation, tracking & receipt kinds
+// ---------------------------------------------------------------------------
+
+use mobile_shop_system_lib::domain::unit::{
+    luhn_check_digit, normalize_imei_digits, Imei, ReceiptKind, TrackingMode, UnitColor,
+    UnitError, UnitStatus,
+};
+
+#[test]
+fn imei_luhn_validates_15_digit_numbers_and_normalizes_arabic_digits() {
+    assert_eq!(luhn_check_digit("35693803564380"), Some(9));
+    assert_eq!(luhn_check_digit("49015420323751"), Some(8));
+    assert_eq!(luhn_check_digit("12345"), None);
+
+    let parsed = Imei::parse("3569-3803-5643-809").expect("valid IMEI with dashes");
+    assert_eq!(parsed.as_str(), "356938035643809");
+
+    let arabic = Imei::parse(" ٤٩٠١٥٤٢٠٣٢٣٧٥١٨ ").expect("Arabic digits normalized");
+    assert_eq!(arabic.as_str(), "490154203237518");
+    assert_eq!(normalize_imei_digits("٠١٢٣٤٥٦٧٨٩"), "0123456789");
+
+    assert_eq!(
+        Imei::parse("356938035643808"),
+        Err(UnitError::ImeiCheckDigitInvalid)
+    );
+    assert_eq!(
+        Imei::parse("35693803564380"),
+        Err(UnitError::ImeiLengthInvalid)
+    );
+    assert_eq!(
+        Imei::parse("35693803564380A"),
+        Err(UnitError::ImeiLengthInvalid)
+    );
+}
+
+#[test]
+fn imei_batch_rejects_duplicates_and_preserves_order() {
+    let ok = Imei::parse_batch(&[
+        "356938035643809".to_string(),
+        "490154203237518".to_string(),
+    ])
+    .expect("two distinct valid IMEIs");
+    assert_eq!(ok.len(), 2);
+    assert_eq!(ok[0].as_str(), "356938035643809");
+    assert_eq!(ok[1].as_str(), "490154203237518");
+
+    let dup = Imei::parse_batch(&[
+        "356938035643809".to_string(),
+        "٣٥٦٩٣٨٠٣٥٦٤٣٨٠٩".to_string(),
+    ]);
+    assert_eq!(dup, Err(UnitError::ImeiDuplicateInBatch));
+}
+
+#[test]
+fn unit_domain_enums_and_color_round_trip() {
+    for mode in [
+        TrackingMode::None,
+        TrackingMode::SerialOptional,
+        TrackingMode::SerialRequired,
+    ] {
+        assert_eq!(TrackingMode::parse(mode.as_str()), Some(mode));
+    }
+    assert_eq!(TrackingMode::parse("other"), None);
+
+    for kind in [ReceiptKind::Supplier, ReceiptKind::Opening] {
+        assert_eq!(ReceiptKind::parse(kind.as_str()), Ok(kind));
+    }
+    assert_eq!(ReceiptKind::parse("gift"), Err(UnitError::ReceiptKindInvalid));
+
+    for status in [UnitStatus::InStock, UnitStatus::Sold, UnitStatus::Retired] {
+        assert_eq!(UnitStatus::parse(status.as_str()), Some(status));
+    }
+
+    assert_eq!(UnitColor::parse_optional(None), Ok(None));
+    assert_eq!(UnitColor::parse_optional(Some("   ")), Ok(None));
+    let black = UnitColor::parse_optional(Some("  أسود  "))
+        .expect("valid")
+        .expect("some");
+    assert_eq!(black.as_str(), "أسود");
+    let too_long = "أ".repeat(41);
+    assert_eq!(
+        UnitColor::parse_optional(Some(&too_long)),
+        Err(UnitError::ColorTooLong)
+    );
+}
+
+

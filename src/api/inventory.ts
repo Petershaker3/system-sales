@@ -39,6 +39,16 @@ export interface StockOutcome {
   readonly costMinor: number;
 }
 
+/** One registered `in_stock` device unit (`ADR-019`). */
+export interface ProductUnit {
+  readonly id: string;
+  readonly productId: string;
+  readonly imei: string;
+  readonly imei2: string | null;
+  readonly color: string | null;
+  readonly createdAt: number;
+}
+
 /**
  * Receive stock at a known unit cost. Routine work: no re-authentication.
  * Refuses a negative quantity or unit cost (`COST_*`).
@@ -47,19 +57,48 @@ export interface StockOutcome {
  * optional, and blank means nobody named one. There is no supplier registry and
  * no purchase document — the shop's supplier list is derived from the receipts
  * themselves, so this is a label on one delivery and nothing more.
+ *
+ * `imeis` is the optional list of 15-digit Luhn-checked IMEIs for serialized
+ * products (`ADR-019`).
  */
 export async function receiveStock(
   productId: string,
   quantity: number,
   unitCostMinor: number,
-  supplierName?: string
+  supplierName?: string,
+  imeis?: readonly string[]
 ): Promise<StockOutcome> {
   return invoke<StockOutcome>('receive_stock', {
     productId,
     quantity,
     unitCostMinor,
     supplierName: supplierName ?? null,
+    imeis: imeis ? [...imeis] : null,
   });
+}
+
+/**
+ * Receive first-time opening stock already on the shelf (`ADR-016` #30, `ADR-019`).
+ * Sensitive: spends one owner PIN approval (`OWNER_APPROVAL_REQUIRED` without one)
+ * and takes no supplier name.
+ */
+export async function receiveOpeningStock(
+  productId: string,
+  quantity: number,
+  unitCostMinor: number,
+  imeis?: readonly string[]
+): Promise<StockOutcome> {
+  return invoke<StockOutcome>('receive_opening_stock', {
+    productId,
+    quantity,
+    unitCostMinor,
+    imeis: imeis ? [...imeis] : null,
+  });
+}
+
+/** List registered `in_stock` device units for a product (`ADR-019`). */
+export async function listProductUnits(productId: string): Promise<ProductUnit[]> {
+  return invoke<ProductUnit[]>('list_product_units', { productId });
 }
 
 /**
