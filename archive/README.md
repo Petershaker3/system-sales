@@ -47,6 +47,12 @@
 | `src-tauri/tests/integration/recovery.rs`<br>`src-tauri/tests/integration/recovery_reset.rs` | فحوصها | `tests/integration/recovery_code.rs` |
 | `src/components/RecoveryPanel.vue`<br>`src/api/recovery.ts` | لوحتها، خلف علامة البناء `VITE_RECOVERY` | «نسيت كلمة السر؟» على كارت المالك (`src/shell/RecoverPassword.vue`)، وكارت «كود الاسترجاع» في الإعدادات |
 
+### `superseded-2026-10-17/handoffs/` — الـhandoff القديم
+
+| كان في | لماذا | ما يحل محله |
+|---|---|---|
+| `HANDOFF_2026-10-16.md` | handoff المرحلة 0 وبداية المرحلة 1. المالك طلب handoff جديد لشات جديد (2026-10-17). §4 فيه اقتراحات الجداول اللي اتوافق عليها عند البوابة (`ADR-016` 31). | [`HANDOFF_2026-10-17.md`](../HANDOFF_2026-10-17.md)، و§6 فيه الاقتراحات اللي لسه ما اتبنتش، منقولة من §4 |
+
 ### `superseded-2026-10-17/departments-panel/` — لوحة الأقسام وأوامرها
 
 **القرار:** [`ADR-018`](../docs/decisions/ADR-018-category-tree-brands-variants-images.md) §1: القسم بقى تصنيف في شجرة بمستويين (`ADR-016` 5 و29 و31). والتنفيذ هو البند 1.2، الخطوة 1.

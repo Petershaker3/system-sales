@@ -15,6 +15,8 @@ Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQ
 >
 > **Try the real app** (installer or browser demo, in Arabic): [`docs/TRY-THE-APP.md`](docs/TRY-THE-APP.md).
 >
+> **Starting a new chat or session?** Read [`HANDOFF_2026-10-17.md`](HANDOFF_2026-10-17.md) first.
+>
 > **This README describes the code as it is today.** Pieces the plan replaces are marked
 > **→ plan** below: cash-only sales (→ payments) and the full-POS Android build (→ companion).
 > FIFO and the costing-method switch are already retired (phase 1.3, 2026-10-17; `ADR-002`
