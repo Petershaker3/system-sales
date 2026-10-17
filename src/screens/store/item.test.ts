@@ -4,13 +4,24 @@ import { test } from 'node:test';
 
 import type { CategoryEntry } from '../../api/categories.ts';
 import {
+  addVariantValue,
   barcodeProblem,
+  cleanVariantValue,
+  comboKey,
+  comboLabel,
+  dimensionSuggestions,
   ean13CheckDigit,
   isShopCode,
   itemCategories,
   itemProblem,
+  MAX_VARIANTS,
   newCategoryParent,
+  VARIANT_DIMENSIONS,
+  variantCombos,
+  variantsProblem,
+  variantTitle,
 } from './item.ts';
+
 
 function category(
   id: string,
@@ -127,3 +138,118 @@ test('the first missing thing is the one named, in the mockup’s order', () => 
   assert.equal(itemProblem(cats, { ...complete, priceMinor: 0 }), 'اكتب سعر البيع');
   assert.equal(itemProblem(cats, complete), '');
 });
+
+test('the seven variant dimensions and their suggestions match the mockup', () => {
+  assert.deepEqual(VARIANT_DIMENSIONS, [
+    'الموبايل',
+    'اللون',
+    'النوع',
+    'المقاس',
+    'القوة',
+    'الطول',
+    'المساحة',
+  ]);
+  assert.ok(dimensionSuggestions('اللون').includes('أسود'));
+  assert.ok(dimensionSuggestions('القوة').includes('25W'));
+  assert.ok(dimensionSuggestions('الطول').includes('1م'));
+  assert.ok(dimensionSuggestions('المساحة').includes('128GB'));
+  assert.deepEqual(dimensionSuggestions('الموبايل', ['Galaxy A16', 'iPhone 16']), [
+    'Galaxy A16',
+    'iPhone 16',
+  ]);
+  assert.deepEqual(dimensionSuggestions('المقاس'), []);
+});
+
+test('cleanVariantValue and addVariantValue strip commas and refuse duplicates', () => {
+  assert.equal(cleanVariantValue('  Galaxy   A16،،, '), 'Galaxy A16');
+  const first = addVariantValue([], 'Galaxy A16،');
+  assert.deepEqual(first, ['Galaxy A16']);
+  assert.deepEqual(addVariantValue(first, 'galaxy  a16'), ['Galaxy A16']);
+  assert.deepEqual(addVariantValue(first, 'أبيض'), ['Galaxy A16', 'أبيض']);
+  assert.deepEqual(addVariantValue(['أبيض'], 'ابيض'), ['أبيض']);
+});
+
+test('variantCombos requires the first dimension and builds the Cartesian product', () => {
+  assert.deepEqual(variantCombos([]), []);
+  assert.deepEqual(variantCombos([{ values: [] }, { values: ['أسود'] }]), []);
+  assert.deepEqual(
+    variantCombos([{ values: ['20W', '33W'] }, { values: [] }]),
+    [['20W'], ['33W']],
+  );
+  assert.deepEqual(
+    variantCombos([
+      { values: ['Galaxy A16', 'iPhone 16'] },
+      { values: ['أسود', 'بينك'] },
+    ]),
+    [
+      ['Galaxy A16', 'أسود'],
+      ['Galaxy A16', 'بينك'],
+      ['iPhone 16', 'أسود'],
+      ['iPhone 16', 'بينك'],
+    ],
+  );
+  assert.equal(comboKey(['Galaxy A16', 'أسود']), 'Galaxy A16|أسود');
+  assert.equal(comboLabel(['Galaxy A16', 'أسود']), 'Galaxy A16، أسود');
+  assert.equal(
+    variantTitle('  جراب   سيليكون ملون ', ['Galaxy A16', 'أسود']),
+    'جراب سيليكون ملون Galaxy A16 أسود',
+  );
+});
+
+test('variantsProblem validates dimensions, the 60-variant cap, row barcodes and prices', () => {
+  const cats = itemCategories(TREE);
+  const base = {
+    categoryId: 'cases',
+    name: 'جراب سيليكون ملون',
+    dim1Label: 'الموبايل',
+    dim1Values: ['Galaxy A16', 'iPhone 16'],
+    dim2Label: 'اللون',
+    dim2Values: ['أسود', 'بينك'],
+    priceMinor: 7500,
+    rows: {},
+  };
+
+  assert.equal(variantsProblem(cats, base), '');
+  assert.equal(
+    variantsProblem(cats, { ...base, dim1Values: [] }),
+    'اكتب نوع واحد على الأقل في «الموبايل»، ودوس Enter بعد كل واحد',
+  );
+
+  const sixtyOne = Array.from({ length: MAX_VARIANTS + 1 }, (_, i) => `M${i + 1}`);
+  assert.ok(
+    variantsProblem(cats, { ...base, dim1Values: sixtyOne, dim2Values: [] }).includes('الحد 60'),
+  );
+
+  assert.equal(
+    variantsProblem(cats, {
+      ...base,
+      rows: { 'Galaxy A16|أسود': { barcode: '123', price: '' } },
+    }),
+    '«Galaxy A16، أسود»: الباركود أرقام بس (من 6 لـ 14 رقم)',
+  );
+
+  assert.equal(
+    variantsProblem(cats, {
+      ...base,
+      rows: {
+        'Galaxy A16|أسود': { barcode: '2000000000015', price: '' },
+        'iPhone 16|بينك': { barcode: '2000000000015', price: '' },
+      },
+    }),
+    '«iPhone 16، بينك»: الباركود ده على «Galaxy A16، أسود»',
+  );
+
+  assert.equal(
+    variantsProblem(cats, { ...base, priceMinor: null }),
+    'اكتب سعر البيع',
+  );
+
+  assert.equal(
+    variantsProblem(cats, {
+      ...base,
+      rows: { 'Galaxy A16|أسود': { barcode: '', price: '0' } },
+    }),
+    '«Galaxy A16، أسود»: اكتب سعر البيع',
+  );
+});
+

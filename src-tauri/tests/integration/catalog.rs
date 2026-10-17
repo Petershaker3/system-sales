@@ -525,4 +525,37 @@ async fn a_seller_may_not_ask_for_a_shop_code() {
         matches!(result, Err(CatalogError::PermissionDenied)),
         "got {result:?}"
     );
+    let batch = use_cases::next_shop_codes(&ctx, &seller, 3, &[]).await;
+    assert!(
+        matches!(batch, Err(CatalogError::PermissionDenied)),
+        "got {batch:?}"
+    );
 }
+
+#[tokio::test]
+async fn next_shop_codes_advances_past_stored_and_reserved_form_codes() {
+    let (ctx, session) = ctx_as_manager().await;
+    let first = NewProduct {
+        barcode: Some("2000000000015".to_string()),
+        ..new_product("جراب")
+    };
+    use_cases::create(&ctx, &session, first).await.expect("create");
+
+    let codes = use_cases::next_shop_codes(
+        &ctx,
+        &session,
+        3,
+        &["2000000000039".to_string()],
+    )
+    .await
+    .expect("batch");
+    assert_eq!(
+        codes,
+        vec![
+            "2000000000046".to_string(),
+            "2000000000053".to_string(),
+            "2000000000060".to_string(),
+        ]
+    );
+}
+

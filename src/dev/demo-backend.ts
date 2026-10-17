@@ -38,11 +38,20 @@ interface DemoProduct {
   deviceType: 'touch' | 'keypad' | null;
   storageGb: number | null;
   ramGb: number | null;
+  /** A variant's parent and combination details (ADR-018 §4); null for standalone products. */
+  parentId?: string | null;
+  parentName?: string | null;
+  dimension1?: string | null;
+  dimension2?: string | null;
+  variant1?: string | null;
+  variant2?: string | null;
+  variantOrder?: number | null;
   onHand: number;
   totalCostMinor: number;
   soldRecently: number;
   status: 'active' | 'archived';
 }
+
 
 // The category tree (ADR-018 §1), with the same rules as Rust: two levels, a
 // sub-category takes its parent's kind, names unique, defaults never deleted,
@@ -220,21 +229,41 @@ const products: DemoProduct[] = [
   { ...p('Redmi 14C 128GB', 6299, 3, 2, 'c-phones'), brandId: 'b-xiaomi', model: 'Redmi 14C', deviceType: 'touch', storageGb: 128, ramGb: 4 },
 ];
 
-// The shop's own barcode (ADR-018 §3, PLAN §6), mirroring
-// `domain::catalog::shop_code`: an EAN-13 starting with 2, one past the highest
-// internal code the demo catalogue already holds.
+// The shop's own barcode (ADR-018 §3 & §4, PLAN §6), mirroring
+// `domain::catalog::shop_code`: an EAN-13 starting with 2, consecutive from the
+// highest internal code the demo catalogue (or `reserved` form rows) holds.
+const VARIANT_DIMS = ['الموبايل', 'اللون', 'النوع', 'المقاس', 'القوة', 'الطول', 'المساحة'];
+const variantParents: {
+  id: string;
+  name: string;
+  categoryId: string;
+  dimension1: string;
+  dimension2: string | null;
+}[] = [];
+
 function ean13(body: string): string {
   const sum = [...body].reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3), 0);
   return body + String((10 - (sum % 10)) % 10);
 }
-function nextShopCode(): string {
-  const sequences = products
-    .map((product) => product.barcode)
+function nextShopCodes(count: number, reserved: readonly string[] = []): string[] {
+  if (count <= 0) return [];
+  const allCodes = [
+    ...products.map((product) => product.barcode),
+    ...reserved,
+  ];
+  const sequences = allCodes
     .filter((code): code is string => /^2\d{12}$/.test(code ?? ''))
     .map((code) => Number(code.slice(1, 12)));
-  const next = (sequences.length > 0 ? Math.max(...sequences) : 0) + 1;
-  return ean13(`2${String(next).padStart(11, '0')}`);
+  const highest = sequences.length > 0 ? Math.max(...sequences) : 0;
+  const bounded = Math.min(count, 60);
+  return Array.from({ length: bounded }, (_, index) =>
+    ean13(`2${String(highest + index + 1).padStart(11, '0')}`),
+  );
 }
+function nextShopCode(): string {
+  return nextShopCodes(1)[0] ?? ean13('200000000001');
+}
+
 
 const appearance = { look: 'plate', theme: 'light', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin' };
 const customers: { id: string; name: string; contact: string | null; archived: boolean }[] = [
@@ -449,6 +478,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
           salePriceMinor: x.salePriceMinor,
           categoryId: x.categoryId,
           brandId: x.brandId,
+          parentId: x.parentId ?? null,
+          parentName: x.parentName ?? null,
+          dimension1: x.dimension1 ?? null,
+          dimension2: x.dimension2 ?? null,
+          variant1: x.variant1 ?? null,
+          variant2: x.variant2 ?? null,
+          variantOrder: x.variantOrder ?? null,
           onHand: x.onHand,
           soldRecently: x.soldRecently,
         }))
@@ -459,6 +495,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
         .map((b) => ({ id: b.id, name: b.name, aliases: b.aliases, sortOrder: b.sortOrder })),
     };
   },
+
   record_sale: (args) => {
     requireUser();
     const lines = (args?.['lines'] as { productId: string; quantity: number }[] | undefined) ?? [];
@@ -533,6 +570,124 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireManager();
     return nextShopCode();
   },
+  next_shop_codes: (args) => {
+    requireManager();
+    const count = typeof args?.['count'] === 'number' ? (args['count'] as number) : 0;
+    const reserved = Array.isArray(args?.['reserved'])
+      ? (args['reserved'] as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    return nextShopCodes(count, reserved);
+  },
+  create_variants: (args) => {
+    requireManager();
+    const category = categories.find((c) => c.id === str(args, 'categoryId')) ?? fail('PRODUCT_CATEGORY_NOT_FOUND');
+    if (category.kind !== 'item') fail('VARIANT_CATEGORY_NOT_ITEM');
+    const baseName = str(args, 'name').trim().split(/\s+/).filter(Boolean).join(' ');
+    if (baseName === '') fail('PRODUCT_NAME_REQUIRED');
+    if (
+      variantParents.some(
+        (vp) => vp.categoryId === category.id && vp.name.toLowerCase() === baseName.toLowerCase(),
+      )
+    ) {
+      fail('VARIANT_PARENT_ALREADY_EXISTS');
+    }
+    const dim1 = str(args, 'dimension1').trim();
+    if (!VARIANT_DIMS.includes(dim1)) fail('VARIANT_DIMENSION_UNKNOWN');
+    const rawVals1 = Array.isArray(args?.['values1']) ? (args['values1'] as unknown[]) : [];
+    const vals1 = rawVals1
+      .map((v) => String(v ?? '').trim().split(/\s+/).filter(Boolean).join(' '))
+      .filter((v) => v !== '');
+    if (vals1.length === 0) fail('VARIANT_VALUES_REQUIRED');
+    if (new Set(vals1.map((v) => v.toLowerCase())).size !== vals1.length) fail('VARIANT_VALUE_DUPLICATE');
+
+    const rawVals2 = Array.isArray(args?.['values2']) ? (args['values2'] as unknown[]) : [];
+    const vals2 = rawVals2
+      .map((v) => String(v ?? '').trim().split(/\s+/).filter(Boolean).join(' '))
+      .filter((v) => v !== '');
+    if (new Set(vals2.map((v) => v.toLowerCase())).size !== vals2.length) fail('VARIANT_VALUE_DUPLICATE');
+    const dim2 = vals2.length > 0 ? str(args, 'dimension2').trim() : null;
+    if (dim2 !== null && !VARIANT_DIMS.includes(dim2)) fail('VARIANT_DIMENSION_UNKNOWN');
+
+    const combos: [string, string | null][] =
+      vals2.length === 0
+        ? vals1.map((v1) => [v1, null])
+        : vals1.flatMap((v1) => vals2.map((v2): [string, string | null] => [v1, v2]));
+    if (combos.length > 60) fail('VARIANT_LIMIT_EXCEEDED');
+
+    const defaultPrice = numArg(args, 'salePriceMinor');
+    if (defaultPrice < 0) fail('PRICE_NEGATIVE');
+    if (defaultPrice === 0) fail('VARIANT_PRICE_REQUIRED');
+
+    const rawRows = Array.isArray(args?.['rows'])
+      ? (args['rows'] as { barcode?: string | null; salePriceMinor?: number | null }[])
+      : [];
+    if (rawRows.length > 0 && rawRows.length !== combos.length) fail('VARIANT_ROWS_MISMATCH');
+
+    const batchBarcodes = new Set<string>();
+    const resolved = combos.map((_, i) => {
+      const r = rawRows[i];
+      const barcode = typeof r?.barcode === 'string' && r.barcode.trim() !== '' ? r.barcode.trim() : null;
+      if (barcode !== null) {
+        const key = barcode.toLowerCase();
+        if (batchBarcodes.has(key)) fail('VARIANT_BARCODE_DUPLICATE');
+        batchBarcodes.add(key);
+        if (products.some((x) => (x.barcode ?? '').toLowerCase() === key)) fail('BARCODE_ALREADY_EXISTS');
+      }
+      const price = typeof r?.salePriceMinor === 'number' ? r.salePriceMinor : defaultPrice;
+      if (price < 0) fail('PRICE_NEGATIVE');
+      if (price === 0) fail('VARIANT_PRICE_REQUIRED');
+      return { barcode, price };
+    });
+
+    const parent = {
+      id: newId('vp'),
+      name: baseName,
+      categoryId: category.id,
+      dimension1: dim1,
+      dimension2: dim2,
+    };
+    variantParents.push(parent);
+
+    const variants = combos.map(([v1, v2], order) => {
+      const row = resolved[order]!;
+      const title = [baseName, v1, v2 ?? ''].filter((part) => part !== '').join(' ');
+      const item: DemoProduct = {
+        id: newId('p'),
+        name: title,
+        disposition: 'quantity',
+        barcode: row.barcode,
+        salePriceMinor: row.price,
+        categoryId: category.id,
+        brandId: null,
+        model: null,
+        deviceType: null,
+        storageGb: null,
+        ramGb: null,
+        parentId: parent.id,
+        parentName: parent.name,
+        dimension1: parent.dimension1,
+        dimension2: parent.dimension2,
+        variant1: v1,
+        variant2: v2,
+        variantOrder: order,
+        onHand: 0,
+        totalCostMinor: 0,
+        soldRecently: 0,
+        status: 'active',
+      };
+      products.push(item);
+      return {
+        product: productDto(item),
+        parentId: parent.id,
+        variant1: v1,
+        variant2: v2,
+        variantOrder: order,
+      };
+    });
+
+    return { parent, variants };
+  },
+
   update_product: (args) => {
     requireManager();
     const x = findProduct(str(args, 'id'));

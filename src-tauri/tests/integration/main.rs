@@ -738,6 +738,12 @@ mod sales;
 // the storage's own refusals.
 mod brands;
 
+// Plan item 1.2 (ADR-018 §4): product variants — the parent and its
+// combinations in one transaction, the sales catalogue, and the storage's own
+// refusals.
+mod variants;
+
+
 // Plan item 1.2 (ADR-018 §1): the two-level category tree — the default tree,
 // the owner's changes, the storage's own refusals, products in categories and
 // the sales catalogue.

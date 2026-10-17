@@ -44,7 +44,8 @@ function registered(name: string): void {
       <span class="sp"></span>
       <button type="button" class="btn primary" @click="kind = true"><Icon name="package-plus" /> صنف جديد</button>
     </div>
-    <div class="note"><Icon name="info" /><span>الشاشة الكاملة للمخزن (التفرعات والاستلام بالـ IMEI والنواقص) جاية في المراحل الجاية من الخطة.</span></div>
+    <div class="note"><Icon name="info" /><span>الشاشة الكاملة للمخزن (الصور والاستلام بالـ IMEI والنواقص) جاية في المراحل الجاية من الخطة.</span></div>
+
     <div class="legacy-grid">
       <section class="card legacy-panel"><CatalogPanel :key="`c${reload}`" /></section>
       <section class="card legacy-panel"><StockPanel :key="`s${reload}`" @new-item="kind = true" /></section>

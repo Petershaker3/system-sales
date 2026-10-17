@@ -39,9 +39,24 @@ pub struct PosProductDto {
     pub category_id: Option<String>,
     /// The phone's company (ADR-018 §2), or `null`.
     pub brand_id: Option<String>,
+    /// The variant parent this product belongs to (ADR-018 §4), or `null`.
+    pub parent_id: Option<String>,
+    /// The parent's base name («جراب سيليكون ملون») shown on the family tile.
+    pub parent_name: Option<String>,
+    /// The parent's first dimension («الموبايل»).
+    pub dimension_1: Option<String>,
+    /// The parent's second dimension («اللون»), if two-dimensional.
+    pub dimension_2: Option<String>,
+    /// This product's value on the first dimension («Galaxy A16»).
+    pub variant_1: Option<String>,
+    /// This product's value on the second dimension («أسود»).
+    pub variant_2: Option<String>,
+    /// Order of this variant inside its parent's picker.
+    pub variant_order: Option<i64>,
     pub on_hand: i64,
     pub sold_recently: i64,
 }
+
 
 /// One category: a chip, unless hidden (ADR-018 §1).
 #[derive(Debug, Clone, Serialize)]
@@ -92,10 +107,18 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 sale_price_minor: row.sale_price_minor,
                 category_id: row.department_id,
                 brand_id: row.brand_id,
+                parent_id: row.parent_id,
+                parent_name: row.parent_name,
+                dimension_1: row.dimension_1,
+                dimension_2: row.dimension_2,
+                variant_1: row.variant_1,
+                variant_2: row.variant_2,
+                variant_order: row.variant_order,
                 on_hand: row.on_hand,
                 sold_recently: row.sold_recently,
             })
             .collect(),
+
         categories: catalog
             .categories
             .into_iter()

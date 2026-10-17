@@ -100,20 +100,40 @@ fn internal_sequence(code: &str) -> Option<u64> {
 pub fn next_shop_code<'a>(
     codes: impl IntoIterator<Item = &'a str>,
 ) -> Result<String, ShopCodeError> {
+    let mut generated = next_shop_codes(codes, 1)?;
+    generated.pop().ok_or(ShopCodeError::Exhausted)
+}
+
+/// The next `count` free shop codes, consecutive from the highest sequence in
+/// `codes`.
+///
+/// Used by «اعمل أكواد للي من غير باركود» on a variant item (ADR-018 §4), so a
+/// whole table of blank rows receives consecutive valid EAN-13 codes in one
+/// step without colliding with codes already in the database or in the form.
+pub fn next_shop_codes<'a>(
+    codes: impl IntoIterator<Item = &'a str>,
+    count: usize,
+) -> Result<Vec<String>, ShopCodeError> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
     let mut highest = 0u64;
     for code in codes {
         if let Some(sequence) = internal_sequence(code) {
             highest = highest.max(sequence);
         }
     }
-    if highest >= MAX_SEQUENCE {
+    let count_u64 = u64::try_from(count).map_err(|_| ShopCodeError::Exhausted)?;
+    if highest.saturating_add(count_u64) > MAX_SEQUENCE {
         return Err(ShopCodeError::Exhausted);
     }
-    let sequence = highest + 1;
-    // The prefix plus an 11-digit sequence: always a 12-digit body, so the
-    // check digit always exists. The failure is still reported rather than
-    // panicked on; it would mean this code is wrong, not the shop's data.
-    let body = format!("{}{sequence:011}", INTERNAL_PREFIX);
-    let check = ean13_check_digit(&body).ok_or(ShopCodeError::Exhausted)?;
-    Ok(format!("{body}{check}"))
+    let mut out = Vec::with_capacity(count);
+    for offset in 1..=count_u64 {
+        let sequence = highest + offset;
+        let body = format!("{}{sequence:011}", INTERNAL_PREFIX);
+        let check = ean13_check_digit(&body).ok_or(ShopCodeError::Exhausted)?;
+        out.push(format!("{body}{check}"));
+    }
+    Ok(out)
 }
+

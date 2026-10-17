@@ -9,6 +9,9 @@ pub mod brands;
 pub mod phone;
 pub mod pos;
 pub mod product;
+/// Registering a counted item with variants (ADR-018 §4).
+pub mod variants;
+
 
 use std::sync::Arc;
 

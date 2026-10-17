@@ -19,7 +19,7 @@ import type { Session } from '../../api/identity';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
 import type { SaleOutcome } from '../../api/sales';
-import { countWord, money, num, pcsWord } from '../../ui/format';
+import { countWord, kindsWord, money, num, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
@@ -30,6 +30,9 @@ import { asIconName, tileIcon } from './icons';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
+import VariantPickerModal from './VariantPickerModal.vue';
+import { collapseFamilies, familyPriceSummary, type PosTileEntry } from './variants';
+
 
 const props = defineProps<{ session: Session }>();
 const emit = defineEmits<{ go: [screen: 'store'] }>();
@@ -41,7 +44,9 @@ const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
 const modal = ref<null | 'pay' | 'qty' | 'clear'>(null);
+const openFamily = ref<Extract<PosTileEntry<PosProduct>, { kind: 'family' }> | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
+
 const linesBox = ref<HTMLElement | null>(null);
 
 const isOwner = computed(() => props.session.role === 'manager');
@@ -117,20 +122,39 @@ function chipIcon(icon: string) {
   return asIconName(icon) ?? 'tag';
 }
 
-const tiles = computed<PosProduct[]>(() => {
+const tileEntries = computed<PosTileEntry<PosProduct>[]>(() => {
   const list = [...sellable.value];
   if (chip.value === 'top') {
-    return list.sort((a, b) => b.soldRecently - a.soldRecently || a.name.localeCompare(b.name, 'ar')).slice(0, 12);
+    const sorted = list.sort(
+      (a, b) => b.soldRecently - a.soldRecently || a.name.localeCompare(b.name, 'ar')
+    );
+    return collapseFamilies(sorted, sellable.value).slice(0, 12);
   }
-  if (chip.value === 'all') return list;
-  return list
+  if (chip.value === 'all') return collapseFamilies(list, sellable.value);
+  const filtered = list
     .filter((p) => inSelection(tree.value, p, chip.value))
     .sort((a, b) => b.soldRecently - a.soldRecently || a.name.localeCompare(b.name, 'ar'));
+  return collapseFamilies(filtered, sellable.value);
 });
 
 function freeOf(p: PosProduct): number {
   return cart.available(state, asSellable(p));
 }
+
+const freeStockMap = computed<Record<string, number>>(() =>
+  Object.fromEntries(sellable.value.map((p) => [p.id, freeOf(p)]))
+);
+
+function familyFreeStock(variants: readonly PosProduct[]): number {
+  return variants.reduce((sum, v) => sum + freeOf(v), 0);
+}
+
+function familyPriceText(variants: readonly PosProduct[]): string {
+  const { minMinor, varies } = familyPriceSummary(variants);
+  if (minMinor === null) return 'بدون سعر';
+  return varies ? `من ${money(minMinor)}` : money(minMinor);
+}
+
 
 function iconOf(p: PosProduct) {
   const category = p.categoryId === null ? undefined : tree.value.byId.get(p.categoryId);
@@ -144,8 +168,11 @@ const totals = computed(() => cart.totals(invoice.value));
 const empty = computed(() => invoice.value.lines.length === 0);
 
 function focusSearch(): void {
-  if (modal.value === null) searchInput.value?.focus({ preventScroll: true });
+  if (modal.value === null && openFamily.value === null) {
+    searchInput.value?.focus({ preventScroll: true });
+  }
 }
+
 
 async function scrollToSelected(): Promise<void> {
   await nextTick();
@@ -279,10 +306,27 @@ function closeModal(): void {
   void nextTick(focusSearch);
 }
 
+function closeVariantModal(): void {
+  openFamily.value = null;
+  void nextTick(focusSearch);
+}
+
+function onPickVariant(p: PosProduct): void {
+  openFamily.value = null;
+  pick(p);
+}
+
 // --- the keyboard (docs/ui/mockup-v1/pos.js, posKey) ------------------------
 
 function onKey(event: KeyboardEvent): void {
-  if (modal.value !== null || document.querySelector('.overlay') !== null) return;
+  if (
+    modal.value !== null ||
+    openFamily.value !== null ||
+    document.querySelector('.overlay') !== null
+  ) {
+    return;
+  }
+
   const key = event.key;
   const active = document.activeElement;
   const inSearch = active === searchInput.value;
@@ -458,23 +502,69 @@ const KEYS: readonly [string, string][] = [
               <Icon name="boxes" /> روح للمخزن
             </button>
           </div>
-          <button
-            v-for="p in tiles"
-            :key="p.id"
-            type="button"
-            class="tile"
-            :title="p.salePriceMinor === null ? 'مالوش سعر بيع' : p.name"
-            @click="pick(p)"
-          >
-            <div class="ico"><Icon :name="iconOf(p)" /></div>
-            <div class="name"><bdi dir="rtl">{{ p.name }}</bdi></div>
-            <div class="foot">
-              <span class="price num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</span>
-              <span class="stock" :class="{ out: freeOf(p) <= 0, low: freeOf(p) > 0 && freeOf(p) <= 2 }">{{
-                freeOf(p) <= 0 ? 'خلصان' : `${num(freeOf(p))} متاح`
-              }}</span>
-            </div>
-          </button>
+          <template v-for="entry in tileEntries" :key="entry.key">
+            <button
+              v-if="entry.kind === 'product'"
+              type="button"
+              class="tile"
+              :title="entry.product.salePriceMinor === null ? 'مالوش سعر بيع' : entry.product.name"
+              @click="pick(entry.product)"
+            >
+              <div class="ico"><Icon :name="iconOf(entry.product)" /></div>
+              <div class="name"><bdi dir="rtl">{{ entry.product.name }}</bdi></div>
+              <div class="foot">
+                <span class="price num">{{
+                  entry.product.salePriceMinor === null
+                    ? 'بدون سعر'
+                    : money(entry.product.salePriceMinor)
+                }}</span>
+                <span
+                  class="stock"
+                  :class="{
+                    out: freeOf(entry.product) <= 0,
+                    low: freeOf(entry.product) > 0 && freeOf(entry.product) <= 2,
+                  }"
+                  >{{
+                    freeOf(entry.product) <= 0
+                      ? 'خلصان'
+                      : `${num(freeOf(entry.product))} متاح`
+                  }}</span
+                >
+              </div>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="tile fam"
+              :data-fam="entry.parentId"
+              :title="`ليه ${kindsWord(entry.variants.length)}: اختار النوع بعد الدوسة`"
+              @click="openFamily = entry"
+            >
+              <div class="ico"><Icon :name="iconOf(entry.variants[0]!)" /></div>
+              <span class="corner tag">
+                <Icon name="layers" /> {{ kindsWord(entry.variants.length) }}
+              </span>
+              <div class="name"><bdi dir="rtl">{{ entry.parentName }}</bdi></div>
+              <div class="foot">
+                <span class="price num">{{ familyPriceText(entry.variants) }}</span>
+                <span
+                  class="stock"
+                  :class="{
+                    out: familyFreeStock(entry.variants) <= 0,
+                    low:
+                      familyFreeStock(entry.variants) > 0 &&
+                      familyFreeStock(entry.variants) <= 2,
+                  }"
+                  >{{
+                    familyFreeStock(entry.variants) <= 0
+                      ? 'خلصان'
+                      : `${num(familyFreeStock(entry.variants))} متاح`
+                  }}</span
+                >
+              </div>
+            </button>
+          </template>
+
           <div v-if="isOwner && notYetSellable > 0" class="note tiles-note">
             <Icon name="info" />
             <span>{{ countWord(notYetSellable, 'صنف', 'صنفين', 'أصناف') }} بالـ IMEI أو قطعة واحدة مش ظاهرة هنا لسه. البيع بالـ IMEI جاي مع وحدات الأجهزة.</span>
@@ -590,8 +680,18 @@ const KEYS: readonly [string, string][] = [
         <button type="button" class="btn ghost" @click="closeModal">رجوع</button>
       </template>
     </Modal>
+    <VariantPickerModal
+      v-if="openFamily !== null"
+      :parent-name="openFamily.parentName"
+      :dimensions="openFamily.dimensions"
+      :variants="openFamily.variants"
+      :free-stock="freeStockMap"
+      @close="closeVariantModal"
+      @pick="onPickVariant"
+    />
   </div>
 </template>
+
 
 <style scoped>
 .tiles-note {

@@ -10,12 +10,18 @@
 //! rather than a claim, and it is enforced by an architecture test that already
 //! covers every command module.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::domain::catalog::{CatalogError, Disposition, Product, ProductStatus};
+use crate::domain::catalog::{
+    CatalogError, Disposition, Product, ProductStatus, ProductVariant, VariantParent,
+};
 use crate::services::catalog::product::{self as use_cases, NewProduct, ProductPatch};
+use crate::services::catalog::variants::{
+    self as variant_use_cases, NewVariantRow, NewVariants, VariantServiceError,
+};
 use crate::services::catalog::{require_session, CatalogContext};
+
 
 type Ctx<'a> = State<'a, CatalogContext>;
 
@@ -34,6 +40,15 @@ impl From<CatalogError> for CatalogCommandError {
         }
     }
 }
+
+impl From<VariantServiceError> for CatalogCommandError {
+    fn from(error: VariantServiceError) -> Self {
+        Self {
+            code: error.code(),
+        }
+    }
+}
+
 
 /// A product as the frontend sees it.
 ///
@@ -228,6 +243,134 @@ pub async fn next_shop_code(ctx: Ctx<'_>) -> Result<String, CatalogCommandError>
     let code = use_cases::next_shop_code(&ctx, &session).await?;
     Ok(code)
 }
+
+/// The next `count` free internal barcodes for «اعمل أكواد للي من غير باركود»
+/// (`ADR-018` §4), advancing past both stored codes and any `reserved` codes
+/// already typed into the variant table.
+#[tauri::command]
+pub async fn next_shop_codes(
+    ctx: Ctx<'_>,
+    count: usize,
+    reserved: Option<Vec<String>>,
+) -> Result<Vec<String>, CatalogCommandError> {
+    let session = require_session(&ctx)
+        .await
+        .map_err(|e| CatalogCommandError { code: e.code() })?;
+    let reserved = reserved.unwrap_or_default();
+    let codes = use_cases::next_shop_codes(&ctx, &session, count, &reserved).await?;
+    Ok(codes)
+}
+
+/// One combination's barcode and price override from the variant table.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewVariantRowDto {
+    pub barcode: Option<String>,
+    pub sale_price_minor: Option<i64>,
+}
+
+/// The parent of a variant family, as returned to the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariantParentDto {
+    pub id: String,
+    pub name: String,
+    pub category_id: String,
+    pub dimension_1: &'static str,
+    pub dimension_2: Option<&'static str>,
+}
+
+impl From<&VariantParent> for VariantParentDto {
+    fn from(parent: &VariantParent) -> Self {
+        Self {
+            id: parent.id.as_str(),
+            name: parent.name.as_str().to_string(),
+            category_id: parent.category.as_str(),
+            dimension_1: parent.dimension_1.as_str(),
+            dimension_2: parent.dimension_2.map(|d| d.as_str()),
+        }
+    }
+}
+
+/// One registered variant product, with its values and order inside the parent.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredVariantDto {
+    pub product: ProductDto,
+    pub parent_id: String,
+    pub variant_1: String,
+    pub variant_2: Option<String>,
+    pub variant_order: i64,
+}
+
+impl From<&(Product, ProductVariant)> for RegisteredVariantDto {
+    fn from((product, details): &(Product, ProductVariant)) -> Self {
+        Self {
+            product: ProductDto::from(product),
+            parent_id: details.parent_id.as_str(),
+            variant_1: details.value_1.as_str().to_string(),
+            variant_2: details.value_2.as_ref().map(|v| v.as_str().to_string()),
+            variant_order: details.order,
+        }
+    }
+}
+
+/// What `create_variants` returns to «صنف جديد».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisteredVariantsDto {
+    pub parent: VariantParentDto,
+    pub variants: Vec<RegisteredVariantDto>,
+}
+
+/// Register a counted item with variants («الصنف ده ليه تفرعات», ADR-018 §4).
+#[tauri::command]
+pub async fn create_variants(
+    ctx: Ctx<'_>,
+    category_id: String,
+    name: String,
+    dimension_1: String,
+    values_1: Vec<String>,
+    dimension_2: Option<String>,
+    values_2: Option<Vec<String>>,
+    sale_price_minor: i64,
+    rows: Option<Vec<NewVariantRowDto>>,
+) -> Result<RegisteredVariantsDto, CatalogCommandError> {
+    let category = uuid::Uuid::parse_str(&category_id)
+        .map(crate::domain::organisation::DepartmentId::from_uuid)
+        .map_err(|_| CatalogCommandError::from(CatalogError::CategoryNotFound))?;
+    let registered = variant_use_cases::create_variants(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        NewVariants {
+            category,
+            name,
+            dimension_1,
+            values_1,
+            dimension_2,
+            values_2: values_2.unwrap_or_default(),
+            sale_price_minor,
+            rows: rows
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| NewVariantRow {
+                    barcode: r.barcode,
+                    sale_price_minor: r.sale_price_minor,
+                })
+                .collect(),
+        },
+    )
+    .await?;
+    Ok(RegisteredVariantsDto {
+        parent: VariantParentDto::from(&registered.parent),
+        variants: registered
+            .variants
+            .iter()
+            .map(RegisteredVariantDto::from)
+            .collect(),
+    })
+}
+
 
 #[tauri::command]
 pub async fn set_product_archived(

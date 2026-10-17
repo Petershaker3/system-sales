@@ -20,6 +20,20 @@ pub struct PosProductRow {
     pub department_id: Option<String>,
     /// The phone's company (ADR-018 §2), or `None` for anything but a phone.
     pub brand_id: Option<String>,
+    /// The variant parent this product belongs to (ADR-018 §4), or `None`.
+    pub parent_id: Option<String>,
+    /// The parent's base name («جراب سيليكون ملون») shown on the family tile.
+    pub parent_name: Option<String>,
+    /// The parent's first dimension («الموبايل»).
+    pub dimension_1: Option<String>,
+    /// The parent's second dimension («اللون»), if two-dimensional.
+    pub dimension_2: Option<String>,
+    /// This product's value on the first dimension («Galaxy A16»).
+    pub variant_1: Option<String>,
+    /// This product's value on the second dimension («أسود»).
+    pub variant_2: Option<String>,
+    /// Order of this variant inside its parent's picker.
+    pub variant_order: Option<i64>,
     /// Units on hand; zero for a product nobody has received yet.
     pub on_hand: i64,
     /// Units sold since `sold_since`, for ordering the tiles. Cancellations
@@ -35,9 +49,17 @@ pub async fn list_sellable(
     let rows = sqlx::query(
         "SELECT p.id, p.name, p.disposition, p.barcode, p.sale_price_minor, p.department_id,
                 p.brand_id,
+                p.parent_id,
+                vp.name AS parent_name,
+                vp.dimension_1,
+                vp.dimension_2,
+                p.variant_1,
+                p.variant_2,
+                p.variant_order,
                 COALESCE(s.quantity, 0) AS on_hand,
                 COALESCE(r.sold, 0) AS sold_recently
          FROM products p
+         LEFT JOIN product_parents vp ON vp.id = p.parent_id
          LEFT JOIN stock_levels s ON s.product_id = p.id
          LEFT JOIN (
              SELECT l.product_id, SUM(l.quantity) AS sold
@@ -63,11 +85,19 @@ pub async fn list_sellable(
             sale_price_minor: row.get("sale_price_minor"),
             department_id: row.get("department_id"),
             brand_id: row.get("brand_id"),
+            parent_id: row.get("parent_id"),
+            parent_name: row.get("parent_name"),
+            dimension_1: row.get("dimension_1"),
+            dimension_2: row.get("dimension_2"),
+            variant_1: row.get("variant_1"),
+            variant_2: row.get("variant_2"),
+            variant_order: row.get("variant_order"),
             on_hand: row.get("on_hand"),
             sold_recently: row.get("sold_recently"),
         })
         .collect())
 }
+
 
 /// One live category, for the chips above the tiles (ADR-018 §1): the screen
 /// builds the two rows from `parent_id`, and leaves out the hidden ones.

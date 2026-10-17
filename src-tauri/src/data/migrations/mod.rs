@@ -1,4 +1,4 @@
-﻿//! Versioned SQLite migrations, applied forward only.
+//! Versioned SQLite migrations, applied forward only.
 //!
 //! `plan:143` fixes the recovery model as restore-a-backup then forward-fix, so
 //! there is deliberately no `Down` script and none should be added.
@@ -86,3 +86,9 @@ pub const CATEGORY_TREE: &str = include_str!("0016_category_tree.sql");
 /// and RAM on its product (ADR-018 §2), with triggers that keep the details
 /// whole.
 pub const BRANDS_AND_PHONE_DETAILS: &str = include_str!("0017_brands_and_phone_details.sql");
+
+/// `0018`: product variants (`product_parents` and `parent_id`, `variant_1`,
+/// `variant_2`, `variant_order` on `products`, ADR-018 §4), with triggers that
+/// keep the details whole.
+pub const PRODUCT_VARIANTS: &str = include_str!("0018_product_variants.sql");
+

@@ -19,9 +19,10 @@ use sqlx::SqliteConnection;
 use crate::data::repositories::catalog::product as repo;
 use crate::data::repositories::organisation::department as category_repo;
 use crate::domain::catalog::{
-    next_shop_code as next_code, Barcode, CatalogError, Disposition, Product, ProductId,
-    ProductName, ProductStatus, SalePrice,
+    next_shop_code as next_code, next_shop_codes as next_codes, Barcode, CatalogError, Disposition,
+    Product, ProductId, ProductName, ProductStatus, SalePrice, MAX_VARIANTS,
 };
+
 use crate::domain::identity::{Permission, Session, Timestamp};
 use crate::domain::organisation::DepartmentId;
 use crate::services::catalog::CatalogContext;
@@ -189,6 +190,29 @@ pub async fn next_shop_code(
     next_code(codes.iter().map(String::as_str))
         .map_err(|_| CatalogError::ShopCodeExhausted)
 }
+
+/// The next `count` internal shop codes (up to [`MAX_VARIANTS`]), advancing
+/// past both the database's internal codes and any `reserved` codes already
+/// typed into the variant table.
+pub async fn next_shop_codes(
+    ctx: &CatalogContext,
+    session: &Session,
+    count: usize,
+    reserved: &[String],
+) -> Result<Vec<String>, CatalogError> {
+    authorize(session)?;
+    let bounded = count.min(MAX_VARIANTS);
+    let mut conn = ctx.pool.acquire().await.map_err(|_| CatalogError::NoProductWithThisId)?;
+    let codes = repo::internal_codes(&mut conn)
+        .await
+        .map_err(|_| CatalogError::NoProductWithThisId)?;
+    let combined = codes
+        .iter()
+        .map(String::as_str)
+        .chain(reserved.iter().map(String::as_str));
+    next_codes(combined, bounded).map_err(|_| CatalogError::ShopCodeExhausted)
+}
+
 
 pub async fn update(
     ctx: &CatalogContext,

@@ -513,7 +513,89 @@ check('a barcode already used is refused with its Arabic message', (await text('
 await page.keyboard.press('Escape');
 await sleep(150);
 
+// --- «الصنف ده ليه تفرعات» (ADR-018 §4, plan item 1.2 step 4) ---------------
+await clickText('.page-h button', 'صنف جديد');
+await page.waitForSelector('.ni-kinds');
+await clickText('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
+await page.waitForSelector('#ni-name');
+await page.type('#ni-name', 'جراب سيليكون ملون');
+await page.$eval('#ni-var-on', (el) => el.click());
+await sleep(100);
+check(
+  'turning variants on puts the cursor in the first dimension input',
+  await page.evaluate(() => document.activeElement?.id === 'ni-dq-0')
+);
+await page.type('#ni-dq-0', 'Galaxy A16');
+await page.keyboard.press('Enter');
+await page.type('#ni-dq-0', 'iPhone 16');
+await page.keyboard.press('Enter');
+await clickText('.ni-sugg .chip', '+ أسود');
+await clickText('.ni-sugg .chip', '+ بينك');
+await sleep(100);
+check(
+  'two models × two colours build 4 variant rows',
+  (await count('.ni-var tbody tr')) === 4 && (await text('.ni-var-f')).includes('4 أنواع')
+);
+await page.click('#ni-make-codes');
+await page.waitForFunction(() => {
+  const inputs = [...document.querySelectorAll('.ni-var input.ni-sku')];
+  return inputs.length === 4 && inputs.every((el) => el.value.length === 13);
+});
+const varCodes = await page.$$eval('.ni-var input.ni-sku', (els) => els.map((el) => el.value));
+check(
+  '«اعمل أكواد للي من غير باركود» fills consecutive valid EAN-13 shop codes',
+  new Set(varCodes).size === 4 &&
+    varCodes.every((c) => /^2\d{12}$/.test(c) && checkDigit(c.slice(0, 12)) === Number(c[12])),
+  varCodes.join(', ')
+);
+await page.$$eval('.ni-var input[data-f="price"]', (els) => {
+  if (els[2]) {
+    els[2].value = '90';
+    els[2].dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (els[3]) {
+    els[3].value = '90';
+    els[3].dispatchEvent(new Event('input', { bubbles: true }));
+  }
+});
+await page.type('#ni-price', '70');
+await sleep(80);
+await shot('21-new-variants');
+await page.click('button[form="ni-form"]');
+await page.waitForSelector('#ni-name', { hidden: true, timeout: 3000 });
+
+check(
+  'the variant family is registered in one step',
+  (await text('#toasts')).includes('اتسجّل «جراب سيليكون ملون (4 أنواع)»')
+);
+
+// Receive stock for one variant («جراب سيليكون ملون Galaxy A16 بينك») so it can be sold
+await clickText('.rail .nav-btn', 'البيع');
+await sleep(100);
+await clickText('.rail .nav-btn', 'المخزن');
+await page.waitForSelector('.stock select');
+const pinkVariantId = await page.$eval('.stock select', (sel) => {
+  const opt = [...sel.options].find((o) => (o.textContent ?? '').includes('جراب سيليكون ملون Galaxy A16 بينك'));
+  return opt?.value ?? '';
+});
+await page.select('.stock select', pinkVariantId);
+await clickText('.stock .gate button', 'عرض المخزن');
+await page.waitForSelector('.stock .overlay form.modal input[type=password]');
+await page.type('.stock .overlay form.modal input[type=password]', '1234');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.stock .position');
+const receiveInputs = await page.$$('.stock .position form.form input');
+await receiveInputs[0].type('5');
+await receiveInputs[1].type('4500');
+await clickText('.stock .position form.form button', 'استلام');
+await sleep(200);
+check(
+  'stock is received onto the individual variant product',
+  (await text('.stock .notice')).includes('الرصيد الآن 5')
+);
+
 // --- «موبايل جديد» (ADR-018 §2) ---------------------------------------------
+
 await clickText('.page-h button', 'صنف جديد');
 await page.waitForSelector('.ni-kinds');
 await clickText('.ni-kind', 'موبايل جديد');
@@ -578,8 +660,55 @@ check(
   'the new counted item sells under its category',
   (await page.$$eval('.tile .name', (els) => els.map((e) => e.textContent ?? ''))).some((t) => t.includes('جراب سيليكون شفاف'))
 );
+await clickText('.chips.subcats .chip', 'جرابات');
+await sleep(80);
+const famTileText = (await text('.tile.fam')).replace(/\s+/g, ' ').trim();
+check(
+  'a variant family collapses into one tile showing its kind count, lowest price and total stock',
+  (await count('.tile.fam')) === 1 &&
+    famTileText.includes('جراب سيليكون ملون') &&
+    famTileText.includes('4 أنواع') &&
+    famTileText.includes('من 70') &&
+    famTileText.includes('5 متاح'),
+  famTileText
+);
+await page.click('.tile.fam');
+await page.waitForSelector('.vr-grid .vr');
+await sleep(80);
+await shot('22-variant-picker');
+const vrStates = await page.$$eval('.vr-grid .vr', (els) =>
+  els.map((el) => ({
+    label: el.querySelector('b')?.textContent?.trim() ?? '',
+    disabled: el.disabled,
+    on: el.classList.contains('on'),
+  }))
+);
+check(
+  'the variant picker disables out-of-stock options and highlights the first available one',
+  vrStates.length === 4 &&
+    vrStates.filter((v) => !v.disabled).length === 1 &&
+    vrStates.find((v) => v.on)?.label === 'Galaxy A16، بينك',
+  JSON.stringify(vrStates)
+);
+await page.keyboard.press('Enter');
+await sleep(120);
+check(
+  'Enter in the variant picker adds the chosen variant to the invoice',
+  (await count('.line')) === 1 && (await text('.line .ln')).includes('جراب سيليكون ملون Galaxy A16 بينك')
+);
+await page.type('#q', varCodes[1] ?? 'Galaxy A16 بينك');
+await sleep(100);
+check(
+  'barcode/search on the sales screen finds the variant itself',
+  (await text('.result .n')).includes('جراب سيليكون ملون Galaxy A16 بينك')
+);
+await page.keyboard.press('Escape');
+await sleep(60);
+await page.click('.line .icon-btn.danger');
+await sleep(80);
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);
+
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen

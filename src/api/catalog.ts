@@ -98,6 +98,86 @@ export async function nextShopCode(): Promise<string> {
   return invoke<string>('next_shop_code');
 }
 
+/**
+ * The next `count` free barcodes for «اعمل أكواد للي من غير باركود» on a
+ * variant item (ADR-018 §4), advancing past both stored codes and any
+ * `reserved` codes already typed into the variant table.
+ */
+export async function nextShopCodes(
+  count: number,
+  reserved?: readonly string[],
+): Promise<string[]> {
+  return invoke<string[]>('next_shop_codes', {
+    count,
+    reserved: reserved === undefined ? null : [...reserved],
+  });
+}
+
+/** One combination's optional barcode and sale-price override. */
+export interface NewVariantRowInput {
+  readonly barcode?: string | null;
+  readonly salePriceMinor?: number | null;
+}
+
+/** The parent of a variant family (`product_parents`). */
+export interface VariantParent {
+  readonly id: string;
+  readonly name: string;
+  readonly categoryId: string;
+  readonly dimension1: string;
+  readonly dimension2: string | null;
+}
+
+/** One registered variant product and its place in the parent. */
+export interface RegisteredVariant {
+  readonly product: Product;
+  readonly parentId: string;
+  readonly variant1: string;
+  readonly variant2: string | null;
+  readonly variantOrder: number;
+}
+
+/** What `createVariants` returns. */
+export interface RegisteredVariants {
+  readonly parent: VariantParent;
+  readonly variants: readonly RegisteredVariant[];
+}
+
+/** Input to `createVariants` (`ADR-018` §4). */
+export interface CreateVariantsInput {
+  readonly categoryId: string;
+  readonly name: string;
+  readonly dimension1: string;
+  readonly values1: readonly string[];
+  readonly dimension2?: string | null;
+  readonly values2?: readonly string[];
+  readonly defaultPriceMinor: number;
+  readonly rows?: readonly NewVariantRowInput[];
+}
+
+/** Register a counted item with variants («الصنف ده ليه تفرعات», `ADR-018` §4). */
+export async function createVariants(
+  input: CreateVariantsInput,
+): Promise<RegisteredVariants> {
+  return invoke<RegisteredVariants>('create_variants', {
+    categoryId: input.categoryId,
+    name: input.name,
+    dimension1: input.dimension1,
+    values1: [...input.values1],
+    dimension2: input.dimension2 ?? null,
+    values2: input.values2 === undefined ? null : [...input.values2],
+    salePriceMinor: input.defaultPriceMinor,
+    rows:
+      input.rows === undefined
+        ? null
+        : input.rows.map((r) => ({
+            barcode: r.barcode ?? null,
+            salePriceMinor: r.salePriceMinor ?? null,
+          })),
+  });
+}
+
+
 export async function getProduct(id: string): Promise<Product> {
   return invoke<Product>('get_product', { id });
 }

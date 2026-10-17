@@ -7,10 +7,13 @@
 
 use mobile_shop_system_lib::domain::catalog::{
     brand_aliases, brand_lines, can_delete_brand, ean13, ean13_check_digit, is_default_brand,
-    next_shop_code, phone_title, storage_label, BrandDeviceType, BrandError, BrandId, BrandName,
-    CatalogError, DeviceType, Disposition, PhoneDetails, PhoneModel, Product, ProductId,
-    ProductName, ProductStatus, SalePrice, ShopCodeError, DEFAULT_BRANDS,
+    next_shop_code, next_shop_codes, phone_title, storage_label, variant_combos, variant_title,
+    BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType, Disposition,
+    PhoneDetails, PhoneModel, Product, ProductId, ProductName, ProductStatus, SalePrice,
+    ShopCodeError, VariantDimension, VariantError, VariantParent, VariantParentId, VariantValue,
+    DEFAULT_BRANDS, MAX_VARIANTS, VARIANT_DIMENSIONS,
 };
+
 use mobile_shop_system_lib::domain::identity::{
     group_recovery_code, is_locked, normalize_recovery_code, password_is_acceptable,
     register_failure, register_success,
@@ -2265,4 +2268,169 @@ fn every_supplier_error_has_a_stable_code_the_frontend_can_index() {
     }
     assert_eq!(SupplierError::NameRequired.code(), "SUPPLIER_NAME_REQUIRED");
     assert_eq!(SupplierError::NameTooLong.code(), "SUPPLIER_NAME_TOO_LONG");
+}
+
+// ---------------------------------------------------------------------------
+// Product variants (ADR-018 §4, plan item 1.2 step 4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn next_shop_codes_generates_a_consecutive_batch_past_the_highest_code() {
+    assert_eq!(
+        next_shop_codes(std::iter::empty::<&str>(), 0).expect("zero"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        next_shop_codes(["2000000000015", "2000000000022"], 3).expect("three"),
+        vec![
+            "2000000000039".to_string(),
+            "2000000000046".to_string(),
+            "2000000000053".to_string(),
+        ]
+    );
+    assert_eq!(
+        next_shop_codes(["2999999999984"], 2),
+        Err(ShopCodeError::Exhausted),
+        "asking for two when only one sequence remains must fail cleanly"
+    );
+}
+
+#[test]
+fn every_variant_dimension_round_trips_through_its_arabic_label() {
+    for label in VARIANT_DIMENSIONS {
+        let parsed = VariantDimension::parse(label)
+            .unwrap_or_else(|| panic!("{label} must parse as a VariantDimension"));
+        assert_eq!(parsed.as_str(), label);
+    }
+    assert_eq!(
+        VariantDimension::parse("  الموبايل  "),
+        Some(VariantDimension::Phone)
+    );
+    assert_eq!(VariantDimension::parse("الماركة"), None);
+    assert_eq!(VariantDimension::parse(""), None);
+}
+
+#[test]
+fn a_variant_value_trims_and_collapses_spaces_and_refuses_blank() {
+    let val = VariantValue::new("  Galaxy   A16  ").expect("value");
+    assert_eq!(val.as_str(), "Galaxy A16");
+    assert_eq!(val.to_string(), "Galaxy A16");
+    for blank in ["", "   ", "\t\n"] {
+        assert_eq!(VariantValue::new(blank), Err(VariantError::ValueRequired));
+    }
+}
+
+#[test]
+fn variant_combos_builds_one_and_two_dimensional_products_in_order() {
+    let one_dim = variant_combos(&["20W".to_string(), "33W".to_string(), "65W".to_string()], &[])
+        .expect("1D combos");
+    let one_labels: Vec<(&str, Option<&str>)> = one_dim
+        .iter()
+        .map(|(v1, v2)| (v1.as_str(), v2.as_ref().map(VariantValue::as_str)))
+        .collect();
+    assert_eq!(
+        one_labels,
+        vec![("20W", None), ("33W", None), ("65W", None)]
+    );
+
+    let two_dim = variant_combos(
+        &["Galaxy A16".to_string(), "iPhone 16".to_string()],
+        &["أسود".to_string(), "شفاف".to_string()],
+    )
+    .expect("2D combos");
+    let two_labels: Vec<(&str, Option<&str>)> = two_dim
+        .iter()
+        .map(|(v1, v2)| (v1.as_str(), v2.as_ref().map(VariantValue::as_str)))
+        .collect();
+    assert_eq!(
+        two_labels,
+        vec![
+            ("Galaxy A16", Some("أسود")),
+            ("Galaxy A16", Some("شفاف")),
+            ("iPhone 16", Some("أسود")),
+            ("iPhone 16", Some("شفاف")),
+        ]
+    );
+}
+
+#[test]
+fn variant_combos_refuses_empty_duplicates_and_more_than_sixty() {
+    assert_eq!(
+        variant_combos(&[], &["أسود".to_string()]),
+        Err(VariantError::VariantsEmpty),
+        "the first dimension is required even when the second has values"
+    );
+    assert_eq!(
+        variant_combos(&["Galaxy A16".to_string(), "galaxy  a16".to_string()], &[]),
+        Err(VariantError::DuplicateValue)
+    );
+    assert_eq!(
+        variant_combos(
+            &["Galaxy A16".to_string()],
+            &["أسود".to_string(), " أسود ".to_string()]
+        ),
+        Err(VariantError::DuplicateValue)
+    );
+
+    let ten: Vec<String> = (1..=10).map(|i| format!("M{i}")).collect();
+    let six: Vec<String> = (1..=6).map(|i| format!("C{i}")).collect();
+    let seven: Vec<String> = (1..=7).map(|i| format!("C{i}")).collect();
+    assert_eq!(
+        variant_combos(&ten, &six).expect("60 is the limit").len(),
+        MAX_VARIANTS
+    );
+    assert_eq!(
+        variant_combos(&ten, &seven),
+        Err(VariantError::TooManyVariants)
+    );
+}
+
+#[test]
+fn variant_title_joins_base_and_values_with_single_spaces() {
+    let v1 = VariantValue::new("Galaxy A16").expect("v1");
+    let v2 = VariantValue::new("أسود").expect("v2");
+    assert_eq!(
+        variant_title("  جراب   سيليكون ملون ", &v1, Some(&v2)),
+        "جراب سيليكون ملون Galaxy A16 أسود"
+    );
+    assert_eq!(
+        variant_title("شاحن أنكر", &VariantValue::new("20W").expect("v1"), None),
+        "شاحن أنكر 20W"
+    );
+
+    let parent = VariantParent::new(
+        ProductName::new("جراب سيليكون ملون").expect("name"),
+        mobile_shop_system_lib::domain::organisation::DepartmentId::generate(),
+        VariantDimension::Phone,
+        Some(VariantDimension::Color),
+        UserId::generate(),
+        100,
+    );
+    assert_ne!(parent.id, VariantParentId::generate());
+    assert!(!parent.id.to_string().is_empty());
+}
+
+#[test]
+fn every_variant_error_has_a_stable_screaming_snake_code() {
+    for error in [
+        VariantError::CategoryNotItem,
+        VariantError::DimensionUnknown,
+        VariantError::VariantsEmpty,
+        VariantError::ValueRequired,
+        VariantError::DuplicateValue,
+        VariantError::TooManyVariants,
+        VariantError::ParentAlreadyExists,
+        VariantError::PriceRequired,
+        VariantError::DuplicateBarcodeInBatch,
+        VariantError::RowMismatch,
+    ] {
+        let code = error.code();
+        assert!(code.starts_with("VARIANT_"), "{error:?} -> {code}");
+        assert!(
+            code.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+            "{code}"
+        );
+        assert_eq!(error.to_string(), code);
+    }
 }

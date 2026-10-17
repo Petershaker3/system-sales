@@ -85,7 +85,19 @@ export const ErrorCode = {
   PHONE_BRAND_TYPE_MISMATCH: 'PHONE_BRAND_TYPE_MISMATCH',
   PHONE_ALREADY_REGISTERED: 'PHONE_ALREADY_REGISTERED',
   PHONE_CATEGORY_NOT_PHONE: 'PHONE_CATEGORY_NOT_PHONE',
+  // Product variants (ADR-018 §4)
+  VARIANT_CATEGORY_NOT_ITEM: 'VARIANT_CATEGORY_NOT_ITEM',
+  VARIANT_DIMENSION_UNKNOWN: 'VARIANT_DIMENSION_UNKNOWN',
+  VARIANT_VALUES_REQUIRED: 'VARIANT_VALUES_REQUIRED',
+  VARIANT_VALUE_EMPTY: 'VARIANT_VALUE_EMPTY',
+  VARIANT_VALUE_DUPLICATE: 'VARIANT_VALUE_DUPLICATE',
+  VARIANT_LIMIT_EXCEEDED: 'VARIANT_LIMIT_EXCEEDED',
+  VARIANT_PARENT_ALREADY_EXISTS: 'VARIANT_PARENT_ALREADY_EXISTS',
+  VARIANT_PRICE_REQUIRED: 'VARIANT_PRICE_REQUIRED',
+  VARIANT_BARCODE_DUPLICATE: 'VARIANT_BARCODE_DUPLICATE',
+  VARIANT_ROWS_MISMATCH: 'VARIANT_ROWS_MISMATCH',
   // الإعدادات
+
   SETTING_UNKNOWN_KEY: 'SETTING_UNKNOWN_KEY',
   SETTING_VALUE_INVALID: 'SETTING_VALUE_INVALID',
 
@@ -269,7 +281,20 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.PHONE_ALREADY_REGISTERED]: 'الموبايل ده متسجّل بالفعل بنفس الشركة والموديل والمساحة والرام.',
   [ErrorCode.PHONE_CATEGORY_NOT_PHONE]: 'الموبايل بيتسجّل في تصنيف «جهاز جهاز بالـ IMEI».',
 
+  // تفرعات الأصناف (ADR-018 §4)
+  [ErrorCode.VARIANT_CATEGORY_NOT_ITEM]: 'التفرعات للأصناف بالعدد بس.',
+  [ErrorCode.VARIANT_DIMENSION_UNKNOWN]: 'اختار التفرع من القائمة.',
+  [ErrorCode.VARIANT_VALUES_REQUIRED]: 'اكتب نوع واحد على الأقل ودوس Enter بعد كل واحد.',
+  [ErrorCode.VARIANT_VALUE_EMPTY]: 'اكتب اسم النوع.',
+  [ErrorCode.VARIANT_VALUE_DUPLICATE]: 'النوع ده مكتوب بالفعل.',
+  [ErrorCode.VARIANT_LIMIT_EXCEEDED]: 'الأنواع كتير على صنف واحد (الحد 60). قسّمه لأكتر من صنف.',
+  [ErrorCode.VARIANT_PARENT_ALREADY_EXISTS]: 'الصنف ده متسجّل بالفعل في نفس التصنيف.',
+  [ErrorCode.VARIANT_PRICE_REQUIRED]: 'اكتب سعر البيع.',
+  [ErrorCode.VARIANT_BARCODE_DUPLICATE]: 'نفس الباركود مكتوب على أكتر من نوع.',
+  [ErrorCode.VARIANT_ROWS_MISMATCH]: 'عدد صفوف الأنواع مش مطابق للأنواع المكتوبة. حدّث الصفحة وجرّب تاني.',
+
   // الإعدادات
+
   [ErrorCode.SETTING_UNKNOWN_KEY]: 'إعداد غير معروف.',
   [ErrorCode.SETTING_VALUE_INVALID]: 'قيمة الإعداد غير صحيحة.',
 

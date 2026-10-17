@@ -77,6 +77,12 @@ export function pcsWord(n: number): string {
   return countWord(n, 'قطعة', 'قطعتين', 'قطع');
 }
 
+/** «نوع»، «نوعين»، «4 أنواع»، «12 نوع». */
+export function kindsWord(n: number): string {
+  return countWord(n, 'نوع', 'نوعين', 'أنواع');
+}
+
+
 /** The same rule for any noun: one, two, 3–10, 11+. */
 export function countWord(n: number, one: string, two: string, few: string): string {
   if (n === 1) return one;

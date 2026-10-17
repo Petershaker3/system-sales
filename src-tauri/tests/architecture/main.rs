@@ -1346,6 +1346,12 @@ const PHONE_SERVICE: &str = include_str!("../../src/services/catalog/phone.rs");
 const BRAND_DOMAIN: &str = include_str!("../../src/domain/catalog/brand.rs");
 const BRANDS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0017_brands_and_phone_details.sql");
+/// Product variants (ADR-018 §4).
+const VARIANTS_SERVICE: &str = include_str!("../../src/services/catalog/variants.rs");
+const VARIANT_DOMAIN: &str = include_str!("../../src/domain/catalog/variant.rs");
+const VARIANTS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0018_product_variants.sql");
+
 const SETTINGS_COMMANDS: &str = include_str!("../../src/commands/settings.rs");
 const ORGANISATION_SERVICE: &str =
     include_str!("../../src/services/organisation/departments.rs");
@@ -1444,9 +1450,11 @@ fn authority_services_never_touch_sql() {
         ("categories", CATEGORIES_SERVICE),
         ("brands", BRANDS_SERVICE),
         ("phone", PHONE_SERVICE),
+        ("variants", VARIANTS_SERVICE),
         ("settings", SETTINGS_SERVICE),
         ("approval", APPROVAL_SERVICE),
     ] {
+
         let code = code_only(source);
         assert!(
             !code.contains("sqlx::query"),
@@ -1531,7 +1539,9 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
         "BRAND_UPDATED",
         "BRAND_DELETED",
         "DEFAULT_BRANDS_ADDED",
+        "VARIANTS_CREATED",
     ] {
+
         assert!(
             declared.contains(&added_by_item_1_2.to_string()),
             "`{added_by_item_1_2}` must stay in the audit event vocabulary (ADR-018)"
@@ -1639,7 +1649,10 @@ fn every_authority_command_is_registered_in_lib() {
         ("categories", "delete_category"),
         ("catalog", "set_product_category"),
         ("catalog", "next_shop_code"),
+        ("catalog", "next_shop_codes"),
+        ("catalog", "create_variants"),
         ("brands", "list_brands"),
+
         ("brands", "create_brand"),
         ("brands", "rename_brand"),
         ("brands", "set_brand_type"),
@@ -1959,6 +1972,49 @@ fn a_phone_is_whole_in_storage_and_named_by_the_domain() {
         assert!(brands.contains(required), "the brand use cases must keep `{required}`");
     }
 }
+
+#[test]
+fn product_variants_are_whole_in_storage_and_named_by_the_domain() {
+    // ADR-018 §4. Migration 0018 keeps variant details all-or-nothing with
+    // triggers, refuses a phone that is also a variant, and only adds.
+    let sql = sql_only(VARIANTS_MIGRATION);
+    for required in [
+        "create table product_parents",
+        "create unique index idx_product_parents_category_name on product_parents (department_id, name collate nocase)",
+        "add column parent_id text references product_parents (id) on delete restrict",
+        "create trigger products_variant_details_insert",
+        "create trigger products_variant_details_update",
+    ] {
+        assert!(sql.contains(required), "0018 must keep `{required}`");
+    }
+    for forbidden in ["drop ", "delete from", "insert into"] {
+        assert!(!sql.contains(forbidden), "0018 is additive only: found `{forbidden}`");
+    }
+    let domain = code_only(VARIANT_DOMAIN);
+    for forbidden in ["sqlx", "tauri", "SqlitePool"] {
+        assert!(
+            !domain.contains(forbidden),
+            "the variant domain must not reference `{forbidden}`"
+        );
+    }
+    let service = code_only(VARIANTS_SERVICE);
+    for required in [
+        "variant_combos(",
+        "variant_title(",
+        "VariantError::CategoryNotItem",
+        "parent_name_taken(",
+        "insert_parent(",
+        "set_variant_details(",
+        "audit::event::VARIANTS_CREATED",
+        "tx.commit()",
+    ] {
+        assert!(
+            service.contains(required),
+            "registering variants must keep `{required}`"
+        );
+    }
+}
+
 
 #[test]
 fn the_category_tree_is_two_levels_deep_in_storage_too() {

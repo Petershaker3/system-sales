@@ -91,6 +91,11 @@ pub const BRAND_UPDATED: &str = "brand_updated";
 pub const BRAND_DELETED: &str = "brand_deleted";
 pub const DEFAULT_BRANDS_ADDED: &str = "default_brands_added";
 
+/// Product variants (ADR-018 §4): a parent item and its variant products
+/// registered together in one transaction.
+pub const VARIANTS_CREATED: &str = "variants_created";
+
+
 /// Inventory and costing (SP-2).
 ///
 /// `COST_METHOD_SWITCHED` is its own event rather than a
