@@ -1802,6 +1802,8 @@ const IMEI_UNITS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0020_imei_units_and_receiving.sql");
 const SALE_PAYMENTS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0021_sale_payments_and_customer_ledger.sql");
+const SALE_DISCOUNTS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0022_sale_discounts.sql");
 const COSTING_SERVICE: &str = include_str!("../../src/services/inventory/stock.rs");
 const INVENTORY_COMMANDS: &str = include_str!("../../src/commands/inventory.rs");
 const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts");
@@ -2303,6 +2305,26 @@ fn the_sale_payments_migration_enforces_append_only_and_credit_customer_rules() 
         assert!(
             sql.contains(required),
             "0021_sale_payments_and_customer_ledger.sql must contain `{required}`"
+        );
+    }
+}
+
+#[test]
+fn the_sale_discounts_migration_enforces_non_negative_discounts_and_net_line_totals() {
+    // ADR-021 (plan item 1.6): discounts are integer minor units >= 0, and
+    // each line's net total equals (quantity * unit_selling_price_minor) - discount_minor.
+    let sql = sql_only(SALE_DISCOUNTS_MIGRATION);
+    for required in [
+        "alter table sales",
+        "add column discount_minor integer not null default 0 check (discount_minor >= 0)",
+        "add column approved_by text references users (id)",
+        "alter table sale_lines",
+        "create trigger sale_lines_discount_within_gross",
+        "new.line_total_minor != (new.quantity * new.unit_selling_price_minor) - new.discount_minor",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0022_sale_discounts.sql must contain `{required}`"
         );
     }
 }

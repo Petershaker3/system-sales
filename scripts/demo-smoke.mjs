@@ -1017,9 +1017,87 @@ await clickText('.rail .nav-btn', 'الإعدادات');
 await page.waitForSelector('#pay-method-toggle-install');
 await page.$eval('#pay-method-toggle-install', (el) => el.click());
 await sleep(120);
+
+// --- sale discounts, seller limit & exact cash (ADR-021, plan item 1.6) ----
+await page.waitForSelector('[data-card="discount-limit"]');
+check(
+  'the settings screen shows the «حد خصم البيّاع» card with 5% selected by default',
+  (await count('[data-card="discount-limit"] #discount-limit-preset-5.on')) === 1
+);
+await page.click('#discount-limit-preset-10');
+await sleep(120);
+check(
+  'the owner can change the seller discount limit to 10% in settings',
+  (await count('[data-card="discount-limit"] #discount-limit-preset-10.on')) === 1
+);
+await shot('30-settings-discount-limit');
+await page.click('#discount-limit-preset-5');
+await sleep(120);
+
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('.tile');
 await sleep(80);
+await clickText('.tile', 'شاحن آيفون 20 وات');
+await sleep(100);
+await page.keyboard.press('F3');
+await page.waitForSelector('#discount-value-input');
+await sleep(100);
+await page.click('#discount-quick-pct-5');
+await sleep(100);
+check(
+  'a 5% discount within the 5% seller limit does not show the owner PIN warning',
+  (await count('#discount-limit-warning')) === 0 &&
+    (await text('.due-box')).includes('22.5')
+);
+await page.click('#discount-apply-btn');
+await sleep(150);
+check(
+  'applying the 5% discount updates the invoice totals row to 427.5 EGP without asking for a PIN',
+  (await count('#pos-discount-row')) === 1 &&
+    (await text('#pos-discount-row')).includes('22.5') &&
+    (await text('.totals .grand')).includes('427.5')
+);
+
+// Now press F3 and pick a 10% discount (above the 5% limit) -> requires owner PIN approval.
+await page.keyboard.press('F3');
+await page.waitForSelector('#discount-value-input');
+await sleep(100);
+await page.click('#discount-quick-pct-10');
+await sleep(100);
+check(
+  'a 10% discount above the 5% seller limit shows the owner PIN approval warning',
+  (await count('#discount-limit-warning')) === 1 &&
+    (await text('#discount-apply-btn')).includes('موافقة المالك')
+);
+await shot('31-pos-discount-modal');
+await page.click('#discount-apply-btn');
+await page.waitForSelector('.modal .approver', { timeout: 3000 });
+await sleep(150);
+check(
+  'applying a discount above the seller limit opens the «موافقة المالك» PIN prompt',
+  (await count('.modal .approver')) === 1 &&
+    (await text('body')).includes('موافقة المالك') &&
+    (await text('body')).includes('فوق حد البيّاع')
+);
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await sleep(200);
+check(
+  'after the owner enters his PIN, the 10% discount (45 EGP) is applied with «بموافقة المالك»',
+  (await count('#pos-discount-row')) === 1 &&
+    (await text('#pos-discount-row')).includes('بموافقة المالك') &&
+    (await text('.totals .grand')).includes('405')
+);
+await shot('32-pos-discount-applied');
+
+await page.click('#pos-exact-cash-btn');
+await sleep(200);
+check(
+  'clicking «كاش بالظبط» records the discounted cash sale in one tap and clears the invoice',
+  (await count('.cart .line')) === 0 &&
+    (await text('body')).includes('اتسجّلت الفاتورة')
+);
+
 
 
 

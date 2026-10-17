@@ -106,6 +106,11 @@ pub const IMEI_UNITS_AND_RECEIVING: &str = include_str!("0020_imei_units_and_rec
 pub const SALE_PAYMENTS_AND_CUSTOMER_LEDGER: &str =
     include_str!("0021_sale_payments_and_customer_ledger.sql");
 
+/// `0022`: sale and sale-line discounts plus owner-approval attribution on
+/// `sales` for Plan item 1.6 (ADR-021).
+pub const SALE_DISCOUNTS: &str = include_str!("0022_sale_discounts.sql");
+
+
 
 
 

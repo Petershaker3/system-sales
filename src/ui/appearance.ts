@@ -94,6 +94,22 @@ export const INSTALLMENT_PROVIDERS: readonly string[] = [
 ];
 
 export const DEFAULT_PAY_METHODS = 'cash,vf,instapay,card,install,credit';
+export const DEFAULT_DISCOUNT_LIMIT_PCT = '5';
+
+export function normalizeDiscountLimitPct(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_DISCOUNT_LIMIT_PCT;
+  const trimmed = raw.trim();
+  if (!/^\d{1,3}$/.test(trimmed)) return DEFAULT_DISCOUNT_LIMIT_PCT;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 0 || n > 100) return DEFAULT_DISCOUNT_LIMIT_PCT;
+  return String(n);
+}
+
+export function discountLimitPctNum(
+  raw: string = appearance.discountLimitPct
+): number {
+  return Number(normalizeDiscountLimitPct(raw));
+}
 
 export function normalizePayMethods(raw: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_PAY_METHODS;
@@ -120,6 +136,7 @@ export interface Appearance {
   images: ImagesChoice;
   imeiMode: ImeiModeChoice;
   payMethods: string;
+  discountLimitPct: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -132,6 +149,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   images: 'on',
   imeiMode: 'optional',
   payMethods: DEFAULT_PAY_METHODS,
+  discountLimitPct: DEFAULT_DISCOUNT_LIMIT_PCT,
 };
 
 
@@ -176,6 +194,7 @@ export function normalizeAppearance(raw: unknown): Appearance {
     images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
     imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
     payMethods: normalizePayMethods(r['payMethods']),
+    discountLimitPct: normalizeDiscountLimitPct(r['discountLimitPct']),
   };
 }
 
@@ -250,6 +269,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   images: 'ui.images',
   imeiMode: 'ui.imei_mode',
   payMethods: 'ui.pay_methods',
+  discountLimitPct: 'ui.discount_limit_pct',
 };
 
 

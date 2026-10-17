@@ -27,10 +27,11 @@ pub enum AppearanceKey {
     Images,
     ImeiMode,
     PayMethods,
+    DiscountLimitPct,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 9] = [
+    pub const ALL: [AppearanceKey; 10] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -40,6 +41,7 @@ impl AppearanceKey {
         AppearanceKey::Images,
         AppearanceKey::ImeiMode,
         AppearanceKey::PayMethods,
+        AppearanceKey::DiscountLimitPct,
     ];
 
     /// The stored key.
@@ -54,6 +56,7 @@ impl AppearanceKey {
             AppearanceKey::Images => "ui.images",
             AppearanceKey::ImeiMode => "ui.imei_mode",
             AppearanceKey::PayMethods => "ui.pay_methods",
+            AppearanceKey::DiscountLimitPct => "ui.discount_limit_pct",
         }
     }
 
@@ -75,7 +78,10 @@ impl AppearanceKey {
     pub fn is_catalog_choice(self) -> bool {
         matches!(
             self,
-            AppearanceKey::Images | AppearanceKey::ImeiMode | AppearanceKey::PayMethods
+            AppearanceKey::Images
+                | AppearanceKey::ImeiMode
+                | AppearanceKey::PayMethods
+                | AppearanceKey::DiscountLimitPct
         )
     }
 }
@@ -116,6 +122,22 @@ pub fn parse_pay_methods(raw: &str) -> Option<String> {
     Some(ordered.join(","))
 }
 
+/// Default seller discount limit percentage without owner PIN approval (`ADR-021`, `PLAN.md` §4).
+pub const DEFAULT_DISCOUNT_LIMIT_PCT: &str = "5";
+
+/// Parse and canonicalize a discount limit percentage (`0..=100`).
+pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let pct: u8 = trimmed.parse().ok()?;
+    if pct > 100 {
+        return None;
+    }
+    Some((pct, pct.to_string()))
+}
+
 /// The current display choices, defaults applied for anything never set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Appearance {
@@ -128,13 +150,14 @@ pub struct Appearance {
     pub images: String,
     pub imei_mode: String,
     pub pay_methods: String,
+    pub discount_limit_pct: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
     /// look's own font, normal size, Latin digits, product images on, IMEI
-    /// mode optional, all payment methods enabled (docs/ui/REDESIGN.md,
-    /// ADR-018 §5, ADR-019 §2, ADR-020 §1).
+    /// mode optional, all payment methods enabled, 5% seller discount limit
+    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -146,6 +169,7 @@ impl Default for Appearance {
             images: "on".to_owned(),
             imei_mode: "optional".to_owned(),
             pay_methods: DEFAULT_PAY_METHODS.to_owned(),
+            discount_limit_pct: DEFAULT_DISCOUNT_LIMIT_PCT.to_owned(),
         }
     }
 }
@@ -174,6 +198,15 @@ impl Appearance {
             self.pay_methods = canonical;
             return Ok(());
         }
+        if parsed == AppearanceKey::DiscountLimitPct {
+            let (_pct, canonical) =
+                parse_discount_limit_pct(value).ok_or_else(|| SettingsError::MalformedValue {
+                    key: parsed.as_str().to_owned(),
+                    reason: "discount limit percentage must be an integer between 0 and 100",
+                })?;
+            self.discount_limit_pct = canonical;
+            return Ok(());
+        }
         let allowed = match parsed {
             AppearanceKey::Look => matches!(value, "plate" | "box"),
             AppearanceKey::Theme => matches!(value, "light" | "dark" | "auto"),
@@ -183,7 +216,7 @@ impl Appearance {
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
-            AppearanceKey::PayMethods => unreachable!(),
+            AppearanceKey::PayMethods | AppearanceKey::DiscountLimitPct => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -201,7 +234,7 @@ impl Appearance {
             AppearanceKey::Digits => self.digits = value,
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
-            AppearanceKey::PayMethods => unreachable!(),
+            AppearanceKey::PayMethods | AppearanceKey::DiscountLimitPct => unreachable!(),
         }
         Ok(())
     }
@@ -210,6 +243,13 @@ impl Appearance {
     /// `install`, `credit`) is currently enabled in settings (`ADR-020` §1).
     pub fn is_pay_method_enabled(&self, method_code: &str) -> bool {
         method_code == "cash" || self.pay_methods.split(',').any(|m| m == method_code)
+    }
+
+    /// Numeric seller discount limit percentage (`0..=100`, default `5`, `ADR-021`).
+    pub fn discount_limit_pct_num(&self) -> u8 {
+        parse_discount_limit_pct(&self.discount_limit_pct)
+            .map(|(pct, _)| pct)
+            .unwrap_or(5)
     }
 }
 

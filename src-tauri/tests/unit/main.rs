@@ -2741,4 +2741,47 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
     );
 }
 
+#[test]
+fn discount_validation_and_seller_limit_math_are_exact() {
+    use mobile_shop_system_lib::domain::sales::{
+        discount_exceeds_limit, validate_invoice_discount, validate_line_discount, SaleError,
+    };
+    use mobile_shop_system_lib::domain::settings::appearance::{Appearance, AppearanceKey};
+
+    assert_eq!(SaleError::DiscountInvalid.code(), "SALE_DISCOUNT_INVALID");
+    assert_eq!(validate_line_discount(10_000, 0), Ok(10_000));
+    assert_eq!(validate_line_discount(10_000, 500), Ok(9_500));
+    assert_eq!(validate_line_discount(10_000, 10_000), Ok(0));
+    assert_eq!(validate_line_discount(10_000, -1), Err(SaleError::DiscountInvalid));
+    assert_eq!(
+        validate_line_discount(10_000, 10_001),
+        Err(SaleError::DiscountInvalid)
+    );
+
+    assert_eq!(validate_invoice_discount(9_500, 500), Ok(9_000));
+    assert_eq!(
+        validate_invoice_discount(9_500, 9_501),
+        Err(SaleError::DiscountInvalid)
+    );
+
+    // 5% limit on 20_000 is 1_000: 1_000 does not exceed, 1_001 exceeds.
+    assert!(!discount_exceeds_limit(20_000, 0, 5));
+    assert!(!discount_exceeds_limit(20_000, 1_000, 5));
+    assert!(discount_exceeds_limit(20_000, 1_001, 5));
+    assert!(discount_exceeds_limit(20_000, 1, 0));
+    assert!(!discount_exceeds_limit(20_000, 20_000, 100));
+
+    let def = Appearance::default();
+    assert_eq!(def.discount_limit_pct, "5");
+    assert_eq!(def.discount_limit_pct_num(), 5);
+    assert_eq!(
+        AppearanceKey::DiscountLimitPct.validate(" 15 ").expect("valid"),
+        "15"
+    );
+    assert!(AppearanceKey::DiscountLimitPct.validate("101").is_err());
+    assert!(AppearanceKey::DiscountLimitPct.validate("-1").is_err());
+    assert!(AppearanceKey::DiscountLimitPct.validate("5.5").is_err());
+}
+
+
 

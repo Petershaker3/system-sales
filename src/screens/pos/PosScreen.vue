@@ -20,8 +20,10 @@ import type { Session } from '../../api/identity';
 import { listProductImages, type ProductImage } from '../../api/images';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
+import * as salesApi from '../../api/sales';
 import type { SaleOutcome } from '../../api/sales';
-import { appearance, enabledPayMethods } from '../../ui/appearance';
+import { withOwnerApproval } from '../../shell/approval';
+import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/appearance';
 import { countWord, kindsWord, money, num, pcsWord } from '../../ui/format';
 
 import Icon from '../../ui/Icon.vue';
@@ -31,6 +33,7 @@ import * as cart from './cart';
 import type { SellableProduct } from './cart';
 import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
 import CustomerPickerModal from './CustomerPickerModal.vue';
+import DiscountModal from './DiscountModal.vue';
 import { asIconName, tileIcon } from './icons';
 import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
@@ -53,7 +56,9 @@ const state = reactive(cart.newCart());
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
-const modal = ref<null | 'pay' | 'qty' | 'clear'>(null);
+const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount'>(null);
+const discountInitialScope = ref<'invoice' | 'line'>('invoice');
+const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
 const openFamily = ref<Extract<PosTileEntry<PosProduct>, { kind: 'family' }> | null>(null);
 const imeiTarget = ref<
@@ -224,6 +229,14 @@ function iconOf(p: PosProduct) {
 
 const invoice = computed(() => cart.current(state));
 const totals = computed(() => cart.totals(invoice.value));
+const discSummary = computed(() => cart.discountSummary(invoice.value));
+const discountNeedsOwnerBadge = computed(() =>
+  cart.discountExceedsSellerLimit(
+    discSummary.value.grossSubtotalMinor,
+    discSummary.value.totalDiscountMinor,
+    discountLimitPctNum(appearance.discountLimitPct)
+  )
+);
 const empty = computed(() => invoice.value.lines.length === 0);
 const selectedCustomer = computed<Customer | null>(() => {
   const cid = invoice.value.customerId;
@@ -456,12 +469,98 @@ function openPay(): void {
   modal.value = 'pay';
 }
 
-function openQty(): void {
+function openQty(at?: number): void {
+  if (typeof at === 'number' && at >= 0 && at < invoice.value.lines.length) {
+    state.selected = at;
+  }
   if (selectedProduct() === undefined) {
     if (!empty.value) state.selected = invoice.value.lines.length - 1;
     if (selectedProduct() === undefined) return;
   }
   modal.value = 'qty';
+}
+
+function openDiscount(scope: 'invoice' | 'line' = 'invoice', lineIndex?: number): void {
+  if (empty.value) {
+    toast('الفاتورة فاضية، ضيف صنف الأول قبل الخصم', 'info');
+    return;
+  }
+  if (typeof lineIndex === 'number' && lineIndex >= 0 && lineIndex < invoice.value.lines.length) {
+    state.selected = lineIndex;
+  } else if (state.selected < 0 && invoice.value.lines.length > 0) {
+    state.selected = invoice.value.lines.length - 1;
+  }
+  discountInitialScope.value = scope;
+  modal.value = 'discount';
+}
+
+function onApplyLineDiscount(lineIndex: number, discountMinor: number): void {
+  modal.value = null;
+  if (cart.setLineDiscount(state, lineIndex, discountMinor)) {
+    toast(
+      discountMinor > 0
+        ? `اتطبّق خصم ${money(discountMinor)} على الصنف`
+        : 'اتشال خصم الصنف',
+      'info'
+    );
+  }
+  void nextTick(focusSearch);
+}
+
+function onApplyInvoiceDiscount(discountMinor: number): void {
+  modal.value = null;
+  if (cart.setInvoiceDiscount(state, discountMinor)) {
+    toast(
+      discountMinor > 0
+        ? `اتطبّق خصم ${money(discountMinor)} على الفاتورة`
+        : 'اتشال خصم الفاتورة',
+      'info'
+    );
+  }
+  void nextTick(focusSearch);
+}
+
+async function payExactCash(): Promise<void> {
+  if (empty.value || exactCashBusy.value) return;
+  if (appearance.imeiMode === 'required') {
+    const missingIdx = invoice.value.lines.findIndex((line) => line.serial && !line.imei);
+    if (missingIdx >= 0) {
+      refuse('وضع الـ IMEI إلزامي: سجّل الـ IMEI الأول');
+      openLineImei(missingIdx);
+      return;
+    }
+  }
+  exactCashBusy.value = true;
+  try {
+    const netTotal = totals.value.totalMinor;
+    const approvalOutcome = await withOwnerApproval(
+      () =>
+        salesApi.recordSale(
+          invoice.value.lines.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            imei: line.imei ?? null,
+            discountMinor: line.discountMinor ?? 0,
+          })),
+          netTotal,
+          [{ method: 'cash', amountMinor: netTotal, reference: null }],
+          selectedCustomer.value?.id ?? null,
+          discSummary.value.invoiceDiscountMinor
+        ),
+      'موافقة المالك على خصم الفاتورة'
+    );
+    if (approvalOutcome.status === 'cancelled') return;
+    await onPaid(approvalOutcome.value);
+  } catch (err) {
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'SALE_PRICE_CHANGED') {
+      await onPriceChanged();
+      return;
+    }
+    refuse(describeError(err));
+  } finally {
+    exactCashBusy.value = false;
+  }
 }
 
 async function onPaid(outcome: SaleOutcome): Promise<void> {
@@ -510,6 +609,7 @@ function onKey(event: KeyboardEvent): void {
 
   if (/^F([1-9]|1[0-2])$/.test(key) && key !== 'F5') event.preventDefault();
   if (key === 'F2') return openQty();
+  if (key === 'F3') return openDiscount();
   if (key === 'F4') return openCustomerPicker();
   if (key === 'F8') return hold();
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
@@ -580,6 +680,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 const KEYS: readonly [string, string][] = [
   ['Enter', 'إضافة ثم دفع'],
   ['F2', 'الكمية'],
+  ['F3', 'خصم'],
   ['F4', 'العميل'],
   ['F8', 'انتظار'],
   ['F12', 'دفع'],
@@ -851,8 +952,9 @@ const KEYS: readonly [string, string][] = [
           >
             <div class="lm">
               <div class="ln"><bdi dir="rtl">{{ line.name }}</bdi></div>
-              <div v-if="line.serial" class="ls">
+              <div v-if="line.serial || cart.lineDiscountMinor(line) > 0" class="ls">
                 <button
+                  v-if="line.serial"
                   type="button"
                   class="line-imei-btn"
                   :class="{ linked: !!line.imei }"
@@ -862,17 +964,38 @@ const KEYS: readonly [string, string][] = [
                   <bdi v-if="line.imei" dir="ltr" class="mono">IMEI …{{ line.imei.slice(-4) }}</bdi>
                   <template v-else>سجّل IMEI</template>
                 </button>
+                <button
+                  v-if="cart.lineDiscountMinor(line) > 0"
+                  type="button"
+                  class="line-disc-btn"
+                  title="تعديل خصم الصنف"
+                  @click.stop="openDiscount('line', at)"
+                >
+                  <Icon name="percent" />
+                  خصم {{ money(cart.lineDiscountMinor(line)) }}
+                </button>
               </div>
             </div>
             <div class="side">
-              <span class="lt num">{{ money(line.unitPriceMinor * line.quantity) }}</span>
-              <span v-if="line.quantity > 1" class="lu num">{{ num(line.quantity) }} × {{ money(line.unitPriceMinor) }}</span>
+              <span class="lt num">{{ money(cart.lineNetMinor(line)) }}</span>
+              <span v-if="line.quantity > 1 || cart.lineDiscountMinor(line) > 0" class="lu num">
+                {{ num(line.quantity) }} × {{ money(line.unitPriceMinor) }}
+              </span>
               <div class="ctl">
                 <div v-if="!line.serial" class="qty">
                   <button type="button" title="زوّد (+)" @click.stop="bump(at, 1)"><Icon name="plus" /></button>
-                  <span class="num">{{ num(line.quantity) }}</span>
+                  <span class="num" title="تغيير الكمية (F2)" @click.stop="openQty(at)">{{ num(line.quantity) }}</span>
                   <button type="button" title="قلّل (−)" @click.stop="bump(at, -1)"><Icon name="minus" /></button>
                 </div>
+                <button
+                  type="button"
+                  class="icon-btn sm"
+                  :data-line-discount="at"
+                  title="خصم على الصنف (F3)"
+                  @click.stop="openDiscount('line', at)"
+                >
+                  <Icon name="percent" />
+                </button>
                 <button type="button" class="icon-btn sm danger" title="شيل السطر (Delete)" @click.stop="removeAt(at)">
                   <Icon name="trash-2" />
                 </button>
@@ -884,7 +1007,14 @@ const KEYS: readonly [string, string][] = [
         <div class="totals">
           <div class="r">
             <span>الإجمالي <small v-if="totals.count > 0" class="muted">({{ pcsWord(totals.count) }})</small></span>
-            <span class="num">{{ money(totals.totalMinor) }}</span>
+            <span class="num">{{ money(discSummary.grossSubtotalMinor) }}</span>
+          </div>
+          <div v-if="discSummary.totalDiscountMinor > 0" id="pos-discount-row" class="r disc">
+            <span>
+              خصم
+              <template v-if="discountNeedsOwnerBadge">، بموافقة المالك</template>
+            </span>
+            <span class="num">− {{ money(discSummary.totalDiscountMinor) }}</span>
           </div>
           <div class="r grand"><span>المطلوب</span><span class="num">{{ money(totals.totalMinor) }}</span></div>
         </div>
@@ -892,11 +1022,42 @@ const KEYS: readonly [string, string][] = [
           <button type="button" class="btn primary btn-pay" :disabled="empty" @click="openPay">
             <Icon name="banknote" /> ادفع <span class="amt num">{{ money(totals.totalMinor) }}</span> <kbd>F12</kbd>
           </button>
-          <button type="button" class="btn" :disabled="empty" title="حط الفاتورة دي في الانتظار وابدأ واحدة جديدة" @click="hold">
+          <button
+            id="pos-exact-cash-btn"
+            type="button"
+            class="btn"
+            :disabled="empty || exactCashBusy"
+            @click="payExactCash"
+          >
+            <Icon name="check" /> كاش بالظبط
+          </button>
+          <button
+            id="pos-discount-btn"
+            type="button"
+            class="btn"
+            :disabled="empty"
+            @click="openDiscount('invoice')"
+          >
+            خصم <kbd>F3</kbd>
+          </button>
+          <button
+            id="pos-hold-btn"
+            type="button"
+            class="btn"
+            :disabled="empty"
+            title="حط الفاتورة دي في الانتظار وابدأ واحدة جديدة"
+            @click="hold"
+          >
             انتظار <kbd>F8</kbd>
           </button>
-          <button type="button" class="btn" :disabled="state.selected < 0" @click="openQty">الكمية <kbd>F2</kbd></button>
-          <button type="button" class="btn ghost danger" :disabled="empty" title="مسح الفاتورة" @click="modal = 'clear'">
+          <button
+            id="pos-clear-btn"
+            type="button"
+            class="btn ghost danger"
+            :disabled="empty"
+            title="مسح الفاتورة"
+            @click="modal = 'clear'"
+          >
             <Icon name="trash-2" />
           </button>
         </div>
@@ -915,10 +1076,21 @@ const KEYS: readonly [string, string][] = [
       :total-minor="totals.totalMinor"
       :count="totals.count"
       :selected-customer="selectedCustomer"
+      :invoice-discount-minor="discSummary.invoiceDiscountMinor"
+      :gross-subtotal-minor="discSummary.grossSubtotalMinor"
       @close="closeModal"
       @paid="onPaid"
       @price-changed="onPriceChanged"
       @open-customer-picker="openCustomerPicker"
+    />
+    <DiscountModal
+      v-if="modal === 'discount'"
+      :invoice="invoice"
+      :selected-line-index="state.selected"
+      :initial-scope="discountInitialScope"
+      @close="closeModal"
+      @apply-line="onApplyLineDiscount"
+      @apply-invoice="onApplyInvoiceDiscount"
     />
     <CustomerPickerModal
       v-if="customerPickerOpen"
@@ -978,19 +1150,17 @@ const KEYS: readonly [string, string][] = [
 .tiles-note {
   grid-column: 1 / -1;
 }
-/* Three actions under «ادفع» in this build (cash only, no discount yet). */
-.cart-actions {
-  grid-template-columns: 1fr 1fr auto;
-}
 .btn-pay kbd,
 .cart-actions kbd {
   margin-inline-start: 2px;
 }
-.line-imei-btn {
+.line-imei-btn,
+.line-disc-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-top: 3px;
+  margin-inline-end: 4px;
   padding: 2px 8px;
   font-size: 0.78rem;
   border-radius: var(--r-sm);
@@ -1004,5 +1174,12 @@ const KEYS: readonly [string, string][] = [
   border-color: var(--accent);
   background: var(--accent-weak);
   color: var(--ink);
+}
+.line-disc-btn {
+  border-style: solid;
+  border-color: var(--ok);
+  background: var(--surface-2);
+  color: var(--ok);
+  font-weight: 600;
 }
 </style>

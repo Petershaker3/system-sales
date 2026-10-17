@@ -159,6 +159,7 @@ export const ErrorCode = {
   SALE_PAYMENT_REFERENCE_INVALID: 'SALE_PAYMENT_REFERENCE_INVALID',
   SALE_INSTALLMENT_PROVIDER_REQUIRED: 'SALE_INSTALLMENT_PROVIDER_REQUIRED',
   SALE_CREDIT_REQUIRES_CUSTOMER: 'SALE_CREDIT_REQUIRES_CUSTOMER',
+  SALE_DISCOUNT_INVALID: 'SALE_DISCOUNT_INVALID',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -416,6 +417,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'اختار شركة التقسيط الأول.',
   [ErrorCode.SALE_CREDIT_REQUIRES_CUSTOMER]:
     'البيع الآجل لازم يتربط بعميل متسجّل.',
+  [ErrorCode.SALE_DISCOUNT_INVALID]:
+    'قيمة الخصم غير صالحة أو أكبر من إجمالي الصنف أو الفاتورة.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:

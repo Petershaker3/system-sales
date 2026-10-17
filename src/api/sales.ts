@@ -42,6 +42,7 @@ export interface SaleLine {
   readonly warrantyStart?: string;
   readonly warrantyEnd?: string;
   readonly imei?: string | null;
+  readonly discountMinor?: number;
 }
 
 /**
@@ -97,7 +98,8 @@ export async function recordSale(
   lines: readonly SaleLine[],
   confirmedTotalMinor?: number,
   payments?: readonly SalePaymentInput[],
-  customerId?: string | null
+  customerId?: string | null,
+  invoiceDiscountMinor?: number
 ): Promise<SaleOutcome> {
   return invoke<SaleOutcome>('record_sale', {
     lines: lines.map((line) => ({
@@ -106,6 +108,7 @@ export async function recordSale(
       warrantyStart: line.warrantyStart ?? null,
       warrantyEnd: line.warrantyEnd ?? null,
       imei: line.imei ?? null,
+      discountMinor: line.discountMinor ?? 0,
     })),
     confirmedTotalMinor: confirmedTotalMinor ?? null,
     payments:
@@ -117,6 +120,7 @@ export async function recordSale(
           }))
         : null,
     customerId: customerId ?? null,
+    invoiceDiscountMinor: invoiceDiscountMinor ?? 0,
   });
 }
 

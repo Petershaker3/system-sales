@@ -25,6 +25,10 @@ pub struct SaleRecord {
     pub reverses_sale_id: Option<String>,
     pub total_minor: i64,
     pub cost_total_minor: i64,
+    /// Total discount on this sale in piastres (`ADR-021`).
+    pub discount_minor: i64,
+    /// Manager who approved an above-limit discount (`ADR-021`), if any.
+    pub approved_by: Option<String>,
 }
 
 /// One immutable line of a sale.
@@ -38,6 +42,8 @@ pub struct SaleLineRecord {
     pub disposition: String,
     pub quantity: i64,
     pub unit_selling_price_minor: i64,
+    /// Line-level discount in piastres (`ADR-021`).
+    pub discount_minor: i64,
     pub line_total_minor: i64,
     /// `None` for a FIFO line spanning layers of different unit cost; the exact
     /// `line_cost_minor` is the profit authority either way.
@@ -93,8 +99,8 @@ pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Resu
     sqlx::query(
         "INSERT INTO sales
              (id, reference, occurred_at, sold_by, kind, reverses_sale_id,
-              total_minor, cost_total_minor)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+              total_minor, cost_total_minor, discount_minor, approved_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )
     .bind(&sale.id)
     .bind(&sale.reference)
@@ -104,6 +110,8 @@ pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Resu
     .bind(sale.reverses_sale_id.as_deref())
     .bind(sale.total_minor)
     .bind(sale.cost_total_minor)
+    .bind(sale.discount_minor)
+    .bind(sale.approved_by.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -116,10 +124,10 @@ pub async fn insert_sale_line(
     sqlx::query(
         "INSERT INTO sale_lines
              (id, sale_id, line_no, product_id, product_name, disposition,
-              quantity, unit_selling_price_minor, line_total_minor,
+              quantity, unit_selling_price_minor, discount_minor, line_total_minor,
               unit_cost_minor, line_cost_minor, department_id, cost_method,
               warranty_start, warranty_end, unit_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
     )
     .bind(&line.id)
     .bind(&line.sale_id)
@@ -129,6 +137,7 @@ pub async fn insert_sale_line(
     .bind(&line.disposition)
     .bind(line.quantity)
     .bind(line.unit_selling_price_minor)
+    .bind(line.discount_minor)
     .bind(line.line_total_minor)
     .bind(line.unit_cost_minor)
     .bind(line.line_cost_minor)
@@ -179,7 +188,7 @@ pub async fn find_sale(
 ) -> Result<Option<SaleRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, reference, occurred_at, sold_by, kind, reverses_sale_id,
-                total_minor, cost_total_minor
+                total_minor, cost_total_minor, discount_minor, approved_by
          FROM sales WHERE id = ?1",
     )
     .bind(id)
@@ -195,6 +204,8 @@ pub async fn find_sale(
         reverses_sale_id: row.get("reverses_sale_id"),
         total_minor: row.get("total_minor"),
         cost_total_minor: row.get("cost_total_minor"),
+        discount_minor: row.get("discount_minor"),
+        approved_by: row.get("approved_by"),
     }))
 }
 
@@ -255,7 +266,7 @@ pub async fn list_lines(
 ) -> Result<Vec<SaleLineRecord>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, sale_id, line_no, product_id, product_name, disposition,
-                quantity, unit_selling_price_minor, line_total_minor,
+                quantity, unit_selling_price_minor, discount_minor, line_total_minor,
                 unit_cost_minor, line_cost_minor, department_id, cost_method,
                 warranty_start, warranty_end, unit_id
          FROM sale_lines
@@ -277,6 +288,7 @@ pub async fn list_lines(
             disposition: row.get("disposition"),
             quantity: row.get("quantity"),
             unit_selling_price_minor: row.get("unit_selling_price_minor"),
+            discount_minor: row.get("discount_minor"),
             line_total_minor: row.get("line_total_minor"),
             unit_cost_minor: row.get("unit_cost_minor"),
             line_cost_minor: row.get("line_cost_minor"),

@@ -276,6 +276,7 @@ const appearance = {
   images: 'on',
   imeiMode: 'optional',
   payMethods: 'cash,vf,instapay,card,install,credit',
+  discountLimitPct: '5',
 };
 interface DemoUnit {
   id: string;
@@ -349,6 +350,7 @@ const sales: {
   id: string;
   reference: string;
   totalMinor: number;
+  discountMinor: number;
   customerId: string | null;
   payments: { method: string; amountMinor: number; reference: string | null }[];
 }[] = [];
@@ -545,14 +547,30 @@ const handlers: Record<string, (args: Args) => unknown> = {
         ? 'imeiMode'
         : rawKey === 'ui.pay_methods'
           ? 'payMethods'
-          : rawKey.replace(/^ui\./, '')
+          : rawKey === 'ui.discount_limit_pct'
+            ? 'discountLimitPct'
+            : rawKey.replace(/^ui\./, '')
     ) as keyof typeof appearance;
     if (!(key in appearance)) fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
-    else if (key === 'images' || key === 'imeiMode' || key === 'payMethods')
+    else if (
+      key === 'images' ||
+      key === 'imeiMode' ||
+      key === 'payMethods' ||
+      key === 'discountLimitPct'
+    )
       requireManager(false);
     else requireManager(true);
-    appearance[key] = str(args, 'value').toLowerCase();
+
+    const val = str(args, 'value').trim();
+    if (key === 'discountLimitPct') {
+      if (!/^\d{1,3}$/.test(val)) fail('SETTING_VALUE_INVALID');
+      const n = Number(val);
+      if (!Number.isInteger(n) || n < 0 || n > 100) fail('SETTING_VALUE_INVALID');
+      appearance[key] = String(n);
+    } else {
+      appearance[key] = val.toLowerCase();
+    }
     return { ...appearance };
   },
 
@@ -602,9 +620,17 @@ const handlers: Record<string, (args: Args) => unknown> = {
   record_sale: (args) => {
     requireUser();
     const lines =
-      (args?.['lines'] as { productId: string; quantity: number; imei?: string | null }[] | undefined) ?? [];
+      (args?.['lines'] as
+        | {
+            productId: string;
+            quantity: number;
+            imei?: string | null;
+            discountMinor?: number | null;
+          }[]
+        | undefined) ?? [];
     if (lines.length === 0) fail('SALE_EMPTY');
-    let total = 0;
+    let grossSubtotal = 0;
+    let linesNetSubtotal = 0;
     for (const line of lines) {
       const x = findProduct(line.productId);
       if (x.status !== 'active') fail('SALE_PRODUCT_ARCHIVED');
@@ -622,10 +648,31 @@ const handlers: Record<string, (args: Args) => unknown> = {
         if (line.quantity !== 1) fail('SALE_INVALID_QUANTITY');
         if (!demoLuhn(rawImei)) fail('IMEI_CHECK_DIGIT_INVALID');
       }
-      total += (x.salePriceMinor ?? 0) * line.quantity;
+      const lineGross = (x.salePriceMinor ?? 0) * line.quantity;
+      const lineDisc = typeof line.discountMinor === 'number' ? line.discountMinor : 0;
+      if (!Number.isInteger(lineDisc) || lineDisc < 0 || lineDisc > lineGross) {
+        fail('SALE_DISCOUNT_INVALID');
+      }
+      grossSubtotal += lineGross;
+      linesNetSubtotal += lineGross - lineDisc;
     }
+    const invoiceDisc =
+      typeof args?.['invoiceDiscountMinor'] === 'number'
+        ? (args['invoiceDiscountMinor'] as number)
+        : 0;
+    if (!Number.isInteger(invoiceDisc) || invoiceDisc < 0 || invoiceDisc > linesNetSubtotal) {
+      fail('SALE_DISCOUNT_INVALID');
+    }
+    const total = linesNetSubtotal - invoiceDisc;
+    const totalDiscount = grossSubtotal - total;
     const confirmed = args?.['confirmedTotalMinor'];
     if (typeof confirmed === 'number' && confirmed !== total) fail('SALE_PRICE_CHANGED');
+
+    const limitPct = Number(appearance.discountLimitPct ?? '5');
+    if (totalDiscount > 0 && totalDiscount * 100 > grossSubtotal * limitPct) {
+      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      approvedOnce = false;
+    }
 
     const rawCustomerId = str(args, 'customerId').trim() || null;
     const linkedCustomer =
@@ -737,6 +784,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       id: newId('s'),
       reference,
       totalMinor: total,
+      discountMinor: totalDiscount,
       customerId: linkedCustomer ? linkedCustomer.id : null,
       payments: cleanPayments,
     };

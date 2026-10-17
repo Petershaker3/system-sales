@@ -47,6 +47,8 @@ pub struct SaleLineInputDto {
     pub warranty_end: Option<String>,
     #[serde(default)]
     pub imei: Option<String>,
+    #[serde(default)]
+    pub discount_minor: Option<i64>,
 }
 
 impl SaleLineInputDto {
@@ -55,16 +57,19 @@ impl SaleLineInputDto {
     /// Falls rather than defaulting: a mistyped date is the operator's to see
     /// and fix, and inventing a coverage the shop never agreed to is exactly the
     /// claim this software must not make.
-    fn into_input(self) -> Result<SaleLineWithUnitInput, SalesCommandError> {
+    fn into_input_and_discount(self) -> Result<(SaleLineWithUnitInput, i64), SalesCommandError> {
         let warranty_start = parse_warranty(self.warranty_start)?;
         let warranty_end = parse_warranty(self.warranty_end)?;
-        Ok(SaleLineWithUnitInput {
-            product_id: self.product_id,
-            quantity: self.quantity,
-            warranty_start,
-            warranty_end,
-            imei: self.imei,
-        })
+        Ok((
+            SaleLineWithUnitInput {
+                product_id: self.product_id,
+                quantity: self.quantity,
+                warranty_start,
+                warranty_end,
+                imei: self.imei,
+            },
+            self.discount_minor.unwrap_or(0),
+        ))
     }
 }
 
@@ -141,7 +146,8 @@ impl From<SalePaymentInputDto> for SalePaymentInput {
     }
 }
 
-/// Record one sale (single payment or split payments, with optional customer link).
+/// Record one sale (single payment or split payments, with optional customer link
+/// and optional line / invoice discounts).
 ///
 /// The service re-reads prices under a transaction and compares the total
 /// against `confirmed_total_minor`. A mismatch aborts the sale with
@@ -153,20 +159,26 @@ pub async fn record_sale(
     confirmed_total_minor: Option<i64>,
     payments: Option<Vec<SalePaymentInputDto>>,
     customer_id: Option<String>,
+    invoice_discount_minor: Option<i64>,
 ) -> Result<serde_json::Value, SalesCommandError> {
-    let lines = lines
-        .into_iter()
-        .map(SaleLineInputDto::into_input)
-        .collect::<Result<Vec<SaleLineWithUnitInput>, SalesCommandError>>()?;
+    let mut mapped_lines = Vec::with_capacity(lines.len());
+    let mut line_discounts_minor = Vec::with_capacity(lines.len());
+    for dto in lines {
+        let (input, discount_minor) = dto.into_input_and_discount()?;
+        mapped_lines.push(input);
+        line_discounts_minor.push(discount_minor);
+    }
     let mapped_payments: Option<Vec<SalePaymentInput>> =
         payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
-    let outcome = use_cases::record_sale_with_payments(
+    let outcome = use_cases::record_sale_with_discounts(
         &ctx.pool,
         ctx.tokens.as_ref(),
-        &lines,
+        &mapped_lines,
         confirmed_total_minor,
         mapped_payments.as_deref(),
         customer_id.as_deref(),
+        invoice_discount_minor.unwrap_or(0),
+        &line_discounts_minor,
     )
     .await?;
     // Authorize cost visibility from the session, not from caller role alone.

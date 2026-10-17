@@ -74,6 +74,8 @@ pub enum SaleError {
     InstallmentProviderRequired,
     /// A credit (`credit` / آجل) payment was submitted without a linked customer.
     CreditRequiresCustomer,
+    /// A line or invoice discount is negative or exceeds the gross amount (`ADR-021`).
+    DiscountInvalid,
 }
 
 impl SaleError {
@@ -103,6 +105,7 @@ impl SaleError {
             SaleError::PaymentReferenceInvalid => "SALE_PAYMENT_REFERENCE_INVALID",
             SaleError::InstallmentProviderRequired => "SALE_INSTALLMENT_PROVIDER_REQUIRED",
             SaleError::CreditRequiresCustomer => "SALE_CREDIT_REQUIRES_CUSTOMER",
+            SaleError::DiscountInvalid => "SALE_DISCOUNT_INVALID",
         }
     }
 }
@@ -167,8 +170,59 @@ impl fmt::Display for SaleError {
             SaleError::CreditRequiresCustomer => {
                 write!(f, "credit sale requires a linked customer")
             }
+            SaleError::DiscountInvalid => {
+                write!(f, "discount must be non-negative and not exceed the subtotal")
+            }
         }
     }
+}
+
+/// Validate a line discount against the line's gross total (`quantity * unit_price_minor`),
+/// returning the net line total (`ADR-021` §2.3).
+pub fn validate_line_discount(
+    gross_line_minor: i64,
+    line_discount_minor: i64,
+) -> Result<i64, SaleError> {
+    if line_discount_minor < 0 || line_discount_minor > gross_line_minor {
+        return Err(SaleError::DiscountInvalid);
+    }
+    gross_line_minor
+        .checked_sub(line_discount_minor)
+        .ok_or(SaleError::DiscountInvalid)
+}
+
+/// Validate an invoice-level discount against the sum of net line totals,
+/// returning the final invoice total (`ADR-021` §2.3).
+pub fn validate_invoice_discount(
+    lines_net_subtotal_minor: i64,
+    invoice_discount_minor: i64,
+) -> Result<i64, SaleError> {
+    if invoice_discount_minor < 0 || invoice_discount_minor > lines_net_subtotal_minor {
+        return Err(SaleError::DiscountInvalid);
+    }
+    lines_net_subtotal_minor
+        .checked_sub(invoice_discount_minor)
+        .ok_or(SaleError::DiscountInvalid)
+}
+
+/// Whether the total discount (`sum(line_discounts) + invoice_discount`) exceeds
+/// the shop's seller discount limit percentage (`0..=100`), requiring owner PIN
+/// approval (`ADR-021` §2.3).
+///
+/// Exact integer math in `i128`: `total_discount_minor * 100 > gross_subtotal_minor * limit_pct`.
+pub fn discount_exceeds_limit(
+    gross_subtotal_minor: i64,
+    total_discount_minor: i64,
+    limit_pct: u8,
+) -> bool {
+    if total_discount_minor <= 0 {
+        return false;
+    }
+    if gross_subtotal_minor <= 0 {
+        return true;
+    }
+    (i128::from(total_discount_minor) * 100)
+        > (i128::from(gross_subtotal_minor) * i128::from(limit_pct))
 }
 
 /// Supported invoice payment methods (`ADR-020` §1).

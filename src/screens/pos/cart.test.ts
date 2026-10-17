@@ -9,13 +9,19 @@ import {
   changeQuantity,
   clear,
   closePaid,
+  computeDiscountMinor,
   current,
+  discountExceedsSellerLimit,
+  discountSummary,
   drop,
   hold,
   moveSelection,
   newCart,
+  openNewInvoice,
   removeLine,
   reprice,
+  setInvoiceDiscount,
+  setLineDiscount,
   setLineImei,
   setQuantity,
   switchTo,
@@ -178,4 +184,50 @@ test('serial phones add one line per unit and prevent duplicate IMEIs across ope
   assert.equal(setLineImei(cart, 0, '490154203237518'), true);
   assert.deepEqual([...takenImeis(cart)].sort(), ['356938035643809', '490154203237518']);
 });
+
+test('line and invoice discounts reduce net totals and clamp when quantities shrink', () => {
+  const cart = newCart();
+  addProduct(cart, charger, 2); // 2 * 15000 = 30000
+  addProduct(cart, cable, 1); // 1 * 5050 = 5050 => gross = 35050
+
+  assert.equal(setLineDiscount(cart, 0, 2000), true);
+  assert.equal(setInvoiceDiscount(cart, 1050), true);
+  assert.deepEqual(discountSummary(current(cart)), {
+    grossSubtotalMinor: 35050,
+    linesDiscountMinor: 2000,
+    linesNetSubtotalMinor: 33050,
+    invoiceDiscountMinor: 1050,
+    totalDiscountMinor: 3050,
+    netTotalMinor: 32000,
+  });
+  assert.deepEqual(totals(current(cart)), { totalMinor: 32000, count: 3 });
+
+  // Out-of-range discounts are rejected.
+  assert.equal(setLineDiscount(cart, 0, 30001), false);
+  assert.equal(setInvoiceDiscount(cart, 33051), false);
+
+  // Removing lines clamps invoice discount so netTotalMinor never goes negative.
+  removeLine(cart, 0);
+  removeLine(cart, 0);
+  assert.equal(discountSummary(current(cart)).netTotalMinor, 0);
+  assert.equal(discountSummary(current(cart)).invoiceDiscountMinor, 0);
+});
+
+test('computeDiscountMinor and discountExceedsSellerLimit match exact percentage boundaries', () => {
+  assert.equal(computeDiscountMinor(20000, 'percent', 5), 1000);
+  assert.equal(computeDiscountMinor(20000, 'percent', 101), null);
+  assert.equal(computeDiscountMinor(20000, 'amount', 1500), 1500);
+  assert.equal(computeDiscountMinor(20000, 'amount', 20001), null);
+
+  assert.equal(discountExceedsSellerLimit(20000, 1000, 5), false);
+  assert.equal(discountExceedsSellerLimit(20000, 1001, 5), true);
+  assert.equal(discountExceedsSellerLimit(20000, 1, 0), true);
+
+  const cart = newCart();
+  assert.equal(openNewInvoice(cart), false, 'empty invoice stays focused');
+  addProduct(cart, cable);
+  assert.equal(openNewInvoice(cart), true, 'non-empty invoice is held and a new one opens');
+  assert.equal(cart.invoices.length, 2);
+});
+
 

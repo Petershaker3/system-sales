@@ -45,6 +45,8 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.digits, "latin");
     assert_eq!(read.images, "on");
     assert_eq!(read.imei_mode, "optional");
+    assert_eq!(read.discount_limit_pct, "5");
+    assert_eq!(read.discount_limit_pct_num(), 5);
 }
 
 

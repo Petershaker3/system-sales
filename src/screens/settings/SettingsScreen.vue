@@ -11,6 +11,7 @@ import UserManagement from '../../components/UserManagement.vue';
 import AppearanceCard from './AppearanceCard.vue';
 import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
+import DiscountLimitCard from './DiscountLimitCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
@@ -28,6 +29,7 @@ import RecoveryCodeCard from './RecoveryCodeCard.vue';
     <ProductImagesCard />
     <ImeiModeCard />
     <PaymentMethodsCard />
+    <DiscountLimitCard />
     <CategoriesCard />
     <BrandsCard />
 

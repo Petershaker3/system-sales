@@ -93,6 +93,7 @@ pub struct AppearanceDto {
     pub images: String,
     pub imei_mode: String,
     pub pay_methods: String,
+    pub discount_limit_pct: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -107,6 +108,7 @@ impl From<Appearance> for AppearanceDto {
             images: a.images,
             imei_mode: a.imei_mode,
             pay_methods: a.pay_methods,
+            discount_limit_pct: a.discount_limit_pct,
         }
     }
 }

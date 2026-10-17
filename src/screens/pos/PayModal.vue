@@ -9,6 +9,7 @@ import type { Customer } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import * as salesApi from '../../api/sales';
 import type { SaleOutcome } from '../../api/sales';
+import { withOwnerApproval } from '../../shell/approval';
 import {
   appearance,
   enabledPayMethods,
@@ -37,6 +38,8 @@ const props = defineProps<{
   totalMinor: number;
   count: number;
   selectedCustomer?: Customer | null;
+  invoiceDiscountMinor?: number;
+  grossSubtotalMinor?: number;
 }>();
 
 const emit = defineEmits<{
@@ -233,16 +236,26 @@ async function pay(): Promise<void> {
 
   busy.value = true;
   try {
-    const outcome = await salesApi.recordSale(
-      props.lines.map((line) => ({
-        productId: line.productId,
-        quantity: line.quantity,
-        imei: line.imei ?? null,
-      })),
-      props.totalMinor,
-      finalPayments,
-      props.selectedCustomer?.id ?? null
+    const approvalOutcome = await withOwnerApproval(
+      () =>
+        salesApi.recordSale(
+          props.lines.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            imei: line.imei ?? null,
+            discountMinor: line.discountMinor ?? 0,
+          })),
+          props.totalMinor,
+          finalPayments,
+          props.selectedCustomer?.id ?? null,
+          props.invoiceDiscountMinor ?? 0
+        ),
+      'موافقة المالك على خصم الفاتورة'
     );
+    if (approvalOutcome.status === 'cancelled') {
+      return;
+    }
+    const outcome = approvalOutcome.value;
     if (!props.selectedCustomer) {
       const name = customerName.value.trim();
       if (name !== '') {
@@ -307,8 +320,22 @@ function onEnter(): void {
       @keydown.enter.prevent="onEnter"
     >
       <div class="due-box">
+        <div
+          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor"
+          class="r"
+        >
+          <span>الإجمالي قبل الخصم ({{ pcsWord(count) }})</span>
+          <span class="num">{{ money(grossSubtotalMinor ?? totalMinor) }}</span>
+        </div>
+        <div
+          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor"
+          class="r"
+        >
+          <span>الخصم</span>
+          <span class="num">- {{ money((grossSubtotalMinor ?? totalMinor) - totalMinor) }}</span>
+        </div>
         <div class="r">
-          <span>الإجمالي ({{ pcsWord(count) }})</span>
+          <span>{{ (grossSubtotalMinor ?? totalMinor) > totalMinor ? 'الصافي بعد الخصم' : `الإجمالي (${pcsWord(count)})` }}</span>
           <span class="num">{{ money(totalMinor) }}</span>
         </div>
         <div v-if="paidMinor > 0" class="r">

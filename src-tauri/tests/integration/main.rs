@@ -810,5 +810,10 @@ mod imei_units;
 // credit ledger.
 mod payments;
 
+// Plan item 1.6 (ADR-021): line & invoice discounts, configurable seller
+// discount limit (`ui.discount_limit_pct`), and owner PIN approval above limit.
+mod discounts;
+
+
 
 

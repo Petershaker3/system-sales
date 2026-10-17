@@ -69,6 +69,7 @@ pub async fn update(
         AppearanceKey::Images => validated.images,
         AppearanceKey::ImeiMode => validated.imei_mode,
         AppearanceKey::PayMethods => validated.pay_methods,
+        AppearanceKey::DiscountLimitPct => validated.discount_limit_pct,
     };
     let now = Timestamp::now();
 

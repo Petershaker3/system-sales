@@ -30,7 +30,8 @@ use crate::domain::customer::{CustomerError, CustomerLedgerEntry, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
 use crate::domain::organisation::CostMethod;
 use crate::domain::sales::{
-    civil_ymd_from_millis, format_invoice_reference, validate_sale_payments, PaymentMethod,
+    civil_ymd_from_millis, discount_exceeds_limit, format_invoice_reference,
+    validate_invoice_discount, validate_line_discount, validate_sale_payments, PaymentMethod,
     SaleError, SalePaymentInput, WarrantyDate,
 };
 use crate::domain::unit::{Imei, UnitError};
@@ -215,8 +216,41 @@ pub async fn record_sale_with_payments(
     payments: Option<&[SalePaymentInput]>,
     customer_id: Option<&str>,
 ) -> Result<SaleOutcome, SaleServiceError> {
+    record_sale_with_discounts(
+        pool,
+        tokens,
+        lines,
+        confirmed_total_minor,
+        payments,
+        customer_id,
+        0,
+        &[],
+    )
+    .await
+}
+
+/// Record a sale with optional line/invoice discounts (`ADR-021`), single or
+/// split payment rows (`ADR-020` §2), and an optional linked customer (`ADR-020` §3).
+///
+/// When the total discount exceeds the shop's `ui.discount_limit_pct` setting
+/// (`discount_exceeds_limit`), the sale becomes [`Sensitivity::Sensitive`] and
+/// spends one owner PIN approval inside the sale transaction (`ADR-017` §3,
+/// `ADR-021` §2.3).
+pub async fn record_sale_with_discounts(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    lines: &[SaleLineWithUnitInput],
+    confirmed_total_minor: Option<i64>,
+    payments: Option<&[SalePaymentInput]>,
+    customer_id: Option<&str>,
+    invoice_discount_minor: i64,
+    line_discounts_minor: &[i64],
+) -> Result<SaleOutcome, SaleServiceError> {
     if lines.is_empty() {
         return Err(SaleError::Empty.into());
+    }
+    if line_discounts_minor.len() > lines.len() {
+        return Err(SaleError::DiscountInvalid.into());
     }
 
     // Refuse duplicate IMEIs across lines in the same sale before touching the database.
@@ -236,7 +270,8 @@ pub async fn record_sale_with_payments(
 
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::Sell)?;
-    // Selling is routine: it never waits for the owner (ADR-017 §3).
+    // Routine baseline check; if the computed discount exceeds `ui.discount_limit_pct`,
+    // `Sensitivity::Sensitive` and `consume_in_tx` are enforced below inside `tx`.
     session.require_sensitivity(Sensitivity::Routine, Timestamp::now())?;
     let now = Timestamp::now();
     let actor = session.user_id();
@@ -271,6 +306,7 @@ pub async fn record_sale_with_payments(
         disposition: String,
         quantity: i64,
         unit_price_minor: i64,
+        discount_minor: i64,
         line_total_minor: i64,
         unit_cost_minor: Option<i64>,
         line_cost_minor: i64,
@@ -284,10 +320,11 @@ pub async fn record_sale_with_payments(
     }
 
     let mut pending: Vec<PendingLine> = Vec::with_capacity(lines.len());
-    let mut total_minor: i64 = 0;
+    let mut gross_subtotal_minor: i64 = 0;
+    let mut lines_net_subtotal_minor: i64 = 0;
     let mut cost_total_minor: i64 = 0;
 
-    for line in lines {
+    for (line_idx, line) in lines.iter().enumerate() {
         if line.quantity <= 0 {
             return Err(SaleError::InvalidQuantity.into());
         }
@@ -334,9 +371,11 @@ pub async fn record_sale_with_payments(
 
         let price = product.sale_price.ok_or(SaleError::PriceNotSet)?;
         let unit_price_minor = price.as_minor();
-        let line_total_minor = unit_price_minor
+        let gross_line_minor = unit_price_minor
             .checked_mul(line.quantity)
             .ok_or(CostError::Overflow)?;
+        let line_discount_minor = line_discounts_minor.get(line_idx).copied().unwrap_or(0);
+        let line_total_minor = validate_line_discount(gross_line_minor, line_discount_minor)?;
 
         let raw_imei = line
             .imei
@@ -394,7 +433,10 @@ pub async fn record_sale_with_payments(
             _ => None,
         };
 
-        total_minor = total_minor
+        gross_subtotal_minor = gross_subtotal_minor
+            .checked_add(gross_line_minor)
+            .ok_or(CostError::Overflow)?;
+        lines_net_subtotal_minor = lines_net_subtotal_minor
             .checked_add(line_total_minor)
             .ok_or(CostError::Overflow)?;
         cost_total_minor = cost_total_minor
@@ -407,6 +449,7 @@ pub async fn record_sale_with_payments(
             disposition: product.disposition.as_str().to_owned(),
             quantity: line.quantity,
             unit_price_minor,
+            discount_minor: line_discount_minor,
             line_total_minor,
             unit_cost_minor,
             line_cost_minor: cost_removed_minor,
@@ -419,6 +462,12 @@ pub async fn record_sale_with_payments(
             retired_unit_ids,
         });
     }
+
+    let total_minor =
+        validate_invoice_discount(lines_net_subtotal_minor, invoice_discount_minor)?;
+    let total_discount_minor = gross_subtotal_minor
+        .checked_sub(total_minor)
+        .ok_or(CostError::Overflow)?;
 
     // Confirmation gate. Checked after the arithmetic, before the write; an
     // early return drops the transaction and rolls the removals back.
@@ -440,6 +489,21 @@ pub async fn record_sale_with_payments(
         clean_customer_id.is_some(),
     )?;
 
+    // Discount approval gate (`ADR-021` §2.3, `ADR-017` §3): if the total
+    // discount exceeds `ui.discount_limit_pct`, spend one owner PIN approval
+    // inside this transaction (after all business validations have passed so
+    // a refused sale does not burn the approval).
+    let approved_by = if discount_exceeds_limit(
+        gross_subtotal_minor,
+        total_discount_minor,
+        appearance.discount_limit_pct_num(),
+    ) {
+        let approval = session.require_sensitivity(Sensitivity::Sensitive, now)?;
+        Some(approval_service::consume_in_tx(&mut tx, &session, approval).await?)
+    } else {
+        None
+    };
+
     let reference = next_reference(&mut tx, &prefix, now).await?;
     let sale_id = Uuid::now_v7().to_string();
 
@@ -454,6 +518,8 @@ pub async fn record_sale_with_payments(
             reverses_sale_id: None,
             total_minor,
             cost_total_minor,
+            discount_minor: total_discount_minor,
+            approved_by: approved_by.map(|u| u.as_str().to_owned()),
         },
     )
     .await
@@ -522,6 +588,7 @@ pub async fn record_sale_with_payments(
                 disposition: line.disposition.clone(),
                 quantity: line.quantity,
                 unit_selling_price_minor: line.unit_price_minor,
+                discount_minor: line.discount_minor,
                 line_total_minor: line.line_total_minor,
                 unit_cost_minor: line.unit_cost_minor,
                 line_cost_minor: line.line_cost_minor,
@@ -672,6 +739,8 @@ pub async fn cancel_sale(
             // the two and land on zero for a cancelled sale.
             total_minor: original.total_minor,
             cost_total_minor: original.cost_total_minor,
+            discount_minor: original.discount_minor,
+            approved_by: Some(approved_by.as_str().to_owned()),
         },
     )
     .await
@@ -751,6 +820,7 @@ pub async fn cancel_sale(
                 disposition: line.disposition.clone(),
                 quantity: line.quantity,
                 unit_selling_price_minor: line.unit_selling_price_minor,
+                discount_minor: line.discount_minor,
                 line_total_minor: line.line_total_minor,
                 unit_cost_minor: line.unit_cost_minor,
                 line_cost_minor: line.line_cost_minor,
