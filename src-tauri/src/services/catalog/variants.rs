@@ -17,10 +17,11 @@ use crate::domain::catalog::{
     ProductName, ProductStatus, ProductVariant, SalePrice, VariantDimension, VariantError,
     VariantParent,
 };
-use crate::domain::identity::{DomainError, Timestamp};
+use crate::domain::identity::{DomainError, Permission, Session, Timestamp};
 use crate::domain::organisation::{CategoryKind, DepartmentId};
-use crate::services::catalog::brands::{authorize, storage};
 use crate::services::identity::secure_store::SecureTokenStore;
+use crate::services::identity::session as identity_session;
+
 
 /// Per-row override for one variant combination in `variant_combos` order.
 #[derive(Debug, Clone, Default)]
@@ -88,7 +89,21 @@ impl From<VariantError> for VariantServiceError {
     }
 }
 
+fn storage(_: sqlx::Error) -> VariantServiceError {
+    VariantServiceError::Identity(DomainError::StorageUnavailable)
+}
+
+async fn authorize(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+) -> Result<Session, VariantServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageCatalog)?;
+    Ok(session)
+}
+
 fn require_positive_price(minor: i64) -> Result<SalePrice, VariantServiceError> {
+
     let price = SalePrice::new_minor(minor)?;
     if price.as_minor() == 0 {
         return Err(VariantError::PriceRequired.into());
@@ -200,8 +215,9 @@ pub async fn create_variants(
             sqlx::Error::Database(ref db) if is_unique_violation(&db.to_string()) => {
                 VariantServiceError::Variant(VariantError::ParentAlreadyExists)
             }
-            other => VariantServiceError::Identity(storage(other)),
+            other => storage(other),
         })?;
+
 
     let mut variants = Vec::with_capacity(combos.len());
     for (order, ((value_1, value_2), (barcode, sale_price))) in
@@ -229,8 +245,9 @@ pub async fn create_variants(
                 sqlx::Error::Database(ref db) if is_unique_violation(&db.to_string()) => {
                     VariantServiceError::Catalog(CatalogError::BarcodeAlreadyExists)
                 }
-                other => VariantServiceError::Identity(storage(other)),
+                other => storage(other),
             })?;
+
         let details = ProductVariant {
             parent_id: parent.id,
             value_1,
