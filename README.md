@@ -13,6 +13,8 @@ Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQ
 > **UI reference:** [`docs/ui/mockup-v1/`](docs/ui/mockup-v1/README.md) — download
 > `mockup-offline.html` and double-click it; it runs with no server and no internet.
 >
+> **Try the real app** (installer or browser demo, in Arabic): [`docs/TRY-THE-APP.md`](docs/TRY-THE-APP.md).
+>
 > **This README describes the code as it is today.** Pieces the plan replaces are marked
 > **→ plan** below: the Pattern step-up (→ owner PIN), cash-only sales (→ payments), and the
 > full-POS Android build (→ companion). FIFO and the costing-method switch are already retired
