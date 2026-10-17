@@ -38,13 +38,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Typecheck (vue-tsc)
+        run: npm run typecheck 2>&1 | tee web.log; exit ${PIPESTATUS[0]}
+      - name: Build (vite)
+        run: npx vite build 2>&1 | tee -a web.log; exit ${PIPESTATUS[0]}
+      - name: Annotate
+        if: always()
+        run: node scripts/ci-annotate.mjs web.log frontend
 
   rust:
     name: Rust (cargo test, Linux)
@@ -53,7 +59,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: '1.98.1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: System libraries Tauri links against
         run: |
           sudo apt-get update
@@ -68,7 +74,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -77,11 +83,9 @@ jobs:
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --locked --no-fail-fast 2>&1 | tee ../cargo-test.log; exit ${PIPESTATUS[0]}
-      - name: Test summary
+      - name: Annotate
         if: always()
-        run: |
-          echo '### cargo test' >> "$GITHUB_STEP_SUMMARY"
-          grep -E '^test result:|Running ' cargo-test.log | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY" || true
+        run: node scripts/ci-annotate.mjs cargo-test.log 'cargo test linux'
 
   windows:
     name: Windows (cargo test + installer)
@@ -91,7 +95,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: '1.98.1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Rust ${{ env.RUST_VERSION }}
         shell: bash
         run: |
@@ -100,16 +104,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: cargo test
         working-directory: src-tauri
-        run: cargo test --locked --no-fail-fast
+        shell: bash
+        run: cargo test --locked --no-fail-fast 2>&1 | tee ../cargo-test.log; exit ${PIPESTATUS[0]}
       - name: Installer (NSIS)
-        run: npx tauri build --bundles nsis
+        shell: bash
+        run: npx tauri build --bundles nsis 2>&1 | tee installer.log; exit ${PIPESTATUS[0]}
+      - name: Annotate
+        if: always()
+        shell: bash
+        run: |
+          node scripts/ci-annotate.mjs cargo-test.log 'cargo test windows'
+          if [ -f installer.log ]; then node scripts/ci-annotate.mjs installer.log installer; fi
+          ls src-tauri/target/release/bundle/nsis/ 2>/dev/null | sed 's/^/::notice title=installer::/' || true
       - uses: actions/upload-artifact@v4
         with:
           name: mobile-shop-system-windows-installer
