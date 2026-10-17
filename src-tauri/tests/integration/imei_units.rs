@@ -32,7 +32,7 @@ const OWNER_PIN: &str = "2580";
 // Valid 15-digit Luhn IMEIs for testing.
 const IMEI_1: &str = "356938035643809";
 const IMEI_2: &str = "490154203237518";
-const IMEI_3: &str = "353918051234569";
+const IMEI_3: &str = "353918051234561";
 
 struct Shop {
     pool: SqlitePool,
