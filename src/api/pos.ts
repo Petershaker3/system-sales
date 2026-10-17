@@ -2,8 +2,8 @@
  * The sales screen's catalogue (`pos_catalog`, plan item 1.6).
  *
  * Readable by a seller (`Sell`). Active products with price, barcode,
- * department, stock on hand and units sold in the last 30 days, plus active
- * departments in the owner's order. It carries no cost of any kind.
+ * category, stock on hand and units sold in the last 30 days, plus the live
+ * categories in the owner's order (ADR-018 §1). It carries no cost of any kind.
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -17,20 +17,25 @@ export interface PosProduct {
   readonly barcode: string | null;
   /** `null` when no price was ever set: such a product cannot be sold yet. */
   readonly salePriceMinor: number | null;
-  readonly departmentId: string | null;
+  readonly categoryId: string | null;
   readonly onHand: number;
   readonly soldRecently: number;
 }
 
-export interface PosDepartment {
+/** A category: `parentId` null for a main one; hidden ones get no chip. */
+export interface PosCategory {
   readonly id: string;
   readonly name: string;
+  readonly parentId: string | null;
+  readonly kind: 'item' | 'phone' | 'used';
+  readonly icon: string;
+  readonly hidden: boolean;
   readonly sortOrder: number;
 }
 
 export interface PosCatalog {
   readonly products: readonly PosProduct[];
-  readonly departments: readonly PosDepartment[];
+  readonly categories: readonly PosCategory[];
 }
 
 export function posCatalog(): Promise<PosCatalog> {

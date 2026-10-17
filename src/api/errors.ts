@@ -49,6 +49,7 @@ export const ErrorCode = {
   BARCODE_EMPTY: 'BARCODE_EMPTY',
   PRICE_NEGATIVE: 'PRICE_NEGATIVE',
   PRODUCT_IS_ARCHIVED: 'PRODUCT_IS_ARCHIVED',
+  PRODUCT_CATEGORY_NOT_FOUND: 'PRODUCT_CATEGORY_NOT_FOUND',
   // Money
   MONEY_NEGATIVE: 'MONEY_NEGATIVE',
   // Departments (product classification)
@@ -61,6 +62,14 @@ export const ErrorCode = {
     'DEPARTMENT_COST_METHOD_REQUIRES_SWITCH',
   VAT_RATE_REQUIRED: 'VAT_RATE_REQUIRED',
   VAT_RATE_NEGATIVE: 'VAT_RATE_NEGATIVE',
+  // The category tree (ADR-018 §1)
+  CATEGORY_NAME_TAKEN: 'CATEGORY_NAME_TAKEN',
+  CATEGORY_PARENT_NOT_MAIN: 'CATEGORY_PARENT_NOT_MAIN',
+  CATEGORY_ICON_UNKNOWN: 'CATEGORY_ICON_UNKNOWN',
+  CATEGORY_KIND_MISMATCH: 'CATEGORY_KIND_MISMATCH',
+  CATEGORY_IS_DEFAULT: 'CATEGORY_IS_DEFAULT',
+  CATEGORY_HAS_SUBCATEGORIES: 'CATEGORY_HAS_SUBCATEGORIES',
+  CATEGORY_NOT_EMPTY: 'CATEGORY_NOT_EMPTY',
   // الإعدادات
   SETTING_UNKNOWN_KEY: 'SETTING_UNKNOWN_KEY',
   SETTING_VALUE_INVALID: 'SETTING_VALUE_INVALID',
@@ -194,6 +203,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.PRICE_NEGATIVE]: 'لا يُقبل أن يكون السعر سالبي.',
   [ErrorCode.PRODUCT_IS_ARCHIVED]:
     'هذا المنتج مؤرشف. لا يُمكن تعديله ما لم يُرشف من الأرشيف.',
+  [ErrorCode.PRODUCT_CATEGORY_NOT_FOUND]:
+    'التصنيف ده مش موجود دلوقتي. حدّث الصفحة واختار تصنيف تاني.',
 
   // المال
   // Currently unreachable from a command: a catalogue price converts a negative
@@ -203,10 +214,10 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.MONEY_NEGATIVE]: 'لا يُقبل أن يكون المبلغ سالبًا.',
 
   // الأقسام (تصنيف المنتجات)
-  [ErrorCode.DEPARTMENT_NOT_FOUND]: 'لا يوجد قسم بهذا المعرّف.',
-  [ErrorCode.DEPARTMENT_NAME_REQUIRED]: 'اسم القسم مطلوب.',
+  [ErrorCode.DEPARTMENT_NOT_FOUND]: 'التصنيف ده مش موجود. حدّث الصفحة.',
+  [ErrorCode.DEPARTMENT_NAME_REQUIRED]: 'اكتب اسم التصنيف.',
   [ErrorCode.DEPARTMENT_IS_ARCHIVED]:
-    'هذا القسم مؤرشف. لا يُمكن تعديله.',
+    'التصنيف ده مؤرشف، ومش بيتعدّل.',
   [ErrorCode.DEPARTMENT_NOT_ARCHIVED]:
     'هذا القسم نشط بالفعل. لا يوجد ما يسترجعه.',
   [ErrorCode.DEPARTMENT_ARCHIVE_STATE_INCONSISTENT]:
@@ -216,6 +227,15 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.VAT_RATE_REQUIRED]:
     'يجب تحديد نسبة ضريبة قبل تفعيل الضريبة على القسم.',
   [ErrorCode.VAT_RATE_NEGATIVE]: 'لا يُقبل أن تكون نسبة الضريبة سالبة.',
+
+  // التصنيفات
+  [ErrorCode.CATEGORY_NAME_TAKEN]: 'فيه تصنيف بالاسم ده بالفعل.',
+  [ErrorCode.CATEGORY_PARENT_NOT_MAIN]: 'التصنيف الفرعي بيبقى تحت تصنيف رئيسي بس.',
+  [ErrorCode.CATEGORY_ICON_UNKNOWN]: 'اختار أيقونة من اللي ظاهرين.',
+  [ErrorCode.CATEGORY_KIND_MISMATCH]: 'التصنيف الفرعي بيتسجّل زي الرئيسي بتاعه.',
+  [ErrorCode.CATEGORY_IS_DEFAULT]: 'ده من التصنيفات الأساسية: تقدر تغيّر اسمه أو تخفيه، بس مش بيتمسح.',
+  [ErrorCode.CATEGORY_HAS_SUBCATEGORIES]: 'التصنيف ده تحته تصنيفات. امسحهم الأول.',
+  [ErrorCode.CATEGORY_NOT_EMPTY]: 'التصنيف ده فيه أصناف. انقلها لتصنيف تاني الأول.',
 
   // الإعدادات
   [ErrorCode.SETTING_UNKNOWN_KEY]: 'إعداد غير معروف.',

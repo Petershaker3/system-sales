@@ -56,6 +56,7 @@ async fn product(shop: &Shop, name: &str, price: Option<i64>) -> String {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: price,
+            category: None,
         },
     )
     .await
@@ -177,7 +178,7 @@ async fn archived_products_and_departments_stay_out() {
     let read = pos::read(&shop.pool, shop.tokens.as_ref()).await.expect("read");
     assert_eq!(read.products.len(), 1);
     assert_eq!(read.products[0].id, kept);
-    let departments: Vec<&str> = read.departments.iter().map(|d| d.name.as_str()).collect();
+    let departments: Vec<&str> = read.categories.iter().map(|d| d.name.as_str()).collect();
     assert_eq!(departments, vec!["Cases", "Phones"], "active only, in the owner's order");
 }
 

@@ -1,8 +1,9 @@
-// A quiet icon for a product tile, guessed from its name and department.
-// Products carry no icon yet (categories with icons wait for plan item 1.2),
-// and a guess is better than the same tag on every tile. Pure.
+// A quiet icon for a product tile: its category's (ADR-018 §1), or — for a
+// product with no category, or one whose category has the plain tag — a guess
+// from its name, which beats the same tag on every tile. Pure.
 
 import { normalize } from '../../ui/arabic.ts';
+import { ICONS } from '../../ui/icons.ts';
 import type { IconName } from '../../ui/icons.ts';
 
 const RULES: readonly [RegExp, IconName][] = [
@@ -20,12 +21,24 @@ const RULES: readonly [RegExp, IconName][] = [
   [/موبايل|تليفون|هاتف|phone|iphone|ايفون|سامسونج|شاومي|ريلمي|اوبو|هواوي|انفنكس|نوكيا/, 'smartphone'],
 ];
 
-/** The product's own name decides first; its department only when the name says nothing. */
-export function iconFor(name: string, departmentName = ''): IconName {
-  for (const text of [name, departmentName]) {
+/** A stored icon name, if the app can draw it. */
+export function asIconName(name: string): IconName | null {
+  return Object.prototype.hasOwnProperty.call(ICONS, name) ? (name as IconName) : null;
+}
+
+/** The product's own name decides first; its category's words only when the name says nothing. */
+export function iconFor(name: string, categoryWords = ''): IconName {
+  for (const text of [name, categoryWords]) {
     const hay = normalize(text);
     if (hay === '') continue;
     for (const [pattern, icon] of RULES) if (pattern.test(hay)) return icon;
   }
   return 'tag';
+}
+
+/** A tile's icon: the category's when it says something, else a guess from the name. */
+export function tileIcon(name: string, categoryIcon: string | null, categoryWords = ''): IconName {
+  const own = categoryIcon === null ? null : asIconName(categoryIcon);
+  if (own !== null && own !== 'tag') return own;
+  return iconFor(name, categoryWords);
 }

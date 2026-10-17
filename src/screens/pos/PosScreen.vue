@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The sales screen (plan item 1.6; approved mockup docs/ui/mockup-v1/pos.js).
 //
-// Positions, steps and shortcuts follow the mockup: search on top, department
-// chips, product tiles, the invoice on the side, several open invoices with
+// Positions, steps and shortcuts follow the mockup: search on top, category
+// chips in two rows (ADR-018 §1), product tiles, the invoice on the side, several open invoices with
 // «انتظار» (F8), and the keyboard first. What this build sells: products
 // counted by quantity, paid in cash, through the existing atomic `record_sale`.
 // Discounts, other payment methods, IMEI units and services arrive with their
@@ -25,7 +25,8 @@ import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
-import { iconFor } from './icons';
+import { buildTree, inChip, keepSelection, mainChips, searchWords, subChips, toggle } from './categories';
+import { asIconName, tileIcon } from './icons';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
@@ -51,6 +52,7 @@ async function load(): Promise<void> {
   try {
     catalogue.value = await posApi.posCatalog();
     loadError.value = '';
+    chip.value = keepSelection(tree.value, chip.value);
     const dropped = cart.reprice(state, sellable.value.map(asSellable));
     if (dropped.length > 0) toast(`اتشال من الفواتير المفتوحة لأنه مبقاش متاح: ${dropped.join('، ')}`, 'info', 4500);
   } catch (err) {
@@ -58,11 +60,7 @@ async function load(): Promise<void> {
   }
 }
 
-const departmentName = computed(() => {
-  const names = new Map<string, string>();
-  for (const d of catalogue.value?.departments ?? []) names.set(d.id, d.name);
-  return names;
-});
+const tree = computed(() => buildTree(catalogue.value?.categories ?? []));
 
 /** Products this build can sell: counted by quantity. */
 const sellable = computed<PosProduct[]>(() =>
@@ -80,18 +78,31 @@ const index = computed(() =>
   buildIndex(
     sellable.value.map((p) => ({
       ...p,
-      departmentName: p.departmentId === null ? '' : (departmentName.value.get(p.departmentId) ?? ''),
+      categoryWords: searchWords(tree.value, p.categoryId),
     }))
   )
 );
 
 const results = computed(() => (query.value.trim() === '' ? [] : search(index.value, query.value, 8)));
 
-const chips = computed(() =>
-  (catalogue.value?.departments ?? [])
-    .map((d) => ({ id: d.id, name: d.name, count: sellable.value.filter((p) => p.departmentId === d.id).length }))
-    .filter((d) => d.count > 0)
-);
+const categoriesOfProducts = computed(() => sellable.value.map((p) => p.categoryId));
+const chips = computed(() => mainChips(tree.value, categoriesOfProducts.value));
+const subchips = computed(() => subChips(tree.value, chip.value, categoriesOfProducts.value));
+
+/** The main category whose sub-categories are in the second row. */
+const openMainName = computed(() => {
+  const chosen = tree.value.byId.get(chip.value);
+  const main = chosen?.parentId ? tree.value.byId.get(chosen.parentId) : chosen;
+  return main?.name ?? '';
+});
+
+function pickChip(id: string): void {
+  chip.value = toggle(tree.value, chip.value, id);
+}
+
+function chipIcon(icon: string) {
+  return asIconName(icon) ?? 'tag';
+}
 
 const tiles = computed<PosProduct[]>(() => {
   const list = [...sellable.value];
@@ -100,7 +111,7 @@ const tiles = computed<PosProduct[]>(() => {
   }
   if (chip.value === 'all') return list;
   return list
-    .filter((p) => p.departmentId === chip.value)
+    .filter((p) => inChip(tree.value, p.categoryId, chip.value))
     .sort((a, b) => b.soldRecently - a.soldRecently || a.name.localeCompare(b.name, 'ar'));
 });
 
@@ -109,7 +120,8 @@ function freeOf(p: PosProduct): number {
 }
 
 function iconOf(p: PosProduct) {
-  return iconFor(p.name, p.departmentId === null ? '' : (departmentName.value.get(p.departmentId) ?? ''));
+  const category = p.categoryId === null ? undefined : tree.value.byId.get(p.categoryId);
+  return tileIcon(p.name, category?.icon ?? null, searchWords(tree.value, p.categoryId));
 }
 
 // --- the invoice -----------------------------------------------------------
@@ -404,10 +416,22 @@ const KEYS: readonly [string, string][] = [
             :key="d.id"
             type="button"
             class="chip"
-            :class="{ on: chip === d.id }"
-            @click="chip = chip === d.id ? 'all' : d.id"
+            :class="{ on: chip === d.id || tree.byId.get(chip)?.parentId === d.id }"
+            @click="pickChip(d.id)"
           >
-            <Icon name="tag" /><bdi dir="rtl">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
+            <Icon :name="chipIcon(d.icon)" /><bdi dir="rtl">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
+          </button>
+        </div>
+        <div v-if="subchips.length > 0" class="chips subcats" :aria-label="`أقسام ${openMainName}`">
+          <button
+            v-for="d in subchips"
+            :key="d.id"
+            type="button"
+            class="chip sub"
+            :class="{ on: chip === d.id }"
+            @click="pickChip(d.id)"
+          >
+            <Icon :name="chipIcon(d.icon)" /><bdi dir="rtl">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
           </button>
         </div>
 

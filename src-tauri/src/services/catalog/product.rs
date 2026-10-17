@@ -14,11 +14,15 @@
 //! already defines and gates by role. A sales user is refused before any query
 //! runs.
 
+use sqlx::SqliteConnection;
+
 use crate::data::repositories::catalog::product as repo;
+use crate::data::repositories::organisation::department as category_repo;
 use crate::domain::catalog::{
     Barcode, CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
 };
 use crate::domain::identity::{Permission, Session, Timestamp};
+use crate::domain::organisation::DepartmentId;
 use crate::services::catalog::CatalogContext;
 
 /// What a caller supplies when creating a product.
@@ -30,6 +34,8 @@ pub struct NewProduct {
     pub disposition: Disposition,
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
+    /// The category it goes in (ADR-018 §1), or `None` to leave it unclassified.
+    pub category: Option<DepartmentId>,
 }
 
 /// Fields an edit may change. Absent optional fields mean "leave unchanged",
@@ -42,6 +48,8 @@ pub struct ProductPatch {
     pub barcode: Option<Option<String>>,
     /// `Some(None)` clears the price back to "not set".
     pub sale_price_minor: Option<Option<i64>>,
+    /// `Some(None)` takes the product out of its category; `None` leaves it.
+    pub category: Option<Option<DepartmentId>>,
 }
 
 /// Refuse a session whose role may not manage the catalogue.
@@ -59,6 +67,22 @@ fn build_barcode(value: &Option<String>) -> Result<Option<Barcode>, CatalogError
     match value {
         Some(raw) => Ok(Some(Barcode::new(raw)?)),
         None => Ok(None),
+    }
+}
+
+/// A category a product may be put in: one that exists and is live. An archived
+/// department is not offered anywhere any more, so naming one is a stale screen.
+async fn live_category(
+    conn: &mut SqliteConnection,
+    id: Option<DepartmentId>,
+) -> Result<Option<DepartmentId>, CatalogError> {
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    match category_repo::find_by_id(conn, id).await {
+        Ok(Some(category)) if category.is_editable() => Ok(Some(id)),
+        Ok(_) => Err(CatalogError::CategoryNotFound),
+        Err(_) => Err(CatalogError::NoProductWithThisId),
     }
 }
 
@@ -88,9 +112,9 @@ pub async fn create(
         disposition: input.disposition,
         barcode,
         sale_price,
-        // A new product is unclassified, uncosted and unrated. Nothing invents a
-        // department, a cost or a VAT rate for it: those are set by later work,
-        // and manufacturing them here would be fabricating business data.
+        // Classified only when the operator chose a category (checked below).
+        // Nothing invents a cost or a VAT rate for it: manufacturing them here
+        // would be fabricating business data.
         department: None,
         default_cost: None,
         vat_rate_bp: None,
@@ -102,6 +126,8 @@ pub async fn create(
     };
 
     let mut conn = ctx.pool.acquire().await.map_err(|_| CatalogError::NoProductWithThisId)?;
+    let mut product = product;
+    product.department = live_category(&mut conn, input.category).await?;
 
     // A duplicate barcode surfaces as a UNIQUE violation. It is translated here
     // so the caller learns "barcode already in use" rather than a driver string.
@@ -190,6 +216,9 @@ pub async fn update(
     }
     if let Some(price) = patch.sale_price_minor {
         product.sale_price = build_price(&price)?;
+    }
+    if let Some(category) = patch.category {
+        product.department = live_category(&mut tx, category).await?;
     }
 
     product.updated_by = session.user_id();

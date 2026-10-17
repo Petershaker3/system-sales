@@ -47,6 +47,8 @@ pub struct ProductDto {
     pub disposition: String,
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
+    /// The category it is in (ADR-018 §1), or `None` while unclassified.
+    pub category_id: Option<String>,
     pub status: String,
     pub created_by: String,
     pub updated_by: String,
@@ -62,6 +64,7 @@ impl From<&Product> for ProductDto {
             disposition: product.disposition.as_str().to_string(),
             barcode: product.barcode.as_ref().map(|b| b.as_str().to_string()),
             sale_price_minor: product.sale_price.map(|price| price.as_minor()),
+            category_id: product.department.map(|id| id.as_str()),
             status: product.status.as_str().to_string(),
             created_by: product.created_by.as_str(),
             updated_by: product.updated_by.as_str(),
@@ -81,6 +84,18 @@ fn parse_id(raw: &str) -> Result<crate::domain::catalog::ProductId, CatalogComma
         .map_err(|_| CatalogCommandError::from(CatalogError::NoProductWithThisId))
 }
 
+/// A category id from the screen; text that is not an id names no category.
+fn parse_category(
+    raw: Option<String>,
+) -> Result<Option<crate::domain::organisation::DepartmentId>, CatalogCommandError> {
+    match raw {
+        Some(raw) => uuid::Uuid::parse_str(&raw)
+            .map(|uuid| Some(crate::domain::organisation::DepartmentId::from_uuid(uuid)))
+            .map_err(|_| CatalogCommandError::from(CatalogError::CategoryNotFound)),
+        None => Ok(None),
+    }
+}
+
 #[tauri::command]
 pub async fn create_product(
     ctx: Ctx<'_>,
@@ -88,12 +103,14 @@ pub async fn create_product(
     disposition: String,
     barcode: Option<String>,
     sale_price_minor: Option<i64>,
+    category_id: Option<String>,
 ) -> Result<ProductDto, CatalogCommandError> {
     let session = require_session(&ctx)
         .await
         .map_err(|e| CatalogCommandError {
             code: e.code(),
         })?;
+    let category = parse_category(category_id)?;
 
     let parsed = Disposition::parse(&disposition).ok_or(CatalogCommandError::from(
         CatalogError::PermissionDenied,
@@ -107,6 +124,7 @@ pub async fn create_product(
             disposition: parsed,
             barcode,
             sale_price_minor,
+            category,
         },
     )
     .await?;
@@ -169,8 +187,31 @@ pub async fn update_product(
         },
         barcode,
         sale_price_minor,
+        category: None,
     };
 
+    let updated = use_cases::update(&ctx, &session, parse_id(&id)?, patch).await?;
+    Ok(to_dto(&updated))
+}
+
+/// Put a product in a category, or take it out with `null` (ADR-018 §1).
+///
+/// Its own command rather than a field of `update_product`: there, `null` and a
+/// missing field arrive as the same `None`, so "take it out" could not be said.
+/// Here the one argument is the whole answer.
+#[tauri::command]
+pub async fn set_product_category(
+    ctx: Ctx<'_>,
+    id: String,
+    category_id: Option<String>,
+) -> Result<ProductDto, CatalogCommandError> {
+    let session = require_session(&ctx)
+        .await
+        .map_err(|e| CatalogCommandError { code: e.code() })?;
+    let patch = ProductPatch {
+        category: Some(parse_category(category_id)?),
+        ..ProductPatch::default()
+    };
     let updated = use_cases::update(&ctx, &session, parse_id(&id)?, patch).await?;
     Ok(to_dto(&updated))
 }

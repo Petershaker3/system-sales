@@ -131,6 +131,11 @@ pub async fn create_first_manager(
         .await
         .map_err(CommandError::from)?;
 
+    // The default category tree (ADR-018 §1), attributed to the new manager.
+    // Best effort: if it fails, the next start-up adds what is missing, and the
+    // shop is usable meanwhile.
+    let _ = crate::services::organisation::categories::add_default_categories(&ctx.pool).await;
+
     // The setup screen signs the new manager straight in, so the operator is not
     // asked to type the password twice on the one occasion the account is made.
     let signed_in = auth::login(

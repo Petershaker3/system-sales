@@ -47,6 +47,18 @@
 | `src-tauri/tests/integration/recovery.rs`<br>`src-tauri/tests/integration/recovery_reset.rs` | فحوصها | `tests/integration/recovery_code.rs` |
 | `src/components/RecoveryPanel.vue`<br>`src/api/recovery.ts` | لوحتها، خلف علامة البناء `VITE_RECOVERY` | «نسيت كلمة السر؟» على كارت المالك (`src/shell/RecoverPassword.vue`)، وكارت «كود الاسترجاع» في الإعدادات |
 
+### `superseded-2026-10-17/departments-panel/` — لوحة الأقسام وأوامرها
+
+**القرار:** [`ADR-018`](../docs/decisions/ADR-018-category-tree-brands-variants-images.md) §1: القسم بقى تصنيف في شجرة بمستويين (`ADR-016` 5 و29 و31). والتنفيذ هو البند 1.2، الخطوة 1.
+
+**ما بقي في مكانه:** جدول `departments` نفسه (اتضاف له الأب والنوع والأيقونة والإخفاء في `0016`)، وأعمدة طريقة التكلفة والضريبة من غير أثر (1.3)، وخدمات الأقسام القديمة في `services/organisation/departments.rs` لأن اختباراتها لسه بتستعملها. أوامرها اتشالت من `lib.rs`، وفحص المعمارية `the_retired_department_commands_stay_retired` بيمنع رجوعها.
+
+| كان في | لماذا | ما يحل محله |
+|---|---|---|
+| `src-tauri/src/commands/departments.rs` | ستة أوامر: إضافة وتعديل (بطريقة التكلفة والضريبة) وأرشفة وترتيب كامل وقراءة | `src-tauri/src/commands/categories.rs`: `list_categories` و`create_category` و`rename_category` و`set_category_hidden` و`move_category` و`delete_category` |
+| `src/components/DepartmentsPanel.vue` | لوحة الأقسام في «المخزن» | كارت «التصنيفات في شاشة البيع» في الإعدادات (`src/screens/settings/CategoriesCard.vue`)، زي المعاينة |
+| `src/api/departments.ts` | واجهة أوامرها | `src/api/categories.ts`، والنوع `CostMethod` اتنقل لـ`src/api/settings.ts` |
+
 ---
 
 ## أرشفة 2026-10-16 — بعد اعتماد الخطة الحالية

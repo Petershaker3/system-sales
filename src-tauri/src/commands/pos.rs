@@ -35,17 +35,22 @@ pub struct PosProductDto {
     pub disposition: String,
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
-    pub department_id: Option<String>,
+    /// The category it is in (ADR-018 §1), or `null`.
+    pub category_id: Option<String>,
     pub on_hand: i64,
     pub sold_recently: i64,
 }
 
-/// One department chip.
+/// One category: a chip, unless hidden (ADR-018 §1).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PosDepartmentDto {
+pub struct PosCategoryDto {
     pub id: String,
     pub name: String,
+    pub parent_id: Option<String>,
+    pub kind: String,
+    pub icon: String,
+    pub hidden: bool,
     pub sort_order: i64,
 }
 
@@ -54,11 +59,11 @@ pub struct PosDepartmentDto {
 #[serde(rename_all = "camelCase")]
 pub struct PosCatalogDto {
     pub products: Vec<PosProductDto>,
-    pub departments: Vec<PosDepartmentDto>,
+    pub categories: Vec<PosCategoryDto>,
 }
 
 /// Read what the sales screen shows: active products with stock on hand and
-/// recent sales, and the active departments. `Sell`; no cost.
+/// recent sales, and the live categories. `Sell`; no cost.
 #[tauri::command]
 pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError> {
     let catalog = use_cases::read(&ctx.pool, ctx.tokens.as_ref()).await?;
@@ -72,17 +77,21 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 disposition: row.disposition,
                 barcode: row.barcode,
                 sale_price_minor: row.sale_price_minor,
-                department_id: row.department_id,
+                category_id: row.department_id,
                 on_hand: row.on_hand,
                 sold_recently: row.sold_recently,
             })
             .collect(),
-        departments: catalog
-            .departments
+        categories: catalog
+            .categories
             .into_iter()
-            .map(|row| PosDepartmentDto {
+            .map(|row| PosCategoryDto {
                 id: row.id,
                 name: row.name,
+                parent_id: row.parent_id,
+                kind: row.kind,
+                icon: row.icon,
+                hidden: row.hidden,
                 sort_order: row.sort_order,
             })
             .collect(),

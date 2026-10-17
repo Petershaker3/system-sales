@@ -65,32 +65,42 @@ pub async fn list_sellable(
         .collect())
 }
 
-/// One active department, for the chips above the tiles.
+/// One live category, for the chips above the tiles (ADR-018 §1): the screen
+/// builds the two rows from `parent_id`, and leaves out the hidden ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PosDepartmentRow {
+pub struct PosCategoryRow {
     pub id: String,
     pub name: String,
+    pub parent_id: Option<String>,
+    pub kind: String,
+    pub icon: String,
+    pub hidden: bool,
     pub sort_order: i64,
 }
 
-/// Active departments in the owner's order.
-pub async fn list_departments(
+/// Live categories in the owner's order, hidden ones included: a hidden
+/// category's products are still sold, and search still finds them by its name.
+pub async fn list_categories(
     conn: &mut SqliteConnection,
-) -> Result<Vec<PosDepartmentRow>, sqlx::Error> {
+) -> Result<Vec<PosCategoryRow>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, name, sort_order
+        "SELECT id, name, parent_id, kind, icon, hidden, sort_order
          FROM departments
          WHERE status = 'active'
-         ORDER BY sort_order ASC, name COLLATE NOCASE ASC",
+         ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC",
     )
     .fetch_all(&mut *conn)
     .await?;
 
     Ok(rows
         .into_iter()
-        .map(|row| PosDepartmentRow {
+        .map(|row| PosCategoryRow {
             id: row.get("id"),
             name: row.get("name"),
+            parent_id: row.get("parent_id"),
+            kind: row.get("kind"),
+            icon: row.get("icon"),
+            hidden: row.get::<i64, _>("hidden") != 0,
             sort_order: row.get("sort_order"),
         })
         .collect())

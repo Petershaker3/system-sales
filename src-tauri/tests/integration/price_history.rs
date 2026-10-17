@@ -43,6 +43,7 @@ fn product(name: &str, sale_price_minor: Option<i64>) -> NewProduct {
         disposition: Disposition::Quantity,
         barcode: None,
         sale_price_minor,
+        category: None,
     }
 }
 

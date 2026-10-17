@@ -148,6 +148,7 @@ async fn shop_with_sale() -> (
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(150),
+            category: None,
         },
     )
     .await

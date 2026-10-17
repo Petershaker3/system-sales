@@ -5,10 +5,10 @@ import { test } from 'node:test';
 import { buildIndex, looksLikeCode, search } from './search.ts';
 
 const items = [
-  { id: 'a', name: 'شاحن آيفون 20 وات', barcode: '6901234567890', departmentName: 'إكسسوارات', soldRecently: 5 },
-  { id: 'b', name: 'جراب آيفون 13', barcode: null, departmentName: 'إكسسوارات', soldRecently: 40 },
-  { id: 'c', name: 'سماعة سامسونج', barcode: '1234567', departmentName: 'سماعات', soldRecently: 1 },
-  { id: 'd', name: 'كابل تايب سي', barcode: null, departmentName: 'إكسسوارات', soldRecently: 12 },
+  { id: 'a', name: 'شاحن آيفون 20 وات', barcode: '6901234567890', categoryWords: 'إكسسوارات', soldRecently: 5 },
+  { id: 'b', name: 'جراب آيفون 13', barcode: null, categoryWords: 'إكسسوارات', soldRecently: 40 },
+  { id: 'c', name: 'سماعة سامسونج', barcode: '1234567', categoryWords: 'سماعات', soldRecently: 1 },
+  { id: 'd', name: 'كابل تايب سي', barcode: null, categoryWords: 'إكسسوارات', soldRecently: 12 },
 ];
 const index = buildIndex(items);
 
@@ -25,7 +25,7 @@ test('ties on the whole query go to the best seller; a name starting with the fi
   assert.deepEqual(search(index, 'شاحن').map((x) => x.id)[0], 'a');
 });
 
-test('the department name is searchable', () => {
+test('the category name is searchable', () => {
   assert.deepEqual(
     search(index, 'اكسسوارات').map((x) => x.id),
     ['b', 'd', 'a'],
@@ -56,6 +56,16 @@ test('tile icons are guessed from the name, top-up cards before chargers', async
   assert.equal(iconFor('كارت ميموري 64 جيجا'), 'memory-stick');
   assert.equal(iconFor('جراب سيليكون'), 'package');
   assert.equal(iconFor('حاجة تانية'), 'tag');
-  assert.equal(iconFor('جراب سيليكون آيفون 13', 'حماية وجرابات'), 'package', 'the name wins over the department');
-  assert.equal(iconFor('ستاند', 'سماعات'), 'headphones', 'the department decides when the name says nothing');
+  assert.equal(iconFor('جراب سيليكون آيفون 13', 'حماية وجرابات'), 'package', 'the name wins over the category');
+  assert.equal(iconFor('ستاند', 'سماعات'), 'headphones', 'the category decides when the name says nothing');
+});
+
+test('a tile takes its category\'s icon, and under the plain tag a guess from the name', async () => {
+  const { asIconName, tileIcon } = await import('./icons.ts');
+  assert.equal(tileIcon('جراب سيليكون', 'shield'), 'shield');
+  assert.equal(tileIcon('شاحن سريع', 'tag', 'إكسسوارات'), 'battery-charging');
+  assert.equal(tileIcon('شاحن سريع', null), 'battery-charging');
+  assert.equal(tileIcon('حاجة', 'no-such-icon'), 'tag', 'an icon the app cannot draw is never drawn');
+  assert.equal(asIconName('watch'), 'watch');
+  assert.equal(asIconName('toString'), null, 'only drawable names, not inherited keys');
 });

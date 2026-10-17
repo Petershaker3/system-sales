@@ -16,7 +16,13 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { CommandError } from './errors';
-import type { CostMethod } from './departments';
+
+/**
+ * The stored costing method (`CostMethod::as_str`). Inert since plan item 1.3:
+ * every quantity product is moving average. Kept for the settings snapshot,
+ * which still reports it.
+ */
+export type CostMethod = 'moving_average' | 'fifo';
 
 export type DiscountKind = 'money' | 'percentage';
 

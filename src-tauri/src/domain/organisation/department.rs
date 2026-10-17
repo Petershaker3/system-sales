@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::identity::UserId;
+use crate::domain::organisation::category::{CategoryIcon, CategoryKind};
 
 /// A department identifier. Always a UUID v7; there is no other constructor.
 ///
@@ -313,6 +314,24 @@ pub struct Department {
     /// `None` while active, set when archived. A recorded moment rather than a
     /// value derived from `status`, so the archive time survives later reads.
     pub archived_at: Option<i64>,
+    /// The main category this one sits under, or `None` for a main category
+    /// (ADR-018 §1). Set when the category is made and never changed after.
+    pub parent: Option<DepartmentId>,
+    /// How goods in this category are registered. A sub-category's is its
+    /// parent's. Set when the category is made and never changed after.
+    pub kind: CategoryKind,
+    pub icon: CategoryIcon,
+    /// The category's button is not shown on the sales screen. Its goods stay
+    /// in «الكل» and in search.
+    pub hidden: bool,
+}
+
+/// Where a new category goes: at the top level with a kind of its own, or
+/// under a main category, whose kind it takes.
+#[derive(Debug, Clone, Copy)]
+pub enum CategoryPlacement<'a> {
+    Main(CategoryKind),
+    Under(&'a Department),
 }
 
 impl Department {
@@ -340,7 +359,120 @@ impl Department {
             created_at: now,
             updated_at: now,
             archived_at: None,
+            parent: None,
+            kind: CategoryKind::Item,
+            icon: CategoryIcon::tag(),
+            hidden: false,
         }
+    }
+
+    /// Make a category (ADR-018 §1): active, shown, with the icon chosen and the
+    /// order given.
+    ///
+    /// Under a parent, the parent must be a live main category — two levels,
+    /// never three — and the new category takes its kind. The costing method and
+    /// VAT are the inert defaults every category has had since plan item 1.3.
+    pub fn new_category(
+        name: DepartmentName,
+        placement: CategoryPlacement<'_>,
+        icon: CategoryIcon,
+        sort_order: i64,
+        actor: UserId,
+        now: i64,
+    ) -> Result<Self, DepartmentError> {
+        let (parent, kind) = match placement {
+            CategoryPlacement::Main(kind) => (None, kind),
+            CategoryPlacement::Under(parent) => {
+                if !parent.is_editable() {
+                    return Err(DepartmentError::IsArchived);
+                }
+                if !parent.is_main() {
+                    return Err(DepartmentError::ParentNotMain);
+                }
+                (Some(parent.id), parent.kind)
+            }
+        };
+        let mut category = Self::new(
+            name,
+            CostMethod::MovingAverage,
+            DepartmentVat::disabled(),
+            sort_order,
+            actor,
+            now,
+        );
+        category.parent = parent;
+        category.kind = kind;
+        category.icon = icon;
+        Ok(category)
+    }
+
+    /// The tree columns of a stored row, on a department [`Department::rehydrate`]
+    /// built. Refuses a row that names itself as its parent: that row is corrupt,
+    /// whatever the triggers of `0016` were meant to stop.
+    pub fn with_tree(
+        mut self,
+        parent: Option<DepartmentId>,
+        kind: CategoryKind,
+        icon: CategoryIcon,
+        hidden: bool,
+    ) -> Result<Self, DepartmentError> {
+        if parent == Some(self.id) {
+            return Err(DepartmentError::ParentNotMain);
+        }
+        self.parent = parent;
+        self.kind = kind;
+        self.icon = icon;
+        self.hidden = hidden;
+        Ok(self)
+    }
+
+    /// A main category: nothing above it.
+    pub fn is_main(&self) -> bool {
+        self.parent.is_none()
+    }
+
+    /// Give the category a new name. Uniqueness among live categories is the
+    /// storage's (`idx_departments_active_name`) and the service's to report.
+    pub fn rename(
+        &mut self,
+        name: DepartmentName,
+        actor: UserId,
+        now: i64,
+    ) -> Result<(), DepartmentError> {
+        if !self.is_editable() {
+            return Err(DepartmentError::IsArchived);
+        }
+        self.name = name;
+        self.updated_by = actor;
+        self.updated_at = now;
+        Ok(())
+    }
+
+    /// Show or hide the category's button on the sales screen.
+    pub fn set_hidden(&mut self, hidden: bool, actor: UserId, now: i64) -> Result<(), DepartmentError> {
+        if !self.is_editable() {
+            return Err(DepartmentError::IsArchived);
+        }
+        self.hidden = hidden;
+        self.updated_by = actor;
+        self.updated_at = now;
+        Ok(())
+    }
+
+    /// Put the category at `sort_order` among its siblings.
+    pub fn set_sort_order(
+        &mut self,
+        sort_order: i64,
+        actor: UserId,
+        now: i64,
+    ) -> Result<(), DepartmentError> {
+        if !self.is_editable() {
+            return Err(DepartmentError::IsArchived);
+        }
+        self.sort_order = sort_order;
+        self.updated_by = actor;
+        self.updated_at = now;
+        Ok(())
     }
 
     /// Rebuild a department from stored values.
@@ -383,6 +515,10 @@ impl Department {
             created_at,
             updated_at,
             archived_at,
+            parent: None,
+            kind: CategoryKind::Item,
+            icon: CategoryIcon::tag(),
+            hidden: false,
         })
     }
 
@@ -519,6 +655,29 @@ pub enum DepartmentError {
     /// round-trips every editable field and refusing an unchanged value would
     /// make renaming a department depend on which tab the operator used.
     CostMethodChangeRequiresSwitch,
+
+    /// Another live category already has this name (ADR-018 §1: one name, one
+    /// category, across the whole tree).
+    NameTaken,
+
+    /// A category was put under one that is itself a sub-category, or under
+    /// itself: the tree is two levels deep.
+    ParentNotMain,
+
+    /// The icon is not one of [`CATEGORY_ICONS`](super::category::CATEGORY_ICONS).
+    IconUnknown,
+
+    /// A sub-category was given a kind other than its parent's.
+    KindMismatch,
+
+    /// A default category may be renamed, moved and hidden, never deleted.
+    IsDefault,
+
+    /// The category has sub-categories, so it is not empty.
+    HasSubcategories,
+
+    /// The category still has products in it, archived ones included.
+    NotEmpty,
 }
 
 impl DepartmentError {
@@ -536,6 +695,13 @@ impl DepartmentError {
             DepartmentError::CostMethodChangeRequiresSwitch => {
                 "DEPARTMENT_COST_METHOD_REQUIRES_SWITCH"
             }
+            DepartmentError::NameTaken => "CATEGORY_NAME_TAKEN",
+            DepartmentError::ParentNotMain => "CATEGORY_PARENT_NOT_MAIN",
+            DepartmentError::IconUnknown => "CATEGORY_ICON_UNKNOWN",
+            DepartmentError::KindMismatch => "CATEGORY_KIND_MISMATCH",
+            DepartmentError::IsDefault => "CATEGORY_IS_DEFAULT",
+            DepartmentError::HasSubcategories => "CATEGORY_HAS_SUBCATEGORIES",
+            DepartmentError::NotEmpty => "CATEGORY_NOT_EMPTY",
         }
     }
 }
@@ -562,6 +728,19 @@ impl fmt::Display for DepartmentError {
                 f,
                 "changing the costing method needs the dedicated switch operation"
             ),
+            DepartmentError::NameTaken => write!(f, "another category already has this name"),
+            DepartmentError::ParentNotMain => {
+                write!(f, "a category can only sit under a main category")
+            }
+            DepartmentError::IconUnknown => write!(f, "not a known category icon"),
+            DepartmentError::KindMismatch => {
+                write!(f, "a sub-category takes its parent's kind")
+            }
+            DepartmentError::IsDefault => write!(f, "a default category cannot be deleted"),
+            DepartmentError::HasSubcategories => {
+                write!(f, "the category has sub-categories")
+            }
+            DepartmentError::NotEmpty => write!(f, "the category still has products"),
         }
     }
 }

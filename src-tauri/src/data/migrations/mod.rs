@@ -76,3 +76,8 @@ pub const WARRANTY: &str = include_str!("0013_warranty.sql");
 pub const RECEIVING_SUPPLIER: &str = include_str!("0014_receiving_supplier.sql");
 /// `0015`: the daily PIN, owner-PIN approvals and the recovery code (ADR-017).
 pub const PIN_APPROVAL_RECOVERY: &str = include_str!("0015_pin_approval_recovery.sql");
+
+/// `0016`: the two-level category tree (ADR-018 §1) — a parent, a kind, an icon
+/// and a hidden flag on `departments`, with triggers that keep the tree two
+/// levels deep and a sub-category on its parent's kind.
+pub const CATEGORY_TREE: &str = include_str!("0016_category_tree.sql");

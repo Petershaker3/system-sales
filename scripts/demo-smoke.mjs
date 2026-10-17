@@ -3,8 +3,8 @@
 //
 // Drives the actual Vue app (not the mockup) on its in-memory demo backend:
 // sign in as a seller, sell with the keyboard and the mouse, hold an invoice,
-// pay cash, then sign in as the owner and change the look behind a fresh
-// password. Saves screenshots to the directory given as the second argument.
+// pay cash, browse the categories, then sign in as the owner, change the look
+// behind a fresh password and manage the categories. Saves screenshots to the directory given as the second argument.
 //
 //   npm run demo &   # serves on :5173
 //   node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/demo-shots
@@ -140,6 +140,36 @@ const screenTile = await page.$$eval('.tile', (els) =>
 );
 check('stock on the tile went down after the sale (60 → 59)', screenTile.includes('59'), screenTile.replace(/\s+/g, ' '));
 
+// --- categories on the sales screen (plan item 1.2, ADR-018 §1) -------------
+const mainChipNames = await page.$$eval('.chips.cats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+check(
+  'the main categories follow «الأكثر مبيعًا» and «الكل», each with its count',
+  mainChipNames.length === 7 && mainChipNames.some((t) => t.startsWith('إكسسوارات') && t.endsWith('16')),
+  mainChipNames.join('، ')
+);
+await clickText('.chips.cats .chip', 'إكسسوارات');
+await sleep(80);
+const subChipNames = await page.$$eval('.chips.subcats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+check('a main category opens its sub-categories in a second row', subChipNames.length === 7 && subChipNames.some((t) => t.includes('شواحن')), subChipNames.join('، '));
+await clickText('.chips.subcats .chip', 'شواحن');
+await sleep(80);
+const chargerTiles = await page.$$eval('.tile .name', (els) => els.map((e) => e.textContent?.trim() ?? ''));
+check('a sub-category shows only its products', chargerTiles.length === 2 && chargerTiles.every((n) => n.includes('شاحن')), chargerTiles.join('، '));
+await shot('15-pos-subcategories');
+await clickText('.chips.subcats .chip', 'شواحن');
+await sleep(80);
+check(
+  'clicking the chosen sub-category again goes back to its main',
+  (await count('.chips.subcats .chip.on')) === 0 && (await text('.chips.cats .chip.on')).includes('إكسسوارات')
+);
+await page.focus('#q');
+await page.type('#q', 'حوامل');
+await page.waitForSelector('.result');
+check('search finds a product by its category\'s name', (await text('.result .n')).includes('حامل'));
+await page.keyboard.press('Escape');
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(60);
+
 // theme switch for everyone
 await clickText('.rail .nav-btn', 'غامق');
 await sleep(150);
@@ -235,6 +265,70 @@ check('the box look is applied and stored', (await page.$eval('html', (h) => h.d
 await shot('07-settings-box');
 await clickText('.swatch', '');
 
+// --- the owner's categories (plan item 1.2, ADR-018 §1) --------------------
+const catRowNames = () =>
+  page.$$eval('.categories-card .cat-row', (els) =>
+    els.map((e) => ({ name: e.querySelector('.cat-name')?.value ?? '', sub: e.classList.contains('sub'), off: e.classList.contains('off'), del: !!e.querySelector('.danger') }))
+  );
+await page.waitForSelector('.categories-card .cat-row');
+const startRows = await catRowNames();
+check(
+  'the settings list the default tree, subs under their main, nothing with products deletable',
+  startRows.length === 12 && startRows.filter((r) => r.sub).length === 7 && startRows.every((r) => !r.del),
+  String(startRows.length)
+);
+await page.type('#cat-new', 'جرابات تابلت');
+const accValue = await page.$eval('#cat-parent', (sel) => [...sel.options].find((o) => (o.textContent ?? '').includes('إكسسوارات'))?.value ?? '');
+await page.select('#cat-parent', accValue);
+await sleep(60);
+const kindLocked = await page.$eval('#cat-kind', (sel) => sel.disabled);
+await page.click('.icon-pick button[title="shield"]');
+await page.click('.categories-card .cat-add button[type=submit]');
+await sleep(200);
+const afterAdd = await catRowNames();
+const added = afterAdd.find((r) => r.name === 'جرابات تابلت');
+check('a sub-category is added under its main, with the main\'s kind', kindLocked && added?.sub === true && added?.del === true, JSON.stringify(added));
+await page.type('#cat-new', 'شواحن');
+await page.select('#cat-parent', '');
+await page.click('.categories-card .cat-add button[type=submit]');
+await sleep(200);
+check('a name already in the tree is refused', (await text('#toasts')).includes('فيه تصنيف بالاسم ده'));
+await page.$eval('#cat-new', (el) => { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); });
+for (const row of await page.$$('.categories-card .cat-row')) {
+  if ((await row.$eval('.cat-name', (el) => el.value)) !== 'حوامل') continue;
+  await row.$eval('.cat-name', (el) => { el.value = 'حوامل عربية'; el.dispatchEvent(new Event('change', { bubbles: true })); });
+  break;
+}
+await sleep(200);
+check('a category is renamed by typing on its name', (await catRowNames()).some((r) => r.name === 'حوامل عربية'));
+for (const row of await page.$$('.categories-card .cat-row')) {
+  if ((await row.$eval('.cat-name', (el) => el.value)) !== 'كروت شحن') continue;
+  await row.$eval('input[type=checkbox]', (el) => el.click());
+  break;
+}
+await sleep(200);
+for (const row of await page.$$('.categories-card .cat-row')) {
+  if ((await row.$eval('.cat-name', (el) => el.value)) !== 'كروت شحن') continue;
+  await (await row.$('button[title="لفوق"]')).click();
+  break;
+}
+await sleep(200);
+const mainsNow = (await catRowNames()).filter((r) => !r.sub);
+check(
+  'a hidden category is greyed, and the arrows move it among the mains',
+  mainsNow.find((r) => r.name === 'كروت شحن')?.off === true &&
+    mainsNow.findIndex((r) => r.name === 'كروت شحن') < mainsNow.findIndex((r) => r.name === 'ساعات ذكية'),
+  mainsNow.map((r) => r.name).join('، ')
+);
+await shot('16-settings-categories');
+for (const row of await page.$$('.categories-card .cat-row')) {
+  if ((await row.$eval('.cat-name', (el) => el.value)) !== 'جرابات تابلت') continue;
+  await (await row.$('.danger')).click();
+  break;
+}
+await sleep(200);
+check('an empty category the owner made is deleted', !(await catRowNames()).some((r) => r.name === 'جرابات تابلت'));
+
 // the owner sets a seller's PIN in المستخدمين (his password first), and she signs in with it
 await clickText('.users button', 'تحديث');
 await page.waitForSelector('li.item', { timeout: 3000 });
@@ -274,6 +368,11 @@ await signIn('بيتر', '4321');
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('.tile');
 await shot('08-pos-box');
+const hiddenChipGone = !(await text('.chips.cats')).includes('كروت شحن');
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(60);
+const hiddenStillSold = (await page.$$eval('.tile .name', (els) => els.map((e) => e.textContent ?? ''))).some((t) => t.includes('كارت شحن فودافون'));
+check('a hidden category has no chip, and its products still sell from «الكل»', hiddenChipGone && hiddenStillSold);
 await clickText('.rail .nav-btn', 'المخزن');
 await sleep(300);
 await shot('09-store');

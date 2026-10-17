@@ -41,6 +41,29 @@ pub async fn count_active_managers(
     Ok(count)
 }
 
+/// The manager who has been here longest and is not disabled, if any: who the
+/// default categories are attributed to when they are added at start-up for a
+/// database made before them (ADR-018 §1).
+pub async fn first_active_manager(
+    conn: &mut SqliteConnection,
+) -> Result<Option<UserId>, sqlx::Error> {
+    let raw: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM users
+          WHERE role = 'manager' AND disabled_at IS NULL
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1",
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    match raw {
+        Some(id) => id
+            .parse::<uuid::Uuid>()
+            .map(|uuid| Some(UserId::from_uuid(uuid)))
+            .map_err(|_| sqlx::Error::Protocol("malformed user id in users".to_string())),
+        None => Ok(None),
+    }
+}
+
 /// Map one `users` row onto the domain.
 ///
 /// Extracted because `find_by_id` and `list` were duplicating this exact parsing,

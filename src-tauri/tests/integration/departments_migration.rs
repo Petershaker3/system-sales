@@ -180,7 +180,7 @@ async fn the_departments_table_carries_every_approved_column() {
 }
 
 #[tokio::test]
-async fn a_department_references_users_and_nothing_else() {
+async fn a_department_references_its_users_and_its_parent_category_only() {
     let pool = migrated().await;
 
     // By name for the same reason: `pragma_foreign_key_list` leads with an integer
@@ -192,23 +192,28 @@ async fn a_department_references_users_and_nothing_else() {
     .await
     .expect("foreign key list");
 
+    // Two to users for attribution (0004), and since 0016 the parent of a
+    // sub-category (ADR-018 §1). Still no location, warehouse or stock table.
     assert_eq!(
         foreign_keys.len(),
-        2,
-        "exactly two foreign keys, both to users; found {foreign_keys:?}"
+        3,
+        "exactly three foreign keys: two to users, one to the parent; found {foreign_keys:?}"
     );
     for (table, from, on_delete) in &foreign_keys {
-        assert_eq!(
-            table, "users",
-            "a department may reference users and nothing else; found `{table}`"
-        );
-        assert!(
-            matches!(from.as_str(), "created_by" | "updated_by"),
-            "unexpected foreign key column `{from}`"
-        );
+        match from.as_str() {
+            "created_by" | "updated_by" => assert_eq!(
+                table, "users",
+                "attribution must point at users; found `{table}`"
+            ),
+            "parent_id" => assert_eq!(
+                table, "departments",
+                "a sub-category's parent is a category; found `{table}`"
+            ),
+            other => panic!("unexpected foreign key column `{other}` to `{table}`"),
+        }
         assert_eq!(
             on_delete, "RESTRICT",
-            "attribution must survive, so a referenced user may not be deleted"
+            "nothing referenced may be deleted from under a category: `{from}`"
         );
     }
 }

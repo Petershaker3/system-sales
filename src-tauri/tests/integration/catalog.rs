@@ -105,6 +105,7 @@ fn new_product(name: &str) -> NewProduct {
         disposition: Disposition::Quantity,
         barcode: None,
         sale_price_minor: None,
+        category: None,
     }
 }
 

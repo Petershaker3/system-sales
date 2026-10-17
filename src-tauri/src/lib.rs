@@ -53,6 +53,7 @@ pub fn run() {
             commands::catalog::update_product,
             commands::catalog::set_product_archived,
             commands::catalog::find_product_by_barcode,
+            commands::catalog::set_product_category,
             commands::identity_lifecycle::change_own_password,
             commands::identity_lifecycle::list_users_for_management,
             commands::identity_lifecycle::create_user,
@@ -66,12 +67,12 @@ pub fn run() {
             commands::identity_lifecycle::enable_user,
             commands::identity_lifecycle::set_username,
             commands::identity_lifecycle::password_change_required,
-            commands::departments::create_department,
-            commands::departments::get_department,
-            commands::departments::list_departments,
-            commands::departments::update_department,
-            commands::departments::set_department_archived,
-            commands::departments::reorder_departments,
+            commands::categories::list_categories,
+            commands::categories::create_category,
+            commands::categories::rename_category,
+            commands::categories::set_category_hidden,
+            commands::categories::move_category,
+            commands::categories::delete_category,
             commands::settings::read_settings,
             commands::settings::update_setting,
             commands::settings::read_appearance,
@@ -130,6 +131,14 @@ pub fn run() {
             // Clear sessions that expired while the device was off. Housekeeping
             // only: no decision depends on it.
             let _ = tauri::async_runtime::block_on(services::identity::session::purge_expired(&pool));
+
+            // The default categories, for a database made before the tree
+            // (ADR-018 §1). Added once, by fixed id; on a device with no manager
+            // yet nothing happens, and setup adds them. Best effort: a shop
+            // whose defaults could not be added still opens and sells.
+            let _ = tauri::async_runtime::block_on(
+                services::organisation::categories::add_default_categories(&pool),
+            );
 
             app.manage(IdentityContext::new(pool.clone(), tokens.clone()));
             // The catalogue shares the same pool and the same credential store.

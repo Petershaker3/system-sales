@@ -6,8 +6,9 @@
 
 pub mod backup;
 pub mod catalog;
+/// The category tree (ADR-018 §1). Replaces the department commands of SP-1b.
+pub mod categories;
 pub mod customer;
-pub mod departments;
 pub mod identity;
 pub mod identity_lifecycle;
 pub mod inventory;

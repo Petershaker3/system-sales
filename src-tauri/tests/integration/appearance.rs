@@ -156,6 +156,7 @@ async fn a_stored_display_choice_never_fails_a_sale_or_the_settings_read() {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(5000),
+            category: None,
         },
     )
     .await

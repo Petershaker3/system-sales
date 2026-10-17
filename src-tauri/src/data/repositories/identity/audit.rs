@@ -76,6 +76,12 @@ pub mod event {
 pub const DEPARTMENT_CREATED: &str = "department_created";
 pub const DEPARTMENT_UPDATED: &str = "department_updated";
 pub const DEPARTMENT_ARCHIVED: &str = "department_archived";
+/// An empty category was deleted (ADR-018 §1). Detail names it and its parent.
+pub const DEPARTMENT_DELETED: &str = "department_deleted";
+/// The missing part of the default category tree was added — with the first
+/// manager, or at start-up for a database made before the tree. Detail carries
+/// how many; one event for the whole tree, because nobody made them one by one.
+pub const DEFAULT_CATEGORIES_ADDED: &str = "default_categories_added";
 
 /// Inventory and costing (SP-2).
 ///

@@ -79,6 +79,7 @@ async fn product(shop: &Shop, name: &str, department: Option<DepartmentId>) -> S
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: None,
+            category: None,
         },
     )
     .await
@@ -844,6 +845,7 @@ async fn a_one_off_product_is_not_stock_tracked() {
             disposition: Disposition::OneOff,
             barcode: None,
             sale_price_minor: None,
+            category: None,
         },
     )
     .await

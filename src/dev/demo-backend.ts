@@ -31,18 +31,25 @@ interface DemoProduct {
   disposition: 'quantity' | 'serialized' | 'one_off';
   barcode: string | null;
   salePriceMinor: number | null;
-  departmentId: string | null;
+  categoryId: string | null;
   onHand: number;
   totalCostMinor: number;
   soldRecently: number;
   status: 'active' | 'archived';
 }
 
-interface DemoDepartment {
+// The category tree (ADR-018 §1), with the same rules as Rust: two levels, a
+// sub-category takes its parent's kind, names unique, defaults never deleted,
+// only an empty category deleted.
+interface DemoCategory {
   id: string;
   name: string;
+  parentId: string | null;
+  kind: 'item' | 'phone' | 'used';
+  icon: string;
+  hidden: boolean;
   sortOrder: number;
-  status: 'active' | 'archived';
+  isDefault: boolean;
 }
 
 const now = () => Date.now();
@@ -84,12 +91,31 @@ const users: DemoUser[] = [
   { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
 ];
 
-const departments: DemoDepartment[] = [
-  { id: 'd-chg', name: 'شواحن وكابلات', sortOrder: 0, status: 'active' },
-  { id: 'd-aud', name: 'سماعات', sortOrder: 1, status: 'active' },
-  { id: 'd-prt', name: 'حماية وجرابات', sortOrder: 2, status: 'active' },
-  { id: 'd-crd', name: 'كروت وشحن', sortOrder: 3, status: 'active' },
-  { id: 'd-acc', name: 'إكسسوارات تانية', sortOrder: 4, status: 'active' },
+const cat = (id: string, name: string, parentId: string | null, kind: DemoCategory['kind'], icon: string, sortOrder: number, isDefault = true): DemoCategory => ({
+  id,
+  name,
+  parentId,
+  kind,
+  icon,
+  hidden: false,
+  sortOrder,
+  isDefault,
+});
+
+// The default tree (PLAN §6), as Rust adds it, plus one category the owner made.
+const categories: DemoCategory[] = [
+  cat('c-phones', 'موبايلات جديدة', null, 'phone', 'smartphone', 10),
+  cat('c-used', 'مستعمل', null, 'used', 'recycle', 20),
+  cat('c-acc', 'إكسسوارات', null, 'item', 'package', 30),
+  cat('c-cases', 'جرابات', 'c-acc', 'item', 'shield', 10),
+  cat('c-screens', 'اسكرينات', 'c-acc', 'item', 'layers', 20),
+  cat('c-chargers', 'شواحن', 'c-acc', 'item', 'plug-zap', 30),
+  cat('c-cables', 'كابلات ووصلات', 'c-acc', 'item', 'cable', 40),
+  cat('c-audio', 'سماعات', 'c-acc', 'item', 'headphones', 50),
+  cat('c-power', 'باور بانك وميموري', 'c-acc', 'item', 'battery-charging', 60),
+  cat('c-car', 'حوامل', 'c-acc', 'item', 'car', 70),
+  cat('c-smart', 'ساعات ذكية', null, 'item', 'watch', 40),
+  cat('c-cards', 'كروت شحن', null, 'item', 'wallet-cards', 50, false),
 ];
 
 const p = (
@@ -97,7 +123,7 @@ const p = (
   price: number | null,
   onHand: number,
   sold: number,
-  dept: string | null,
+  category: string | null,
   barcode: string | null = null,
   disposition: DemoProduct['disposition'] = 'quantity'
 ): DemoProduct => ({
@@ -106,7 +132,7 @@ const p = (
   disposition,
   barcode,
   salePriceMinor: price === null ? null : price * 100,
-  departmentId: dept,
+  categoryId: category,
   onHand,
   totalCostMinor: price === null ? onHand * 500 : Math.round(price * 100 * 0.7) * onHand,
   soldRecently: sold,
@@ -114,26 +140,26 @@ const p = (
 });
 
 const products: DemoProduct[] = [
-  p('شاحن سامسونج 25 وات أصلي', 350, 14, 22, 'd-chg', '8806090000011'),
-  p('شاحن آيفون 20 وات', 450, 9, 18, 'd-chg', '1942530000027'),
-  p('كابل تايب سي 1 متر', 80, 40, 51, 'd-chg', '6901234500013'),
-  p('كابل لايتنينج أنكر', 150, 12, 9, 'd-chg'),
-  p('باور بانك 10000 مللي', 650, 6, 7, 'd-chg'),
-  p('سماعة بلوتوث JBL Tune', 1250, 4, 5, 'd-aud'),
-  p('سماعة سلك سامسونج', 120, 25, 16, 'd-aud'),
-  p('ايربودز برو', 600, 2, 11, 'd-aud'),
-  p('اسكرينة زجاج آيفون 13', 75, 60, 44, 'd-prt', '6970000000135'),
-  p('اسكرينة نانو سامسونج A54', 60, 35, 20, 'd-prt'),
-  p('جراب سيليكون آيفون 13', 90, 18, 27, 'd-prt'),
-  p('جراب شفاف سامسونج A15', 50, 30, 19, 'd-prt'),
-  p('كارت شحن فودافون 50', 50, 100, 80, 'd-crd'),
-  p('كارت شحن أورنج 25', 25, 100, 35, 'd-crd'),
-  p('كارت ميموري 64 جيجا', 250, 10, 6, 'd-acc'),
-  p('فلاشة 32 جيجا', 180, 0, 4, 'd-acc'),
-  p('حامل موبايل للعربية', 220, 5, 3, 'd-acc'),
-  p('ساعة ذكية T500', 550, 3, 2, 'd-acc'),
-  p('وصلة OTG', null, 8, 0, 'd-acc'),
-  p('موبايل سامسونج A15', 7500, 3, 0, null, null, 'serialized'),
+  p('شاحن سامسونج 25 وات أصلي', 350, 14, 22, 'c-chargers', '8806090000011'),
+  p('شاحن آيفون 20 وات', 450, 9, 18, 'c-chargers', '1942530000027'),
+  p('كابل تايب سي 1 متر', 80, 40, 51, 'c-cables', '6901234500013'),
+  p('كابل لايتنينج أنكر', 150, 12, 9, 'c-cables'),
+  p('باور بانك 10000 مللي', 650, 6, 7, 'c-power'),
+  p('سماعة بلوتوث JBL Tune', 1250, 4, 5, 'c-audio'),
+  p('سماعة سلك سامسونج', 120, 25, 16, 'c-audio'),
+  p('ايربودز برو', 600, 2, 11, 'c-audio'),
+  p('اسكرينة زجاج آيفون 13', 75, 60, 44, 'c-screens', '6970000000135'),
+  p('اسكرينة نانو سامسونج A54', 60, 35, 20, 'c-screens'),
+  p('جراب سيليكون آيفون 13', 90, 18, 27, 'c-cases'),
+  p('جراب شفاف سامسونج A15', 50, 30, 19, 'c-cases'),
+  p('كارت شحن فودافون 50', 50, 100, 80, 'c-cards'),
+  p('كارت شحن أورنج 25', 25, 100, 35, 'c-cards'),
+  p('كارت ميموري 64 جيجا', 250, 10, 6, 'c-power'),
+  p('فلاشة 32 جيجا', 180, 0, 4, 'c-power'),
+  p('حامل موبايل للعربية', 220, 5, 3, 'c-car'),
+  p('ساعة ذكية T500', 550, 3, 2, 'c-smart'),
+  p('وصلة OTG', null, 8, 0, 'c-cables'),
+  p('موبايل سامسونج A15', 7500, 3, 0, 'c-phones', null, 'serialized'),
 ];
 
 const appearance = { look: 'plate', theme: 'light', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin' };
@@ -181,6 +207,7 @@ const productDto = (x: DemoProduct) => ({
   disposition: x.disposition,
   barcode: x.barcode,
   salePriceMinor: x.salePriceMinor,
+  categoryId: x.categoryId,
   status: x.status,
   createdBy: 'u-peter',
   updatedBy: 'u-peter',
@@ -188,19 +215,24 @@ const productDto = (x: DemoProduct) => ({
   updatedAt: 0,
 });
 
-const departmentDto = (d: DemoDepartment) => ({
-  id: d.id,
-  name: d.name,
-  status: d.status,
-  costMethod: 'moving_average',
-  vat: { enabled: false, rateBp: null, inclusive: false },
-  sortOrder: d.sortOrder,
-  createdBy: 'u-peter',
-  updatedBy: 'u-peter',
-  createdAt: 0,
-  updatedAt: 0,
-  archivedAt: d.status === 'archived' ? 0 : null,
+const categoryDto = (c: DemoCategory) => ({
+  id: c.id,
+  name: c.name,
+  parentId: c.parentId,
+  kind: c.kind,
+  icon: c.icon,
+  hidden: c.hidden,
+  sortOrder: c.sortOrder,
 });
+const ordered = () => [...categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ar'));
+const findCategory = (id: string) => categories.find((c) => c.id === id) ?? fail('DEPARTMENT_NOT_FOUND');
+const nameTaken = (name: string, except: string | null) =>
+  categories.some((c) => c.id !== except && c.name.trim().toLowerCase() === name.trim().toLowerCase());
+const categoryOf = (args: Args): string | null => {
+  const id = args?.['categoryId'];
+  if (typeof id !== 'string') return null;
+  return categories.some((c) => c.id === id) ? id : fail('PRODUCT_CATEGORY_NOT_FOUND');
+};
 
 const str = (args: Args, key: string): string => {
   const v = args?.[key];
@@ -332,14 +364,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
           disposition: x.disposition,
           barcode: x.barcode,
           salePriceMinor: x.salePriceMinor,
-          departmentId: x.departmentId,
+          categoryId: x.categoryId,
           onHand: x.onHand,
           soldRecently: x.soldRecently,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
-      departments: departments
-        .filter((d) => d.status === 'active')
-        .map((d) => ({ id: d.id, name: d.name, sortOrder: d.sortOrder })),
+      categories: ordered().map(categoryDto),
     };
   },
   record_sale: (args) => {
@@ -393,7 +423,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       disposition: (str(args, 'disposition') || 'quantity') as DemoProduct['disposition'],
       barcode: str(args, 'barcode') || null,
       salePriceMinor: typeof price === 'number' ? price : null,
-      departmentId: null,
+      categoryId: categoryOf(args),
       onHand: 0,
       totalCostMinor: 0,
       soldRecently: 0,
@@ -408,6 +438,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (typeof args?.['name'] === 'string') x.name = str(args, 'name');
     if (typeof args?.['salePriceMinor'] === 'number') x.salePriceMinor = numArg(args, 'salePriceMinor');
     if (typeof args?.['barcode'] === 'string') x.barcode = str(args, 'barcode');
+    return productDto(x);
+  },
+  set_product_category: (args) => {
+    requireManager();
+    const x = findProduct(str(args, 'id'));
+    x.categoryId = categoryOf(args);
     return productDto(x);
   },
   set_product_archived: (args) => {
@@ -443,37 +479,77 @@ const handlers: Record<string, (args: Args) => unknown> = {
     x.totalCostMinor -= removed;
     return { productId: x.id, quantity: x.onHand, costMinor: removed };
   },
-  list_departments: () => {
+  // the category tree (ADR-018 §1)
+  list_categories: () => {
     requireManager();
-    return [...departments].sort((a, b) => a.sortOrder - b.sortOrder).map(departmentDto);
-  },
-  get_department: (args) => departmentDto(departments.find((d) => d.id === str(args, 'id')) ?? fail('DEPARTMENT_NOT_FOUND')),
-  create_department: (args) => {
-    requireManager();
-    const d: DemoDepartment = { id: newId('d'), name: str(args, 'name'), sortOrder: departments.length, status: 'active' };
-    departments.push(d);
-    return departmentDto(d);
-  },
-  update_department: (args) => {
-    requireManager();
-    const d = departments.find((x) => x.id === str(args, 'id')) ?? fail('DEPARTMENT_NOT_FOUND');
-    d.name = str(args, 'name') || d.name;
-    return departmentDto(d);
-  },
-  set_department_archived: (args) => {
-    requireManager();
-    const d = departments.find((x) => x.id === str(args, 'id')) ?? fail('DEPARTMENT_NOT_FOUND');
-    d.status = args?.['archived'] === true ? 'archived' : 'active';
-    return departmentDto(d);
-  },
-  reorder_departments: (args) => {
-    requireManager();
-    const ids = (args?.['orderedIds'] as string[] | undefined) ?? [];
-    ids.forEach((id, at) => {
-      const d = departments.find((x) => x.id === id);
-      if (d !== undefined) d.sortOrder = at;
+    return ordered().map((c) => {
+      const direct = products.filter((x) => x.categoryId === c.id);
+      const hasSubs = categories.some((y) => y.parentId === c.id);
+      return {
+        ...categoryDto(c),
+        products: direct.filter((x) => x.status === 'active').length,
+        isDefault: c.isDefault,
+        deletable: !c.isDefault && !hasSubs && direct.length === 0,
+      };
     });
-    return [...departments].sort((a, b) => a.sortOrder - b.sortOrder).map(departmentDto);
+  },
+  create_category: (args) => {
+    requireManager();
+    const name = str(args, 'name').trim();
+    if (name === '') fail('DEPARTMENT_NAME_REQUIRED');
+    if (nameTaken(name, null)) fail('CATEGORY_NAME_TAKEN');
+    const parentId = str(args, 'parentId') || null;
+    const parent = parentId === null ? null : findCategory(parentId);
+    if (parent !== null && parent.parentId !== null) fail('CATEGORY_PARENT_NOT_MAIN');
+    const asked = str(args, 'kind') as DemoCategory['kind'] | '';
+    if (parent !== null && asked !== '' && asked !== parent.kind) fail('CATEGORY_KIND_MISMATCH');
+    const siblings = categories.filter((c) => c.parentId === parentId);
+    const c = cat(
+      newId('c'),
+      name,
+      parentId,
+      parent?.kind ?? (asked || 'item'),
+      str(args, 'icon') || 'tag',
+      Math.max(0, ...siblings.map((x) => x.sortOrder)) + 10,
+      false
+    );
+    categories.push(c);
+    return categoryDto(c);
+  },
+  rename_category: (args) => {
+    requireManager();
+    const c = findCategory(str(args, 'id'));
+    const name = str(args, 'name').trim();
+    if (name === '') fail('DEPARTMENT_NAME_REQUIRED');
+    if (nameTaken(name, c.id)) fail('CATEGORY_NAME_TAKEN');
+    c.name = name;
+    return categoryDto(c);
+  },
+  set_category_hidden: (args) => {
+    requireManager();
+    const c = findCategory(str(args, 'id'));
+    c.hidden = args?.['hidden'] === true;
+    return categoryDto(c);
+  },
+  move_category: (args) => {
+    requireManager();
+    const c = findCategory(str(args, 'id'));
+    const siblings = ordered().filter((x) => x.parentId === c.parentId);
+    const at = siblings.indexOf(c);
+    const to = str(args, 'direction') === 'up' ? at - 1 : at + 1;
+    if (to >= 0 && to < siblings.length) {
+      [siblings[at], siblings[to]] = [siblings[to] as DemoCategory, siblings[at] as DemoCategory];
+      siblings.forEach((x, i) => (x.sortOrder = (i + 1) * 10));
+    }
+    return categoryDto(c);
+  },
+  delete_category: (args) => {
+    requireManager();
+    const c = findCategory(str(args, 'id'));
+    if (c.isDefault) fail('CATEGORY_IS_DEFAULT');
+    if (categories.some((x) => x.parentId === c.id)) fail('CATEGORY_HAS_SUBCATEGORIES');
+    if (products.some((x) => x.categoryId === c.id)) fail('CATEGORY_NOT_EMPTY');
+    categories.splice(categories.indexOf(c), 1);
   },
 
   // customers

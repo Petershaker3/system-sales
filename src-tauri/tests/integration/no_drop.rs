@@ -48,6 +48,7 @@ async fn stocked_shop() -> (SqlitePool, Arc<InMemoryTokenStore>, String) {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(150),
+            category: None,
         },
     )
     .await
@@ -223,6 +224,7 @@ async fn a_failure_partway_through_a_multi_line_sale_leaves_the_whole_sale_undon
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(150),
+            category: None,
         },
     )
     .await

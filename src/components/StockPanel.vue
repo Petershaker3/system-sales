@@ -301,7 +301,7 @@ void loadPickers();
 </template>
 
 <style scoped>
-/* Minimal, matching DepartmentsPanel. */
+/* Minimal, matching CatalogPanel. */
 .stock {
   margin-top: 1.5rem;
   padding-top: 1.25rem;

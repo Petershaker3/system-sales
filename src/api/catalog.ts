@@ -36,6 +36,8 @@ export interface Product {
    * (ADR-010).
    */
   readonly salePriceMinor: number | null;
+  /** The category it is in (ADR-018 §1), or `null` while unclassified. */
+  readonly categoryId: string | null;
   readonly status: ProductStatus;
   readonly createdBy: string;
   readonly updatedBy: string;
@@ -49,6 +51,8 @@ export interface NewProduct {
   readonly disposition: Disposition;
   readonly barcode?: string | null;
   readonly salePriceMinor?: number | null;
+  /** The category it goes in, or `null`/absent to leave it unclassified. */
+  readonly categoryId?: string | null;
 }
 
 /**
@@ -71,7 +75,17 @@ export async function createProduct(input: NewProduct): Promise<Product> {
     disposition: input.disposition,
     barcode: input.barcode ?? null,
     salePriceMinor: input.salePriceMinor ?? null,
+    categoryId: input.categoryId ?? null,
   });
+}
+
+/**
+ * Put a product in a category, or take it out with `null`. Its own command:
+ * a `null` in `update_product` means "leave it", so it could not say "take it
+ * out".
+ */
+export async function setProductCategory(id: string, categoryId: string | null): Promise<Product> {
+  return invoke<Product>('set_product_category', { id, categoryId });
 }
 
 export async function getProduct(id: string): Promise<Product> {

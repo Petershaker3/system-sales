@@ -12,9 +12,11 @@
 // The status filter is deliberately one-of-two rather than a combined list: an
 // operator should never see an archived product sitting next to a sellable one.
 
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 import * as api from '../api/catalog';
+import { listCategories } from '../api/categories';
+import type { CategoryEntry } from '../api/categories';
 import { describeError } from '../api/errors';
 import type { Disposition, Product, ProductStatus } from '../api/catalog';
 
@@ -39,6 +41,35 @@ const formBarcode = ref('');
  * the two are different states (ADR-010).
  */
 const formPriceMinor = ref('');
+/** The chosen category's id, or '' for none (ADR-018 §1). */
+const formCategory = ref('');
+
+/** The live categories, managed from the settings. */
+const categories = ref<CategoryEntry[]>([]);
+
+/** Mains in the owner's order, each followed by its sub-categories. */
+const categoryOptions = computed(() => {
+  const mains = categories.value.filter((c) => c.parentId === null);
+  return mains.flatMap((main) => [
+    { id: main.id, label: main.name },
+    ...categories.value
+      .filter((c) => c.parentId === main.id)
+      .map((sub) => ({ id: sub.id, label: `${sub.name} (${main.name})` })),
+  ]);
+});
+
+function categoryLabel(product: Product): string {
+  if (product.categoryId === null) return 'من غير تصنيف';
+  return categoryOptions.value.find((c) => c.id === product.categoryId)?.label ?? 'من غير تصنيف';
+}
+
+async function loadCategories(): Promise<void> {
+  try {
+    categories.value = await listCategories();
+  } catch (err) {
+    error.value = describeError(err);
+  }
+}
 
 function priceLabel(product: Product): string {
   if (product.salePriceMinor === null) return 'غير محدد';
@@ -90,6 +121,7 @@ function resetForm(): void {
   formDisposition.value = 'quantity';
   formBarcode.value = '';
   formPriceMinor.value = '';
+  formCategory.value = '';
 }
 
 function startEdit(product: Product): void {
@@ -101,6 +133,7 @@ function startEdit(product: Product): void {
   // save a free price onto a product that simply had none.
   formPriceMinor.value =
     product.salePriceMinor === null ? '' : (product.salePriceMinor / 100).toFixed(2);
+  formCategory.value = product.categoryId ?? '';
 }
 
 async function submit(): Promise<void> {
@@ -118,14 +151,17 @@ async function submit(): Promise<void> {
         disposition: formDisposition.value,
         barcode: formBarcode.value.trim() === '' ? null : formBarcode.value.trim(),
         salePriceMinor: price,
+        categoryId: formCategory.value === '' ? null : formCategory.value,
       });
     } else {
-      await api.updateProduct(editingId.value, {
+      const updated = await api.updateProduct(editingId.value, {
         name: formName.value,
         disposition: formDisposition.value,
         barcode: formBarcode.value.trim() === '' ? null : formBarcode.value.trim(),
         salePriceMinor: price,
       });
+      const chosen = formCategory.value === '' ? null : formCategory.value;
+      if (updated.categoryId !== chosen) await api.setProductCategory(updated.id, chosen);
     }
     error.value = '';
     resetForm();
@@ -182,7 +218,10 @@ function changeFilter(next: ProductStatus): void {
   void load();
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadCategories();
+});
 </script>
 
 <template>
@@ -240,6 +279,14 @@ onMounted(load);
       </label>
 
       <label class="field">
+        <span>التصنيف</span>
+        <select v-model="formCategory">
+          <option value="">من غير تصنيف</option>
+          <option v-for="c in categoryOptions" :key="c.id" :value="c.id">{{ c.label }}</option>
+        </select>
+      </label>
+
+      <label class="field">
         <span>الباركود (اختياري)</span>
         <input v-model="formBarcode" autocomplete="off" />
       </label>
@@ -276,8 +323,8 @@ onMounted(load);
         <div class="item-main">
           <span class="item-name">{{ product.name }}</span>
           <span class="hint">
-            {{ dispositionLabel(product.disposition) }} · {{ priceLabel(product) }} ·
-            {{ statusLabel(product.status) }}
+            {{ dispositionLabel(product.disposition) }} · {{ categoryLabel(product) }} ·
+            {{ priceLabel(product) }} · {{ statusLabel(product.status) }}
           </span>
           <span v-if="product.barcode" class="hint">{{ product.barcode }}</span>
         </div>

@@ -20,7 +20,7 @@ const RECENT_WINDOW_MILLIS: i64 = 30 * 24 * 60 * 60 * 1000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PosCatalog {
     pub products: Vec<repo::PosProductRow>,
-    pub departments: Vec<repo::PosDepartmentRow>,
+    pub categories: Vec<repo::PosCategoryRow>,
 }
 
 /// Read the sellable catalogue. No mutation, no transaction, no cost.
@@ -39,12 +39,12 @@ pub async fn read(
     let products = repo::list_sellable(&mut conn, since)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
-    let departments = repo::list_departments(&mut conn)
+    let categories = repo::list_categories(&mut conn)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
     Ok(PosCatalog {
         products,
-        departments,
+        categories,
     })
 }

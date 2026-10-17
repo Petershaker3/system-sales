@@ -81,6 +81,7 @@ async fn stocked_shop() -> (SqlitePool, Arc<InMemoryTokenStore>, String) {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(150),
+            category: None,
         },
     )
     .await
@@ -272,6 +273,7 @@ async fn a_serialized_product_cannot_be_sold_in_v1() {
             disposition: Disposition::Serialized,
             barcode: None,
             sale_price_minor: Some(500),
+            category: None,
         },
     )
     .await

@@ -733,6 +733,11 @@ mod migration_backward_compat;
 // separate reversal sale.
 mod sales;
 
+// Plan item 1.2 (ADR-018 §1): the two-level category tree — the default tree,
+// the owner's changes, the storage's own refusals, products in categories and
+// the sales catalogue.
+mod categories;
+
 // Plan item 1.1 (ADR-017 §4): the owner's recovery code — made with the
 // password, shown once, replacing a forgotten password, sharing the lockout,
 // and burnt by use. Replaces the retired `recovery` build of plan R1.

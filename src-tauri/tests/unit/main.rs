@@ -19,8 +19,9 @@ use mobile_shop_system_lib::domain::identity::{
 };
 use mobile_shop_system_lib::domain::money::{MoneyError, Piastres};
 use mobile_shop_system_lib::domain::organisation::{
-    CostMethod, Department, DepartmentError, DepartmentId, DepartmentName, DepartmentStatus,
-    DepartmentVat, VatRate,
+    can_delete, is_default_category, CategoryIcon, CategoryKind, CategoryPlacement, CostMethod,
+    Department, DepartmentError, DepartmentId, DepartmentName, DepartmentStatus, DepartmentVat,
+    VatRate, CATEGORY_ICONS, DEFAULT_CATEGORIES,
 };
 use mobile_shop_system_lib::domain::settings::{
     DiscountKind, SettingKey, SettingsError, SettingsSnapshot, PATTERN_REQUIRED,
@@ -1076,6 +1077,13 @@ fn every_department_error_has_a_stable_screaming_snake_code() {
         DepartmentError::VatRateRequired,
         DepartmentError::VatRateNegative,
         DepartmentError::ArchiveStateInconsistent,
+        DepartmentError::NameTaken,
+        DepartmentError::ParentNotMain,
+        DepartmentError::IconUnknown,
+        DepartmentError::KindMismatch,
+        DepartmentError::IsDefault,
+        DepartmentError::HasSubcategories,
+        DepartmentError::NotEmpty,
     ] {
         let code = error.code();
         assert!(!code.is_empty(), "{error:?} produced an empty code");
@@ -1091,6 +1099,176 @@ fn every_department_error_has_a_stable_screaming_snake_code() {
         );
         assert!(!error.to_string().is_empty());
     }
+}
+
+// ---------------------------------------------------------------------------
+// The category tree (ADR-018 §1)
+// ---------------------------------------------------------------------------
+
+fn main_category(name: &str, kind: CategoryKind) -> Department {
+    Department::new_category(
+        DepartmentName::new(name).expect("name"),
+        CategoryPlacement::Main(kind),
+        CategoryIcon::tag(),
+        10,
+        UserId::generate(),
+        1_000,
+    )
+    .expect("a main category")
+}
+
+#[test]
+fn the_default_tree_is_the_plans_with_fixed_unique_ids() {
+    // PLAN §6: four mains, and seven sub-categories under «إكسسوارات».
+    assert_eq!(DEFAULT_CATEGORIES.len(), 11);
+    let mains: Vec<&str> = DEFAULT_CATEGORIES
+        .iter()
+        .filter(|c| c.parent.is_none())
+        .map(|c| c.name)
+        .collect();
+    assert_eq!(mains, vec!["موبايلات جديدة", "مستعمل", "إكسسوارات", "ساعات ذكية"]);
+
+    let mut ids: Vec<&str> = DEFAULT_CATEGORIES.iter().map(|c| c.id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 11, "every default has its own id");
+    let mut names: Vec<&str> = DEFAULT_CATEGORIES.iter().map(|c| c.name).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), 11, "names are unique across the tree");
+
+    for default in DEFAULT_CATEGORIES.iter() {
+        assert!(
+            uuid::Uuid::parse_str(default.id).is_ok(),
+            "`{}` must be a real UUID, or its row could never be read back",
+            default.id
+        );
+        assert!(!default.department_id().as_uuid().is_nil());
+        assert!(is_default_category(default.department_id()));
+        assert!(CATEGORY_ICONS.contains(&default.icon), "`{}` has no icon", default.name);
+        if let Some(parent) = default.parent {
+            let parent = DEFAULT_CATEGORIES
+                .iter()
+                .find(|c| c.id == parent)
+                .expect("the parent is a default");
+            assert!(parent.parent.is_none(), "two levels: `{}`", default.name);
+            assert_eq!(default.kind, parent.kind, "`{}` takes its parent's kind", default.name);
+            let at = |id: &str| DEFAULT_CATEGORIES.iter().position(|c| c.id == id);
+            assert!(at(parent.id) < at(default.id), "a parent is added before its subs");
+        }
+    }
+    let kind_of = |name: &str| {
+        DEFAULT_CATEGORIES
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| c.kind)
+    };
+    assert_eq!(kind_of("موبايلات جديدة"), Some(CategoryKind::Phone));
+    assert_eq!(kind_of("مستعمل"), Some(CategoryKind::Used));
+    assert_eq!(kind_of("إكسسوارات"), Some(CategoryKind::Item));
+    assert!(!is_default_category(DepartmentId::generate()));
+}
+
+#[test]
+fn a_category_kind_reads_back_as_itself_and_nothing_else_is_one() {
+    for kind in [CategoryKind::Item, CategoryKind::Phone, CategoryKind::Used] {
+        assert_eq!(CategoryKind::parse(kind.as_str()), Some(kind));
+    }
+    assert_eq!(CategoryKind::parse("quantity"), None);
+    assert_eq!(CategoryKind::parse(""), None);
+}
+
+#[test]
+fn a_sub_category_takes_its_mains_kind_and_the_tree_stops_at_two_levels() {
+    let phones = main_category("Phones", CategoryKind::Phone);
+    let cases = Department::new_category(
+        DepartmentName::new("Cases").expect("name"),
+        CategoryPlacement::Under(&phones),
+        CategoryIcon::new("shield").expect("icon"),
+        10,
+        UserId::generate(),
+        2_000,
+    )
+    .expect("a sub-category");
+    assert_eq!(cases.parent, Some(phones.id));
+    assert_eq!(cases.kind, CategoryKind::Phone, "the parent's kind, whatever else");
+    assert!(!cases.is_main());
+    assert!(!cases.hidden);
+    assert_eq!(cases.cost_method, CostMethod::MovingAverage);
+    assert!(!cases.vat.is_enabled());
+
+    let third = Department::new_category(
+        DepartmentName::new("Too deep").expect("name"),
+        CategoryPlacement::Under(&cases),
+        CategoryIcon::tag(),
+        10,
+        UserId::generate(),
+        3_000,
+    );
+    assert_eq!(third.err(), Some(DepartmentError::ParentNotMain));
+
+    let mut closed = main_category("Closed", CategoryKind::Item);
+    closed.archive(UserId::generate(), 4_000).expect("archive");
+    let under_closed = Department::new_category(
+        DepartmentName::new("Under a closed one").expect("name"),
+        CategoryPlacement::Under(&closed),
+        CategoryIcon::tag(),
+        10,
+        UserId::generate(),
+        5_000,
+    );
+    assert_eq!(under_closed.err(), Some(DepartmentError::IsArchived));
+}
+
+#[test]
+fn a_category_icon_is_one_of_the_list() {
+    assert_eq!(CategoryIcon::new("watch").map(|i| i.as_str().to_string()), Ok("watch".to_string()));
+    assert_eq!(CategoryIcon::new("rocket"), Err(DepartmentError::IconUnknown));
+    assert_eq!(CategoryIcon::new(""), Err(DepartmentError::IconUnknown));
+    assert_eq!(CategoryIcon::tag().as_str(), "tag");
+    assert!(CATEGORY_ICONS.contains(&"recycle"), "the second-hand category's icon");
+}
+
+#[test]
+fn a_stored_row_that_is_its_own_parent_is_refused() {
+    let category = main_category("Loop", CategoryKind::Item);
+    let id = category.id;
+    let refused = category.with_tree(Some(id), CategoryKind::Item, CategoryIcon::tag(), false);
+    assert_eq!(refused.err(), Some(DepartmentError::ParentNotMain));
+}
+
+#[test]
+fn renaming_hiding_and_moving_change_a_live_category_only() {
+    let actor = UserId::generate();
+    let mut category = main_category("Cards", CategoryKind::Item);
+    category
+        .rename(DepartmentName::new("Top-up cards").expect("name"), actor, 6_000)
+        .expect("rename");
+    category.set_hidden(true, actor, 7_000).expect("hide");
+    category.set_sort_order(30, actor, 8_000).expect("move");
+    assert_eq!(category.name.as_str(), "Top-up cards");
+    assert!(category.hidden);
+    assert_eq!(category.sort_order, 30);
+    assert_eq!(category.updated_at, 8_000);
+    assert_eq!(category.updated_by, actor);
+
+    category.archive(actor, 9_000).expect("archive");
+    assert_eq!(category.set_hidden(false, actor, 10_000), Err(DepartmentError::IsArchived));
+    assert_eq!(category.set_sort_order(10, actor, 10_000), Err(DepartmentError::IsArchived));
+    assert_eq!(
+        category.rename(DepartmentName::new("Again").expect("name"), actor, 10_000),
+        Err(DepartmentError::IsArchived)
+    );
+}
+
+#[test]
+fn only_an_empty_category_the_owner_made_may_be_deleted() {
+    let default = DEFAULT_CATEGORIES[0].department_id();
+    assert_eq!(can_delete(default, false, 0), Err(DepartmentError::IsDefault));
+    let own = DepartmentId::generate();
+    assert_eq!(can_delete(own, true, 0), Err(DepartmentError::HasSubcategories));
+    assert_eq!(can_delete(own, false, 1), Err(DepartmentError::NotEmpty));
+    assert_eq!(can_delete(own, false, 0), Ok(()));
 }
 
 // ---------------------------------------------------------------------------

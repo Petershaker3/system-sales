@@ -48,6 +48,7 @@ async fn shop_with_one_sale() -> (SqlitePool, Arc<InMemoryTokenStore>, String) {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: Some(150),
+            category: None,
         },
     )
     .await

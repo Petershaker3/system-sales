@@ -3,7 +3,7 @@
 //
 // - A scanned or typed barcode that matches exactly wins outright.
 // - Otherwise every word of the query must appear in the product's name, its
-//   barcode or its department's name; names that start with the first word come
+//   barcode or its category's name (and its parent's); names that start with the first word come
 //   first, then names that contain the whole query, then the best sellers.
 
 import { normalize } from '../../ui/arabic.ts';
@@ -12,7 +12,8 @@ export interface Searchable {
   readonly id: string;
   readonly name: string;
   readonly barcode: string | null;
-  readonly departmentName: string;
+  /** Its category's name and its parent's (ADR-018 §1). */
+  readonly categoryWords: string;
   readonly soldRecently: number;
 }
 
@@ -26,7 +27,7 @@ export interface Indexed<T extends Searchable> {
 export function buildIndex<T extends Searchable>(items: readonly T[]): Indexed<T>[] {
   return items.map((item) => ({
     item,
-    hay: normalize([item.name, item.barcode ?? '', item.departmentName].join(' ')),
+    hay: normalize([item.name, item.barcode ?? '', item.categoryWords].join(' ')),
     normName: normalize(item.name),
     barcode: normalize(item.barcode ?? ''),
   }));

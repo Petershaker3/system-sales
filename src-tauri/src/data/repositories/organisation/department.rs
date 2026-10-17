@@ -24,11 +24,12 @@ use uuid::Uuid;
 
 use crate::domain::identity::UserId;
 use crate::domain::organisation::{
-    CostMethod, Department, DepartmentError, DepartmentId, DepartmentName, DepartmentStatus,
-    DepartmentVat, VatRate,
+    CategoryIcon, CategoryKind, CostMethod, Department, DepartmentError, DepartmentId,
+    DepartmentName, DepartmentStatus, DepartmentVat, VatRate,
 };
 
-/// The thirteen columns every read selects.
+/// The seventeen columns every read selects: the thirteen of `0004` and the
+/// four of the category tree (`0016`).
 ///
 /// Written out in each statement as a literal, the way `repositories/catalog`
 /// does. SQLx 0.9 requires SQL to be a literal it can audit rather than a
@@ -49,8 +50,9 @@ pub async fn insert(
     sqlx::query(
         "INSERT INTO departments
          (id, name, status, cost_method, vat_enabled, vat_rate_bp, vat_inclusive,
-          sort_order, created_by, updated_by, created_at, updated_at, archived_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+          sort_order, created_by, updated_by, created_at, updated_at, archived_at,
+          parent_id, kind, icon, hidden)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
     )
     .bind(department.id.as_str())
     .bind(department.name.as_str())
@@ -67,6 +69,10 @@ pub async fn insert(
     // A genuine None for a live department. Binding a zero here would invent an
     // archive moment that never happened.
     .bind(department.archived_at)
+    .bind(department.parent.map(|id| id.as_str()))
+    .bind(department.kind.as_str())
+    .bind(department.icon.as_str())
+    .bind(encode_bool(department.hidden))
     .execute(conn)
     .await?;
     Ok(())
@@ -79,7 +85,7 @@ pub async fn find_by_id(
     let row = sqlx::query(
         "SELECT id, name, status, cost_method, vat_enabled, vat_rate_bp,
                 vat_inclusive, sort_order, created_by, updated_by,
-                created_at, updated_at, archived_at
+                created_at, updated_at, archived_at, parent_id, kind, icon, hidden
          FROM departments WHERE id = ?1",
     )
         .bind(id.as_str())
@@ -101,7 +107,7 @@ pub async fn list_all(conn: &mut SqliteConnection) -> Result<Vec<Department>, sq
     let rows = sqlx::query(
         "SELECT id, name, status, cost_method, vat_enabled, vat_rate_bp,
                 vat_inclusive, sort_order, created_by, updated_by,
-                created_at, updated_at, archived_at
+                created_at, updated_at, archived_at, parent_id, kind, icon, hidden
          FROM departments
          ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC",
     )
@@ -125,7 +131,7 @@ pub async fn list_active(conn: &mut SqliteConnection) -> Result<Vec<Department>,
     let rows = sqlx::query(
         "SELECT id, name, status, cost_method, vat_enabled, vat_rate_bp,
                 vat_inclusive, sort_order, created_by, updated_by,
-                created_at, updated_at, archived_at
+                created_at, updated_at, archived_at, parent_id, kind, icon, hidden
          FROM departments
          WHERE status = 'active'
          ORDER BY sort_order ASC, name COLLATE NOCASE ASC, id ASC",
@@ -157,7 +163,8 @@ pub async fn update(
     sqlx::query(
         "UPDATE departments
          SET name = ?2, cost_method = ?3, vat_enabled = ?4, vat_rate_bp = ?5,
-             vat_inclusive = ?6, sort_order = ?7, updated_by = ?8, updated_at = ?9
+             vat_inclusive = ?6, sort_order = ?7, updated_by = ?8, updated_at = ?9,
+             hidden = ?10
          WHERE id = ?1",
     )
     .bind(department.id.as_str())
@@ -169,9 +176,84 @@ pub async fn update(
     .bind(department.sort_order)
     .bind(department.updated_by.as_str())
     .bind(department.updated_at)
+    .bind(encode_bool(department.hidden))
     .execute(&mut *conn)
     .await?;
     Ok(())
+}
+
+/// Remove an empty category (ADR-018 §1). Returns how many rows went: `0`
+/// means there was no such row.
+///
+/// Whether it may go is the domain's (`organisation::can_delete`), decided from
+/// [`has_subcategories`] and [`count_products`] in the same transaction. The
+/// foreign keys refuse as well: a product or a sub-category still naming the
+/// row makes this statement fail rather than leave a dangling reference.
+pub async fn delete(conn: &mut SqliteConnection, id: DepartmentId) -> Result<u64, sqlx::Error> {
+    let done = sqlx::query("DELETE FROM departments WHERE id = ?1")
+        .bind(id.as_str())
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// Whether any category, live or archived, sits under `id`.
+pub async fn has_subcategories(
+    conn: &mut SqliteConnection,
+    id: DepartmentId,
+) -> Result<bool, sqlx::Error> {
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM departments WHERE parent_id = ?1 LIMIT 1")
+            .bind(id.as_str())
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(found.is_some())
+}
+
+/// How many products name `id` as their category, archived ones included.
+pub async fn count_products(
+    conn: &mut SqliteConnection,
+    id: DepartmentId,
+) -> Result<i64, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE department_id = ?1")
+        .bind(id.as_str())
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(count)
+}
+
+/// Live products per category, for the settings list: `(category id, count)`.
+/// Categories with none are absent.
+pub async fn active_product_counts(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT department_id, COUNT(*) FROM products
+          WHERE department_id IS NOT NULL AND status = 'active'
+          GROUP BY department_id",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows)
+}
+
+/// Whether a live category other than `except` already has `name`, compared
+/// the way the unique index compares (`COLLATE NOCASE`).
+pub async fn active_name_taken(
+    conn: &mut SqliteConnection,
+    name: &DepartmentName,
+    except: Option<DepartmentId>,
+) -> Result<bool, sqlx::Error> {
+    let found: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM departments
+          WHERE status = 'active' AND name = ?1 COLLATE NOCASE AND id <> COALESCE(?2, '')
+          LIMIT 1",
+    )
+    .bind(name.as_str())
+    .bind(except.map(|id| id.as_str()))
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(found.is_some())
 }
 
 /// Persist the one-way archive transition.
@@ -247,6 +329,10 @@ fn row_to_department(row: sqlx::sqlite::SqliteRow) -> Result<Department, sqlx::E
     let created_at: i64 = row.get("created_at");
     let updated_at: i64 = row.get("updated_at");
     let archived_at: Option<i64> = row.get("archived_at");
+    let parent_raw: Option<String> = row.get("parent_id");
+    let kind_raw: String = row.get("kind");
+    let icon_raw: String = row.get("icon");
+    let hidden_raw: i64 = row.get("hidden");
 
     // A corrupt row is an error, never a default. Defaulting an unknown status to
     // the lesser state, or an unparseable cost method to the first variant, would
@@ -293,9 +379,22 @@ fn row_to_department(row: sqlx::sqlite::SqliteRow) -> Result<Department, sqlx::E
             .map_err(|_| sqlx::Error::Protocol(format!("malformed {what} in departments")))
     };
 
+    // The tree columns of 0016, read as strictly as the rest: an unknown kind
+    // or icon is a row this build does not understand, never a default.
+    let kind = CategoryKind::parse(&kind_raw).ok_or_else(|| {
+        sqlx::Error::Protocol(format!("unknown kind in departments: {kind_raw}"))
+    })?;
+    let icon = CategoryIcon::new(&icon_raw).map_err(|e| reject(e, "unknown icon"))?;
+    let hidden = decode_bool(hidden_raw, "hidden")?;
+    let parent = match parent_raw {
+        Some(raw) => Some(DepartmentId::from_uuid(parse_uuid(raw, "parent_id")?)),
+        None => None,
+    };
+
     // Rehydration, not a struct literal: it is the domain's own check that
     // `status` and `archived_at` agree, and rehydrating is what keeps that check
-    // from being bypassed by a future column being added to the struct.
+    // from being bypassed by a future column being added to the struct. The tree
+    // columns go through `with_tree`, which refuses a row that is its own parent.
     Department::rehydrate(
         DepartmentId::from_uuid(parse_uuid(raw_id, "department id")?),
         // Rejects an empty or whitespace-only stored name. Not trimmed first: a
@@ -312,5 +411,6 @@ fn row_to_department(row: sqlx::sqlite::SqliteRow) -> Result<Department, sqlx::E
         updated_at,
         archived_at,
     )
+    .and_then(|department| department.with_tree(parent, kind, icon, hidden))
     .map_err(|e| reject(e, "inconsistent department state"))
 }

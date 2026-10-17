@@ -360,6 +360,9 @@ pub enum CatalogError {
     /// can say "you do not have permission" instead of "no such product", which
     /// would be a different and wrong statement.
     PermissionDenied,
+    /// The category named for a product does not exist or is archived
+    /// (ADR-018 §1).
+    CategoryNotFound,
 }
 
 impl CatalogError {
@@ -376,6 +379,7 @@ impl CatalogError {
             CatalogError::PriceNegative => "PRICE_NEGATIVE",
             CatalogError::ProductArchived => "PRODUCT_IS_ARCHIVED",
             CatalogError::PermissionDenied => "PERMISSION_DENIED",
+            CatalogError::CategoryNotFound => "PRODUCT_CATEGORY_NOT_FOUND",
         }
     }
 }
@@ -392,6 +396,7 @@ impl fmt::Display for CatalogError {
             CatalogError::PriceNegative => write!(f, "price cannot be negative"),
             CatalogError::ProductArchived => write!(f, "product is archived"),
             CatalogError::PermissionDenied => write!(f, "permission denied"),
+            CatalogError::CategoryNotFound => write!(f, "no live category with this id"),
         }
     }
 }

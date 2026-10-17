@@ -1332,7 +1332,13 @@ fn username_normalisation_stays_in_the_domain() {
 // Authority, settings and the owner's approval (SP-1b/c; ADR-017 §3)
 // ---------------------------------------------------------------------------
 
-const DEPARTMENTS_COMMANDS: &str = include_str!("../../src/commands/departments.rs");
+/// The category commands (ADR-018 §1), which replaced the department commands
+/// of SP-1b (archived with their panel).
+const CATEGORY_COMMANDS: &str = include_str!("../../src/commands/categories.rs");
+const CATEGORIES_SERVICE: &str =
+    include_str!("../../src/services/organisation/categories.rs");
+const CATEGORY_TREE_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0016_category_tree.sql");
 const SETTINGS_COMMANDS: &str = include_str!("../../src/commands/settings.rs");
 const ORGANISATION_SERVICE: &str =
     include_str!("../../src/services/organisation/departments.rs");
@@ -1346,7 +1352,7 @@ const AUDIT_EVENTS: &str = include_str!("../../src/data/repositories/identity/au
 /// approval is an identity command, covered with the identity rules.
 fn authority_command_modules() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("departments", DEPARTMENTS_COMMANDS),
+        ("categories", CATEGORY_COMMANDS),
         ("settings", SETTINGS_COMMANDS),
     ]
 }
@@ -1386,7 +1392,7 @@ fn authority_commands_take_no_token_role_or_actor() {
         .into_iter()
         .flat_map(|(_, source)| command_parameters(&code_only(source)))
         .collect();
-    for known in ["ctx", "ordered_ids", "archived", "key", "value"] {
+    for known in ["ctx", "parent_id", "hidden", "direction", "key", "value"] {
         assert!(
             all.iter().any(|p| p == known),
             "expected the authority commands to still declare a `{known}` parameter; \
@@ -1427,6 +1433,7 @@ fn authority_services_never_touch_sql() {
     // the repository layer.
     for (name, source) in [
         ("departments", ORGANISATION_SERVICE),
+        ("categories", CATEGORIES_SERVICE),
         ("settings", SETTINGS_SERVICE),
         ("approval", APPROVAL_SERVICE),
     ] {
@@ -1505,6 +1512,12 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
         assert!(
             declared.contains(&added_by_item_1_1.to_string()),
             "`{added_by_item_1_1}` must stay in the audit event vocabulary (ADR-017)"
+        );
+    }
+    for added_by_item_1_2 in ["DEPARTMENT_DELETED", "DEFAULT_CATEGORIES_ADDED"] {
+        assert!(
+            declared.contains(&added_by_item_1_2.to_string()),
+            "`{added_by_item_1_2}` must stay in the audit event vocabulary (ADR-018)"
         );
     }
 }
@@ -1601,12 +1614,13 @@ fn every_authority_command_is_registered_in_lib() {
     // the application.
     let code = code_only(LIB);
     for (module, command) in [
-        ("departments", "create_department"),
-        ("departments", "get_department"),
-        ("departments", "list_departments"),
-        ("departments", "update_department"),
-        ("departments", "set_department_archived"),
-        ("departments", "reorder_departments"),
+        ("categories", "list_categories"),
+        ("categories", "create_category"),
+        ("categories", "rename_category"),
+        ("categories", "set_category_hidden"),
+        ("categories", "move_category"),
+        ("categories", "delete_category"),
+        ("catalog", "set_product_category"),
         ("settings", "read_settings"),
         ("settings", "update_setting"),
         ("inventory", "receive_stock"),
@@ -1730,8 +1744,8 @@ const COSTING_SERVICE: &str = include_str!("../../src/services/inventory/stock.r
 const INVENTORY_COMMANDS: &str = include_str!("../../src/commands/inventory.rs");
 const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts");
 const FRONTEND_STOCK_PANEL: &str = include_str!("../../../src/components/StockPanel.vue");
-const FRONTEND_DEPARTMENTS_PANEL: &str =
-    include_str!("../../../src/components/DepartmentsPanel.vue");
+const FRONTEND_CATEGORIES_CARD: &str =
+    include_str!("../../../src/screens/settings/CategoriesCard.vue");
 const FRONTEND_SETTINGS_PANEL: &str = include_str!("../../../src/components/SettingsPanel.vue");
 const INVENTORY_REPOSITORY: &str =
     include_str!("../../src/data/repositories/inventory/stock.rs");
@@ -1824,22 +1838,84 @@ fn the_null_and_zero_cost_distinction_survives_the_boundary() {
 }
 
 #[test]
-fn the_departments_panel_neither_offers_nor_shows_a_costing_method() {
+fn the_categories_card_neither_offers_nor_shows_a_costing_method() {
     // Every product counted by quantity is costed by moving average (ADR-016 #7,
-    // plan item 1.3). A department's stored method is inert, so showing it would
-    // suggest a choice that no longer exists, and binding it would be a control
-    // the backend refuses.
-    let panel = code_only(FRONTEND_DEPARTMENTS_PANEL);
+    // plan item 1.3). A category's stored method is inert, so showing it would
+    // suggest a choice that no longer exists. The card that replaced the
+    // departments panel (ADR-018 §1) carries the same guard.
+    let card = code_only(FRONTEND_CATEGORIES_CARD);
     for forbidden in [
-        "v-model=\"formCostMethod\"",
-        "costMethodLabel",
-        "readonly-method",
+        "costMethod",
+        "cost_method",
         "FIFO",
+        "fifo",
+        "vatRate",
+        "vat_rate",
     ] {
         assert!(
-            !panel.contains(forbidden),
-            "the departments panel must not offer or show a costing method (found `{forbidden}`)"
+            !card.contains(forbidden),
+            "the categories card must not offer or show a costing method or VAT (found `{forbidden}`)"
         );
+    }
+}
+
+#[test]
+fn the_retired_department_commands_stay_retired() {
+    // ADR-018 §1: archiving, the full re-order, and editing the inert costing
+    // method and VAT left with the departments panel. Registered, they would
+    // be reachable from the WebView (there is no command ACL) and could put
+    // the tree in states the screens never offer — an archived main with live
+    // sub-categories, say.
+    let lib = code_only(LIB);
+    for gone in [
+        "commands::departments::",
+        "create_department",
+        "update_department",
+        "set_department_archived",
+        "reorder_departments",
+        "list_departments",
+        "get_department",
+    ] {
+        assert!(!lib.contains(gone), "lib.rs must not register `{gone}` again");
+    }
+    assert!(
+        !code_only(COMMANDS_MOD).contains("mod departments"),
+        "commands/mod.rs must not bring the department commands back"
+    );
+}
+
+#[test]
+fn the_category_tree_is_two_levels_deep_in_storage_too() {
+    // The domain refuses a third level and a sub-category of another kind;
+    // migration 0016 refuses them again with triggers, so a write that skips
+    // the domain cannot break the tree either.
+    let sql = sql_only(CATEGORY_TREE_MIGRATION);
+    for required in [
+        "create trigger departments_tree_two_levels_insert",
+        "create trigger departments_tree_two_levels_update",
+        "create trigger departments_tree_kind_insert",
+        "create trigger departments_tree_kind_update",
+        "check (kind in ('item', 'phone', 'used'))",
+        "references departments (id) on delete restrict",
+    ] {
+        assert!(sql.contains(required), "0016 must keep `{required}`");
+    }
+    for forbidden in ["drop ", "delete from", "update departments set"] {
+        assert!(!sql.contains(forbidden), "0016 is additive only: found `{forbidden}`");
+    }
+    // The use cases read and write through the repository, and every change
+    // writes its audit row.
+    let service = code_only(CATEGORIES_SERVICE);
+    for required in [
+        "audit::event::DEPARTMENT_CREATED",
+        "audit::event::DEPARTMENT_UPDATED",
+        "audit::event::DEPARTMENT_DELETED",
+        "audit::event::DEFAULT_CATEGORIES_ADDED",
+        "Permission::ManageDepartments",
+        "can_delete(",
+        "serde_json::json!",
+    ] {
+        assert!(service.contains(required), "the category use cases must keep `{required}`");
     }
 }
 

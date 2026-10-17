@@ -83,6 +83,7 @@ async fn product(shop: &Shop) -> String {
             disposition: Disposition::Quantity,
             barcode: None,
             sale_price_minor: None,
+            category: None,
         },
     )
     .await
