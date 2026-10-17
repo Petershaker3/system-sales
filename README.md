@@ -100,7 +100,7 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 565 on CI (c6359a7): 31 lib + 149 unit + 306 integration + 79 architecture
+cargo test                        # 582 on CI (1792a86): 31 lib + 156 unit + 315 integration + 80 architecture
 cd ..
 
 # Frontend
@@ -211,14 +211,15 @@ gives each device its own file, per the superseded `ADR-008`; the companion
 arrives in phase 3 of `docs/PLAN.md`.)* Migrations are forward-only; rollback means restore a backup then
 fix forward, not run a `Down` script.
 
-Sixteen migrations (`0001`…`0016`), forward-only. Tables:
+Seventeen migrations (`0001`…`0017`), forward-only. Tables:
 
 | Table | Migration | Purpose |
 |---|---|---|
 | `users` | `0001` | Accounts, Argon2id verifiers, lockout counters |
 | `sessions` | `0001`, `0003`, `0015` | Token digest, assurance level, expiry; the pending owner-PIN approval (`approved_by`, `approved_at`, `0015`). The Pattern columns (`0007`) stay, unread |
 | `audit_events` | `0001` | Every attributed operation: identity, approvals, the recovery code, catalogue, departments, settings, stock, sales |
-| `products` | `0002`, `0005` | Product identity, disposition, department classification, prices |
+| `products` | `0002`, `0005`, `0017` | Product identity, disposition, category, prices; a phone's company, model, touch/keypad, storage and RAM (`0017`, whole or absent, by trigger) |
+| `brands` | `0017` | Phone companies: name, touch/keypad/both, order, hidden from «موبايل جديد» |
 | `user_credentials` | `0003`, `0015` | Login identifier, forced-change flag; the PIN and recovery-code **verifiers** and when the code was made (`0015`) |
 | `departments` | `0004`, `0016` | Product classification; since phase 1.2 the two-level category tree: parent, kind, icon, hidden (`0016`). The costing method and VAT defaults stay inert |
 | `app_settings` | `0006` | Device defaults; `product_price_history` records every price transition |
@@ -347,6 +348,14 @@ Implemented and tested:
   keep the tree two levels deep. The sales screen shows the mains and, under the
   chosen one, its sub-categories. The SP-1b department commands (costing method,
   VAT, archive, full re-order) were retired with their panel
+- Phone companies and «موبايل جديد» (phase 1.2, `ADR-018` §2): the owner keeps the
+  companies in Settings (touch, keypad or both; order; hidden from the new-phone
+  form; delete one he added that has no phone). The mockup's twelve are added once.
+  A new phone is registered from «المخزن» with its company, model, storage and
+  RAM; its name is built by the domain («Samsung Galaxy A16 128GB», «iPhone 16
+  128GB»), and the same phone twice is refused. On the sales screen a phone
+  category's second row is its companies, and search finds a phone by its company
+  in Arabic
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)
