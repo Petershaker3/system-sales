@@ -3,10 +3,10 @@
 // invoice, day, item and category, and cancelling from the list — is plan
 // item 1.14 (returns are 1.11). Until then it hosts the customer file.
 //
-// The old sale panel (components/SalesPanel.vue) is no longer shown: selling
-// happens on «البيع», and two ways to sell would only confuse the counter. It
-// is replaced, together with its narrow «cancel the sale I just recorded», by
-// the sales screen of item 1.14.
+// The old sale panel is archived (1.1: archive/superseded-2026-10-17/
+// sales-panel/): selling happens on «البيع», and two ways to sell would only
+// confuse the counter. Its narrow «cancel the sale I just recorded» returns
+// with the sales screen of item 1.14, behind the owner's PIN approval.
 import CustomerPanel from '../../components/CustomerPanel.vue';
 import Icon from '../../ui/Icon.vue';
 </script>

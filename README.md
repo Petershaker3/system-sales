@@ -16,15 +16,17 @@ Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQ
 > **Try the real app** (installer or browser demo, in Arabic): [`docs/TRY-THE-APP.md`](docs/TRY-THE-APP.md).
 >
 > **This README describes the code as it is today.** Pieces the plan replaces are marked
-> **→ plan** below: the Pattern step-up (→ owner PIN), cash-only sales (→ payments), and the
-> full-POS Android build (→ companion). FIFO and the costing-method switch are already retired
-> (phase 1.3, 2026-10-17; `ADR-002` only). Work order: [`tasks/todo.md`](tasks/todo.md).
+> **→ plan** below: cash-only sales (→ payments) and the full-POS Android build (→ companion).
+> FIFO and the costing-method switch are already retired (phase 1.3, 2026-10-17; `ADR-002`
+> only), and so are the Pattern step-up and the `recovery` build, replaced by the owner's PIN
+> approval and a recovery code (phase 1.1, 2026-10-17; `ADR-017`). Work order: [`tasks/todo.md`](tasks/todo.md).
 > Archived material and why: [`archive/README.md`](archive/README.md).
 
 > **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1) + Inventory & costing (SP-2) slices.**
 > Accounts, sessions, roles, the login flow, password management, user
 > administration, the product identity catalogue, department classification,
-> device settings and the Pattern step-up approval are implemented and tested.
+> device settings, PIN sign-in with the lock screen and quick switching, the
+> owner's PIN approval and the owner's recovery code are implemented and tested.
 > **Moving Average costing is implemented**: stock positions, receiving and
 > consumption. FIFO and the costing-method switch, built in SP-2, were retired in
 > phase 1.3 (2026-10-17): every quantity product is Moving Average, and a position
@@ -98,7 +100,7 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 520 on CI (854212d): 31 lib + 145 unit + 268 integration + 76 architecture
+cargo test                        # 543 on CI (5b8bde6): 31 lib + 142 unit + 293 integration + 77 architecture
 cd ..
 
 # Frontend
@@ -209,27 +211,28 @@ gives each device its own file, per the superseded `ADR-008`; the companion
 arrives in phase 3 of `docs/PLAN.md`.)* Migrations are forward-only; rollback means restore a backup then
 fix forward, not run a `Down` script.
 
-Eleven migrations (`0001`…`0011`), forward-only. Tables:
+Fifteen migrations (`0001`…`0015`), forward-only. Tables:
 
 | Table | Migration | Purpose |
 |---|---|---|
 | `users` | `0001` | Accounts, Argon2id verifiers, lockout counters |
-| `sessions` | `0001`, `0003` | Token digest, assurance level, Pattern approval, expiry |
-| `audit_events` | `0001` | Every attributed operation: identity, catalogue, departments, settings, Pattern, stock |
+| `sessions` | `0001`, `0003`, `0015` | Token digest, assurance level, expiry; the pending owner-PIN approval (`approved_by`, `approved_at`, `0015`). The Pattern columns (`0007`) stay, unread |
+| `audit_events` | `0001` | Every attributed operation: identity, approvals, the recovery code, catalogue, departments, settings, stock, sales |
 | `products` | `0002`, `0005` | Product identity, disposition, department classification, prices |
-| `user_credentials` | `0003` | Login identifier, forced-change flag |
+| `user_credentials` | `0003`, `0015` | Login identifier, forced-change flag; the PIN and recovery-code **verifiers** and when the code was made (`0015`) |
 | `departments` | `0004` | Product classification, plus its costing method and VAT defaults |
 | `app_settings` | `0006` | Device defaults; `product_price_history` records every price transition |
-| `manager_pattern` | `0007` | Exactly one row: a **verifier**, never the Pattern text, plus an epoch |
+| `manager_pattern` | `0007` | Retired in phase 1.1: unread since the owner's PIN approval replaced the Pattern |
 | `stock_levels` | `0008` | One stock counter per product (`product_id` alone, no location) |
 | `fifo_layers` | `0008` | Cost layers, consumed oldest-first by `(received_at, id)` |
 | `product_price_history` | `0006` | Every price transition, written in the same transaction as the change |
-| `recovery_approval` | `0009` | One-time supervised manager-recovery approval (recovery builds only) |
-| `recovery_attempt` | `0010` | Recovery attempts (recovery builds only) |
-| `sales` | `0011` | Sale header: immutable monotonic reference, cancellation state |
-| `sale_lines` | `0011` | Line snapshots: price/cost/profit at sale time, never recomputed |
-| `stock_movements` | `0011` | Movement ledger: the rebuild source |
+| `recovery_approval` | `0009` | Retired in phase 1.1 with the `recovery` build: unread |
+| `recovery_attempt` | `0010` | Retired in phase 1.1 with the `recovery` build: unread |
+| `sales` | `0011`, `0012` | Sale header: immutable monotonic reference, cancellation state; an optional customer link or name snapshot (`0012`) |
+| `sale_lines` | `0011`, `0013` | Line snapshots: price/cost/profit at sale time, never recomputed; warranty dates (`0013`) |
+| `stock_movements` | `0011`, `0014` | Movement ledger: the rebuild source; the supplier's name, on receipts only (`0014`) |
 | `sale_reversals` | `0011` | Cancellation reversals; no edit, no double-cancel |
+| `customers` | `0012` | Customer file: a name and one optional contact, never merged |
 
 There are deliberately **no** `sync_outbox` or `sync_cursors` tables.
 
@@ -343,10 +346,20 @@ Implemented and tested:
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)
-- **→ plan: replaced by owner-PIN approvals (phase 1.1, `ADR-016`).** Pattern step-up
-  approval: set, prove, reset with the Manager password (the only
-  recovery path) and disable. Approvals are five minutes, epoch-invalidated, and
-  never leave an audit trace (`SP-1c`, `ADR-014`)
+- PIN sign-in and the lock screen (phase 1.1, `ADR-017` §1–2): a 4–6 digit PIN per
+  account, kept as an Argon2id verifier; wrong PINs share the password's lockout (5
+  failures, 15 minutes); `Ctrl+L` or «قفل» locks without closing the open invoices,
+  and switching seller asks for that seller's PIN every time
+- The owner's PIN approval (phase 1.1, `ADR-017` §3), replacing the Pattern step-up
+  of `ADR-014`: a sensitive operation needs the owner's PIN, even on the owner's own
+  session. The approval lives two minutes, is spent once inside the operation's own
+  transaction, and is audited (`owner_approval_granted`, and `approved_by` on the
+  operation). Changing that PIN, disabling or demoting the owner withdraws it
+- The owner's recovery code (phase 1.1, `ADR-017` §4), replacing the `recovery`
+  build: 20 symbols without 0/O/1/I/L, shown once at setup and from Settings, kept
+  only as an Argon2id verifier. «نسيت كلمة السر؟» on the owner's lock card sets a new
+  password with it, ends every session and burns the code for a new one; a wrong
+  code counts against the shared lockout
 - Price history: changing a product's sale price writes the old and new value in
   the same transaction as the change itself (SP-1b)
 - Stock and costing (SP-2, simplified in phase 1.3): one stock counter per product,
@@ -355,8 +368,7 @@ Implemented and tested:
   phase 1.3 (`ADR-002`); positions recorded under FIFO collapse into an average on
   first touch (see [the costing authority rule](#the-costing-authority-rule))
 - Receiving a delivery is routine; declaring an opening balance is sensitive and
-  sits behind re-authentication and the Pattern (**→ plan:** approvals move to the
-  owner PIN) (`ADR-015`)
+  needs the owner's PIN approval (`ADR-015`, `ADR-017` §3)
 - Insufficient stock refuses the whole operation: no partial consumption, and a
   negative balance is impossible at the storage layer
 - Encrypted backup in-app (P2a, `ADR-003`): manager-only create/restore
@@ -404,7 +416,7 @@ Not started, and deliberately so:
 | Synchronisation | In-shop companion over Wi-Fi in phase 3 (`ADR-016`); the phone keeps no database, so there is nothing to merge. Cloud / remote viewing: phase 4, optional |
 | Payments beyond cash, split, credit | Phase 1.5 (`docs/PLAN.md` §8) — replaces the cash-only V1 (D3) |
 | Receipts, shift, services; the rest of the POS screen (IMEI, payments, discounts) | Phases 1.7, 1.9, 1.10; 1.4, 1.5, 1.6 — per the mockup |
-| PIN sign-in and quick user switch | Phase 1.1 — PIN on every switch |
+| PIN sign-in and quick user switch | Shipped in phase 1.1 (`ADR-017`) — PIN on every switch; measuring the 3-second switch on the shop's computer waits for the phase-1 acceptance day |
 | Repairs, used devices / trade-in, stocktake | Phase 2 |
 
 ### Schema foundation (SP-1)
@@ -445,10 +457,10 @@ configuration store. Full plan:
 | `departments` CRUD, re-order, archive/restore | Shipped. Audited (`department_created` / `department_updated` / `department_archived`); archived rows refuse edits and re-ordering; restore audits as `department_updated` |
 | Device settings: `read_settings` / `update_setting` | Shipped. Seven validated keys; unknown keys and malformed values refused; missing keys read as domain defaults |
 | Blanket re-authentication for `ManageSettings` | Shipped — both read and every write (`DomainError::ReauthenticationRequired`) |
-| Pattern approval (`pattern_set` / `pattern_reset`) | Shipped (`ADR-014`). The stored material never crosses the frontend; approvals are five minutes, epoch-invalidated, and deliberately un-audited |
+| Pattern approval (`pattern_set` / `pattern_reset`) | Shipped (`ADR-014`), then retired in phase 1.1 for the owner's PIN approval (`ADR-017` §3); the code is in `archive/superseded-2026-10-17/pattern/` |
 | Price history in the catalogue path | Shipped — old and new price written in the same transaction as the price change |
 | `migrations/0007` | Shipped. Two separate `ALTER TABLE` statements (SQLite rejects two clauses in one) |
-| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below |
+| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below. The Pattern panel was retired in phase 1.1 |
 
 No inventory, costing, purchasing or sales logic was added here — the 
 `departments.cost_method` column and the settings defaults stay inert until a
@@ -673,15 +685,21 @@ No secret appears in this document, and none is to be added to it.
    abandons the database entirely.
 6. A Manager reset runs **only from an authenticated Manager session**, gated on
    `Permission::ManageUsers` and therefore on a freshly proven password.
+7. The one way back without a session is the owner's **recovery code** (phase 1.1,
+   `ADR-017` §4; the owner's choice, `ADR-016` #32). Only a signed-in manager makes
+   one, with the current password; it is shown once to be written on paper, stored
+   only as an Argon2id verifier, counted against the shared lockout, and burnt by use.
 
 **What this means in practice**
 
-The recovery capability the Identity lifecycle slice added is real, and it is also
-not reachable in the one situation where it would be wanted. A manager reset needs
-a manager session; a manager session needs the password. So a device whose Manager
-password is forgotten remains unadministrable in V1 - not because the software
-lacks the feature, but because no unauthenticated entry point to it is permitted,
-and permitting one would be a backdoor.
+A manager reset needs a manager session, and a manager session needs the
+password, so the reset alone cannot help the owner who forgot it. Since phase 1.1
+the recovery code can: «نسيت كلمة السر؟» on the owner's lock card takes the code
+written on paper at setup and sets a new password. It is the only unauthenticated
+entry point, and it is deliberate - a secret of about 99 bits that the owner holds
+offline, not a backdoor in the software. An owner who never wrote a code down is
+still locked out of the owner's screens; that is why setup shows the first code
+and Settings → «كود الاسترجاع» makes a new one.
 
 The gap this section closes is a **testing and operations gap**, not an
 authentication design gap. The difference is worth preserving:
@@ -705,7 +723,7 @@ change at all.
 
 | Gap | Status |
 |---|---|
-| No password-change or password-reset flow | **Closed in the software.** Password change, manager reset and the forced-change gate exist. See the credential policy above for why they are still unreachable without a password. |
+| No password-change or password-reset flow | **Closed in the software.** Password change, manager reset and the forced-change gate exist. They need a password; the owner's recovery code (phase 1.1) is the one way back without it. |
 | No staff-creation flow | **Closed.** `create_user`, role change, disable/enable and username change exist behind `ManageUsers`. |
 | Verification credentials are not recorded anywhere | **Still open, and the sole blocker** for Android *behaviour* verification. It does not block migration or schema verification, which do not need a credential. See [Verification credential policy](#verification-credential-policy). |
 | `0005` preserving populated `products` on real Android | **UNVERIFIED.** The device held `products = 0`. Desktop tests are the evidence |
@@ -713,7 +731,7 @@ change at all.
 | WAL lifecycle in integration tests | **UNVERIFIED.** The in-memory pool cannot use WAL; device evidence covers it. Deferred to the backup work |
 | `ADR-005` referenced by the superseded Historical Reference slice | **Still open.** The file was never created; the slice itself is out of scope under `ADR-007`. Pre-existing, unrelated to Inventory |
 | Departments UI | **Not built.** The domain, repository and schema exist; no command, service or panel |
-| No documented way to reach a Manager session on a device whose password is unknown | **Closed.** A manager reset exists, but it needs an authenticated manager session to run from. Combined with the row above, this means a forgotten password on a single-owner device is still unrecoverable in practice. |
+| No documented way to reach a Manager session on a device whose password is unknown | **Closed in phase 1.1** by the owner's recovery code (`ADR-017` §4): written on paper at setup, it sets a new password from the lock card. An owner who never wrote one down is still unrecoverable. |
 
 Step 11 (`PERMISSION_DENIED` for a Sales role) is covered on desktop by
 `a_user_without_catalogue_permission_is_refused`, which uses the real SQLite
