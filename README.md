@@ -102,7 +102,7 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 582 on CI (1792a86): 31 lib + 156 unit + 315 integration + 80 architecture
+cargo test                        # 606 on CI: 31 lib + 171 unit + 323 integration + 81 architecture
 cd ..
 
 # Frontend
@@ -114,7 +114,8 @@ npm run build                     # typecheck + vite build -> dist/
 # Browser demo: the real screens on an in-memory stand-in for Rust (demo data,
 # password 1234 for every account). Never part of dist/ or of a Tauri build.
 npm run demo                      # vite --mode demo, on 0.0.0.0:5173
-node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 82 browser checks + screenshots
+node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 91 browser checks + screenshots
+
                                   # (borrows docs/ui/mockup-v1/tools: run `npm ci` there once)
 
 # CI (GitHub Actions, .github/workflows/ci.yml): every push runs the frontend
@@ -366,6 +367,18 @@ Implemented and tested:
   (`next_shop_code`, `domain/catalog/shop_code.rs`) and unique through the barcode
   column's UNIQUE index. The legacy product panel now only edits and archives; its
   create form was removed, since «صنف جديد» replaces it
+- Product variants (phase 1.2, `ADR-018` §4, migration `0018`): switching on «الصنف
+  ده ليه تفرعات» in the counted-item form registers a parent (`product_parents`) with
+  up to two dimensions (`NI_DIMS`: `الموبايل`, `اللون`, `النوع`, `المقاس`, `القوة`,
+  `الطول`, `المساحة`) and up to 60 combinations (`create_variants`). Each combination
+  becomes a `products` row (`parent_id`, `variant_1`, `variant_2`, `variant_order`,
+  enforced all-or-nothing by SQLite triggers) with its own barcode, sale price (or
+  the parent's default price when left blank), stock position and moving-average
+  cost; «اعمل أكواد للي من غير باركود» (`next_shop_codes`) fills blank rows with
+  consecutive EAN-13 shop codes. On the sales screen, variants of a parent collapse
+  into one `.tile.fam` tile (`X أنواع`, lowest price, total stock) that opens
+  `VariantPickerModal`, while search and barcode lookup find the variant itself
+
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)

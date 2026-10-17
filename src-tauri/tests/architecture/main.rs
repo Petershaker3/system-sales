@@ -1980,11 +1980,13 @@ fn product_variants_are_whole_in_storage_and_named_by_the_domain() {
     let sql = sql_only(VARIANTS_MIGRATION);
     for required in [
         "create table product_parents",
-        "create unique index idx_product_parents_category_name on product_parents (department_id, name collate nocase)",
+        "create unique index idx_product_parents_category_name",
+        "on product_parents (department_id, name collate nocase)",
         "add column parent_id text references product_parents (id) on delete restrict",
         "create trigger products_variant_details_insert",
         "create trigger products_variant_details_update",
     ] {
+
         assert!(sql.contains(required), "0018 must keep `{required}`");
     }
     for forbidden in ["drop ", "delete from", "insert into"] {
