@@ -242,7 +242,7 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
 
     assert_eq!(
         ledger(&pool).await,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
         "the pending migrations must be applied, not the whole chain re-run"
     );
     assert_intact(&pool, "after").await;
@@ -294,7 +294,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 14, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 15, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 }
