@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  brandChips,
+  brandPick,
   buildTree,
   chipVisible,
   inChip,
+  inSelection,
   keepSelection,
   mainChips,
   mainOf,
@@ -14,10 +17,11 @@ import {
 } from './categories.ts';
 import type { TreeCategory } from './categories.ts';
 
-const cat = (id: string, name: string, parentId: string | null = null, hidden = false): TreeCategory => ({
+const cat = (id: string, name: string, parentId: string | null = null, hidden = false, kind = 'item'): TreeCategory => ({
   id,
   name,
   parentId,
+  kind,
   icon: 'tag',
   hidden,
 });
@@ -108,4 +112,51 @@ test('search finds a product by its category\'s name and its parent\'s', () => {
   assert.equal(searchWords(tree, 'phones'), 'موبايلات جديدة');
   assert.equal(searchWords(tree, 'old'), 'إكسسوارات قديم', 'hidden still searchable');
   assert.equal(searchWords(tree, null), '');
+});
+
+// The companies under a phone category (ADR-018 §2).
+const PHONE_LIST: TreeCategory[] = [
+  cat('phones', 'موبايلات جديدة', null, false, 'phone'),
+  cat('acc', 'إكسسوارات'),
+  cat('cases', 'جرابات', 'acc'),
+];
+const BRANDS = [
+  { id: 'apple', name: 'Apple', sortOrder: 20 },
+  { id: 'samsung', name: 'Samsung', sortOrder: 10 },
+  { id: 'nokia', name: 'Nokia', sortOrder: 110 },
+];
+const PHONES = [
+  { categoryId: 'phones', brandId: 'apple' },
+  { categoryId: 'phones', brandId: 'samsung' },
+  { categoryId: 'phones', brandId: 'samsung' },
+  { categoryId: 'cases', brandId: null },
+  { categoryId: null, brandId: 'nokia' },
+];
+
+test('under a phone category the second row is its companies, in the owner\'s order', () => {
+  const tree = buildTree(PHONE_LIST);
+  assert.deepEqual(
+    brandChips(tree, 'phones', PHONES, BRANDS).map((c) => [c.id, c.name, c.count]),
+    [
+      ['phones~samsung', 'Samsung', 2],
+      ['phones~apple', 'Apple', 1],
+    ],
+    'only companies with phones under it; Nokia\'s one is unclassified'
+  );
+  assert.deepEqual(brandChips(tree, 'phones~apple', PHONES, BRANDS).length, 2, 'a chosen company keeps the row');
+  assert.deepEqual(brandChips(tree, 'acc', PHONES, BRANDS), [], 'counted goods show their sub-categories, not companies');
+  assert.deepEqual(brandChips(tree, 'all', PHONES, BRANDS), []);
+});
+
+test('a company chip filters the main category to that company, and clicking it again goes back', () => {
+  const tree = buildTree(PHONE_LIST);
+  assert.deepEqual(brandPick('phones~apple'), ['phones', 'apple']);
+  assert.equal(brandPick('phones'), null);
+  assert.equal(inSelection(tree, { categoryId: 'phones', brandId: 'apple' }, 'phones~apple'), true);
+  assert.equal(inSelection(tree, { categoryId: 'phones', brandId: 'samsung' }, 'phones~apple'), false);
+  assert.equal(inSelection(tree, { categoryId: 'cases', brandId: null }, 'acc'), true);
+  assert.equal(mainOf(tree, 'phones~apple'), 'phones');
+  assert.equal(toggle(tree, 'phones~apple', 'phones~apple'), 'phones');
+  assert.equal(keepSelection(tree, 'phones~apple'), 'phones~apple');
+  assert.equal(keepSelection(tree, 'gone~apple'), 'top');
 });

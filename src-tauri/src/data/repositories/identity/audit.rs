@@ -83,6 +83,14 @@ pub const DEPARTMENT_DELETED: &str = "department_deleted";
 /// how many; one event for the whole tree, because nobody made them one by one.
 pub const DEFAULT_CATEGORIES_ADDED: &str = "default_categories_added";
 
+/// Phone brands (ADR-018 §2): added, changed (renamed, touch/keypad/both,
+/// hidden, moved — the detail says which) and deleted, plus the default
+/// companies added once, like the default categories.
+pub const BRAND_CREATED: &str = "brand_created";
+pub const BRAND_UPDATED: &str = "brand_updated";
+pub const BRAND_DELETED: &str = "brand_deleted";
+pub const DEFAULT_BRANDS_ADDED: &str = "default_brands_added";
+
 /// Inventory and costing (SP-2).
 ///
 /// `COST_METHOD_SWITCHED` is its own event rather than a

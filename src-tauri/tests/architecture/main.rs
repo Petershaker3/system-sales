@@ -1339,6 +1339,13 @@ const CATEGORIES_SERVICE: &str =
     include_str!("../../src/services/organisation/categories.rs");
 const CATEGORY_TREE_MIGRATION: &str =
     include_str!("../../src/data/migrations/0016_category_tree.sql");
+/// Phone brands and registering a new phone (ADR-018 §2).
+const BRAND_COMMANDS: &str = include_str!("../../src/commands/brands.rs");
+const BRANDS_SERVICE: &str = include_str!("../../src/services/catalog/brands.rs");
+const PHONE_SERVICE: &str = include_str!("../../src/services/catalog/phone.rs");
+const BRAND_DOMAIN: &str = include_str!("../../src/domain/catalog/brand.rs");
+const BRANDS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0017_brands_and_phone_details.sql");
 const SETTINGS_COMMANDS: &str = include_str!("../../src/commands/settings.rs");
 const ORGANISATION_SERVICE: &str =
     include_str!("../../src/services/organisation/departments.rs");
@@ -1353,6 +1360,7 @@ const AUDIT_EVENTS: &str = include_str!("../../src/data/repositories/identity/au
 fn authority_command_modules() -> Vec<(&'static str, &'static str)> {
     vec![
         ("categories", CATEGORY_COMMANDS),
+        ("brands", BRAND_COMMANDS),
         ("settings", SETTINGS_COMMANDS),
     ]
 }
@@ -1434,6 +1442,8 @@ fn authority_services_never_touch_sql() {
     for (name, source) in [
         ("departments", ORGANISATION_SERVICE),
         ("categories", CATEGORIES_SERVICE),
+        ("brands", BRANDS_SERVICE),
+        ("phone", PHONE_SERVICE),
         ("settings", SETTINGS_SERVICE),
         ("approval", APPROVAL_SERVICE),
     ] {
@@ -1514,7 +1524,14 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
             "`{added_by_item_1_1}` must stay in the audit event vocabulary (ADR-017)"
         );
     }
-    for added_by_item_1_2 in ["DEPARTMENT_DELETED", "DEFAULT_CATEGORIES_ADDED"] {
+    for added_by_item_1_2 in [
+        "DEPARTMENT_DELETED",
+        "DEFAULT_CATEGORIES_ADDED",
+        "BRAND_CREATED",
+        "BRAND_UPDATED",
+        "BRAND_DELETED",
+        "DEFAULT_BRANDS_ADDED",
+    ] {
         assert!(
             declared.contains(&added_by_item_1_2.to_string()),
             "`{added_by_item_1_2}` must stay in the audit event vocabulary (ADR-018)"
@@ -1621,6 +1638,14 @@ fn every_authority_command_is_registered_in_lib() {
         ("categories", "move_category"),
         ("categories", "delete_category"),
         ("catalog", "set_product_category"),
+        ("brands", "list_brands"),
+        ("brands", "create_brand"),
+        ("brands", "rename_brand"),
+        ("brands", "set_brand_type"),
+        ("brands", "set_brand_hidden"),
+        ("brands", "move_brand"),
+        ("brands", "delete_brand"),
+        ("brands", "create_phone"),
         ("settings", "read_settings"),
         ("settings", "update_setting"),
         ("inventory", "receive_stock"),
@@ -1882,6 +1907,56 @@ fn the_retired_department_commands_stay_retired() {
         !code_only(COMMANDS_MOD).contains("mod departments"),
         "commands/mod.rs must not bring the department commands back"
     );
+}
+
+#[test]
+fn a_phone_is_whole_in_storage_and_named_by_the_domain() {
+    // ADR-018 §2. Migration 0017 refuses half a phone with triggers, so a
+    // write that skips the domain cannot leave a company without a model or a
+    // keypad phone with storage; and it only adds.
+    let sql = sql_only(BRANDS_MIGRATION);
+    for required in [
+        "create table brands",
+        "create unique index idx_brands_name on brands (name collate nocase)",
+        "check (device_type in ('touch', 'keypad', 'both'))",
+        "add column brand_id text references brands (id) on delete restrict",
+        "create trigger products_phone_details_insert",
+        "create trigger products_phone_details_update",
+    ] {
+        assert!(sql.contains(required), "0017 must keep `{required}`");
+    }
+    for forbidden in ["drop ", "delete from", "insert into"] {
+        assert!(!sql.contains(forbidden), "0017 is additive only: found `{forbidden}`");
+    }
+    // The name is built in one place, the domain, from the details; the use
+    // case checks the company makes that kind of phone and that it is new.
+    let domain = code_only(BRAND_DOMAIN);
+    for forbidden in ["sqlx", "tauri", "SqlitePool"] {
+        assert!(!domain.contains(forbidden), "the brand domain must not reference `{forbidden}`");
+    }
+    let service = code_only(PHONE_SERVICE);
+    for required in [
+        "phone_title(",
+        "brand_lines(",
+        ".allows(input.device_type)",
+        "find_phone(",
+        "BrandError::CategoryNotPhone",
+        "set_phone_details(",
+        "tx.commit()",
+    ] {
+        assert!(service.contains(required), "registering a phone must keep `{required}`");
+    }
+    let brands = code_only(BRANDS_SERVICE);
+    for required in [
+        "Permission::ManageCatalog",
+        "can_delete_brand(",
+        "audit::event::BRAND_CREATED",
+        "audit::event::BRAND_UPDATED",
+        "audit::event::BRAND_DELETED",
+        "audit::event::DEFAULT_BRANDS_ADDED",
+    ] {
+        assert!(brands.contains(required), "the brand use cases must keep `{required}`");
+    }
 }
 
 #[test]

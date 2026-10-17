@@ -5,6 +5,8 @@
 //! (`spec:45`, `spec:148`, `plan:157`).
 
 pub mod backup;
+/// Phone brands and registering a new phone (ADR-018 §2).
+pub mod brands;
 pub mod catalog;
 /// The category tree (ADR-018 §1). Replaces the department commands of SP-1b.
 pub mod categories;

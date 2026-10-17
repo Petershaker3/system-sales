@@ -70,6 +70,20 @@ export const ErrorCode = {
   CATEGORY_IS_DEFAULT: 'CATEGORY_IS_DEFAULT',
   CATEGORY_HAS_SUBCATEGORIES: 'CATEGORY_HAS_SUBCATEGORIES',
   CATEGORY_NOT_EMPTY: 'CATEGORY_NOT_EMPTY',
+  // Phone brands and a new phone (ADR-018 §2)
+  BRAND_NOT_FOUND: 'BRAND_NOT_FOUND',
+  BRAND_NAME_REQUIRED: 'BRAND_NAME_REQUIRED',
+  BRAND_NAME_TAKEN: 'BRAND_NAME_TAKEN',
+  BRAND_IS_DEFAULT: 'BRAND_IS_DEFAULT',
+  BRAND_NOT_EMPTY: 'BRAND_NOT_EMPTY',
+  BRAND_TYPE_UNKNOWN: 'BRAND_TYPE_UNKNOWN',
+  PHONE_MODEL_REQUIRED: 'PHONE_MODEL_REQUIRED',
+  PHONE_STORAGE_REQUIRED: 'PHONE_STORAGE_REQUIRED',
+  PHONE_KEYPAD_HAS_NO_SPECS: 'PHONE_KEYPAD_HAS_NO_SPECS',
+  PHONE_SPEC_INVALID: 'PHONE_SPEC_INVALID',
+  PHONE_BRAND_TYPE_MISMATCH: 'PHONE_BRAND_TYPE_MISMATCH',
+  PHONE_ALREADY_REGISTERED: 'PHONE_ALREADY_REGISTERED',
+  PHONE_CATEGORY_NOT_PHONE: 'PHONE_CATEGORY_NOT_PHONE',
   // الإعدادات
   SETTING_UNKNOWN_KEY: 'SETTING_UNKNOWN_KEY',
   SETTING_VALUE_INVALID: 'SETTING_VALUE_INVALID',
@@ -237,6 +251,21 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CATEGORY_HAS_SUBCATEGORIES]: 'التصنيف ده تحته تصنيفات. امسحهم الأول.',
   [ErrorCode.CATEGORY_NOT_EMPTY]: 'التصنيف ده فيه أصناف. انقلها لتصنيف تاني الأول.',
 
+  // شركات الموبايلات والموبايل الجديد
+  [ErrorCode.BRAND_NOT_FOUND]: 'الشركة دي مش موجودة. حدّث الصفحة.',
+  [ErrorCode.BRAND_NAME_REQUIRED]: 'اكتب اسم الشركة.',
+  [ErrorCode.BRAND_NAME_TAKEN]: 'فيه شركة بالاسم ده بالفعل.',
+  [ErrorCode.BRAND_IS_DEFAULT]: 'دي من الشركات الأساسية: تقدر تغيّر اسمها أو تخفيها، بس مش بتتمسح.',
+  [ErrorCode.BRAND_NOT_EMPTY]: 'الشركة دي ليها موبايلات متسجّلة، فمش بتتمسح. تقدر تخفيها.',
+  [ErrorCode.BRAND_TYPE_UNKNOWN]: 'اختار تاتش أو زراير أو الاتنين.',
+  [ErrorCode.PHONE_MODEL_REQUIRED]: 'اكتب الموديل.',
+  [ErrorCode.PHONE_STORAGE_REQUIRED]: 'اختار المساحة.',
+  [ErrorCode.PHONE_KEYPAD_HAS_NO_SPECS]: 'الموبايل الزراير ملوش مساحة ولا رام.',
+  [ErrorCode.PHONE_SPEC_INVALID]: 'المساحة أو الرام لازم رقم أكبر من صفر.',
+  [ErrorCode.PHONE_BRAND_TYPE_MISMATCH]: 'الشركة دي مش بتعمل النوع ده من الموبايلات (من الإعدادات).',
+  [ErrorCode.PHONE_ALREADY_REGISTERED]: 'الموبايل ده متسجّل بالفعل بنفس الشركة والموديل والمساحة والرام.',
+  [ErrorCode.PHONE_CATEGORY_NOT_PHONE]: 'الموبايل بيتسجّل في تصنيف «جهاز جهاز بالـ IMEI».',
+
   // الإعدادات
   [ErrorCode.SETTING_UNKNOWN_KEY]: 'إعداد غير معروف.',
   [ErrorCode.SETTING_VALUE_INVALID]: 'قيمة الإعداد غير صحيحة.',
@@ -246,8 +275,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'كمية غير صحيحة. لا يُقبل أن تكون الكمية سالبة أو صفرًا عند الخصم.',
   [ErrorCode.COST_NEGATIVE_TOTAL]: 'إجمالي تكلفة غير صحيح. لا يُقبل أن يكون سالبًا.',
   [ErrorCode.COST_INSUFFICIENT_STOCK]:
-    'الكمية المطلوبة أكبر من الكمية المتوفرة في المخزون.',
-  [ErrorCode.COST_ZERO_UNITS]: 'لا يُقبل حذف صفر وحدات من المخزون.',
+    'الكمية المطلوبة أكبر من الكمية المتوفرة في المخزن.',
+  [ErrorCode.COST_ZERO_UNITS]: 'لا يُقبل حذف صفر وحدات من المخزن.',
   [ErrorCode.COST_OVERFLOW]:
     'قيمة التكلفة أكبر من الحد المسموح. راجع الكمية أو سعر التوريد.',
 
@@ -273,7 +302,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'تعذّر توليد رقم الفاتورة لهذا اليوم. راجع إعداد بادئة الفاتورة.',
   [ErrorCode.SALE_ALREADY_CANCELLED]: 'تم إلغاء عملية البيع هذه من قبل.',
   [ErrorCode.SALE_REVERSAL_INCONSISTENT]:
-    'تعذّر إلغاء العملية: المخزون أو طريقة التكلفة تغيّرا منذ البيع. كلّم المسؤول الفني عن الجهاز.',
+    'تعذّر إلغاء العملية: المخزن أو طريقة التكلفة تغيّرا منذ البيع. كلّم المسؤول الفني عن الجهاز.',
   [ErrorCode.SALE_BUSY]:
     'المحل مشغول بكتابة أخرى. أعد المحاولة بعد لحظة.',
   [ErrorCode.SALE_CUSTOMER_ALREADY_LINKED]:

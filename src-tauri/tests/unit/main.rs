@@ -6,7 +6,10 @@
 //! than assumed.
 
 use mobile_shop_system_lib::domain::catalog::{
-    CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
+    brand_aliases, brand_lines, can_delete_brand, is_default_brand, phone_title, storage_label,
+    BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType, Disposition,
+    PhoneDetails, PhoneModel, Product, ProductId, ProductName, ProductStatus, SalePrice,
+    DEFAULT_BRANDS,
 };
 use mobile_shop_system_lib::domain::identity::{
     group_recovery_code, is_locked, normalize_recovery_code, password_is_acceptable,
@@ -1269,6 +1272,157 @@ fn only_an_empty_category_the_owner_made_may_be_deleted() {
     assert_eq!(can_delete(own, true, 0), Err(DepartmentError::HasSubcategories));
     assert_eq!(can_delete(own, false, 1), Err(DepartmentError::NotEmpty));
     assert_eq!(can_delete(own, false, 0), Ok(()));
+}
+
+// ---------------------------------------------------------------------------
+// Phone brands and a phone's details (ADR-018 §2)
+// ---------------------------------------------------------------------------
+
+fn model(text: &str) -> PhoneModel {
+    PhoneModel::new(text).expect("a model")
+}
+
+#[test]
+fn a_phone_is_named_from_its_details() {
+    // The same examples as src/screens/store/phone.test.ts.
+    assert_eq!(phone_title("Samsung", &[], &model("Galaxy A16"), Some(128)), "Samsung Galaxy A16 128GB");
+    assert_eq!(
+        phone_title("Apple", &["iPhone"], &model("iPhone 16"), Some(128)),
+        "iPhone 16 128GB",
+        "a line drops the company"
+    );
+    assert_eq!(
+        phone_title("Xiaomi", &["Redmi", "POCO"], &model("redmi 14C"), Some(256)),
+        "redmi 14C 256GB",
+        "whatever the case"
+    );
+    assert_eq!(
+        phone_title("Samsung", &[], &model("Samsung Galaxy S24"), Some(256)),
+        "Samsung Galaxy S24 256GB",
+        "never the company twice"
+    );
+    assert_eq!(phone_title("Nokia", &[], &model("105"), None), "Nokia 105", "a keypad phone has no storage");
+    assert_eq!(phone_title("Apple", &["iPhone"], &model("  iPhone   16  Pro "), Some(1024)), "iPhone 16 Pro 1TB");
+}
+
+#[test]
+fn storage_reads_in_gb_or_whole_terabytes_and_a_model_is_tidied() {
+    assert_eq!(storage_label(64), "64GB");
+    assert_eq!(storage_label(1024), "1TB");
+    assert_eq!(storage_label(2048), "2TB");
+    assert_eq!(storage_label(1536), "1536GB");
+    assert_eq!(model("  Galaxy   A16 ").as_str(), "Galaxy A16");
+    assert_eq!(PhoneModel::new("   "), Err(BrandError::ModelRequired));
+    assert_eq!(BrandName::new("  Motorola ").map(|n| n.as_str().to_string()), Ok("Motorola".to_string()));
+    assert_eq!(BrandName::new(" "), Err(BrandError::NameRequired));
+}
+
+#[test]
+fn a_touch_phone_names_its_storage_and_a_keypad_phone_has_none() {
+    let brand = BrandId::generate();
+    let touch = PhoneDetails::new(brand, "Galaxy A16", DeviceType::Touch, Some(128), Some(6)).expect("touch");
+    assert_eq!(touch.storage_gb, Some(128));
+    assert_eq!(touch.ram_gb, Some(6));
+    assert!(PhoneDetails::new(brand, "Galaxy A16", DeviceType::Touch, Some(128), None).is_ok(), "RAM is optional");
+    assert_eq!(
+        PhoneDetails::new(brand, "Galaxy A16", DeviceType::Touch, None, Some(6)).err(),
+        Some(BrandError::StorageRequired)
+    );
+    assert!(PhoneDetails::new(brand, "105", DeviceType::Keypad, None, None).is_ok());
+    assert_eq!(
+        PhoneDetails::new(brand, "105", DeviceType::Keypad, Some(32), None).err(),
+        Some(BrandError::KeypadHasNoSpecs)
+    );
+    assert_eq!(
+        PhoneDetails::new(brand, "105", DeviceType::Keypad, None, Some(1)).err(),
+        Some(BrandError::KeypadHasNoSpecs)
+    );
+    assert_eq!(
+        PhoneDetails::new(brand, "A16", DeviceType::Touch, Some(0), None).err(),
+        Some(BrandError::SpecInvalid)
+    );
+    assert_eq!(
+        PhoneDetails::new(brand, " ", DeviceType::Touch, Some(64), None).err(),
+        Some(BrandError::ModelRequired)
+    );
+}
+
+#[test]
+fn a_company_makes_touch_keypad_or_both() {
+    assert!(BrandDeviceType::Both.allows(DeviceType::Touch));
+    assert!(BrandDeviceType::Both.allows(DeviceType::Keypad));
+    assert!(BrandDeviceType::Touch.allows(DeviceType::Touch));
+    assert!(!BrandDeviceType::Touch.allows(DeviceType::Keypad));
+    assert!(!BrandDeviceType::Keypad.allows(DeviceType::Touch));
+    for kind in [BrandDeviceType::Touch, BrandDeviceType::Keypad, BrandDeviceType::Both] {
+        assert_eq!(BrandDeviceType::parse(kind.as_str()), Some(kind));
+    }
+    assert_eq!(BrandDeviceType::parse("flip"), None);
+    assert_eq!(DeviceType::parse("both"), None, "one phone is touch or keypad, never both");
+}
+
+#[test]
+fn the_default_companies_are_the_mockups_under_fixed_unique_ids() {
+    assert_eq!(DEFAULT_BRANDS.len(), 12);
+    let mut ids: Vec<&str> = DEFAULT_BRANDS.iter().map(|b| b.id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), 12);
+    let mut names: Vec<String> = DEFAULT_BRANDS.iter().map(|b| b.name.to_lowercase()).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), 12, "unique whatever the case");
+    for default in DEFAULT_BRANDS.iter() {
+        assert!(uuid::Uuid::parse_str(default.id).is_ok(), "`{}` must be a UUID", default.id);
+        assert!(is_default_brand(default.brand_id()));
+        assert!(!default.aliases.is_empty(), "`{}` has its Arabic spellings", default.name);
+    }
+    let apple = DEFAULT_BRANDS.iter().find(|b| b.name == "Apple").expect("Apple");
+    assert_eq!(brand_lines(apple.brand_id()), &["iPhone"]);
+    let xiaomi = DEFAULT_BRANDS.iter().find(|b| b.name == "Xiaomi").expect("Xiaomi");
+    assert_eq!(brand_lines(xiaomi.brand_id()), &["Redmi", "POCO"]);
+    let itel = DEFAULT_BRANDS.iter().find(|b| b.name == "itel").expect("itel");
+    assert_eq!(itel.device_type, BrandDeviceType::Keypad);
+    let own = BrandId::generate();
+    assert!(!is_default_brand(own));
+    assert!(brand_lines(own).is_empty());
+    assert_eq!(brand_aliases(own), "");
+}
+
+#[test]
+fn only_a_company_the_owner_added_with_no_phone_may_be_deleted() {
+    let default = DEFAULT_BRANDS[0].brand_id();
+    assert_eq!(can_delete_brand(default, 0), Err(BrandError::IsDefault));
+    let own = BrandId::generate();
+    assert_eq!(can_delete_brand(own, 1), Err(BrandError::NotEmpty));
+    assert_eq!(can_delete_brand(own, 0), Ok(()));
+}
+
+#[test]
+fn every_brand_error_has_a_stable_screaming_snake_code() {
+    for error in [
+        BrandError::NotFound,
+        BrandError::NameRequired,
+        BrandError::NameTaken,
+        BrandError::IsDefault,
+        BrandError::NotEmpty,
+        BrandError::TypeUnknown,
+        BrandError::ModelRequired,
+        BrandError::StorageRequired,
+        BrandError::KeypadHasNoSpecs,
+        BrandError::SpecInvalid,
+        BrandError::TypeMismatch,
+        BrandError::AlreadyRegistered,
+        BrandError::CategoryNotPhone,
+    ] {
+        let code = error.code();
+        assert!(
+            !code.is_empty()
+                && code.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+            "{error:?} produced {code:?}"
+        );
+        assert!(!error.to_string().is_empty());
+    }
 }
 
 // ---------------------------------------------------------------------------

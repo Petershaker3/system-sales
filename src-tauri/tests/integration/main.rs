@@ -733,6 +733,11 @@ mod migration_backward_compat;
 // separate reversal sale.
 mod sales;
 
+// Plan item 1.2 (ADR-018 §2): phone brands and registering a new phone — the
+// default companies, the owner's changes, the phone's name and details, and
+// the storage's own refusals.
+mod brands;
+
 // Plan item 1.2 (ADR-018 §1): the two-level category tree — the default tree,
 // the owner's changes, the storage's own refusals, products in categories and
 // the sales catalogue.

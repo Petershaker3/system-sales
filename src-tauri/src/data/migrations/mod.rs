@@ -81,3 +81,8 @@ pub const PIN_APPROVAL_RECOVERY: &str = include_str!("0015_pin_approval_recovery
 /// and a hidden flag on `departments`, with triggers that keep the tree two
 /// levels deep and a sub-category on its parent's kind.
 pub const CATEGORY_TREE: &str = include_str!("0016_category_tree.sql");
+
+/// `0017`: phone brands, and a phone's company, model, device type, storage
+/// and RAM on its product (ADR-018 §2), with triggers that keep the details
+/// whole.
+pub const BRANDS_AND_PHONE_DETAILS: &str = include_str!("0017_brands_and_phone_details.sql");

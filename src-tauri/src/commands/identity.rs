@@ -135,6 +135,8 @@ pub async fn create_first_manager(
     // Best effort: if it fails, the next start-up adds what is missing, and the
     // shop is usable meanwhile.
     let _ = crate::services::organisation::categories::add_default_categories(&ctx.pool).await;
+    // And the default phone companies (ADR-018 §2), the same way.
+    let _ = crate::services::catalog::brands::add_default_brands(&ctx.pool).await;
 
     // The setup screen signs the new manager straight in, so the operator is not
     // asked to type the password twice on the one occasion the account is made.

@@ -18,6 +18,8 @@ export interface PosProduct {
   /** `null` when no price was ever set: such a product cannot be sold yet. */
   readonly salePriceMinor: number | null;
   readonly categoryId: string | null;
+  /** The phone's company (ADR-018 §2), or `null` for anything but a phone. */
+  readonly brandId: string | null;
   readonly onHand: number;
   readonly soldRecently: number;
 }
@@ -33,9 +35,19 @@ export interface PosCategory {
   readonly sortOrder: number;
 }
 
+/** A phone company: a chip under a phone category, and words search matches. */
+export interface PosBrand {
+  readonly id: string;
+  readonly name: string;
+  /** Its Arabic spellings («سامسونج»), empty for a company the owner added. */
+  readonly aliases: string;
+  readonly sortOrder: number;
+}
+
 export interface PosCatalog {
   readonly products: readonly PosProduct[];
   readonly categories: readonly PosCategory[];
+  readonly brands: readonly PosBrand[];
 }
 
 export function posCatalog(): Promise<PosCatalog> {

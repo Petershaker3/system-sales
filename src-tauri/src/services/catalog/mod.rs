@@ -3,6 +3,10 @@
 //! Orchestration across the catalogue repository and the identity session. No
 //! SQL here.
 
+/// Phone brands (ADR-018 §2).
+pub mod brands;
+/// Registering a new phone (ADR-018 §2).
+pub mod phone;
 pub mod pos;
 pub mod product;
 

@@ -18,6 +18,8 @@ pub struct PosProductRow {
     pub barcode: Option<String>,
     pub sale_price_minor: Option<i64>,
     pub department_id: Option<String>,
+    /// The phone's company (ADR-018 §2), or `None` for anything but a phone.
+    pub brand_id: Option<String>,
     /// Units on hand; zero for a product nobody has received yet.
     pub on_hand: i64,
     /// Units sold since `sold_since`, for ordering the tiles. Cancellations
@@ -32,6 +34,7 @@ pub async fn list_sellable(
 ) -> Result<Vec<PosProductRow>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT p.id, p.name, p.disposition, p.barcode, p.sale_price_minor, p.department_id,
+                p.brand_id,
                 COALESCE(s.quantity, 0) AS on_hand,
                 COALESCE(r.sold, 0) AS sold_recently
          FROM products p
@@ -59,6 +62,7 @@ pub async fn list_sellable(
             barcode: row.get("barcode"),
             sale_price_minor: row.get("sale_price_minor"),
             department_id: row.get("department_id"),
+            brand_id: row.get("brand_id"),
             on_hand: row.get("on_hand"),
             sold_recently: row.get("sold_recently"),
         })

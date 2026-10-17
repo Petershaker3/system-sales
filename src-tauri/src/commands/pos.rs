@@ -37,6 +37,8 @@ pub struct PosProductDto {
     pub sale_price_minor: Option<i64>,
     /// The category it is in (ADR-018 §1), or `null`.
     pub category_id: Option<String>,
+    /// The phone's company (ADR-018 §2), or `null`.
+    pub brand_id: Option<String>,
     pub on_hand: i64,
     pub sold_recently: i64,
 }
@@ -60,6 +62,17 @@ pub struct PosCategoryDto {
 pub struct PosCatalogDto {
     pub products: Vec<PosProductDto>,
     pub categories: Vec<PosCategoryDto>,
+    pub brands: Vec<PosBrandDto>,
+}
+
+/// A phone company: a chip under a phone category, and words search matches.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosBrandDto {
+    pub id: String,
+    pub name: String,
+    pub aliases: &'static str,
+    pub sort_order: i64,
 }
 
 /// Read what the sales screen shows: active products with stock on hand and
@@ -78,6 +91,7 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 barcode: row.barcode,
                 sale_price_minor: row.sale_price_minor,
                 category_id: row.department_id,
+                brand_id: row.brand_id,
                 on_hand: row.on_hand,
                 sold_recently: row.sold_recently,
             })
@@ -93,6 +107,16 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 icon: row.icon,
                 hidden: row.hidden,
                 sort_order: row.sort_order,
+            })
+            .collect(),
+        brands: catalog
+            .brands
+            .into_iter()
+            .map(|brand| PosBrandDto {
+                id: brand.id,
+                name: brand.name,
+                aliases: brand.aliases,
+                sort_order: brand.sort_order,
             })
             .collect(),
     })

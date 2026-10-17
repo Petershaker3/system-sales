@@ -73,6 +73,14 @@ pub fn run() {
             commands::categories::set_category_hidden,
             commands::categories::move_category,
             commands::categories::delete_category,
+            commands::brands::list_brands,
+            commands::brands::create_brand,
+            commands::brands::rename_brand,
+            commands::brands::set_brand_type,
+            commands::brands::set_brand_hidden,
+            commands::brands::move_brand,
+            commands::brands::delete_brand,
+            commands::brands::create_phone,
             commands::settings::read_settings,
             commands::settings::update_setting,
             commands::settings::read_appearance,
@@ -138,6 +146,10 @@ pub fn run() {
             // whose defaults could not be added still opens and sells.
             let _ = tauri::async_runtime::block_on(
                 services::organisation::categories::add_default_categories(&pool),
+            );
+            // The default phone companies (ADR-018 §2), the same way.
+            let _ = tauri::async_runtime::block_on(
+                services::catalog::brands::add_default_brands(&pool),
             );
 
             app.manage(IdentityContext::new(pool.clone(), tokens.clone()));

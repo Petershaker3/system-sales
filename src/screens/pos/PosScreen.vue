@@ -25,7 +25,7 @@ import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
-import { buildTree, inChip, keepSelection, mainChips, searchWords, subChips, toggle } from './categories';
+import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
 import { asIconName, tileIcon } from './icons';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
@@ -61,6 +61,13 @@ async function load(): Promise<void> {
 }
 
 const tree = computed(() => buildTree(catalogue.value?.categories ?? []));
+const brandsById = computed(() => new Map((catalogue.value?.brands ?? []).map((b) => [b.id, b])));
+
+/** A phone's company and its Arabic spellings, for search («سامسونج»). */
+function brandWords(id: string | null): string {
+  const brand = id === null ? undefined : brandsById.value.get(id);
+  return brand === undefined ? '' : `${brand.name} ${brand.aliases}`;
+}
 
 /** Products this build can sell: counted by quantity. */
 const sellable = computed<PosProduct[]>(() =>
@@ -78,7 +85,7 @@ const index = computed(() =>
   buildIndex(
     sellable.value.map((p) => ({
       ...p,
-      categoryWords: searchWords(tree.value, p.categoryId),
+      categoryWords: `${searchWords(tree.value, p.categoryId)} ${brandWords(p.brandId)}`,
     }))
   )
 );
@@ -87,14 +94,20 @@ const results = computed(() => (query.value.trim() === '' ? [] : search(index.va
 
 const categoriesOfProducts = computed(() => sellable.value.map((p) => p.categoryId));
 const chips = computed(() => mainChips(tree.value, categoriesOfProducts.value));
-const subchips = computed(() => subChips(tree.value, chip.value, categoriesOfProducts.value));
-
-/** The main category whose sub-categories are in the second row. */
-const openMainName = computed(() => {
-  const chosen = tree.value.byId.get(chip.value);
-  const main = chosen?.parentId ? tree.value.byId.get(chosen.parentId) : chosen;
-  return main?.name ?? '';
+/** The second row: the chosen main's sub-categories, or its companies under a phone category (ADR-018 §2). */
+const subchips = computed(() => {
+  const subs = subChips(tree.value, chip.value, categoriesOfProducts.value);
+  if (subs.length > 0) return subs;
+  return brandChips(tree.value, chip.value, sellable.value, catalogue.value?.brands ?? []);
 });
+
+/** The main category whose sub-categories or companies are in the second row. */
+const openMain = computed(() => {
+  const id = mainOf(tree.value, chip.value);
+  return id === null ? undefined : tree.value.byId.get(id);
+});
+const openMainName = computed(() => openMain.value?.name ?? '');
+const secondRowWord = computed(() => (openMain.value !== undefined && openMain.value.kind !== 'item' ? 'شركات' : 'أقسام'));
 
 function pickChip(id: string): void {
   chip.value = toggle(tree.value, chip.value, id);
@@ -111,7 +124,7 @@ const tiles = computed<PosProduct[]>(() => {
   }
   if (chip.value === 'all') return list;
   return list
-    .filter((p) => inChip(tree.value, p.categoryId, chip.value))
+    .filter((p) => inSelection(tree.value, p, chip.value))
     .sort((a, b) => b.soldRecently - a.soldRecently || a.name.localeCompare(b.name, 'ar'));
 });
 
@@ -416,13 +429,13 @@ const KEYS: readonly [string, string][] = [
             :key="d.id"
             type="button"
             class="chip"
-            :class="{ on: chip === d.id || tree.byId.get(chip)?.parentId === d.id }"
+            :class="{ on: chip === d.id || mainOf(tree, chip) === d.id }"
             @click="pickChip(d.id)"
           >
             <Icon :name="chipIcon(d.icon)" /><bdi dir="rtl">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
           </button>
         </div>
-        <div v-if="subchips.length > 0" class="chips subcats" :aria-label="`أقسام ${openMainName}`">
+        <div v-if="subchips.length > 0" class="chips subcats" :aria-label="`${secondRowWord} ${openMainName}`">
           <button
             v-for="d in subchips"
             :key="d.id"
@@ -431,7 +444,7 @@ const KEYS: readonly [string, string][] = [
             :class="{ on: chip === d.id }"
             @click="pickChip(d.id)"
           >
-            <Icon :name="chipIcon(d.icon)" /><bdi dir="rtl">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
+            <Icon v-if="d.icon !== ''" :name="chipIcon(d.icon)" /><bdi :dir="d.icon === '' ? 'ltr' : 'rtl'">{{ d.name }}</bdi><span class="cnt num">{{ num(d.count) }}</span>
           </button>
         </div>
 

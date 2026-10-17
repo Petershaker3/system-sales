@@ -210,7 +210,7 @@ void loadPickers();
 
 <template>
   <section class="stock">
-    <h2 class="stock-title">المخزون والتكلفة</h2>
+    <h2 class="stock-title">المخزن والتكلفة</h2>
 
     <!-- Product picker -->
     <label class="field">
@@ -229,12 +229,12 @@ void loadPickers();
         عرض رصيد المنتج وتكلفته يتطلب تأكيد هوية المدير.
       </p>
       <button type="button" :disabled="busy || selectedProductId === ''" @click="withReauth(loadPosition)">
-        عرض المخزون
+        عرض المخزن
       </button>
     </div>
 
     <div v-else class="position">
-      <h3 class="position-title">{{ selectedProduct?.name ?? 'المخزون' }}</h3>
+      <h3 class="position-title">{{ selectedProduct?.name ?? 'المخزن' }}</h3>
       <dl class="facts">
         <dt>الرصيد</dt>
         <dd>{{ position.quantity }}</dd>

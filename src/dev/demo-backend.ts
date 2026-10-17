@@ -32,6 +32,12 @@ interface DemoProduct {
   barcode: string | null;
   salePriceMinor: number | null;
   categoryId: string | null;
+  /** A phone's details (ADR-018 §2); null for anything else. */
+  brandId: string | null;
+  model: string | null;
+  deviceType: 'touch' | 'keypad' | null;
+  storageGb: number | null;
+  ramGb: number | null;
   onHand: number;
   totalCostMinor: number;
   soldRecently: number;
@@ -102,6 +108,50 @@ const cat = (id: string, name: string, parentId: string | null, kind: DemoCatego
   isDefault,
 });
 
+// Phone companies (ADR-018 §2), as Rust adds them: the mockup's twelve, with the
+// lines that drop the company from a name and the Arabic spellings search uses.
+interface DemoBrand {
+  id: string;
+  name: string;
+  deviceType: 'touch' | 'keypad' | 'both';
+  sortOrder: number;
+  hidden: boolean;
+  isDefault: boolean;
+  lines: string[];
+  aliases: string;
+}
+const brand = (id: string, name: string, deviceType: DemoBrand['deviceType'], sortOrder: number, lines: string[], aliases: string): DemoBrand => ({
+  id,
+  name,
+  deviceType,
+  sortOrder,
+  hidden: false,
+  isDefault: true,
+  lines,
+  aliases,
+});
+const brands: DemoBrand[] = [
+  brand('b-samsung', 'Samsung', 'touch', 10, [], 'سامسونج جالاكسي جلاكسي'),
+  brand('b-apple', 'Apple', 'touch', 20, ['iPhone'], 'ابل آبل ايفون آيفون'),
+  brand('b-xiaomi', 'Xiaomi', 'touch', 30, ['Redmi', 'POCO'], 'شاومي شاومى ريدمي ردمي بوكو'),
+  brand('b-oppo', 'OPPO', 'touch', 40, [], 'اوبو أوبو'),
+  brand('b-realme', 'realme', 'touch', 50, [], 'ريلمي ريل مي'),
+  brand('b-honor', 'Honor', 'touch', 60, [], 'هونر هونور'),
+  brand('b-infinix', 'Infinix', 'touch', 70, [], 'انفينكس انفنكس'),
+  brand('b-tecno', 'Tecno', 'both', 80, [], 'تكنو تيكنو'),
+  brand('b-vivo', 'vivo', 'touch', 90, [], 'فيفو'),
+  brand('b-huawei', 'Huawei', 'touch', 100, [], 'هواوي'),
+  brand('b-nokia', 'Nokia', 'both', 110, [], 'نوكيا'),
+  brand('b-itel', 'itel', 'keypad', 120, [], 'ايتل آيتل'),
+];
+const storageLabel = (gb: number) => (gb >= 1024 && gb % 1024 === 0 ? `${gb / 1024}TB` : `${gb}GB`);
+function phoneName(b: DemoBrand, model: string, storageGb: number | null): string {
+  const m = model.trim().split(/\s+/).join(' ');
+  const low = m.toLowerCase();
+  const bare = low.startsWith(`${b.name.toLowerCase()} `) || b.lines.some((l) => low.startsWith(l.toLowerCase()));
+  return [bare ? '' : b.name, m, storageGb === null ? '' : storageLabel(storageGb)].filter((x) => x !== '').join(' ');
+}
+
 // The default tree (PLAN §6), as Rust adds it, plus one category the owner made.
 const categories: DemoCategory[] = [
   cat('c-phones', 'موبايلات جديدة', null, 'phone', 'smartphone', 10),
@@ -133,6 +183,11 @@ const p = (
   barcode,
   salePriceMinor: price === null ? null : price * 100,
   categoryId: category,
+  brandId: null,
+  model: null,
+  deviceType: null,
+  storageGb: null,
+  ramGb: null,
   onHand,
   totalCostMinor: price === null ? onHand * 500 : Math.round(price * 100 * 0.7) * onHand,
   soldRecently: sold,
@@ -160,6 +215,9 @@ const products: DemoProduct[] = [
   p('ساعة ذكية T500', 550, 3, 2, 'c-smart'),
   p('وصلة OTG', null, 8, 0, 'c-cables'),
   p('موبايل سامسونج A15', 7500, 3, 0, 'c-phones', null, 'serialized'),
+  { ...p('Samsung Galaxy A16 128GB', 9250, 4, 3, 'c-phones'), brandId: 'b-samsung', model: 'Galaxy A16', deviceType: 'touch', storageGb: 128, ramGb: 6 },
+  { ...p('iPhone 16 128GB', 57500, 1, 1, 'c-phones'), brandId: 'b-apple', model: 'iPhone 16', deviceType: 'touch', storageGb: 128, ramGb: null },
+  { ...p('Redmi 14C 128GB', 6299, 3, 2, 'c-phones'), brandId: 'b-xiaomi', model: 'Redmi 14C', deviceType: 'touch', storageGb: 128, ramGb: 4 },
 ];
 
 const appearance = { look: 'plate', theme: 'light', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin' };
@@ -224,6 +282,15 @@ const categoryDto = (c: DemoCategory) => ({
   hidden: c.hidden,
   sortOrder: c.sortOrder,
 });
+const brandDto = (b: DemoBrand) => ({
+  id: b.id,
+  name: b.name,
+  deviceType: b.deviceType,
+  sortOrder: b.sortOrder,
+  hidden: b.hidden,
+  lines: b.lines,
+});
+const findBrand = (id: string) => brands.find((b) => b.id === id) ?? fail('BRAND_NOT_FOUND');
 const ordered = () => [...categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'ar'));
 const findCategory = (id: string) => categories.find((c) => c.id === id) ?? fail('DEPARTMENT_NOT_FOUND');
 const nameTaken = (name: string, except: string | null) =>
@@ -365,11 +432,15 @@ const handlers: Record<string, (args: Args) => unknown> = {
           barcode: x.barcode,
           salePriceMinor: x.salePriceMinor,
           categoryId: x.categoryId,
+          brandId: x.brandId,
           onHand: x.onHand,
           soldRecently: x.soldRecently,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
       categories: ordered().map(categoryDto),
+      brands: [...brands]
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((b) => ({ id: b.id, name: b.name, aliases: b.aliases, sortOrder: b.sortOrder })),
     };
   },
   record_sale: (args) => {
@@ -424,6 +495,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
       barcode: str(args, 'barcode') || null,
       salePriceMinor: typeof price === 'number' ? price : null,
       categoryId: categoryOf(args),
+      brandId: null,
+      model: null,
+      deviceType: null,
+      storageGb: null,
+      ramGb: null,
       onHand: 0,
       totalCostMinor: 0,
       soldRecently: 0,
@@ -479,6 +555,115 @@ const handlers: Record<string, (args: Args) => unknown> = {
     x.totalCostMinor -= removed;
     return { productId: x.id, quantity: x.onHand, costMinor: removed };
   },
+  // phone companies and a new phone (ADR-018 §2)
+  list_brands: () => {
+    requireManager();
+    return [...brands]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((b) => {
+        const all = products.filter((x) => x.brandId === b.id);
+        return {
+          ...brandDto(b),
+          products: all.filter((x) => x.status === 'active').length,
+          isDefault: b.isDefault,
+          deletable: !b.isDefault && all.length === 0,
+        };
+      });
+  },
+  create_brand: (args) => {
+    requireManager();
+    const name = str(args, 'name').trim();
+    if (name === '') fail('BRAND_NAME_REQUIRED');
+    if (brands.some((b) => b.name.toLowerCase() === name.toLowerCase())) fail('BRAND_NAME_TAKEN');
+    const type = str(args, 'deviceType') as DemoBrand['deviceType'];
+    if (!['touch', 'keypad', 'both'].includes(type)) fail('BRAND_TYPE_UNKNOWN');
+    const b: DemoBrand = { ...brand(newId('b'), name, type, Math.max(0, ...brands.map((x) => x.sortOrder)) + 10, [], ''), isDefault: false };
+    brands.push(b);
+    return brandDto(b);
+  },
+  rename_brand: (args) => {
+    requireManager();
+    const b = findBrand(str(args, 'id'));
+    const name = str(args, 'name').trim();
+    if (name === '') fail('BRAND_NAME_REQUIRED');
+    if (brands.some((x) => x !== b && x.name.toLowerCase() === name.toLowerCase())) fail('BRAND_NAME_TAKEN');
+    b.name = name;
+    return brandDto(b);
+  },
+  set_brand_type: (args) => {
+    requireManager();
+    const b = findBrand(str(args, 'id'));
+    const type = str(args, 'deviceType') as DemoBrand['deviceType'];
+    if (!['touch', 'keypad', 'both'].includes(type)) fail('BRAND_TYPE_UNKNOWN');
+    b.deviceType = type;
+    return brandDto(b);
+  },
+  set_brand_hidden: (args) => {
+    requireManager();
+    const b = findBrand(str(args, 'id'));
+    b.hidden = args?.['hidden'] === true;
+    return brandDto(b);
+  },
+  move_brand: (args) => {
+    requireManager();
+    const b = findBrand(str(args, 'id'));
+    const list = [...brands].sort((x, y) => x.sortOrder - y.sortOrder);
+    const at = list.indexOf(b);
+    const to = str(args, 'direction') === 'up' ? at - 1 : at + 1;
+    if (to >= 0 && to < list.length) {
+      [list[at], list[to]] = [list[to] as DemoBrand, list[at] as DemoBrand];
+      list.forEach((x, i) => (x.sortOrder = (i + 1) * 10));
+    }
+    return brandDto(b);
+  },
+  delete_brand: (args) => {
+    requireManager();
+    const b = findBrand(str(args, 'id'));
+    if (b.isDefault) fail('BRAND_IS_DEFAULT');
+    if (products.some((x) => x.brandId === b.id)) fail('BRAND_NOT_EMPTY');
+    brands.splice(brands.indexOf(b), 1);
+  },
+  create_phone: (args) => {
+    requireManager();
+    const category = categories.find((c) => c.id === str(args, 'categoryId')) ?? fail('PRODUCT_CATEGORY_NOT_FOUND');
+    if (category.kind !== 'phone') fail('PHONE_CATEGORY_NOT_PHONE');
+    const b = findBrand(str(args, 'brandId'));
+    const device = str(args, 'deviceType') as 'touch' | 'keypad';
+    if (!(b.deviceType === 'both' || b.deviceType === device)) fail('PHONE_BRAND_TYPE_MISMATCH');
+    const model = str(args, 'model').trim().split(/\s+/).join(' ');
+    if (model === '') fail('PHONE_MODEL_REQUIRED');
+    const storage = typeof args?.['storageGb'] === 'number' ? (args['storageGb'] as number) : null;
+    const ram = typeof args?.['ramGb'] === 'number' ? (args['ramGb'] as number) : null;
+    if (device === 'touch' && storage === null) fail('PHONE_STORAGE_REQUIRED');
+    if (device === 'keypad' && (storage !== null || ram !== null)) fail('PHONE_KEYPAD_HAS_NO_SPECS');
+    if (
+      products.some(
+        (x) => x.status === 'active' && x.brandId === b.id && (x.model ?? '').toLowerCase() === model.toLowerCase() && x.storageGb === storage && x.ramGb === ram
+      )
+    )
+      fail('PHONE_ALREADY_REGISTERED');
+    const price = args?.['salePriceMinor'];
+    const x: DemoProduct = {
+      id: newId('p'),
+      name: phoneName(b, model, storage),
+      disposition: 'quantity',
+      barcode: null,
+      salePriceMinor: typeof price === 'number' ? price : null,
+      categoryId: category.id,
+      brandId: b.id,
+      model,
+      deviceType: device,
+      storageGb: storage,
+      ramGb: ram,
+      onHand: 0,
+      totalCostMinor: 0,
+      soldRecently: 0,
+      status: 'active',
+    };
+    products.push(x);
+    return { product: productDto(x), brandId: b.id, model, deviceType: device, storageGb: storage, ramGb: ram };
+  },
+
   // the category tree (ADR-018 §1)
   list_categories: () => {
     requireManager();

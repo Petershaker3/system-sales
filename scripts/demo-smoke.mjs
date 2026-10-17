@@ -3,8 +3,9 @@
 //
 // Drives the actual Vue app (not the mockup) on its in-memory demo backend:
 // sign in as a seller, sell with the keyboard and the mouse, hold an invoice,
-// pay cash, browse the categories, then sign in as the owner, change the look
-// behind a fresh password and manage the categories. Saves screenshots to the directory given as the second argument.
+// pay cash, browse the categories and the phone companies, then sign in as the
+// owner, change the look behind a fresh password, manage the categories and the
+// companies, and register a new phone. Saves screenshots to the directory given as the second argument.
 //
 //   npm run demo &   # serves on :5173
 //   node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/demo-shots
@@ -45,6 +46,16 @@ async function clickText(selector, label) {
   for (const h of handles) {
     const t = await h.evaluate((el) => el.textContent ?? '');
     if (t.includes(label)) {
+      await h.click();
+      return true;
+    }
+  }
+  return false;
+}
+/** Click the first element whose whole trimmed text is `label` (chips like «8GB» vs «128GB»). */
+async function clickExact(selector, label) {
+  for (const h of await page.$$(selector)) {
+    if (((await h.evaluate((el) => el.textContent ?? '')).trim()) === label) {
       await h.click();
       return true;
     }
@@ -166,6 +177,30 @@ await page.focus('#q');
 await page.type('#q', 'حوامل');
 await page.waitForSelector('.result');
 check('search finds a product by its category\'s name', (await text('.result .n')).includes('حامل'));
+await page.keyboard.press('Escape');
+
+// --- phone companies on the sales screen (ADR-018 §2) -----------------------
+await clickText('.chips.cats .chip', 'موبايلات جديدة');
+await sleep(80);
+const brandChipNames = await page.$$eval('.chips.subcats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+check(
+  'a phone category shows its companies in the second row, in the owner\'s order',
+  brandChipNames.join('|') === 'Samsung1|Apple1|Xiaomi1',
+  brandChipNames.join('، ')
+);
+await clickText('.chips.subcats .chip', 'Apple');
+await sleep(80);
+const appleTiles = await page.$$eval('.tile .name', (els) => els.map((e) => e.textContent?.trim() ?? ''));
+check('a company chip shows only its phones', appleTiles.length === 1 && appleTiles[0] === 'iPhone 16 128GB', appleTiles.join('، '));
+await page.focus('#q');
+await page.type('#q', 'سامسونج');
+await page.waitForSelector('.result');
+const arabicHits = await page.$$eval('.result .n', (els) => els.map((e) => e.textContent?.trim() ?? ''));
+check(
+  'search finds a phone by its company in Arabic (its name has no Arabic)',
+  arabicHits.some((n) => n.includes('Samsung Galaxy A16')),
+  arabicHits.join('، ')
+);
 await page.keyboard.press('Escape');
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);
@@ -329,6 +364,37 @@ for (const row of await page.$$('.categories-card .cat-row')) {
 await sleep(200);
 check('an empty category the owner made is deleted', !(await catRowNames()).some((r) => r.name === 'جرابات تابلت'));
 
+// --- the owner's phone companies (ADR-018 §2) ------------------------------
+const brandRows = () =>
+  page.$$eval('.brands-card .cat-row', (els) =>
+    els.map((e) => ({ name: e.querySelector('.cat-name')?.value ?? '', type: e.querySelector('select')?.value ?? '', off: e.classList.contains('off'), del: !!e.querySelector('.danger') }))
+  );
+await page.waitForSelector('.brands-card .cat-row');
+const firstBrands = await brandRows();
+check(
+  'the settings list the twelve default companies, none deletable',
+  firstBrands.length === 12 && firstBrands[0].name === 'Samsung' && firstBrands.every((r) => !r.del) && firstBrands.find((r) => r.name === 'itel')?.type === 'keypad',
+  String(firstBrands.length)
+);
+await page.type('#br-new', 'Motorola');
+await page.click('.brands-card .cat-add button[type=submit]');
+await sleep(200);
+const withMotorola = await brandRows();
+check('a company is added at the end, deletable while it has no phone', withMotorola.at(-1)?.name === 'Motorola' && withMotorola.at(-1)?.del === true);
+await page.type('#br-new', 'samsung');
+await page.click('.brands-card .cat-add button[type=submit]');
+await sleep(200);
+check('a company name already used is refused, whatever the case', (await text('#toasts')).includes('فيه شركة بالاسم ده'));
+await page.$eval('#br-new', (el) => { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); });
+for (const row of await page.$$('.brands-card .cat-row')) {
+  if ((await row.$eval('.cat-name', (el) => el.value)) !== 'vivo') continue;
+  await row.$eval('input[type=checkbox]', (el) => el.click());
+  break;
+}
+await sleep(200);
+check('a company is hidden from «موبايل جديد»', (await brandRows()).find((r) => r.name === 'vivo')?.off === true);
+await shot('17-settings-brands');
+
 // the owner sets a seller's PIN in المستخدمين (his password first), and she signs in with it
 await clickText('.users button', 'تحديث');
 await page.waitForSelector('li.item', { timeout: 3000 });
@@ -376,6 +442,62 @@ check('a hidden category has no chip, and its products still sell from «الك�
 await clickText('.rail .nav-btn', 'المخزن');
 await sleep(300);
 await shot('09-store');
+
+// --- «موبايل جديد» (ADR-018 §2) ---------------------------------------------
+await clickText('.page-h button', 'موبايل جديد');
+await page.waitForSelector('#np-model');
+await sleep(150);
+const touchBrands = await page.$$eval('#np-brands .chip', (els) => els.map((e) => e.textContent?.trim() ?? ''));
+check(
+  'a touch phone is offered the shown touch companies (not vivo, hidden; not itel, keypad)',
+  touchBrands.includes('Samsung') && touchBrands.includes('Motorola') && !touchBrands.includes('vivo') && !touchBrands.includes('itel'),
+  touchBrands.join('، ')
+);
+await clickExact('#np-brands .chip', 'Samsung');
+await page.type('#np-model', 'Galaxy A26');
+await clickExact('.new-phone .chip', '256GB');
+await clickExact('.new-phone .chip', '8GB');
+await page.type('#np-price', '13999');
+await sleep(80);
+check('the name is previewed as it will be stored', (await text('.new-phone .ni-name')).includes('Samsung Galaxy A26 256GB'));
+await shot('18-new-phone');
+await page.keyboard.press('Enter');
+await sleep(300);
+check(
+  'the phone is registered with its built name',
+  (await count('#np-model')) === 0 && (await text('#toasts')).includes('اتسجّل «Samsung Galaxy A26 256GB»')
+);
+await clickText('.page-h button', 'موبايل جديد');
+await page.waitForSelector('#np-model');
+await clickText('.new-phone .seg button', 'زراير');
+await sleep(80);
+const keypadBrands = await page.$$eval('#np-brands .chip', (els) => els.map((e) => e.textContent?.trim() ?? ''));
+check(
+  'a keypad phone has no storage or RAM, and only companies that make keypad phones',
+  (await count('.new-phone .chip .num')) === 0 && keypadBrands.includes('itel') && keypadBrands.includes('Nokia') && !keypadBrands.includes('Samsung'),
+  keypadBrands.join('، ')
+);
+await clickText('.new-phone .seg button', 'تاتش');
+await clickExact('#np-brands .chip', 'Samsung');
+await page.type('#np-model', 'galaxy a26');
+await clickExact('.new-phone .chip', '256GB');
+await clickExact('.new-phone .chip', '8GB');
+await page.type('#np-price', '13999');
+await page.keyboard.press('Enter');
+await sleep(300);
+check('the same phone twice is refused', (await text('.new-phone .err-msg')).includes('متسجّل بالفعل'));
+await page.keyboard.press('Escape');
+await sleep(150);
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await clickText('.chips.cats .chip', 'موبايلات جديدة');
+await sleep(80);
+check(
+  'the new phone sells under its company on the sales screen',
+  (await page.$$eval('.chips.subcats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).includes('Samsung2')
+);
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(60);
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
