@@ -180,10 +180,6 @@ async function move(department: Department, direction: -1 | 1): Promise<void> {
 }
 
 // --- labels ----------------------------------------------------------------
-function costMethodLabel(costMethod: CostMethod): string {
-  return costMethod === 'fifo' ? 'وارد أولاً يخرج أولاً' : 'متوسط التكلفة المتحرك';
-}
-
 function vatLabel(department: Department): string {
   if (!department.vat.enabled) return 'بدون ضريبة';
   const rate = department.vat.rateBp === null ? '؟' : String(department.vat.rateBp / 100);
@@ -205,7 +201,7 @@ void load();
         <div class="item-main">
           <span class="item-name">{{ department.name }}</span>
           <span class="hint">
-            {{ costMethodLabel(department.costMethod) }} · {{ vatLabel(department) }}
+            {{ vatLabel(department) }}
           </span>
         </div>
         <div class="row">
@@ -272,21 +268,11 @@ void load();
       </label>
 
       <!--
-        The costing method is deliberately NOT editable here.
-
-        As of SP-2 the method is live arithmetic, and switching it has to convert
-        the stock that already exists — seed a FIFO layer from the current
-        average, or collapse the layers into a moving-average total. An ordinary
-        edit cannot do that, so offering the choice here produced a control that
-        could only ever be refused (`DEPARTMENT_COST_METHOD_REQUIRES_SWITCH`).
-        The current method is displayed read-only, and the switch lives in
-        `StockPanel` where the conversion and its two gates are visible.
+        No costing method here: every product counted by quantity is costed by
+        moving average (ADR-016 #7, plan item 1.3). The department keeps its
+        stored method only because applied migrations are never changed; the
+        form sends it back unchanged.
       -->
-      <div class="readonly-method">
-        <span class="readonly-label">طريقة حساب التكلفة</span>
-        <span>{{ costMethodLabel(formCostMethod) }}</span>
-        <span class="hint">تُغيَّر من لوحة «المخزون والتكلفة» لأن التحويل يحوّل المخزون القائم.</span>
-      </div>
 
       <label class="field">
         <span>نسبة الضريبة (%)</span>
@@ -375,14 +361,5 @@ void load();
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
-}
-.readonly-method {
-  margin-bottom: 0.9rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px dashed #ccc;
-}
-.readonly-label {
-  display: block;
-  margin-bottom: 0.25rem;
 }
 </style>

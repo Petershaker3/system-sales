@@ -1602,7 +1602,6 @@ fn every_authority_command_is_registered_in_lib() {
         ("inventory", "receive_stock"),
         ("inventory", "remove_stock"),
         ("inventory", "get_position"),
-        ("inventory", "switch_cost_method"),
     ] {
         assert!(
             code.contains(&format!("commands::{module}::{command}")),
@@ -1632,6 +1631,10 @@ const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts
 const FRONTEND_STOCK_PANEL: &str = include_str!("../../../src/components/StockPanel.vue");
 const FRONTEND_DEPARTMENTS_PANEL: &str =
     include_str!("../../../src/components/DepartmentsPanel.vue");
+const FRONTEND_SETTINGS_PANEL: &str = include_str!("../../../src/components/SettingsPanel.vue");
+const INVENTORY_REPOSITORY: &str =
+    include_str!("../../src/data/repositories/inventory/stock.rs");
+const SALES_SERVICE: &str = include_str!("../../src/services/sales/mod.rs");
 
 #[test]
 fn the_inventory_commands_take_no_session_token_role_or_actor() {
@@ -1705,9 +1708,9 @@ fn the_stock_panel_never_computes_a_cost_of_its_own() {
 
 #[test]
 fn the_null_and_zero_cost_distinction_survives_the_boundary() {
-    // `null` means FIFO holds the cost; `0` means free stock. The API type and
-    // the panel must both keep them apart, or the authority rule becomes
-    // invisible exactly where it matters.
+    // `null` means the product was never stocked; `0` means free stock. The API
+    // type and the panel must both keep them apart, or a missing cost would read
+    // as a free one exactly where it matters.
     assert!(
         FRONTEND_INVENTORY_API.contains("totalCostMinor: number | null"),
         "the API type must keep totalCostMinor nullable"
@@ -1720,18 +1723,77 @@ fn the_null_and_zero_cost_distinction_survives_the_boundary() {
 }
 
 #[test]
-fn the_departments_panel_offers_no_control_the_backend_will_refuse() {
-    // An edit may no longer change the costing method: switching has to convert
-    // the stock that already exists. A `<select>` bound to that field would be a
-    // control that can only ever fail, which is worse than no control at all.
+fn the_departments_panel_neither_offers_nor_shows_a_costing_method() {
+    // Every product counted by quantity is costed by moving average (ADR-016 #7,
+    // plan item 1.3). A department's stored method is inert, so showing it would
+    // suggest a choice that no longer exists, and binding it would be a control
+    // the backend refuses.
     let panel = code_only(FRONTEND_DEPARTMENTS_PANEL);
+    for forbidden in [
+        "v-model=\"formCostMethod\"",
+        "costMethodLabel",
+        "readonly-method",
+        "FIFO",
+    ] {
+        assert!(
+            !panel.contains(forbidden),
+            "the departments panel must not offer or show a costing method (found `{forbidden}`)"
+        );
+    }
+}
+
+#[test]
+fn fifo_and_the_method_switch_are_retired_from_every_path() {
+    // Plan item 1.3: FIFO and switching the costing method are removed from the
+    // services and the screens. Legacy layers are only read and collapsed, never
+    // written, and no command or screen can bring either back.
+    let lib = code_only(LIB);
     assert!(
-        !panel.contains("v-model=\"formcostmethod\""),
-        "the department form must not offer a costing-method choice"
+        !lib.contains("switch_cost_method"),
+        "switch_cost_method must not be registered"
     );
+    for (name, source) in [
+        ("commands/inventory.rs", INVENTORY_COMMANDS),
+        ("services/inventory/stock.rs", COSTING_SERVICE),
+        ("services/sales/mod.rs", SALES_SERVICE),
+    ] {
+        let code = code_only(source);
+        for forbidden in [
+            "switch_cost_method",
+            "insert_layer",
+            "update_layer_quantity",
+            "CostMethod::Fifo",
+            "resolve_cost_method",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} must not contain `{forbidden}`: FIFO is retired (plan 1.3)"
+            );
+        }
+    }
+    let repository = sql_only(INVENTORY_REPOSITORY);
+    for forbidden in ["insert into fifo_layers", "update fifo_layers"] {
+        assert!(
+            !repository.contains(forbidden),
+            "the stock repository must never write a FIFO layer again (found `{forbidden}`)"
+        );
+    }
+    for (name, source) in [
+        ("src/api/inventory.ts", FRONTEND_INVENTORY_API),
+        ("src/components/StockPanel.vue", FRONTEND_STOCK_PANEL),
+        ("src/components/SettingsPanel.vue", FRONTEND_SETTINGS_PANEL),
+    ] {
+        let code = code_only(source);
+        for forbidden in ["switch_cost_method", "switchCostMethod", "'fifo'", "FIFO"] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} must not offer FIFO or the method switch (found `{forbidden}`)"
+            );
+        }
+    }
     assert!(
-        panel.contains("readonly-method"),
-        "the current method should still be shown, read-only"
+        code_only(COSTING_SERVICE).contains("collapse_legacy_in_tx"),
+        "legacy FIFO positions must be collapsed into the moving average on first touch"
     );
 }
 
@@ -1838,7 +1900,7 @@ fn the_costing_service_runs_each_operation_in_one_transaction() {
     // its audit event move together or not at all. Asserting that each public
     // operation opens a transaction and commits one is the cheapest way to stop
     // a later slice from adding a fourth write outside it.
-    for operation in ["receive", "remove", "switch_cost_method"] {
+    for operation in ["receive", "remove"] {
         let start = COSTING_SERVICE
             .find(&format!("pub async fn {operation}("))
             .unwrap_or_else(|| panic!("`{operation}` must be a public use case"));
@@ -1857,17 +1919,16 @@ fn the_costing_service_runs_each_operation_in_one_transaction() {
 #[test]
 fn the_costing_service_never_writes_sql() {
     // Services orchestrate; repositories own queries (`spec:99`, and the same
-    // rule the catalogue and authority services are held to). One exception is
-    // declared and narrow: the switch writes the department's costing method,
-    // because that is the one statement whose whole purpose is to move that
-    // column, and routing it through the ordinary department update would be the
-    // relabelling-without-converting bug the switch exists to prevent.
+    // rule the catalogue and authority services are held to). One read is
+    // declared and narrow: the product-existence check, so an unknown product is
+    // refused before anything else is read. The costing-method update the
+    // retired switch needed is gone with it (plan item 1.3).
     let code = code_only(COSTING_SERVICE);
     let statements = code.matches("sqlx::query").count();
     assert!(
-        statements <= 3,
-        "the costing service writes {statements} statements; queries belong in \
-         data/repositories (only the costing-method column update belongs here)"
+        statements <= 1,
+        "the costing service runs {statements} statements; queries belong in \
+         data/repositories (only the product-existence check belongs here)"
     );
 }
 

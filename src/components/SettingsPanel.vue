@@ -25,7 +25,6 @@ import { describeError } from '../api/errors';
 import PatternPrompt from './PatternPrompt.vue';
 import type { SettingsSnapshot, DiscountKind } from '../api/settings';
 import type { PatternStatus } from '../api/pattern';
-import type { CostMethod } from '../api/departments';
 
 // --- re-authentication modal -----------------------------------------------
 // Mirrors UserManagement.vue: every read and every write of `ManageSettings`
@@ -66,7 +65,6 @@ const loaded = ref(false);
 const baseline = ref<SettingsSnapshot | null>(null);
 
 const invoicePrefix = ref('');
-const defaultCostMethod = ref<CostMethod>('moving_average');
 const defaultVatEnabled = ref(false);
 const defaultVatRate = ref(''); // percent as typed; '' = never set
 const defaultVatInclusive = ref(false);
@@ -82,7 +80,6 @@ async function load(): Promise<void> {
     const snapshot = await api.readSettings();
     baseline.value = snapshot;
     invoicePrefix.value = snapshot.invoicePrefix;
-    defaultCostMethod.value = snapshot.defaultCostMethod;
     defaultVatEnabled.value = snapshot.defaultVatEnabled;
     defaultVatRate.value =
       snapshot.defaultVatRateBp === null
@@ -141,9 +138,6 @@ async function saveSettings(vatRateBp: number | null, discountRaw: string): Prom
   const changes: Array<[api.SettingKey, string]> = [];
   if (invoicePrefix.value !== snapshot.invoicePrefix) {
     changes.push(['invoice_prefix', invoicePrefix.value]);
-  }
-  if (defaultCostMethod.value !== snapshot.defaultCostMethod) {
-    changes.push(['default_cost_method', defaultCostMethod.value]);
   }
   if (defaultVatEnabled.value !== snapshot.defaultVatEnabled) {
     changes.push(['default_vat_enabled', defaultVatEnabled.value ? '1' : '0']);
@@ -276,14 +270,6 @@ async function disableProtection(): Promise<void> {
       <label class="field">
         <span>بادئة رقم الفاتورة</span>
         <input v-model="invoicePrefix" autocomplete="off" />
-      </label>
-
-      <label class="field">
-        <span>طريقة حساب التكلفة الافتراضية</span>
-        <select v-model="defaultCostMethod">
-          <option value="moving_average">متوسط التكلفة المتحرك</option>
-          <option value="fifo">وارد أولاً يخرج أولاً (FIFO)</option>
-        </select>
       </label>
 
       <label class="field">

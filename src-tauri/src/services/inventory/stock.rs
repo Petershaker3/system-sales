@@ -1,41 +1,44 @@
-//! Stock and costing use cases (SP-2): `receive`, `remove`,
-//! `switch_cost_method`.
+//! Stock and costing use cases: `receive`, `remove`, `position`.
 //!
-//! # The one invariant everything serves
+//! # One costing method for stock counted by quantity
 //!
-//! Exactly one thing is authoritative for a product's cost, and which one is
-//! decided by the costing method its department declares:
+//! Every quantity product is costed by **moving average** (`ADR-016` #7, plan
+//! item 1.3). The authority is `stock_levels.total_cost_minor`; the ceiling
+//! rounding, the `i128` intermediates and the per-line cost snapshot of
+//! `ADR-013` all stay. Units tracked one by one by IMEI carry their own actual
+//! cost and arrive with plan item 1.4.
 //!
-//! | method         | cost authority            | the other representation |
-//! |----------------|---------------------------|--------------------------|
-//! | `moving_average` | `stock_levels.total_cost_minor` | `fifo_layers` must be empty |
-//! | `fifo`           | `fifo_layers`                  | `total_cost_minor` must be `NULL` |
+//! # FIFO is retired, its data is not rewritten up front
 //!
-//! Both methods agree on `stock_levels.quantity`. SQLite cannot enforce a rule
-//! that spans two tables, so this module owns the invariant: it reads both sides,
-//! refuses a position that contradicts itself, and never writes a row that would
-//! create the contradiction.
+//! FIFO and switching the method per department were removed from the
+//! services and the screens. Migrations are never edited, so a database written
+//! before this change can still hold FIFO rows: `fifo_layers` with a `NULL`
+//! total on the position. Such a position is **collapsed on first touch** —
+//! inside the transaction of the receipt, removal, sale or reversal that touches
+//! it, attributed to that operator and audited as `cost_layers_collapsed`. The
+//! layers' summed cost becomes the moving-average total, so what the stock is
+//! worth does not change. A read never writes: `position` reports the summed
+//! total without collapsing anything.
+//!
+//! A position that contradicts itself — layers *and* a total, layers that do
+//! not add up to the quantity on hand, or units on hand with no cost at all —
+//! is refused, never repaired: quietly picking one side would pick a cost.
+//!
+//! `departments.cost_method` and the `default_cost_method` setting are no
+//! longer read by costing. The columns stay because applied migrations are
+//! never changed.
 //!
 //! # Authorization
 //!
-//! `Permission::ManageInventory` for all three, and never more than the operation
-//! needs. `role.rs` already draws this line: inventory is money rather than
-//! identity, so it is not `ManageCatalog`; and it is deliberately *not* a blanket
-//! re-authenticated permission, because receiving a carton is routine while
-//! opening a balance declares what the shop is worth. The fourth axis is applied
-//! per operation through [`Sensitivity`]:
+//! `Permission::ManageInventory` for every operation, and never more than the
+//! operation needs. Inventory is money rather than identity, so it is not
+//! `ManageCatalog`; and it is deliberately *not* a blanket re-authenticated
+//! permission, because receiving a carton is routine while opening a balance
+//! declares what the shop is worth. The fourth axis is applied per operation
+//! through [`Sensitivity`]:
 //!
 //! - receiving a delivery — `Routine`
 //! - declaring an opening balance — `Sensitive`
-//! - switching the costing method — `Sensitive`, per `ADR-013`
-//!
-//! # What is never done here
-//!
-//! No sale-line cost snapshot and no customer-return restoration. `ADR-013`
-//! requires both, and both are properties of a *sale* rather than of a stock
-//! balance, so they arrive with `pos-sales`. No movement ledger either: the
-//! layers are the truth (`ADR-013`), and the ledger that could rebuild them
-//! belongs with the sale lines.
 
 use std::fmt;
 
@@ -43,28 +46,22 @@ use sqlx::SqlitePool;
 
 use crate::data::repositories::identity::audit;
 use crate::data::repositories::inventory::stock as repo;
-use crate::data::repositories::organisation::department as department_repo;
 use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
-use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::domain::costing::fifo::{FifoLayer, FifoPosition};
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Session, Timestamp, UserId};
-use crate::domain::organisation::{CostMethod, DepartmentError, DepartmentId};
+use crate::domain::organisation::{CostMethod, DepartmentError};
 use crate::domain::supplier::SupplierName;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::pattern as pattern_service;
 
-/// The costing method a device falls back to before anyone chooses one.
+/// The costing method of every product counted by quantity (`ADR-016` #7).
 ///
-/// Written out rather than taken from a `Default` impl, because the value is a
-/// financial decision rather than a trait detail: it is the same default the
-/// `departments.cost_method` column declares, and the two must not drift.
-const DEVICE_DEFAULT_COST_METHOD: CostMethod = CostMethod::MovingAverage;
-
-/// The `app_settings` key holding the device-wide costing default.
-const DEFAULT_COST_METHOD_KEY: &str = "default_cost_method";
+/// Recorded on each sale line as its cost snapshot, so a report can tell these
+/// lines from the ones a pre-1.3 database sold under FIFO.
+pub(crate) const QUANTITY_COST_METHOD: CostMethod = CostMethod::MovingAverage;
 
 /// No product matches the id a caller named.
 ///
@@ -75,11 +72,12 @@ const DEFAULT_COST_METHOD_KEY: &str = "default_cost_method";
 pub enum StockError {
     /// No product carries this id.
     ProductNotFound,
-    /// The stored position contradicts the costing method that should own it.
+    /// The stored position contradicts itself.
     ///
-    /// Raised rather than repaired. A position with layers under a Moving Average
-    /// department (or a `total_cost_minor` under FIFO) means something wrote
-    /// outside this module, and quietly picking one side would pick a cost.
+    /// Raised rather than repaired: legacy layers beside a moving-average total,
+    /// layers that do not add up to the quantity on hand, or units on hand with
+    /// no cost at all. Each means something wrote outside this module, and
+    /// quietly picking one side would pick a cost.
     CostAuthorityConflict {
         /// The product whose position is inconsistent.
         product_id: String,
@@ -106,7 +104,7 @@ impl fmt::Display for StockError {
             Self::ProductNotFound => write!(f, "no product with this id"),
             Self::CostAuthorityConflict { product_id } => write!(
                 f,
-                "product {product_id} stores a cost under the wrong costing method"
+                "product {product_id} stores a stock position that contradicts itself"
             ),
             Self::Cost(error) => write!(f, "{error}"),
         }
@@ -215,82 +213,24 @@ async fn authorize(
     Ok(session)
 }
 
-/// Which costing method governs a product.
+/// Refuse an unknown product before anything is read or written for it.
 ///
-/// The department decides, per the delivery specification: "المتوسط المرجح يُضبط
-/// على مستوى القسم، والمنتجات ترث طريقة التكلفة من القسم".
-///
-/// A product with **no** department is the one case the inheritance rule does not
-/// cover — `0005` leaves `department_id` nullable and `spec:175` forbids
-/// inventing a classification to fill the gap. Rather than refuse, which would
-/// make every unclassified product uncostable, the device default from
-/// `app_settings.default_cost_method` applies. That key already exists (SP-1b),
-/// so this adds no new setting and no invented business data: it is the device's
-/// own stated default, exactly as it is for the other defaults a product inherits.
-async fn resolve_cost_method(
-    conn: &mut sqlx::SqliteConnection,
-    department_id: Option<&str>,
-) -> Result<CostMethod, StockServiceError> {
-    let Some(department_id) = department_id else {
-        let stored = settings_repo::get(conn, DEFAULT_COST_METHOD_KEY)
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-        return Ok(match stored.as_deref() {
-            // Never saved. `app_settings` holds only what an operator has
-            // actually chosen, so an absent key is the ordinary state of a new
-            // device — and the answer is the shipped default, the same one
-            // `departments.cost_method` defaults to.
-            None => DEVICE_DEFAULT_COST_METHOD,
-            Some(value) => CostMethod::parse(value).ok_or_else(|| {
-                // A stored value this build cannot parse is a defect, not a
-                // default: falling back here would silently change how a shop's
-                // stock is valued. Refuse instead.
-                StockServiceError::from(DomainError::StorageUnavailable)
-            })?,
-        });
-    };
-
-    let row = sqlx::query("SELECT cost_method FROM departments WHERE id = ?1")
-        .bind(department_id)
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?
-        .ok_or(DepartmentError::NotFound)?;
-
-    let stored: String = sqlx::Row::get(&row, "cost_method");
-    CostMethod::parse(&stored).ok_or(StockServiceError::from(DomainError::StorageUnavailable))
-}
-
-/// Which costing method currently governs a product, by identity.
-///
-/// A `pub(crate)` doorway so a sale's reversal can prove it is restoring under
-/// the same method the sale consumed under. It resolves the product's
-/// department first, then defers to [`resolve_cost_method`]; it is deliberately
-/// the *current* method, which a reversal compares against the method recorded
-/// on the original line.
-pub(crate) async fn method_for_product(
+/// Its own query rather than a side effect of another one, so a missing product
+/// is always `STOCK_PRODUCT_NOT_FOUND` and never a confusing empty position.
+async fn ensure_product(
     conn: &mut sqlx::SqliteConnection,
     product_id: &str,
-) -> Result<CostMethod, StockServiceError> {
-    let department_id = product_department(conn, product_id).await?;
-    resolve_cost_method(conn, department_id.as_deref()).await
-}
-
-/// Read a product's department, refusing an unknown product.
-async fn product_department(
-    conn: &mut sqlx::SqliteConnection,
-    product_id: &str,
-) -> Result<Option<String>, StockServiceError> {
-    let row = sqlx::query("SELECT department_id FROM products WHERE id = ?1")
+) -> Result<(), StockServiceError> {
+    sqlx::query("SELECT 1 FROM products WHERE id = ?1")
         .bind(product_id)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(StockError::ProductNotFound)?;
-    Ok(sqlx::Row::get(&row, "department_id"))
+    Ok(())
 }
 
-/// Load a position, or the empty one if the product has never been stocked.
+/// Load a position, or `None` if the product has never been stocked.
 async fn load_position(
     conn: &mut sqlx::SqliteConnection,
     product_id: &str,
@@ -300,32 +240,117 @@ async fn load_position(
         .map_err(|_| DomainError::StorageUnavailable)?)
 }
 
-/// Load the layers and check them against the method that claims them.
+/// What a position left behind by the retired FIFO method is worth under the
+/// moving average, or `None` when the position is not a legacy one.
 ///
-/// This is the invariant check. Reading the layers unconditionally, rather than
-/// only under FIFO, is deliberate: a Moving Average product that has layers is a
-/// contradiction, and it is only visible if something looks.
-async fn load_layers_under(
-    conn: &mut sqlx::SqliteConnection,
+/// Pure: it decides, the caller writes (or, for a read, does not). Two legacy
+/// shapes exist, both written only by the FIFO code that 1.3 removed:
+///
+/// * layers on disk, with a position whose quantity they add up to and whose
+///   total is `NULL` — collapsed into the layers' summed cost;
+/// * no layers and an emptied position with a `NULL` total — FIFO wrote that
+///   when its last layer was consumed, and it is worth exactly zero.
+///
+/// Everything else that mixes the two representations is a contradiction and
+/// is refused, so a collapse can never invent or lose a piastre.
+fn legacy_average(
     product_id: &str,
-    method: CostMethod,
-) -> Result<Vec<FifoLayer>, StockServiceError> {
+    position: Option<&repo::StockPosition>,
+    layers: Vec<FifoLayer>,
+) -> Result<Option<AveragePosition>, StockServiceError> {
+    let conflict = || -> StockServiceError {
+        StockError::CostAuthorityConflict {
+            product_id: product_id.to_owned(),
+        }
+        .into()
+    };
+
+    if layers.is_empty() {
+        return match position {
+            Some(position) if position.total_cost_minor.is_none() && position.quantity == 0 => {
+                Ok(Some(AveragePosition::EMPTY))
+            }
+            _ => Ok(None),
+        };
+    }
+
+    // Layers exist, so the position must be FIFO's: present, with no total, and
+    // holding exactly the units the layers hold.
+    let Some(position) = position else {
+        return Err(conflict());
+    };
+    if position.total_cost_minor.is_some() {
+        return Err(conflict());
+    }
+    let fifo = FifoPosition::new(layers);
+    if fifo.on_hand() != position.quantity {
+        return Err(conflict());
+    }
+    let total = fifo.total_cost_minor()?;
+    Ok(Some(AveragePosition::new(total, position.quantity)?))
+}
+
+/// Collapse a legacy FIFO position into the moving average, inside the
+/// caller's transaction. A no-op for every position written since 1.3.
+///
+/// Run first by every operation that writes stock, so the arithmetic after it
+/// only ever sees one representation. The layers' summed cost becomes the
+/// total, the layers are deleted, and the change is audited once, attributed to
+/// the operator whose operation touched the product.
+pub(crate) async fn collapse_legacy_in_tx(
+    conn: &mut sqlx::SqliteConnection,
+    acting_user: &UserId,
+    product_id: &str,
+    now: Timestamp,
+) -> Result<(), StockServiceError> {
+    let position = load_position(conn, product_id).await?;
     let layers = repo::list_layers(conn, product_id)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+    let layer_count = layers.len();
 
-    match method {
-        CostMethod::MovingAverage if !layers.is_empty() => {
-            Err(StockError::CostAuthorityConflict {
-                product_id: product_id.to_owned(),
-            }
-            .into())
-        }
-        _ => Ok(layers),
+    let Some(average) = legacy_average(product_id, position.as_ref(), layers)? else {
+        return Ok(());
+    };
+
+    if layer_count > 0 {
+        repo::delete_layers(conn, product_id)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
     }
+    repo::upsert_position(
+        conn,
+        &repo::StockPosition {
+            product_id: product_id.to_owned(),
+            quantity: average.on_hand,
+            total_cost_minor: Some(average.total_cost_minor),
+        },
+        acting_user,
+        now.as_millis(),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    audit::append(
+        conn,
+        acting_user.clone(),
+        audit::event::COST_LAYERS_COLLAPSED,
+        now,
+        Some(format!(
+            r#"{{"product":"{}","layers":{},"on_hand":{},"total_cost_minor":{}}}"#,
+            product_id, layer_count, average.on_hand, average.total_cost_minor
+        )),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
 }
 
-/// The Moving Average position for a product, refusing a FIFO-owned total.
+/// The moving-average position for a product, refusing a position with no cost.
+///
+/// Called after [`collapse_legacy_in_tx`], so a `NULL` total here is never a
+/// legacy FIFO row: it means units are on hand with no cost recorded anywhere,
+/// and the cost is genuinely unknown rather than zero.
 fn average_position(
     product_id: &str,
     position: Option<&repo::StockPosition>,
@@ -334,9 +359,6 @@ fn average_position(
         return Ok(AveragePosition::EMPTY);
     };
     let Some(total) = position.total_cost_minor else {
-        // No total recorded. Under Moving Average that means the position was
-        // written by FIFO and never converted, so the cost is genuinely unknown
-        // rather than zero.
         return Err(StockError::CostAuthorityConflict {
             product_id: product_id.to_owned(),
         }
@@ -345,18 +367,18 @@ fn average_position(
     AveragePosition::new(total, position.quantity).map_err(StockServiceError::from)
 }
 
-/// One layer's consumption, as the movement ledger records it.
+/// One consumption, as the movement ledger records it.
 ///
-/// Under FIFO there is one segment per layer touched, carrying the exact layer
-/// id and arrival time so a reversal can restore arrival order. Under Moving
-/// Average there is exactly one segment and the layer fields are `None`: there
-/// are no layers to name.
+/// Under the moving average there is exactly one segment per removal and the
+/// layer fields are `None`: there are no layers to name. The fields stay
+/// because the ledger columns do, and sales recorded before 1.3 under FIFO
+/// still carry them.
 ///
 /// `cost_minor` is the *exact* cost this segment removed, which is deliberately
-/// not always `quantity × unit_cost_minor`: under Moving Average the removal is
-/// `ceil(U·T/Q)` while the quoted unit cost is `ceil(T/Q)`, and the two need not
-/// agree. Summing `cost_minor` is what reconciles the ledger with the position;
-/// the unit cost is a quoted reference only.
+/// not always `quantity × unit_cost_minor`: the removal is `ceil(U·T/Q)` while
+/// the quoted unit cost is `ceil(T/Q)`, and the two need not agree. Summing
+/// `cost_minor` is what reconciles the ledger with the position; the unit cost
+/// is a quoted reference only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumedSegment {
     pub fifo_layer_id: Option<String>,
@@ -392,119 +414,46 @@ pub(crate) async fn remove_in_tx(
     quantity: i64,
     now: Timestamp,
 ) -> Result<RemovalInTx, StockServiceError> {
-    let department_id = product_department(conn, product_id).await?;
-    let method = resolve_cost_method(conn, department_id.as_deref()).await?;
+    ensure_product(conn, product_id).await?;
+    // A position left by the retired FIFO method becomes a moving-average one
+    // first, in this same transaction, so the arithmetic below sees only one
+    // representation.
+    collapse_legacy_in_tx(conn, acting_user, product_id, now).await?;
     let position = load_position(conn, product_id).await?;
 
-    // Authority is settled before any arithmetic runs, for both methods. Under
-    // Moving Average it proves there is a total to divide by; under FIFO it
-    // refuses to consume layers the method does not own.
-    load_layers_under(conn, product_id, method).await?;
+    let current = average_position(product_id, position.as_ref())?;
+    // The quoted average, read before the removal, is the per-unit figure a
+    // screen shows for this line. The exact `cost_removed_minor` stays the
+    // authority; this is a reference, not a base for totals.
+    let quoted = current.unit_cost_minor().unwrap_or(0);
+    let removal = current.remove(quantity)?;
+    repo::upsert_position(
+        conn,
+        &repo::StockPosition {
+            product_id: product_id.to_owned(),
+            quantity: removal.remaining.on_hand,
+            total_cost_minor: Some(removal.remaining.total_cost_minor),
+        },
+        acting_user,
+        now.as_millis(),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
 
-    match method {
-        CostMethod::MovingAverage => {
-            let current = average_position(product_id, position.as_ref())?;
-            // The quoted average, read before the removal, is the per-unit figure
-            // a screen shows for this line. The exact `cost_removed_minor` stays
-            // the authority; this is a reference, not a base for totals.
-            let quoted = current.unit_cost_minor().unwrap_or(0);
-            let removal = current.remove(quantity)?;
-            repo::upsert_position(
-                conn,
-                &repo::StockPosition {
-                    product_id: product_id.to_owned(),
-                    quantity: removal.remaining.on_hand,
-                    total_cost_minor: Some(removal.remaining.total_cost_minor),
-                },
-                acting_user,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-
-            Ok(RemovalInTx {
-                method,
-                cost_removed_minor: removal.cost_removed_minor,
-                remaining_quantity: removal.remaining.on_hand,
-                segments: vec![ConsumedSegment {
-                    fifo_layer_id: None,
-                    fifo_received_at: None,
-                    quantity,
-                    unit_cost_minor: quoted,
-                    // The exact removal, not `quantity × quoted`: `ceil` makes
-                    // the two differ, and the ledger must carry the exact one.
-                    cost_minor: removal.cost_removed_minor,
-                }],
-            })
-        }
-        CostMethod::Fifo => {
-            let rows = repo::list_layer_rows(conn, product_id)
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-            let layers = rows
-                .iter()
-                .map(|row| FifoLayer {
-                    quantity: row.quantity,
-                    unit_cost_minor: row.unit_cost_minor,
-                })
-                .collect();
-            let removal = FifoPosition::new(layers).remove(quantity)?;
-
-            // Rewrite only the layers that were touched, by identity: a partial
-            // consumption is an UPDATE that keeps the id, arrival time and unit
-            // cost; a whole one is a DELETE of that exact row. The survivors are
-            // never re-inserted, so their ids — the basis a reversal restores
-            // against — never change.
-            let mut segments = Vec::with_capacity(removal.consumed.len());
-            for consumption in &removal.consumed {
-                let row = &rows[consumption.layer_index];
-                if consumption.quantity == row.quantity {
-                    repo::delete_layer(conn, &row.id)
-                        .await
-                        .map_err(|_| DomainError::StorageUnavailable)?;
-                } else {
-                    repo::update_layer_quantity(
-                        conn,
-                        &row.id,
-                        row.quantity - consumption.quantity,
-                        acting_user,
-                    )
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?;
-                }
-                segments.push(ConsumedSegment {
-                    fifo_layer_id: Some(row.id.clone()),
-                    fifo_received_at: Some(row.received_at),
-                    quantity: consumption.quantity,
-                    unit_cost_minor: consumption.unit_cost_minor,
-                    // FIFO removes whole units at their layer cost, so this is
-                    // exact and sums to `cost_removed_minor` with no remainder.
-                    cost_minor: consumption.quantity * consumption.unit_cost_minor,
-                });
-            }
-
-            let remaining_quantity = removal.remaining.on_hand();
-            repo::upsert_position(
-                conn,
-                &repo::StockPosition {
-                    product_id: product_id.to_owned(),
-                    quantity: remaining_quantity,
-                    total_cost_minor: None,
-                },
-                acting_user,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-
-            Ok(RemovalInTx {
-                method,
-                cost_removed_minor: removal.cost_removed_minor,
-                remaining_quantity,
-                segments,
-            })
-        }
-    }
+    Ok(RemovalInTx {
+        method: QUANTITY_COST_METHOD,
+        cost_removed_minor: removal.cost_removed_minor,
+        remaining_quantity: removal.remaining.on_hand,
+        segments: vec![ConsumedSegment {
+            fifo_layer_id: None,
+            fifo_received_at: None,
+            quantity,
+            unit_cost_minor: quoted,
+            // The exact removal, not `quantity × quoted`: `ceil` makes the two
+            // differ, and the ledger must carry the exact one.
+            cost_minor: removal.cost_removed_minor,
+        }],
+    })
 }
 
 /// Receive stock: add units at a known unit cost.
@@ -533,76 +482,27 @@ pub async fn receive(
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
 
-    let department_id = product_department(&mut *tx, product_id).await?;
-    let method = resolve_cost_method(&mut *tx, department_id.as_deref()).await?;
+    ensure_product(&mut *tx, product_id).await?;
+    collapse_legacy_in_tx(&mut *tx, &actor, product_id, now).await?;
     let position = load_position(&mut *tx, product_id).await?;
 
-    // The layer this receipt created, when FIFO owns the cost, so the ledger row
-    // can name the exact layer it deposited into.
-    let mut receipt_layer_id: Option<String> = None;
-
-    let outcome = match method {
-        CostMethod::MovingAverage => {
-            let current = average_position(product_id, position.as_ref())?;
-            let updated = current.receive(quantity, unit_cost_minor)?;
-            repo::upsert_position(
-                &mut tx,
-                &repo::StockPosition {
-                    product_id: product_id.to_owned(),
-                    quantity: updated.on_hand,
-                    total_cost_minor: Some(updated.total_cost_minor),
-                },
-                &actor,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-            StockOutcome {
-                quantity: updated.on_hand,
-                cost_minor: 0,
-            }
-        }
-        CostMethod::Fifo => {
-            // A receipt never merges into an existing layer: the layer list is a
-            // record of when stock arrived, not a summary of prices.
-            let layer_id = uuid::Uuid::now_v7().to_string();
-            let layer = FifoLayer::new(quantity, unit_cost_minor)?;
-            repo::insert_layer(
-                &mut tx,
-                &layer_id,
-                product_id,
-                &layer,
-                now.as_millis(),
-                &actor,
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-            receipt_layer_id = Some(layer_id);
-
-            let previous = position
-                .as_ref()
-                .map(|position| position.quantity)
-                .unwrap_or(0);
-            let updated = previous
-                .checked_add(quantity)
-                .ok_or(CostError::Overflow)?;
-            repo::upsert_position(
-                &mut tx,
-                &repo::StockPosition {
-                    product_id: product_id.to_owned(),
-                    quantity: updated,
-                    total_cost_minor: None,
-                },
-                &actor,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-            StockOutcome {
-                quantity: updated,
-                cost_minor: 0,
-            }
-        }
+    let current = average_position(product_id, position.as_ref())?;
+    let updated = current.receive(quantity, unit_cost_minor)?;
+    repo::upsert_position(
+        &mut tx,
+        &repo::StockPosition {
+            product_id: product_id.to_owned(),
+            quantity: updated.on_hand,
+            total_cost_minor: Some(updated.total_cost_minor),
+        },
+        &actor,
+        now.as_millis(),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    let outcome = StockOutcome {
+        quantity: updated.on_hand,
+        cost_minor: 0,
     };
 
     // The ledger row for this receipt. A receipt is a movement in, at the stated
@@ -624,8 +524,8 @@ pub async fn receive(
             actor_id: actor.as_str().to_owned(),
             sale_id: None,
             sale_line_id: None,
-            fifo_layer_id: receipt_layer_id.clone(),
-            fifo_received_at: receipt_layer_id.as_ref().map(|_| now.as_millis()),
+            fifo_layer_id: None,
+            fifo_received_at: None,
             reverses_movement_id: None,
             // The one movement that is a purchase, so the one that may name a
             // supplier (D1). Trimmed once here; the column stores it verbatim.
@@ -645,7 +545,7 @@ pub async fn receive(
             product_id,
             quantity,
             unit_cost_minor,
-            method,
+            QUANTITY_COST_METHOD,
             outcome.quantity,
             // `null` rather than `""`, so the audit row distinguishes "nobody
             // named a supplier" from an empty label.
@@ -663,7 +563,7 @@ pub async fn receive(
     Ok(outcome)
 }
 
-/// Remove stock: consume units and report what they cost.
+/// Remove stock: consume units and report what they cost at the average.
 ///
 /// The whole operation is refused when there is not enough on hand — no partial
 /// consumption, no clamped result. `CostError::InsufficientStock` carries both
@@ -682,8 +582,8 @@ pub async fn remove(
 
     let removal = remove_in_tx(&mut tx, &actor, product_id, quantity, now).await?;
 
-    // Manual removal is a stock adjustment, not a sale: one ledger row per layer
-    // consumed, so the movement sums still reconcile with the position.
+    // Manual removal is a stock adjustment, not a sale: one ledger row per
+    // segment, so the movement sums still reconcile with the position.
     for segment in &removal.segments {
         sales_repo::insert_movement(
             &mut tx,
@@ -733,30 +633,25 @@ pub async fn remove(
 }
 
 /// What a read-only position looks like to a caller.
-///
-/// `layers` is empty under Moving Average and populated under FIFO, which is the
-/// authority rule made visible: a manager can see which representation is in
-/// charge without inferring it from a missing column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StockPositionView {
-    /// Units on hand, authoritative under either method.
+    /// Units on hand.
     pub quantity: i64,
-    /// The Moving Average total, or `None` when the layers hold the cost.
+    /// The moving-average total, or `None` when the product was never stocked.
+    ///
+    /// A legacy FIFO position reads as its summed layers here, without being
+    /// collapsed: a read never writes.
     pub total_cost_minor: Option<i64>,
-    /// The method that governs this product.
-    pub cost_method: CostMethod,
-    /// FIFO layers, oldest first. Empty unless the method is FIFO.
-    pub layers: Vec<FifoLayer>,
     /// Whether a `stock_levels` row exists for this product at all.
     ///
     /// This is what separates **"never stocked"** from **"stocked, but the cost
-    /// authority is missing"**, and the two must never be collapsed:
+    /// is missing"**, and the two must never be collapsed:
     ///
     /// - no row — the ordinary state of a product nobody has received yet. Zero
     ///   balance, zero cost, no error.
-    /// - a row with `total_cost_minor = NULL` under Moving Average — nothing in
-    ///   this module ever writes that, so it means a write came from outside and
-    ///   the cost is genuinely unknown. Refused.
+    /// - a row holding units with `total_cost_minor = NULL` and no legacy layers
+    ///   — nothing in this module writes that, so it means a write came from
+    ///   outside and the cost is genuinely unknown. Refused.
     ///
     /// The device found this: `get_position` reported
     /// `STOCK_COST_AUTHORITY_CONFLICT` for a brand-new product simply because it
@@ -765,28 +660,20 @@ pub struct StockPositionView {
 }
 
 impl StockPositionView {
-    /// The cost the operator should think of: the stored total under Moving
-    /// Average, and the summed layers under FIFO.
-    ///
-    /// Derived, never stored. `ADR-013` rejects a stored average because it
-    /// drifts; the same reasoning applies to a stored FIFO total.
+    /// The cost the operator should think of: the moving-average total, or zero
+    /// for a product that was never stocked.
     pub fn effective_cost_minor(&self) -> Result<i64, StockError> {
-        match self.cost_method {
-            CostMethod::MovingAverage => match self.total_cost_minor {
-                Some(total) => Ok(total),
-                // A product that has never been received holds nothing, so it
-                // costs nothing. That is a fact about the world, not a defect.
-                None if !self.row_exists => Ok(0),
-                // A row exists but carries no cost under the method that claims
-                // it. Nothing writes this, so reporting it as free stock would
-                // invent a value; it is refused and surfaced instead.
-                None => Err(StockError::CostAuthorityConflict {
-                    product_id: String::from("<position>"),
-                }),
-            },
-            CostMethod::Fifo => FifoPosition::new(self.layers.clone())
-                .total_cost_minor()
-                .map_err(StockError::from),
+        match self.total_cost_minor {
+            Some(total) => Ok(total),
+            // A product that has never been received holds nothing, so it costs
+            // nothing. That is a fact about the world, not a defect.
+            None if !self.row_exists => Ok(0),
+            // A row exists but carries no cost. Nothing writes this, so
+            // reporting it as free stock would invent a value; it is refused
+            // and surfaced instead.
+            None => Err(StockError::CostAuthorityConflict {
+                product_id: String::from("<position>"),
+            }),
         }
     }
 }
@@ -809,190 +696,30 @@ pub async fn position(
 
     let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
 
-    let department_id = product_department(&mut conn, product_id).await?;
-    let method = resolve_cost_method(&mut conn, department_id.as_deref()).await?;
+    ensure_product(&mut conn, product_id).await?;
     let stored = load_position(&mut conn, product_id).await?;
-    let layers = load_layers_under(&mut conn, product_id, method).await?;
+    let layers = repo::list_layers(&mut conn, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
 
-    let view = StockPositionView {
-        quantity: stored.as_ref().map(|position| position.quantity).unwrap_or(0),
-        total_cost_minor: stored.as_ref().and_then(|position| position.total_cost_minor),
-        cost_method: method,
-        layers,
-        // Carried explicitly so `effective_cost_minor` can tell "never stocked"
-        // from "stocked with a missing cost" — see the field's documentation.
-        row_exists: stored.is_some(),
+    // A legacy FIFO position is reported at its summed layers — the value a
+    // collapse would write — while the rows themselves stay untouched.
+    let view = match legacy_average(product_id, stored.as_ref(), layers)? {
+        Some(average) => StockPositionView {
+            quantity: average.on_hand,
+            total_cost_minor: Some(average.total_cost_minor),
+            row_exists: true,
+        },
+        None => StockPositionView {
+            quantity: stored.as_ref().map(|position| position.quantity).unwrap_or(0),
+            total_cost_minor: stored.as_ref().and_then(|position| position.total_cost_minor),
+            row_exists: stored.is_some(),
+        },
     };
 
     // Validate before returning, so a contradiction is reported by the read
-    // itself rather than surfacing later as a bad number. `load_layers_under`
-    // has already refused layers the method does not own; this catches the
-    // remaining half — a row holding stock with no cost under the method that
-    // claims it.
+    // itself rather than surfacing later as a bad number.
     view.effective_cost_minor()?;
 
     Ok(view)
-}
-
-/// Switch a department between `moving_average` and `fifo`.
-///
-/// `Sensitive`, always: `ADR-013` makes the switch manager-only, re-authenticated
-/// and Pattern-gated, because it changes what every existing unit is worth.
-///
-/// The conversions, per `ADR-013`:
-///
-/// * **MA → FIFO** seeds one layer holding the current on-hand quantity at the
-///   current average cost. Nothing is seeded when nothing is on hand — an empty
-///   layer would carry no cost fact.
-/// * **FIFO → MA** collapses the layers into their summed total.
-///
-/// A switch to the method already in force is a no-op that still records the
-/// event: the manager asked, and an audit that quietly ignored a request is
-/// worse than one that records a decision that changed nothing.
-pub async fn switch_cost_method(
-    pool: &SqlitePool,
-    tokens: &dyn SecureTokenStore,
-    department_id: DepartmentId,
-    target: CostMethod,
-) -> Result<(), StockServiceError> {
-    let session = authorize(pool, tokens, Sensitivity::Sensitive).await?;
-    let now = Timestamp::now();
-    let actor = session.user_id();
-
-    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
-
-    let mut department = department_repo::find_by_id(&mut tx, department_id)
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?
-        .ok_or(DepartmentError::NotFound)?;
-
-    let previous = department.cost_method;
-    let positions =
-        repo::list_positions_in_department(&mut *tx, &department_id.as_str())
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-
-    let mut converted = 0i64;
-    for position in &positions {
-        match (previous, target) {
-            // Nothing to do: the value already reads as the target claims.
-            (CostMethod::MovingAverage, CostMethod::MovingAverage)
-            | (CostMethod::Fifo, CostMethod::Fifo) => {}
-
-            // Seed one layer at the current average. The average is ceilinged,
-            // because that is the only rounding rule money has here — and it is
-            // the same figure `AveragePosition::unit_cost_minor` quotes, so the
-            // seeded layer and the value a screen shows cannot disagree.
-            (CostMethod::MovingAverage, CostMethod::Fifo) => {
-                if position.quantity == 0 {
-                    repo::upsert_position(
-                        &mut tx,
-                        &repo::StockPosition {
-                            product_id: position.product_id.clone(),
-                            quantity: 0,
-                            total_cost_minor: None,
-                        },
-                        &actor,
-                        now.as_millis(),
-                    )
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?;
-                    continue;
-                }
-
-                let average = average_position(&position.product_id, Some(position))?
-                    .unit_cost_minor()
-                    .ok_or(CostError::ZeroUnits)?;
-                let layer = FifoLayer::new(position.quantity, average)?;
-                repo::insert_layer(
-                    &mut tx,
-                    &uuid::Uuid::now_v7().to_string(),
-                    &position.product_id,
-                    &layer,
-                    now.as_millis(),
-                    &actor,
-                )
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-                repo::upsert_position(
-                    &mut tx,
-                    &repo::StockPosition {
-                        product_id: position.product_id.clone(),
-                        quantity: position.quantity,
-                        total_cost_minor: None,
-                    },
-                    &actor,
-                    now.as_millis(),
-                )
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-                converted += 1;
-            }
-
-            // Collapse the layers into their summed total. `Total_cost_minor()`
-            // is checked rather than unwrapped: an overflow here is a refusal,
-            // and the transaction rolls back so no product is left half
-            // converted.
-            (CostMethod::Fifo, CostMethod::MovingAverage) => {
-                let layers = load_layers_under(&mut *tx, &position.product_id, previous).await?;
-                let total = FifoPosition::new(layers).total_cost_minor()?;
-                repo::delete_layers(&mut tx, &position.product_id)
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?;
-                repo::upsert_position(
-                    &mut tx,
-                    &repo::StockPosition {
-                        product_id: position.product_id.clone(),
-                        quantity: position.quantity,
-                        total_cost_minor: Some(total),
-                    },
-                    &actor,
-                    now.as_millis(),
-                )
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-                converted += 1;
-            }
-        }
-    }
-
-    // The department row itself. `Department::update` now refuses a costing-method
-    // change (it would relabel the stock without converting it), so the value is
-    // written directly and the conversion above is what makes it honest.
-    sqlx::query(
-        "UPDATE departments
-         SET cost_method = ?1, updated_by = ?2, updated_at = ?3
-         WHERE id = ?4",
-    )
-    .bind(target.as_str())
-    .bind(actor.as_str())
-    .bind(now.as_millis())
-    .bind(department_id.as_str())
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| DomainError::StorageUnavailable)?;
-
-    // Keep the in-memory copy truthful for the caller; nothing reads it below.
-    department.cost_method = target;
-
-    audit::append(
-        &mut tx,
-        actor,
-        audit::event::COST_METHOD_SWITCHED,
-        now,
-        Some(format!(
-            r#"{{"department":"{}","from":"{}","to":"{}","products_converted":{}}}"#,
-            department_id.as_str(),
-            previous,
-            target,
-            converted
-        )),
-    )
-    .await
-    .map_err(|_| DomainError::StorageUnavailable)?;
-
-    tx.commit()
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-    Ok(())
 }

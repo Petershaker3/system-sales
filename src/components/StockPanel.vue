@@ -1,12 +1,15 @@
 <script setup lang="ts">
 // Stock and costing panel (SP-2, `ADR-013`, `ADR-015`).
 //
-// Three use cases, and the panel's job is to make the *costing rule* visible
-// rather than to compute anything:
+// Two use cases, and the panel's job is to show what Rust computed rather
+// than to compute anything:
 //
 //   - receive: add units at a known unit cost. Routine.
 //   - remove:  consume units and show what they cost. Routine.
-//   - switch:  change a department's costing method. Sensitive.
+//
+// Every product counted by quantity is costed by moving average (ADR-016 #7).
+// FIFO and switching the method per department were retired in plan item 1.3,
+// so there is nothing to choose here.
 //
 // # Why reading a position needs a password
 //
@@ -17,38 +20,25 @@
 //
 // # Why the cost shown is the one Rust returned
 //
-// The panel renders `effectiveCostMinor`, never a locally divided average. Under
-// Moving Average that figure is ceilinged by `domain/costing`; recomputing it in
-// TypeScript would produce a second, different rounding rule — the exact drift
-// `ADR-013` exists to prevent.
-//
-// # Why switching is a separate action
-//
-// The ordinary department edit refuses a costing-method change, because
-// relabelling a department without converting its stock would claim a cost the
-// stock does not have. This panel is therefore the *only* place the method can
-// change, which is why it asks for confirmation rather than offering a dropdown
-// in the edit form.
+// The panel renders `effectiveCostMinor`, never a locally divided average. That
+// figure is ceilinged by `domain/costing`; recomputing it in TypeScript would
+// produce a second, different rounding rule — the exact drift `ADR-013` exists
+// to prevent.
 
 import { computed, ref } from 'vue';
 
 import * as catalog from '../api/catalog';
-import * as departments from '../api/departments';
 import * as inventory from '../api/inventory';
 import * as lifecycle from '../api/lifecycle';
 import { describeError } from '../api/errors';
-import PatternPrompt from './PatternPrompt.vue';
 import type { Product } from '../api/catalog';
-import type { CostMethod, Department } from '../api/departments';
 import type { StockPosition } from '../api/inventory';
 
-// --- product and department pickers ----------------------------------------
+// --- product picker --------------------------------------------------------
 
 const products = ref<Product[]>([]);
-const depts = ref<Department[]>([]);
 
 const selectedProductId = ref('');
-const selectedDepartmentId = ref('');
 
 // --- movement forms --------------------------------------------------------
 
@@ -72,12 +62,7 @@ const selectedProduct = computed(
 async function loadPickers(): Promise<void> {
   busy.value = true;
   try {
-    const [listed, allDepartments] = await Promise.all([
-      catalog.listProducts('active'),
-      departments.listDepartments(),
-    ]);
-    products.value = listed;
-    depts.value = allDepartments.filter((department) => department.status === 'active');
+    products.value = await catalog.listProducts('active');
     error.value = '';
   } catch (err) {
     error.value = describeError(err);
@@ -210,82 +195,6 @@ async function submitRemove(): Promise<void> {
   }
 }
 
-// --- the costing-method switch --------------------------------------------
-
-const showSwitch = ref(false);
-const switchTarget = ref<CostMethod>('moving_average');
-const switchPassword = ref('');
-
-function startSwitch(): void {
-  const department = depts.value.find((entry) => entry.id === selectedDepartmentId.value);
-  if (department === undefined) return;
-  // Offer the method it is not: switching to what it already uses does nothing.
-  switchTarget.value =
-    department.costMethod === 'fifo' ? 'moving_average' : 'fifo';
-  switchPassword.value = '';
-  error.value = '';
-  notice.value = '';
-  showSwitch.value = true;
-}
-
-const showPattern = ref(false);
-
-function afterPatternVerified(): void {
-  showPattern.value = false;
-  // Assurance is still raised from the password a moment ago, so this only has
-  // to retry the switch. Re-authenticating again would ask for a password the
-  // operator has already given for this very operation.
-  void performSwitch();
-}
-
-/**
- * The switch itself, with the assurance level already raised.
- *
- * A Pattern refusal is not an error to display: it means the operation needs one
- * more step, so the prompt opens instead. Any other failure is reported where it
- * happened.
- */
-async function performSwitch(): Promise<void> {
-  busy.value = true;
-  try {
-    await inventory.switchCostMethod(selectedDepartmentId.value, switchTarget.value);
-    showSwitch.value = false;
-    notice.value = 'تم تغيير طريقة التكلفة وتحويل المخزون القائم.';
-    error.value = '';
-    await loadPickers();
-    await refreshPosition();
-  } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code === 'PATTERN_REQUIRED' || code === 'PATTERN_APPROVAL_STALE') {
-      showPattern.value = true;
-      return;
-    }
-    error.value = describeError(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/**
- * Prove the Manager password, then switch.
- *
- * The two steps stay separate because they answer different questions: the
- * password establishes *who*, the Pattern establishes *freshness*. Rust decides
- * whether the Pattern is needed at all, so the panel asks only when it is told to.
- */
-async function confirmSwitch(): Promise<void> {
-  busy.value = true;
-  try {
-    await lifecycle.reauthenticate(switchPassword.value);
-    switchPassword.value = '';
-    await performSwitch();
-  } catch (err) {
-    error.value = describeError(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
 // --- labels ----------------------------------------------------------------
 
 /** Piastres to a readable amount. Display only; never fed back into arithmetic. */
@@ -294,16 +203,6 @@ function formatPiastres(minor: number | null): string {
   const whole = Math.trunc(minor / 100);
   const rest = Math.abs(minor % 100);
   return `${whole}.${String(rest).padStart(2, '0')} ج.م`;
-}
-
-function costMethodLabel(method: CostMethod): string {
-  return method === 'fifo' ? 'وارد أولاً يخرج أولاً (FIFO)' : 'المتوسط المرجح المتحرك';
-}
-
-function positionAuthorityLabel(current: StockPosition): string {
-  return current.costMethod === 'fifo'
-    ? 'الطبقات هي المرجع للتكلفة'
-    : 'إجمالي التكلفة هو المرجع';
 }
 
 void loadPickers();
@@ -339,25 +238,9 @@ void loadPickers();
       <dl class="facts">
         <dt>الرصيد</dt>
         <dd>{{ position.quantity }}</dd>
-        <dt>طريقة التكلفة</dt>
-        <dd>{{ costMethodLabel(position.costMethod) }}</dd>
-        <dt>{{ positionAuthorityLabel(position) }}</dt>
+        <dt>إجمالي التكلفة (متوسط مرجح)</dt>
         <dd>{{ formatPiastres(position.effectiveCostMinor) }}</dd>
       </dl>
-
-      <!-- Layers are read-only: a layer is a fact about a past receipt. -->
-      <div v-if="position.layers.length > 0" class="layers">
-        <h4 class="layers-title">طبقات FIFO</h4>
-        <ul class="layer-list">
-          <li v-for="(layer, index) in position.layers" :key="index" class="layer">
-            <span>الطبقة {{ index + 1 }} (الأقدم أولًا)</span>
-            <span>{{ layer.quantity }} × {{ formatPiastres(layer.unitCostMinor) }}</span>
-          </li>
-        </ul>
-        <p class="hint">
-          الطبقات للقراءة فقط. oldest-first هو ترتيب الخصم، والعنصر المنفَق يحتفظ بسعره.
-        </p>
-      </div>
 
       <!-- Receive -->
       <form class="form" @submit.prevent="submitReceive">
@@ -399,54 +282,8 @@ void loadPickers();
       </form>
     </div>
 
-    <!-- The costing-method switch -->
-    <div class="switch-block">
-      <h3 class="switch-title">طريقة حساب التكلفة</h3>
-      <label class="field">
-        <span>القسم</span>
-        <select v-model="selectedDepartmentId">
-          <option value="">— اختر قسمًا —</option>
-          <option v-for="department in depts" :key="department.id" :value="department.id">
-            {{ department.name }} — {{ costMethodLabel(department.costMethod) }}
-          </option>
-        </select>
-      </label>
-      <p class="hint">
-        تغيير الطريقة يحوّل المخزون القائم لهذا القسم: من المتوسط المرجح إلى FIFO تُبذر
-        طبقة واحدة، والعكس يطوي الطبقات في إجمالي. عملية حساسة تحتاج تأكيد الهوية والنمط.
-      </p>
-      <button
-        type="button"
-        :disabled="busy || selectedDepartmentId === ''"
-        @click="startSwitch"
-      >
-        تبديل طريقة التكلفة
-      </button>
-    </div>
-
     <p v-if="notice" class="notice">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-
-    <!-- Step-up prompt: permissionless by design, so no re-auth in front of it. -->
-    <PatternPrompt :visible="showPattern" @verified="afterPatternVerified" @cancelled="showPattern = false" />
-
-    <!-- Switch confirmation: the Manager password is re-proved here on purpose. -->
-    <div v-if="showSwitch" class="overlay">
-      <form class="modal" @submit.prevent="confirmSwitch">
-        <h3 class="modal-title">تبديل طريقة التكلفة</h3>
-        <p class="hint">
-          سيصبح المرجع {{ costMethodLabel(switchTarget) }} وسيُحوَّل مخزون هذا القسم القائم.
-        </p>
-        <label class="field">
-          <span>كلمة مرور المدير</span>
-          <input v-model="switchPassword" type="password" autocomplete="current-password" required />
-        </label>
-        <div class="row">
-          <button type="submit" :disabled="busy">تأكيد</button>
-          <button type="button" :disabled="busy" @click="showSwitch = false">إلغاء</button>
-        </div>
-      </form>
-    </div>
 
     <!-- Re-authentication for reading a cost. -->
     <div v-if="showReauth" class="overlay">
@@ -489,26 +326,6 @@ void loadPickers();
   grid-template-columns: auto 1fr;
   gap: 0.25rem 1rem;
 }
-.layers {
-  margin: 1rem 0;
-  padding: 0.75rem;
-  border: 1px solid #eee;
-}
-.layers-title {
-  font-size: 0.95rem;
-  margin: 0 0 0.5rem;
-}
-.layer-list {
-  list-style: none;
-  margin: 0 0 0.5rem;
-  padding: 0;
-}
-.layer {
-  display: flex;
-  justify-content: space-between;
-  padding: 0.25rem 0;
-  border-bottom: 1px solid #f0f0f0;
-}
 .form {
   margin: 1rem 0;
   padding: 0.75rem;
@@ -516,15 +333,6 @@ void loadPickers();
 }
 .form-title {
   font-size: 0.95rem;
-  margin: 0 0 0.5rem;
-}
-.switch-block {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid #eee;
-}
-.switch-title {
-  font-size: 1rem;
   margin: 0 0 0.5rem;
 }
 .notice {

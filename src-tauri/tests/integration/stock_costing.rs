@@ -2,15 +2,15 @@
 //!
 //! The claims under test are the ones a unit test cannot make:
 //!
-//! * a Moving Average removal ceils, and the balance never goes negative;
-//! * FIFO consumes the oldest layer first and needs no rounding;
-//! * the authority invariant holds on disk after every operation — exactly one
-//!   of `total_cost_minor` / `fifo_layers` is in charge, never both and never
-//!   neither;
+//! * a moving-average removal ceils, and the balance never goes negative;
+//! * every product counted by quantity is costed by moving average, whatever
+//!   method its department or the device default still stores (plan item 1.3);
+//! * a position left by the retired FIFO method is collapsed into the average
+//!   on first touch, at exactly its summed cost, and audited once; a read never
+//!   collapses anything; a contradictory position is refused, never repaired;
 //! * insufficient stock refuses the whole operation and leaves no partial state;
 //! * a failure anywhere rolls the transaction back completely, position and
 //!   audit together;
-//! * switching methods converts the stock that already exists;
 //! * every movement is audited, and a refused movement is not.
 //!
 //! `spec:138` requires atomicity to be proven against real SQLite rather than a
@@ -246,155 +246,170 @@ async fn selling_everything_under_moving_average_leaves_nothing_behind() {
 }
 
 // ---------------------------------------------------------------------------
-// FIFO
+// FIFO is retired (plan item 1.3)
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn fifo_consumes_the_oldest_layer_first() {
-    let shop = shop().await;
-    let department = department(&shop, "Spares", CostMethod::Fifo).await;
-    let product = product(&shop, "Screen", Some(department)).await;
-
-    for _ in 0..2 {
-        costing::receive(
-            &shop.pool,
-            shop.tokens.as_ref(),
-            &product,
-            5,
-            100,
-            Sensitivity::Routine,
-        None,
-        )
-        .await
-        .expect("receive at 100");
-    }
-    costing::receive(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        &product,
-        5,
-        200,
-        Sensitivity::Routine,
-    None,
+/// Write a position the way the retired FIFO method left it: a `stock_levels`
+/// row with no total, and the layers that hold the cost.
+async fn legacy_fifo(shop: &Shop, product_id: &str, layers: &[(i64, i64)]) {
+    let quantity: i64 = layers.iter().map(|(units, _)| units).sum();
+    sqlx::query(
+        "INSERT INTO stock_levels (product_id, quantity, total_cost_minor, updated_by, updated_at)
+         VALUES (?1, ?2, NULL, ?3, 1000)",
     )
+    .bind(product_id)
+    .bind(quantity)
+    .bind(shop.manager.as_str())
+    .execute(&shop.pool)
     .await
-    .expect("receive at 200");
-
-    assert_eq!(layers(&shop, &product).await.len(), 3, "receipts never merge");
-    assert_eq!(position(&shop, &product).await, Some((15, None)));
-
-    // 6 units: the whole oldest layer at 100, then one from the next at 100.
-    let outcome = costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 6)
+    .expect("a legacy FIFO position");
+    for (index, (units, unit_cost)) in layers.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO fifo_layers
+             (id, product_id, quantity, unit_cost_minor, received_at, updated_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(product_id)
+        .bind(*units)
+        .bind(*unit_cost)
+        .bind(1000 + index as i64)
+        .bind(shop.manager.as_str())
+        .execute(&shop.pool)
         .await
-        .expect("remove");
-    assert_eq!(outcome.cost_minor, 600);
-    assert_eq!(position(&shop, &product).await, Some((9, None)));
+        .expect("a legacy FIFO layer");
+    }
 }
 
 #[tokio::test]
-async fn fifo_straddles_two_layers_at_two_prices() {
+async fn a_department_stored_as_fifo_is_costed_by_moving_average() {
     let shop = shop().await;
-    let department = department(&shop, "Batteries", CostMethod::Fifo).await;
+    let department = department(&shop, "Spares", CostMethod::Fifo).await;
     let product = product(&shop, "Battery", Some(department)).await;
 
     costing::receive(
         &shop.pool,
         shop.tokens.as_ref(),
         &product,
-        2,
-        100,
+        4,
+        250,
         Sensitivity::Routine,
-    None,
-    )
-    .await
-    .expect("receive");
-    costing::receive(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        &product,
-        3,
-        120,
-        Sensitivity::Routine,
-    None,
+        None,
     )
     .await
     .expect("receive");
 
-    // 4 units: 2 at 100 and 2 at 120.
-    let outcome = costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 4)
-        .await
-        .expect("remove");
-    assert_eq!(outcome.cost_minor, 2 * 100 + 2 * 120);
-    assert_eq!(
-        layers(&shop, &product).await,
-        vec![(1, 120)],
-        "the surviving layer keeps its own unit cost"
-    );
-}
+    assert_eq!(position(&shop, &product).await, Some((4, Some(1000))));
+    assert!(layers(&shop, &product).await.is_empty(), "nothing writes a layer any more");
 
-#[tokio::test]
-async fn fifo_never_rounds() {
-    let shop = shop().await;
-    let department = department(&shop, "Odd", CostMethod::Fifo).await;
-    let product = product(&shop, "Odd", Some(department)).await;
-
-    // 34 piastres does not divide by 3; under a Moving Average this would ceil
-    // to 12 per unit. FIFO takes whole units at whole-layer prices.
-    costing::receive(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        &product,
-        3,
-        34,
-        Sensitivity::Routine,
-    None,
-    )
-    .await
-    .expect("receive");
     let outcome = costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 1)
         .await
         .expect("remove");
-    assert_eq!(outcome.cost_minor, 34);
+    assert_eq!(outcome.cost_minor, 250);
+    assert_eq!(position(&shop, &product).await, Some((3, Some(750))));
 }
 
-// ---------------------------------------------------------------------------
-// The authority invariant
-// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn a_legacy_fifo_position_is_collapsed_on_the_next_receipt() {
+    let shop = shop().await;
+    let product = product(&shop, "Old Stock", None).await;
+    legacy_fifo(&shop, &product, &[(2, 100), (3, 250)]).await;
+
+    costing::receive(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        &product,
+        1,
+        300,
+        Sensitivity::Routine,
+        None,
+    )
+    .await
+    .expect("receive into a legacy position");
+
+    // 2×100 + 3×250 = 950 held, plus 300 received.
+    assert_eq!(position(&shop, &product).await, Some((6, Some(1250))));
+    assert!(layers(&shop, &product).await.is_empty(), "the layers are folded away");
+    assert_eq!(audit_count(&shop, audit::event::COST_LAYERS_COLLAPSED).await, 1);
+    assert_eq!(audit_count(&shop, audit::event::STOCK_RECEIVED).await, 1);
+
+    // A second touch finds nothing left to collapse and audits nothing more.
+    costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 1)
+        .await
+        .expect("remove");
+    assert_eq!(audit_count(&shop, audit::event::COST_LAYERS_COLLAPSED).await, 1);
+}
 
 #[tokio::test]
-async fn exactly_one_representation_ever_owns_the_cost() {
+async fn a_legacy_fifo_position_is_removed_from_at_the_average() {
     let shop = shop().await;
+    let product = product(&shop, "Mixed Prices", None).await;
+    legacy_fifo(&shop, &product, &[(1, 100), (2, 400)]).await;
 
-    for (name, method) in [("MA", CostMethod::MovingAverage), ("FIFO", CostMethod::Fifo)] {
-        let department = department(&shop, name, method).await;
-        let product = product(&shop, name, Some(department)).await;
-
-        costing::receive(
-            &shop.pool,
-            shop.tokens.as_ref(),
-            &product,
-            4,
-            250,
-            Sensitivity::Routine,
-        None,
-        )
+    let outcome = costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 1)
         .await
-        .expect("receive");
+        .expect("remove from a legacy position");
 
-        let (_, total) = position(&shop, &product).await.expect("a position");
-        let layer_count = layers(&shop, &product).await.len();
+    // 900 over 3 units: the average, not the oldest layer's 100.
+    assert_eq!(outcome.cost_minor, 300);
+    assert_eq!(position(&shop, &product).await, Some((2, Some(600))));
+    assert!(layers(&shop, &product).await.is_empty());
+    assert_eq!(audit_count(&shop, audit::event::COST_LAYERS_COLLAPSED).await, 1);
+}
 
-        match method {
-            CostMethod::MovingAverage => {
-                assert!(total.is_some(), "{name}: MA must record a total");
-                assert_eq!(layer_count, 0, "{name}: MA must hold no layers");
-            }
-            CostMethod::Fifo => {
-                assert!(total.is_none(), "{name}: FIFO must record no total");
-                assert!(layer_count > 0, "{name}: FIFO must hold layers");
-            }
-        }
-    }
+#[tokio::test]
+async fn an_emptied_legacy_fifo_position_becomes_a_real_zero() {
+    // FIFO wrote quantity 0 with a NULL total when its last layer was consumed.
+    let shop = shop().await;
+    let product = product(&shop, "Sold Out", None).await;
+    legacy_fifo(&shop, &product, &[]).await;
+    assert_eq!(position(&shop, &product).await, Some((0, None)));
+
+    costing::receive(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        &product,
+        2,
+        50,
+        Sensitivity::Routine,
+        None,
+    )
+    .await
+    .expect("receive into an emptied legacy position");
+
+    assert_eq!(position(&shop, &product).await, Some((2, Some(100))));
+}
+
+#[tokio::test]
+async fn legacy_layers_that_disagree_with_the_quantity_are_refused() {
+    let shop = shop().await;
+    let product = product(&shop, "Disagrees", None).await;
+    legacy_fifo(&shop, &product, &[(2, 100)]).await;
+    sqlx::query("UPDATE stock_levels SET quantity = 5 WHERE product_id = ?1")
+        .bind(&product)
+        .execute(&shop.pool)
+        .await
+        .expect("break the legacy position");
+
+    let refused = costing::receive(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        &product,
+        1,
+        100,
+        Sensitivity::Routine,
+        None,
+    )
+    .await;
+
+    assert_eq!(
+        refused.err().map(|error| error.code()),
+        Some("STOCK_COST_AUTHORITY_CONFLICT"),
+        "a collapse must never invent or lose a piastre"
+    );
+    assert_eq!(position(&shop, &product).await, Some((5, None)), "nothing was rewritten");
+    assert_eq!(layers(&shop, &product).await.len(), 1);
+    assert_eq!(audit_count(&shop, audit::event::COST_LAYERS_COLLAPSED).await, 0);
 }
 
 #[tokio::test]
@@ -558,139 +573,14 @@ async fn a_negative_balance_can_never_be_written() {
 }
 
 // ---------------------------------------------------------------------------
-// Switching the costing method
+// A department's stored method is inert
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn switching_moving_average_to_fifo_seeds_one_layer_at_the_current_average() {
-    let shop = shop().await;
-    let department = department(&shop, "Switch", CostMethod::MovingAverage).await;
-    let product = product(&shop, "Switch", Some(department)).await;
-
-    // 4 units costing 1000 in total: the average is exactly 250.
-    costing::receive(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        &product,
-        4,
-        250,
-        Sensitivity::Routine,
-    None,
-    )
-    .await
-    .expect("receive");
-
-    session::reauthenticate(&shop.pool, shop.tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
-    costing::switch_cost_method(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        department,
-        CostMethod::Fifo,
-    )
-    .await
-    .expect("switch");
-
-    assert_eq!(
-        layers(&shop, &product).await,
-        vec![(4, 250)],
-        "ADR-013: MA → FIFO seeds one layer at the current average"
-    );
-    assert_eq!(
-        position(&shop, &product).await,
-        Some((4, None)),
-        "the Moving Average total must be handed over, not left beside the layers"
-    );
-}
-
-#[tokio::test]
-async fn switching_back_to_moving_average_collapses_the_layers() {
-    let shop = shop().await;
-    let department = department(&shop, "Round", CostMethod::Fifo).await;
-    let product = product(&shop, "Round", Some(department)).await;
-
-    for unit_cost in [100, 120] {
-        costing::receive(
-            &shop.pool,
-            shop.tokens.as_ref(),
-            &product,
-            2,
-            unit_cost,
-            Sensitivity::Routine,
-        None,
-        )
-        .await
-        .expect("receive");
-    }
-
-    session::reauthenticate(&shop.pool, shop.tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
-    costing::switch_cost_method(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        department,
-        CostMethod::MovingAverage,
-    )
-    .await
-    .expect("switch");
-
-    assert!(
-        layers(&shop, &product).await.is_empty(),
-        "FIFO → MA must delete the layers it collapsed"
-    );
-    assert_eq!(
-        position(&shop, &product).await,
-        Some((4, Some(440))),
-        "the total is the sum of the layers: 2*100 + 2*120"
-    );
-}
-
-#[tokio::test]
-async fn switching_an_empty_position_seeds_nothing() {
-    let shop = shop().await;
-    let department = department(&shop, "Nothing", CostMethod::MovingAverage).await;
-    let product = product(&shop, "Nothing", Some(department)).await;
-
-    costing::receive(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        &product,
-        5,
-        100,
-        Sensitivity::Routine,
-    None,
-    )
-    .await
-    .expect("receive");
-    costing::remove(&shop.pool, shop.tokens.as_ref(), &product, 5)
-        .await
-        .expect("remove everything");
-
-    session::reauthenticate(&shop.pool, shop.tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
-    costing::switch_cost_method(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        department,
-        CostMethod::Fifo,
-    )
-    .await
-    .expect("switch");
-
-    assert!(
-        layers(&shop, &product).await.is_empty(),
-        "an empty position has nothing to seed; a zero layer would be noise"
-    );
-}
-
-#[tokio::test]
 async fn an_ordinary_department_edit_cannot_relabel_the_costing_method() {
-    // The switch has to convert the stock that already exists. If a plain edit
-    // could flip the label, a department could be worth a different amount
-    // without anything being converted.
+    // The stored method no longer decides anything (plan item 1.3), but the
+    // department service still refuses to relabel it, so the column keeps the
+    // value it was created with.
     let shop = shop().await;
     let department = department(&shop, "Locked", CostMethod::MovingAverage).await;
     let product = product(&shop, "Locked", Some(department)).await;
@@ -738,27 +628,6 @@ async fn an_ordinary_department_edit_cannot_relabel_the_costing_method() {
 // ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn switching_the_costing_method_requires_fresh_proof() {
-    let shop = shop().await;
-    let department = department(&shop, "Guard", CostMethod::MovingAverage).await;
-
-    // A plain login is `normal` assurance; a switch is sensitive work.
-    let refused = costing::switch_cost_method(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        department,
-        CostMethod::Fifo,
-    )
-    .await;
-
-    assert_eq!(
-        refused.err().map(|error| error.code()),
-        Some("REAUTHENTICATION_REQUIRED"),
-        "ADR-013 requires re-authentication before the costing method moves"
-    );
-}
 
 #[tokio::test]
 async fn receiving_a_delivery_is_routine_and_needs_no_fresh_proof() {
@@ -836,41 +705,9 @@ async fn every_movement_is_audited_once() {
 }
 
 #[tokio::test]
-async fn the_switch_is_audited_with_both_methods_named() {
-    let shop = shop().await;
-    let department = department(&shop, "Trace", CostMethod::MovingAverage).await;
-
-    session::reauthenticate(&shop.pool, shop.tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
-    costing::switch_cost_method(
-        &shop.pool,
-        shop.tokens.as_ref(),
-        department,
-        CostMethod::Fifo,
-    )
-    .await
-    .expect("switch");
-
-    assert_eq!(audit_count(&shop, audit::event::COST_METHOD_SWITCHED).await, 1);
-
-    let detail: String = sqlx::query_scalar(
-        "SELECT detail FROM audit_events WHERE event_type = 'cost_method_switched'",
-    )
-    .fetch_one(&shop.pool)
-    .await
-    .expect("detail");
-
-    assert!(
-        detail.contains("moving_average") && detail.contains("fifo"),
-        "the audit must name both sides of the switch, got {detail}"
-    );
-}
-
-#[tokio::test]
 async fn audit_detail_never_carries_a_costing_secret() {
     let shop = shop().await;
-    let department = department(&shop, "Clean", CostMethod::Fifo).await;
+    let department = department(&shop, "Clean", CostMethod::MovingAverage).await;
     let product = product(&shop, "Clean", Some(department)).await;
 
     costing::receive(
@@ -900,11 +737,11 @@ async fn audit_detail_never_carries_a_costing_secret() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn a_product_with_no_department_uses_the_device_default() {
+async fn a_product_with_no_department_is_costed_by_moving_average() {
     let shop = shop().await;
 
     // No department: `0005` leaves it nullable and `spec:175` forbids inventing
-    // one, so the device default decides.
+    // one. The method is the same either way.
     let product = product(&shop, "Unclassified", None).await;
 
     costing::receive(
@@ -922,12 +759,12 @@ async fn a_product_with_no_department_uses_the_device_default() {
     assert_eq!(
         position(&shop, &product).await,
         Some((2, Some(200))),
-        "the shipped device default is moving_average"
+        "every product counted by quantity is costed by moving average"
     );
 }
 
 #[tokio::test]
-async fn the_device_default_decides_the_representation() {
+async fn the_retired_device_default_no_longer_decides_the_method() {
     let shop = shop().await;
 
     sqlx::query(
@@ -955,10 +792,10 @@ async fn the_device_default_decides_the_representation() {
 
     assert_eq!(
         position(&shop, &product).await,
-        Some((2, None)),
-        "an unclassified product follows the device default"
+        Some((2, Some(200))),
+        "a stored `fifo` default is inert since plan item 1.3"
     );
-    assert_eq!(layers(&shop, &product).await.len(), 1);
+    assert!(layers(&shop, &product).await.is_empty());
 }
 
 #[tokio::test]
@@ -1035,12 +872,12 @@ async fn a_one_off_product_is_not_stock_tracked() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn a_position_reports_the_authority_it_obeys() {
+async fn a_position_reports_the_moving_average_total_whatever_the_department_stores() {
     let shop = shop().await;
 
-    for (name, method, expect_layers) in [
-        ("Average", CostMethod::MovingAverage, false),
-        ("Oldest", CostMethod::Fifo, true),
+    for (name, method) in [
+        ("Average", CostMethod::MovingAverage),
+        ("StoredFifo", CostMethod::Fifo),
     ] {
         let department = department(&shop, name, method).await;
         let product = product(&shop, name, Some(department)).await;
@@ -1052,7 +889,7 @@ async fn a_position_reports_the_authority_it_obeys() {
             4,
             250,
             Sensitivity::Routine,
-        None,
+            None,
         )
         .await
         .expect("receive");
@@ -1065,22 +902,8 @@ async fn a_position_reports_the_authority_it_obeys() {
             .expect("read the position");
 
         assert_eq!(view.quantity, 4);
-        assert_eq!(view.cost_method, method);
-        assert_eq!(
-            view.layers.is_empty(),
-            !expect_layers,
-            "{name}: the layer list is empty exactly when the method is not FIFO"
-        );
-        assert_eq!(
-            view.total_cost_minor.is_none(),
-            expect_layers,
-            "{name}: a null total is how the schema says the layers are in charge"
-        );
-        assert_eq!(
-            view.effective_cost_minor().expect("effective cost"),
-            1000,
-            "{name}: both methods report the same held cost, derived not stored"
-        );
+        assert_eq!(view.total_cost_minor, Some(1000), "{name}: the total is stored");
+        assert_eq!(view.effective_cost_minor().expect("effective cost"), 1000);
     }
 }
 
@@ -1159,27 +982,12 @@ async fn reading_a_position_changes_nothing() {
 }
 
 #[tokio::test]
-async fn the_effective_cost_is_derived_from_the_layers_under_fifo() {
-    // The panel shows one number whichever method is in charge. Under FIFO that
-    // number is the summed layers, never a stored total that could drift away
-    // from them.
+async fn reading_a_legacy_fifo_position_reports_its_summed_cost_and_writes_nothing() {
+    // A read never collapses: the value it reports is the one a collapse would
+    // write, and the rows stay exactly as the retired method left them.
     let shop = shop().await;
-    let department = department(&shop, "Derived", CostMethod::Fifo).await;
-    let product = product(&shop, "Derived", Some(department)).await;
-
-    for unit_cost in [100, 250] {
-        costing::receive(
-            &shop.pool,
-            shop.tokens.as_ref(),
-            &product,
-            2,
-            unit_cost,
-            Sensitivity::Routine,
-        None,
-        )
-        .await
-        .expect("receive");
-    }
+    let product = product(&shop, "Legacy Read", None).await;
+    legacy_fifo(&shop, &product, &[(2, 100), (2, 250)]).await;
 
     session::reauthenticate(&shop.pool, shop.tokens.as_ref(), PASSWORD)
         .await
@@ -1188,12 +996,12 @@ async fn the_effective_cost_is_derived_from_the_layers_under_fifo() {
         .await
         .expect("read");
 
-    assert_eq!(view.layers.len(), 2);
+    assert_eq!(view.quantity, 4);
+    assert_eq!(view.total_cost_minor, Some(700));
     assert_eq!(view.effective_cost_minor().expect("effective"), 700);
-    assert_eq!(
-        view.total_cost_minor, None,
-        "FIFO stores no total; the figure the panel shows is derived from the layers"
-    );
+    assert_eq!(position(&shop, &product).await, Some((4, None)), "the row is untouched");
+    assert_eq!(layers(&shop, &product).await.len(), 2, "the layers are untouched");
+    assert_eq!(audit_count(&shop, audit::event::COST_LAYERS_COLLAPSED).await, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,7 +1045,7 @@ async fn a_product_that_was_never_stocked_reads_as_zero_not_as_a_conflict() {
 }
 
 #[tokio::test]
-async fn an_empty_fifo_product_reads_as_zero_too() {
+async fn an_unreceived_product_in_a_department_stored_as_fifo_reads_as_zero_too() {
     let shop = shop().await;
     let department = department(&shop, "FreshFifo", CostMethod::Fifo).await;
     let product = product(&shop, "Brand New Fifo", Some(department)).await;
@@ -1245,10 +1053,10 @@ async fn an_empty_fifo_product_reads_as_zero_too() {
 
     let view = costing::position(&shop.pool, shop.tokens.as_ref(), &product)
         .await
-        .expect("an unreceived FIFO product is a normal read");
+        .expect("an unreceived product is a normal read");
 
     assert_eq!(view.quantity, 0);
-    assert!(view.layers.is_empty(), "no receipt, so no layers");
+    assert!(!view.row_exists);
     assert_eq!(view.effective_cost_minor().expect("effective cost"), 0);
 }
 
@@ -1317,7 +1125,7 @@ async fn fifo_layers_under_moving_average_are_still_refused() {
     assert_eq!(
         outcome.err().map(|error| error.code()),
         Some("STOCK_COST_AUTHORITY_CONFLICT"),
-        "FIFO layers under a Moving Average department must stay an error"
+        "layers beside a moving-average total are two answers to one question"
     );
 }
 

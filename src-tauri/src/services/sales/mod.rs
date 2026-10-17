@@ -22,7 +22,6 @@ use crate::data::repositories::sales as sales_repo;
 use crate::data::repositories::sales::{MovementRecord, SaleLineRecord, SaleRecord};
 use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::domain::catalog::{CatalogError, Disposition, ProductId, ProductStatus};
-use crate::domain::costing::fifo::FifoLayer;
 use crate::domain::costing::CostError;
 use crate::domain::customer::{CustomerError, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
@@ -464,15 +463,10 @@ pub async fn cancel_sale(
     .map_err(|_| DomainError::StorageUnavailable)?;
 
     for line in &lines {
-        // Restore under the method the sale consumed under. A method switch
-        // since the sale moved the cost basis, and restoring against a
-        // different one would invent a figure: refuse instead.
-        let recorded =
-            CostMethod::parse(&line.cost_method).ok_or(SaleError::ReversalInconsistent)?;
-        let current = inventory::method_for_product(&mut *tx, &line.product_id).await?;
-        if current != recorded {
-            return Err(SaleError::ReversalInconsistent.into());
-        }
+        // The method the line was sold under must be one this build knows; the
+        // restore itself is always into the moving average (ADR-016 #7), at the
+        // exact cost the sale removed.
+        CostMethod::parse(&line.cost_method).ok_or(SaleError::ReversalInconsistent)?;
 
         let movements = sales_repo::list_movements_for_line(&mut *tx, &line.id)
             .await
@@ -558,10 +552,12 @@ pub async fn cancel_sale(
 /// Restore one sold line's stock and write its reversal movements.
 ///
 /// The quantity and cost restored are read from what the sale actually
-/// recorded — the movement deltas — never recomputed from a current price. FIFO
-/// restores each layer at its original identity and arrival time (adding to a
-/// surviving row, or re-creating an exhausted one at the same id); Moving
-/// Average adds the exact removed cost back to the position total.
+/// recorded — the movement deltas — never recomputed from a current price, so a
+/// return goes back at the line's own cost (`ADR-016` #7, `D7`). The stock goes
+/// back into the moving average whichever method the line was sold under: a
+/// line sold under FIFO before 1.3 has one movement per layer it consumed, and
+/// their exact costs are summed. A legacy FIFO position on the product is
+/// collapsed first, in this same transaction.
 #[allow(clippy::too_many_arguments)]
 async fn restore_line(
     tx: &mut sqlx::SqliteConnection,
@@ -572,159 +568,72 @@ async fn restore_line(
     reversal_line_id: &str,
     now: Timestamp,
 ) -> Result<(), SaleServiceError> {
-    let method = CostMethod::parse(&line.cost_method).ok_or(SaleError::ReversalInconsistent)?;
-
-    match method {
-        CostMethod::MovingAverage => {
-            let movement = movements
-                .iter()
-                .find(|movement| movement.kind == "sale")
-                .ok_or(SaleError::ReversalInconsistent)?;
-            let quantity = -movement.quantity_delta;
-            let cost = -movement.cost_delta_minor;
-
-            let position = stock_repo::find_position(tx, &line.product_id)
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-            let (current_quantity, current_total) = match &position {
-                Some(position) => (
-                    position.quantity,
-                    position
-                        .total_cost_minor
-                        .ok_or(SaleError::ReversalInconsistent)?,
-                ),
-                None => (0, 0),
-            };
-            let quantity_after = current_quantity
-                .checked_add(quantity)
-                .ok_or(CostError::Overflow)?;
-            let total_after = current_total.checked_add(cost).ok_or(CostError::Overflow)?;
-
-            stock_repo::upsert_position(
-                tx,
-                &stock_repo::StockPosition {
-                    product_id: line.product_id.clone(),
-                    quantity: quantity_after,
-                    total_cost_minor: Some(total_after),
-                },
-                actor,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-
-            write_reversal_movement(
-                tx,
-                actor,
-                line,
-                reversal_id,
-                reversal_line_id,
-                quantity,
-                movement.unit_cost_minor,
-                cost,
-                None,
-                None,
-                movement.id.clone(),
-                now,
-            )
-            .await?;
-        }
-        CostMethod::Fifo => {
-            let sold: Vec<&MovementRecord> = movements
-                .iter()
-                .filter(|movement| movement.kind == "sale")
-                .collect();
-            if sold.is_empty() {
-                return Err(SaleError::ReversalInconsistent.into());
-            }
-
-            let mut restored_quantity: i64 = 0;
-            for movement in sold {
-                let quantity = -movement.quantity_delta;
-                let layer_id = movement
-                    .fifo_layer_id
-                    .as_deref()
-                    .ok_or(SaleError::ReversalInconsistent)?;
-                let received_at = movement
-                    .fifo_received_at
-                    .ok_or(SaleError::ReversalInconsistent)?;
-
-                match stock_repo::find_layer_row(tx, layer_id)
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?
-                {
-                    // The layer survived the sale: add the sold units back to it.
-                    Some(row) => {
-                        let quantity_after = row
-                            .quantity
-                            .checked_add(quantity)
-                            .ok_or(CostError::Overflow)?;
-                        stock_repo::update_layer_quantity(tx, layer_id, quantity_after, actor)
-                            .await
-                            .map_err(|_| DomainError::StorageUnavailable)?;
-                    }
-                    // It was exhausted and deleted: re-create it at its original
-                    // id and arrival time, so consumption order is unchanged.
-                    None => {
-                        stock_repo::insert_layer(
-                            tx,
-                            layer_id,
-                            &line.product_id,
-                            &FifoLayer {
-                                quantity,
-                                unit_cost_minor: movement.unit_cost_minor,
-                            },
-                            received_at,
-                            actor,
-                        )
-                        .await
-                        .map_err(|_| DomainError::StorageUnavailable)?;
-                    }
-                }
-
-                restored_quantity = restored_quantity
-                    .checked_add(quantity)
-                    .ok_or(CostError::Overflow)?;
-
-                write_reversal_movement(
-                    tx,
-                    actor,
-                    line,
-                    reversal_id,
-                    reversal_line_id,
-                    quantity,
-                    movement.unit_cost_minor,
-                    -movement.cost_delta_minor,
-                    Some(layer_id.to_owned()),
-                    Some(received_at),
-                    movement.id.clone(),
-                    now,
-                )
-                .await?;
-            }
-
-            let position = stock_repo::find_position(tx, &line.product_id)
-                .await
-                .map_err(|_| DomainError::StorageUnavailable)?;
-            let current_quantity = position.map(|position| position.quantity).unwrap_or(0);
-            let quantity_after = current_quantity
-                .checked_add(restored_quantity)
-                .ok_or(CostError::Overflow)?;
-            stock_repo::upsert_position(
-                tx,
-                &stock_repo::StockPosition {
-                    product_id: line.product_id.clone(),
-                    quantity: quantity_after,
-                    // FIFO keeps its value in the layers, not the position.
-                    total_cost_minor: None,
-                },
-                actor,
-                now.as_millis(),
-            )
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-        }
+    let sold: Vec<&MovementRecord> = movements
+        .iter()
+        .filter(|movement| movement.kind == "sale")
+        .collect();
+    if sold.is_empty() {
+        return Err(SaleError::ReversalInconsistent.into());
     }
+
+    inventory::collapse_legacy_in_tx(tx, actor, &line.product_id, now).await?;
+
+    let mut restored_quantity: i64 = 0;
+    let mut restored_cost: i64 = 0;
+    for movement in &sold {
+        let quantity = -movement.quantity_delta;
+        let cost = -movement.cost_delta_minor;
+        restored_quantity = restored_quantity
+            .checked_add(quantity)
+            .ok_or(CostError::Overflow)?;
+        restored_cost = restored_cost.checked_add(cost).ok_or(CostError::Overflow)?;
+
+        write_reversal_movement(
+            tx,
+            actor,
+            line,
+            reversal_id,
+            reversal_line_id,
+            quantity,
+            movement.unit_cost_minor,
+            cost,
+            movement.id.clone(),
+            now,
+        )
+        .await?;
+    }
+
+    let position = stock_repo::find_position(tx, &line.product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let (current_quantity, current_total) = match &position {
+        Some(position) => (
+            position.quantity,
+            position
+                .total_cost_minor
+                .ok_or(SaleError::ReversalInconsistent)?,
+        ),
+        None => (0, 0),
+    };
+    let quantity_after = current_quantity
+        .checked_add(restored_quantity)
+        .ok_or(CostError::Overflow)?;
+    let total_after = current_total
+        .checked_add(restored_cost)
+        .ok_or(CostError::Overflow)?;
+
+    stock_repo::upsert_position(
+        tx,
+        &stock_repo::StockPosition {
+            product_id: line.product_id.clone(),
+            quantity: quantity_after,
+            total_cost_minor: Some(total_after),
+        },
+        actor,
+        now.as_millis(),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
 
     Ok(())
 }
@@ -740,8 +649,6 @@ async fn write_reversal_movement(
     quantity: i64,
     unit_cost_minor: i64,
     cost_delta_minor: i64,
-    fifo_layer_id: Option<String>,
-    fifo_received_at: Option<i64>,
     reverses_movement_id: String,
     now: Timestamp,
 ) -> Result<(), SaleServiceError> {
@@ -758,8 +665,9 @@ async fn write_reversal_movement(
             actor_id: actor.as_str().to_owned(),
             sale_id: Some(reversal_id.to_owned()),
             sale_line_id: Some(reversal_line_id.to_owned()),
-            fifo_layer_id,
-            fifo_received_at,
+            // Stock goes back into the moving average, which has no layers.
+            fifo_layer_id: None,
+            fifo_received_at: None,
             reverses_movement_id: Some(reverses_movement_id),
             // Undoing a sale is not a purchase, so it names no supplier (D1).
             supplier_name: None,

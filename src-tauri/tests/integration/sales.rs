@@ -453,3 +453,120 @@ async fn a_cancellation_mirrors_the_warranty_dates_onto_its_reversal_line() {
         "the reversal must not lose the warranty the original recorded"
     );
 }
+
+// ---------------------------------------------------------------------------
+// FIFO is retired (plan item 1.3)
+// ---------------------------------------------------------------------------
+
+/// The stored position as `(quantity, total_cost_minor)`.
+async fn stock_of(pool: &SqlitePool, product_id: &str) -> (i64, Option<i64>) {
+    sqlx::query_as("SELECT quantity, total_cost_minor FROM stock_levels WHERE product_id = ?1")
+        .bind(product_id)
+        .fetch_one(pool)
+        .await
+        .expect("a stock position")
+}
+
+#[tokio::test]
+async fn a_line_sold_under_fifo_before_1_3_is_restored_into_the_average_at_its_own_cost() {
+    // Before 1.3 a cancellation refused when the line's method differed from the
+    // product's current one. A database can hold lines sold under FIFO, and they
+    // must stay cancellable: the stock goes back into the moving average at the
+    // exact cost the sale removed (ADR-016 #7, D7).
+    let (pool, tokens, product_id) = stocked_shop().await;
+
+    let sale = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id: product_id.clone(),
+            quantity: 2,
+            warranty_start: None,
+            warranty_end: None,
+        }],
+        None,
+    )
+    .await
+    .expect("record");
+    assert_eq!(stock_of(&pool, &product_id).await, (8, Some(800)));
+
+    // Mark the line the way a pre-1.3 FIFO sale recorded it. `sale_lines` has
+    // no update guard; the movements keep what the sale really removed.
+    sqlx::query("UPDATE sale_lines SET cost_method = 'fifo' WHERE sale_id = ?1")
+        .bind(&sale.sale_id)
+        .execute(&pool)
+        .await
+        .expect("mark the line as sold under FIFO");
+
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("reauthenticate");
+    sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "legacy")
+        .await
+        .expect("a line sold under FIFO must stay cancellable");
+
+    assert_eq!(stock_of(&pool, &product_id).await, (10, Some(1000)));
+}
+
+#[tokio::test]
+async fn selling_a_legacy_fifo_product_collapses_it_and_costs_the_line_at_the_average() {
+    let (pool, tokens, product_id) = stocked_shop().await;
+
+    // Turn the 10 × 100 moving-average position into what FIFO used to write:
+    // two layers (4 × 100 and 6 × 150 = 1300) and no total on the position.
+    sqlx::query("UPDATE stock_levels SET total_cost_minor = NULL WHERE product_id = ?1")
+        .bind(&product_id)
+        .execute(&pool)
+        .await
+        .expect("drop the total");
+    let manager: String = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("the manager");
+    for (index, (units, unit_cost)) in [(4i64, 100i64), (6, 150)].into_iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO fifo_layers
+             (id, product_id, quantity, unit_cost_minor, received_at, updated_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(&product_id)
+        .bind(units)
+        .bind(unit_cost)
+        .bind(1000 + index as i64)
+        .bind(&manager)
+        .execute(&pool)
+        .await
+        .expect("a legacy layer");
+    }
+
+    let sale = sales_use_cases::record_sale(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
+        }],
+        None,
+    )
+    .await
+    .expect("sell from a legacy position");
+
+    // ceil(1300 / 10) = 130: the average, not the oldest layer's 100.
+    assert_eq!(sale.cost_total_minor, 130);
+    assert_eq!(stock_of(&pool, &product_id).await, (9, Some(1170)));
+    let layers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM fifo_layers WHERE product_id = ?1")
+        .bind(&product_id)
+        .fetch_one(&pool)
+        .await
+        .expect("layer count");
+    assert_eq!(layers, 0, "the layers are folded into the average");
+    let method: String = sqlx::query_scalar("SELECT cost_method FROM sale_lines WHERE sale_id = ?1")
+        .bind(&sale.sale_id)
+        .fetch_one(&pool)
+        .await
+        .expect("the line's method");
+    assert_eq!(method, "moving_average");
+}

@@ -75,7 +75,6 @@ pub fn run() {
             commands::inventory::receive_stock,
             commands::inventory::remove_stock,
             commands::inventory::get_position,
-            commands::inventory::switch_cost_method,
             #[cfg(feature = "recovery")]
             commands::recovery::stage_recovery_approval,
             #[cfg(feature = "recovery")]

@@ -215,7 +215,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.DEPARTMENT_ARCHIVE_STATE_INCONSISTENT]:
     'بيانات القسم غير مكتملة. كلّم المسؤول الفني عن الجهاز.',
   [ErrorCode.DEPARTMENT_COST_METHOD_REQUIRES_SWITCH]:
-    'تغيير طريقة حساب التكلفة يحتاج عملية مخصصة تُحوّل المخزون القائم. استخدم زر تبديل طريقة التكلفة.',
+    'طريقة حساب التكلفة ثابتة: كل الأصناف بالعدد بتتحسب بالمتوسط المرجح، ومفيش تغيير ليها.',
   [ErrorCode.VAT_RATE_REQUIRED]:
     'يجب تحديد نسبة ضريبة قبل تفعيل الضريبة على القسم.',
   [ErrorCode.VAT_RATE_NEGATIVE]: 'لا يُقبل أن تكون نسبة الضريبة سالبة.',
@@ -244,7 +244,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.STOCK_PRODUCT_NOT_FOUND]:
     'المنتج غير موجود، فلا يمكن تسجيل حركة مخزون له.',
   [ErrorCode.STOCK_COST_AUTHORITY_CONFLICT]:
-    'بيانات تكلفة هذا المنتج غير متسقة مع طريقة التكلفة المستخدمة. كلّم المسؤول الفني عن الجهاز.',
+    'بيانات تكلفة الصنف ده مش متسقة، فالعملية اترفضت ومحصلش أي تغيير. كلّم المسؤول الفني عن الجهاز.',
 
   // البيع (Sales V1)
   [ErrorCode.SALE_EMPTY]: 'لا يمكن تسجيل عملية بيع بدون بنود.',

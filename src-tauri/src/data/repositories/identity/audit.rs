@@ -64,6 +64,12 @@ pub const DEPARTMENT_ARCHIVED: &str = "department_archived";
 pub const STOCK_RECEIVED: &str = "stock_received";
 pub const STOCK_REMOVED: &str = "stock_removed";
 pub const COST_METHOD_SWITCHED: &str = "cost_method_switched";
+/// A stock position left by the retired FIFO method was collapsed into the
+/// moving average on first touch (plan item 1.3). Detail carries the product,
+/// how many layers were folded, and the resulting quantity and total — the
+/// value is unchanged, only its representation. `COST_METHOD_SWITCHED` stays
+/// so the rows written before 1.3 keep a name; nothing writes it any more.
+pub const COST_LAYERS_COLLAPSED: &str = "cost_layers_collapsed";
 
 /// Sales (SP-5). Detail carries the reference and the money that moved, never a
 /// customer or a credential: `spec:19` attributes the operation, the schema
