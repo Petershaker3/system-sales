@@ -1,4 +1,4 @@
-﻿# Mobile Shop System
+# Mobile Shop System
 
 Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQLite.
 
@@ -114,7 +114,7 @@ npm run build                     # typecheck + vite build -> dist/
 # Browser demo: the real screens on an in-memory stand-in for Rust (demo data,
 # password 1234 for every account). Never part of dist/ or of a Tauri build.
 npm run demo                      # vite --mode demo, on 0.0.0.0:5173
-node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 24 browser checks + screenshots
+node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 82 browser checks + screenshots
                                   # (borrows docs/ui/mockup-v1/tools: run `npm ci` there once)
 
 # CI (GitHub Actions, .github/workflows/ci.yml): every push runs the frontend
@@ -358,6 +358,14 @@ Implemented and tested:
   128GB»), and the same phone twice is refused. On the sales screen a phone
   category's second row is its companies, and search finds a phone by its company
   in Arabic
+- «صنف جديد» for counted goods (phase 1.2, `ADR-018` §3): the store's button opens
+  the kind chooser (a new phone, or a counted item; «موبايل مستعمل» waits for the
+  units of 1.4), and the counted-item form takes the category (with an inline «تصنيف
+  جديد»), the name, the barcode — typed or scanned — or a shop code, and the sale
+  price. The shop code is an EAN-13 starting with 2, numbered by Rust
+  (`next_shop_code`, `domain/catalog/shop_code.rs`) and unique through the barcode
+  column's UNIQUE index. The legacy product panel now only edits and archives; its
+  create form was removed, since «صنف جديد» replaces it
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)

@@ -11,7 +11,7 @@
 
 **أسهل طريقة — ملف واحد من غير سيرفر ولا نت:**
 
-1. افتح المستودع على GitHub ← الفرع `arena/332710ba-system-sales` ← `docs/ui/mockup-v1/mockup-offline.html`.
+1. افتح المستودع على GitHub ← الفرع `arena/0c9b90ed-system-sales` ← `docs/ui/mockup-v1/mockup-offline.html`.
 2. اضغط زرار التحميل (Download raw file).
 3. دبل كليك على الملف — هيفتح في Chrome أو Edge على طول، وبيشتغل حتى من غير إنترنت.
 
