@@ -3,15 +3,16 @@
 
 use std::sync::Arc;
 
-use super::PASSWORD;
-use mobile_shop_system_lib::data::db;
+use super::{fresh, PASSWORD};
 use mobile_shop_system_lib::data::repositories::sales as sales_repo;
 use mobile_shop_system_lib::domain::catalog::Disposition;
-use mobile_shop_system_lib::domain::identity::Role;
+use mobile_shop_system_lib::domain::identity::{Role, Sensitivity, UserId};
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
-use mobile_shop_system_lib::services::identity::{approval, auth, bootstrap, pin, session, users};
+use mobile_shop_system_lib::services::identity::{
+    approval, auth, bootstrap, pin, session, users,
+};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
 use mobile_shop_system_lib::services::sales::{self as sales, SaleLineWithUnitInput};
 use mobile_shop_system_lib::services::settings::appearance;
@@ -19,14 +20,19 @@ use sqlx::SqlitePool;
 
 const OWNER_PIN: &str = "2580";
 
-async fn setup_shop_with_seller() -> (SqlitePool, Arc<InMemoryTokenStore>, String, String, String) {
-    let pool = db::open_in_memory().await.expect("in-memory db");
-    let tokens = Arc::new(InMemoryTokenStore::new());
+async fn setup_shop_with_seller() -> (
+    SqlitePool,
+    Arc<InMemoryTokenStore>,
+    UserId,
+    UserId,
+    String,
+) {
+    let (pool, tokens) = fresh().await;
     let created = bootstrap::create_first_manager(&pool, "Peter", PASSWORD)
         .await
         .expect("bootstrap manager");
-    let manager_id = created.user_id.as_str().to_owned();
-    auth::login(&pool, tokens.as_ref(), created.user_id, PASSWORD)
+    let manager_uid = created.user_id;
+    auth::login(&pool, tokens.as_ref(), manager_uid, PASSWORD)
         .await
         .expect("manager login");
     session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
@@ -35,7 +41,7 @@ async fn setup_shop_with_seller() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
     let manager_session = session::resolve(&pool, tokens.as_ref())
         .await
         .expect("resolve manager");
-    pin::set_own_pin(&pool, &manager_session, PASSWORD, OWNER_PIN)
+    pin::set_own_pin(&pool, &manager_session, None, OWNER_PIN)
         .await
         .expect("set owner pin");
 
@@ -49,26 +55,22 @@ async fn setup_shop_with_seller() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
     )
     .await
     .expect("create seller");
-    let seller_id = seller_uid.as_str().to_owned();
 
     let ctx = CatalogContext::new(pool.clone(), tokens.clone());
-    let cable = catalog::create_product(
+    let cable = catalog::create(
         &ctx,
+        &manager_session,
         NewProduct {
             name: "Anker Type-C Cable".to_owned(),
-            department: None,
             disposition: Disposition::Quantity,
-            sale_price_minor: Some(10_000),
-            reference_cost_minor: None,
             barcode: None,
-            sku: None,
-            reorder_level: None,
-            notes: None,
+            sale_price_minor: Some(10_000),
+            category: None,
         },
     )
     .await
     .expect("create product");
-    let product_id = cable.id.as_uuid().to_string();
+    let product_id = cable.id.as_str().to_string();
 
     inventory::receive(
         &pool,
@@ -76,7 +78,8 @@ async fn setup_shop_with_seller() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
         &product_id,
         20,
         5_000,
-        Some("Anker Egypt"),
+        Sensitivity::Routine,
+        None,
     )
     .await
     .expect("receive stock");
@@ -85,12 +88,12 @@ async fn setup_shop_with_seller() -> (SqlitePool, Arc<InMemoryTokenStore>, Strin
         .await
         .expect("login as seller");
 
-    (pool, tokens, manager_id, seller_id, product_id)
+    (pool, tokens, manager_uid, seller_uid, product_id)
 }
 
 #[tokio::test]
 async fn seller_applies_line_and_invoice_discount_within_limit_without_approval() {
-    let (pool, tokens, _manager_id, seller_id, product_id) = setup_shop_with_seller().await;
+    let (pool, tokens, _manager_uid, seller_uid, product_id) = setup_shop_with_seller().await;
 
     // Gross = 2 * 10_000 = 20_000. Default limit = 5% (1_000 max discount).
     // Line discount = 400, invoice discount = 600 => total discount = 1_000 (exact 5%).
@@ -121,7 +124,7 @@ async fn seller_applies_line_and_invoice_discount_within_limit_without_approval(
         .await
         .expect("find sale")
         .expect("sale exists");
-    assert_eq!(stored_sale.sold_by, seller_id);
+    assert_eq!(stored_sale.sold_by, seller_uid.as_str());
     assert_eq!(stored_sale.total_minor, 19_000);
     assert_eq!(stored_sale.discount_minor, 1_000);
     assert_eq!(stored_sale.approved_by, None);
@@ -136,7 +139,7 @@ async fn seller_applies_line_and_invoice_discount_within_limit_without_approval(
 
 #[tokio::test]
 async fn discount_above_limit_requires_owner_pin_approval_and_records_approved_by() {
-    let (pool, tokens, manager_id, _seller_id, product_id) = setup_shop_with_seller().await;
+    let (pool, tokens, manager_uid, _seller_uid, product_id) = setup_shop_with_seller().await;
 
     // Gross = 10_000. Discount = 600 (6% > 5% limit).
     let lines = [SaleLineWithUnitInput {
@@ -161,7 +164,7 @@ async fn discount_above_limit_requires_owner_pin_approval_and_records_approved_b
     .expect_err("6% discount without owner approval must be refused");
     assert_eq!(refused.code(), "OWNER_APPROVAL_REQUIRED");
 
-    approval::grant(&pool, tokens.as_ref(), None, OWNER_PIN)
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager_uid, OWNER_PIN)
         .await
         .expect("owner grants PIN approval");
 
@@ -185,7 +188,10 @@ async fn discount_above_limit_requires_owner_pin_approval_and_records_approved_b
         .expect("find sale")
         .expect("sale exists");
     assert_eq!(stored_sale.discount_minor, 600);
-    assert_eq!(stored_sale.approved_by.as_deref(), Some(manager_id.as_str()));
+    assert_eq!(
+        stored_sale.approved_by.as_deref(),
+        Some(manager_uid.as_str().as_str())
+    );
 
     // The approval was single-use: a second above-limit sale without a fresh grant is refused.
     let second = sales::record_sale_with_discounts(
@@ -205,7 +211,7 @@ async fn discount_above_limit_requires_owner_pin_approval_and_records_approved_b
 
 #[tokio::test]
 async fn owner_changes_discount_limit_in_settings_and_invalid_values_are_refused() {
-    let (pool, tokens, manager_id, seller_id, product_id) = setup_shop_with_seller().await;
+    let (pool, tokens, manager_uid, seller_uid, product_id) = setup_shop_with_seller().await;
 
     // Seller cannot change `ui.discount_limit_pct`.
     let seller_refused = appearance::update(&pool, tokens.as_ref(), "ui.discount_limit_pct", "15")
@@ -214,10 +220,6 @@ async fn owner_changes_discount_limit_in_settings_and_invalid_values_are_refused
     assert_eq!(seller_refused.code(), "PERMISSION_DENIED");
 
     // Sign in as owner and update to 20%.
-    let manager_uid = mobile_shop_system_lib::domain::identity::UserId::parse(&manager_id)
-        .expect("parse manager id");
-    let seller_uid = mobile_shop_system_lib::domain::identity::UserId::parse(&seller_id)
-        .expect("parse seller id");
     auth::login(&pool, tokens.as_ref(), manager_uid, PASSWORD)
         .await
         .expect("login manager");
@@ -266,7 +268,7 @@ async fn owner_changes_discount_limit_in_settings_and_invalid_values_are_refused
 
 #[tokio::test]
 async fn invalid_discounts_are_refused_and_cancelling_copies_discounts_to_reversal() {
-    let (pool, tokens, manager_id, _seller_id, product_id) = setup_shop_with_seller().await;
+    let (pool, tokens, manager_uid, _seller_uid, product_id) = setup_shop_with_seller().await;
 
     let lines = [SaleLineWithUnitInput {
         product_id: product_id.clone(),
@@ -306,18 +308,17 @@ async fn invalid_discounts_are_refused_and_cancelling_copies_discounts_to_revers
     .await
     .expect("record discounted sale");
 
-    let manager_uid = mobile_shop_system_lib::domain::identity::UserId::parse(&manager_id)
-        .expect("parse manager id");
     auth::login(&pool, tokens.as_ref(), manager_uid, PASSWORD)
         .await
         .expect("login manager");
-    approval::grant(&pool, tokens.as_ref(), None, OWNER_PIN)
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager_uid, OWNER_PIN)
         .await
         .expect("grant cancel approval");
 
-    let reversal = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "customer changed mind")
-        .await
-        .expect("cancel discounted sale");
+    let reversal =
+        sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "customer changed mind")
+            .await
+            .expect("cancel discounted sale");
 
     let mut conn = pool.acquire().await.expect("acquire");
     let rev_sale = sales_repo::find_sale(&mut conn, &reversal.sale_id)
@@ -325,7 +326,10 @@ async fn invalid_discounts_are_refused_and_cancelling_copies_discounts_to_revers
         .expect("find reversal")
         .expect("reversal exists");
     assert_eq!(rev_sale.discount_minor, 500);
-    assert_eq!(rev_sale.approved_by.as_deref(), Some(manager_id.as_str()));
+    assert_eq!(
+        rev_sale.approved_by.as_deref(),
+        Some(manager_uid.as_str().as_str())
+    );
 
     let rev_lines = sales_repo::list_lines(&mut conn, &reversal.sale_id)
         .await
