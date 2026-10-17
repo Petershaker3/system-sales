@@ -100,7 +100,7 @@ Run from the repository root unless noted.
 cd src-tauri
 cargo build --lib                 # compile the library
 cargo check                       # type-check without codegen
-cargo test                        # 543 on CI (5b8bde6): 31 lib + 142 unit + 293 integration + 77 architecture
+cargo test                        # 565 on CI (c6359a7): 31 lib + 149 unit + 306 integration + 79 architecture
 cd ..
 
 # Frontend
@@ -211,7 +211,7 @@ gives each device its own file, per the superseded `ADR-008`; the companion
 arrives in phase 3 of `docs/PLAN.md`.)* Migrations are forward-only; rollback means restore a backup then
 fix forward, not run a `Down` script.
 
-Fifteen migrations (`0001`…`0015`), forward-only. Tables:
+Sixteen migrations (`0001`…`0016`), forward-only. Tables:
 
 | Table | Migration | Purpose |
 |---|---|---|
@@ -220,7 +220,7 @@ Fifteen migrations (`0001`…`0015`), forward-only. Tables:
 | `audit_events` | `0001` | Every attributed operation: identity, approvals, the recovery code, catalogue, departments, settings, stock, sales |
 | `products` | `0002`, `0005` | Product identity, disposition, department classification, prices |
 | `user_credentials` | `0003`, `0015` | Login identifier, forced-change flag; the PIN and recovery-code **verifiers** and when the code was made (`0015`) |
-| `departments` | `0004` | Product classification, plus its costing method and VAT defaults |
+| `departments` | `0004`, `0016` | Product classification; since phase 1.2 the two-level category tree: parent, kind, icon, hidden (`0016`). The costing method and VAT defaults stay inert |
 | `app_settings` | `0006` | Device defaults; `product_price_history` records every price transition |
 | `manager_pattern` | `0007` | Retired in phase 1.1: unread since the owner's PIN approval replaced the Pattern |
 | `stock_levels` | `0008` | One stock counter per product (`product_id` alone, no location) |
@@ -339,10 +339,14 @@ Implemented and tested:
 - A broken `user_credentials` row is reported as `ACCOUNT_DATA_INTEGRITY_ERROR`
   rather than being hidden or defaulted. Login and session resolution refuse such
   an account; the management list still shows it, flagged
-- Departments: create, edit, re-order, archive and restore, each with its own cost
-  method and VAT. Classification only — no stock (SP-1b). The per-department cost
-  method is stored and unused since phase 1.3. **→ plan:** a 2-level category tree
-  managed by the owner (phase 1.2)
+- Categories (phase 1.2, `ADR-018` §1): a two-level tree on the `departments` rows,
+  managed by the owner from Settings — add (main, or under a main), rename, move up
+  or down, show or hide on the sales screen, delete an empty one he made. The default
+  tree (PLAN §6) is added once and is renamed or hidden, never deleted. A
+  sub-category takes its main's kind (counted, phone, used), and triggers in `0016`
+  keep the tree two levels deep. The sales screen shows the mains and, under the
+  chosen one, its sub-categories. The SP-1b department commands (costing method,
+  VAT, archive, full re-order) were retired with their panel
 - Device settings: read and write the seven stored keys, every read and every write
   behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
   values are refused by the domain; a missing key reads as its default (SP-1b)
@@ -454,13 +458,13 @@ configuration store. Full plan:
 
 | Item | State |
 |---|---|
-| `departments` CRUD, re-order, archive/restore | Shipped. Audited (`department_created` / `department_updated` / `department_archived`); archived rows refuse edits and re-ordering; restore audits as `department_updated` |
+| `departments` CRUD, re-order, archive/restore | Shipped. Audited (`department_created` / `department_updated` / `department_archived`); archived rows refuse edits and re-ordering; restore audits as `department_updated`. Retired from the WebView in phase 1.2: the category commands replace them, and the services stay for their tests |
 | Device settings: `read_settings` / `update_setting` | Shipped. Seven validated keys; unknown keys and malformed values refused; missing keys read as domain defaults |
 | Blanket re-authentication for `ManageSettings` | Shipped — both read and every write (`DomainError::ReauthenticationRequired`) |
 | Pattern approval (`pattern_set` / `pattern_reset`) | Shipped (`ADR-014`), then retired in phase 1.1 for the owner's PIN approval (`ADR-017` §3); the code is in `archive/superseded-2026-10-17/pattern/` |
 | Price history in the catalogue path | Shipped — old and new price written in the same transaction as the price change |
 | `migrations/0007` | Shipped. Two separate `ALTER TABLE` statements (SQLite rejects two clauses in one) |
-| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below. The Pattern panel was retired in phase 1.1 |
+| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below. The Pattern panel was retired in phase 1.1, and the Departments panel in phase 1.2 for the categories card |
 
 No inventory, costing, purchasing or sales logic was added here — the 
 `departments.cost_method` column and the settings defaults stay inert until a
@@ -730,7 +734,7 @@ change at all.
 | Durable backup / recovery | **NEEDS FOLLOW-UP / DEPENDENCY** on the `local-backup` capability (`ADR-003`). See the WAL section above |
 | WAL lifecycle in integration tests | **UNVERIFIED.** The in-memory pool cannot use WAL; device evidence covers it. Deferred to the backup work |
 | `ADR-005` referenced by the superseded Historical Reference slice | **Still open.** The file was never created; the slice itself is out of scope under `ADR-007`. Pre-existing, unrelated to Inventory |
-| Departments UI | **Not built.** The domain, repository and schema exist; no command, service or panel |
+| Departments UI | **Built in phase 1.2** as the categories card in Settings (`ADR-018` §1) |
 | No documented way to reach a Manager session on a device whose password is unknown | **Closed in phase 1.1** by the owner's recovery code (`ADR-017` §4): written on paper at setup, it sets a new password from the lock card. An owner who never wrote one down is still unrecoverable. |
 
 Step 11 (`PERMISSION_DENIED` for a Sales role) is covered on desktop by
