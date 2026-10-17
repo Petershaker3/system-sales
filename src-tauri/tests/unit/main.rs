@@ -2746,9 +2746,7 @@ fn discount_validation_and_seller_limit_math_are_exact() {
     use mobile_shop_system_lib::domain::sales::{
         discount_exceeds_limit, validate_invoice_discount, validate_line_discount, SaleError,
     };
-    use mobile_shop_system_lib::domain::settings::appearance::{
-        validate as validate_appearance, Appearance, AppearanceKey,
-    };
+    use mobile_shop_system_lib::domain::settings::appearance::Appearance;
 
     assert_eq!(SaleError::DiscountInvalid.code(), "SALE_DISCOUNT_INVALID");
     assert_eq!(validate_line_discount(10_000, 0), Ok(10_000));
@@ -2773,16 +2771,15 @@ fn discount_validation_and_seller_limit_math_are_exact() {
     assert!(discount_exceeds_limit(20_000, 1, 0));
     assert!(!discount_exceeds_limit(20_000, 20_000, 100));
 
-    let def = Appearance::default();
+    let mut def = Appearance::default();
     assert_eq!(def.discount_limit_pct, "5");
     assert_eq!(def.discount_limit_pct_num(), 5);
-    assert_eq!(
-        validate_appearance(AppearanceKey::DiscountLimitPct, " 15 ").expect("valid"),
-        "15"
-    );
-    assert!(validate_appearance(AppearanceKey::DiscountLimitPct, "101").is_err());
-    assert!(validate_appearance(AppearanceKey::DiscountLimitPct, "-1").is_err());
-    assert!(validate_appearance(AppearanceKey::DiscountLimitPct, "5.5").is_err());
+    def.set("ui.discount_limit_pct", " 15 ").expect("valid");
+    assert_eq!(def.discount_limit_pct, "15");
+    assert_eq!(def.discount_limit_pct_num(), 15);
+    assert!(def.set("ui.discount_limit_pct", "101").is_err());
+    assert!(def.set("ui.discount_limit_pct", "-1").is_err());
+    assert!(def.set("ui.discount_limit_pct", "5.5").is_err());
 }
 
 
