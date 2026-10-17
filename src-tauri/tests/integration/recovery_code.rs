@@ -101,7 +101,7 @@ async fn failed_attempts(shop: &Shop) -> i64 {
         .expect("user row")
 }
 
-async fn count(shop: &Shop, sql: &str) -> i64 {
+async fn count(shop: &Shop, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql)
         .fetch_one(&shop.pool)
         .await

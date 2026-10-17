@@ -427,6 +427,31 @@ fn a_recovery_code_is_shown_in_five_groups_of_four() {
 }
 
 #[test]
+fn a_drawn_recovery_code_uses_the_whole_alphabet_and_nothing_else() {
+    // The generator (OS CSPRNG, rejection sampling below 248): every code is
+    // twenty symbols of the alphabet and reads back as itself, no code comes
+    // out twice, and across many draws every symbol turns up — a skipped
+    // symbol or a stuck byte would show here.
+    use mobile_shop_system_lib::services::identity::crypto::generate_recovery_code;
+    let mut codes = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..200 {
+        let code = generate_recovery_code().expect("the OS generator");
+        assert_eq!(code.len(), RECOVERY_CODE_LEN, "{code}");
+        assert!(
+            code.chars().all(|ch| RECOVERY_CODE_ALPHABET.contains(ch)),
+            "only the recovery alphabet: {code}"
+        );
+        assert_eq!(normalize_recovery_code(&code).as_deref(), Some(code.as_str()));
+        seen.extend(code.chars());
+        assert!(codes.insert(code), "a recovery code came out twice");
+    }
+    // 4,000 symbols: the chance that one of the 31 never turns up is about
+    // 31 x (30/31)^4000, which is nil.
+    assert_eq!(seen.len(), RECOVERY_CODE_ALPHABET.len(), "every symbol is drawn");
+}
+
+#[test]
 fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
     // The frontend indexes an Arabic message table by this code. A code that is
     // not a plain upper-case identifier cannot be matched reliably.
