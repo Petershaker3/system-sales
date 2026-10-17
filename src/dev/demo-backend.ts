@@ -265,7 +265,25 @@ function nextShopCode(): string {
 }
 
 
-const appearance = { look: 'plate', theme: 'light', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin' };
+const appearance = {
+  look: 'plate',
+  theme: 'light',
+  accent: '#1d4f91',
+  font: 'auto',
+  scale: 'normal',
+  digits: 'latin',
+  images: 'on',
+};
+interface DemoProductImage {
+  productId: string;
+  file: string;
+  w: number;
+  h: number;
+  bytes: number;
+  dataUrl: string;
+}
+const productImages = new Map<string, DemoProductImage>();
+
 const customers: { id: string; name: string; contact: string | null; archived: boolean }[] = [
   { id: 'c-1', name: 'أحمد سمير', contact: '01001234567', archived: false },
 ];
@@ -459,10 +477,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const key = str(args, 'key').replace(/^ui\./, '') as keyof typeof appearance;
     if (!(key in appearance)) fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
+    else if (key === 'images') requireManager(false);
     else requireManager(true);
     appearance[key] = str(args, 'value').toLowerCase();
     return { ...appearance };
   },
+
 
   // the sales screen
   pos_catalog: () => {
@@ -687,6 +707,41 @@ const handlers: Record<string, (args: Args) => unknown> = {
 
     return { parent, variants };
   },
+  list_product_images: () => {
+    requireUser();
+    return [...productImages.values()];
+  },
+  set_product_image: (args) => {
+    requireManager();
+    const productId = str(args, 'productId');
+    const item = products.find((p) => p.id === productId) ?? fail('PRODUCT_NOT_FOUND');
+    const dataUrl = str(args, 'dataUrl').trim();
+    if (dataUrl === '') fail('IMAGE_EMPTY');
+    if (!/^data:image\/jpe?g;base64,/i.test(dataUrl)) fail('IMAGE_NOT_JPEG');
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1).replace(/\s+/g, '');
+    if (b64.length === 0) fail('IMAGE_EMPTY');
+    const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+    const bytes = Math.floor((b64.length * 3) / 4) - pad;
+    if (bytes <= 0) fail('IMAGE_EMPTY');
+    if (bytes > 65_536) fail('IMAGE_TOO_LARGE');
+    const entry: DemoProductImage = {
+      productId: item.id,
+      file: `images/${item.id}.jpg`,
+      w: 192,
+      h: 192,
+      bytes,
+      dataUrl,
+    };
+    productImages.set(item.id, entry);
+    return entry;
+  },
+  remove_product_image: (args) => {
+    requireManager();
+    const productId = str(args, 'productId');
+    if (!productImages.has(productId)) fail('IMAGE_NOT_FOUND');
+    productImages.delete(productId);
+  },
+
 
   update_product: (args) => {
     requireManager();

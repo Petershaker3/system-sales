@@ -96,7 +96,14 @@ export const ErrorCode = {
   VARIANT_PRICE_REQUIRED: 'VARIANT_PRICE_REQUIRED',
   VARIANT_BARCODE_DUPLICATE: 'VARIANT_BARCODE_DUPLICATE',
   VARIANT_ROWS_MISMATCH: 'VARIANT_ROWS_MISMATCH',
+  // Product images (ADR-018 §5)
+  IMAGE_EMPTY: 'IMAGE_EMPTY',
+  IMAGE_TOO_LARGE: 'IMAGE_TOO_LARGE',
+  IMAGE_NOT_JPEG: 'IMAGE_NOT_JPEG',
+  IMAGE_DIMENSIONS_INVALID: 'IMAGE_DIMENSIONS_INVALID',
+  IMAGE_NOT_FOUND: 'IMAGE_NOT_FOUND',
   // الإعدادات
+
 
   SETTING_UNKNOWN_KEY: 'SETTING_UNKNOWN_KEY',
   SETTING_VALUE_INVALID: 'SETTING_VALUE_INVALID',
@@ -293,7 +300,15 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.VARIANT_BARCODE_DUPLICATE]: 'نفس الباركود مكتوب على أكتر من نوع.',
   [ErrorCode.VARIANT_ROWS_MISMATCH]: 'عدد صفوف الأنواع مش مطابق للأنواع المكتوبة. حدّث الصفحة وجرّب تاني.',
 
+  // صور الأصناف (ADR-018 §5)
+  [ErrorCode.IMAGE_EMPTY]: 'اختر صورة للصنف.',
+  [ErrorCode.IMAGE_TOO_LARGE]: 'حجم الصورة كبير. الصنف بيقبل صورة 192×192 لحد 64 ك.ب.',
+  [ErrorCode.IMAGE_NOT_JPEG]: 'ملف الصورة مش شغّال. اختار صورة تانية.',
+  [ErrorCode.IMAGE_DIMENSIONS_INVALID]: 'الصورة لازم تكون مربع 192×192.',
+  [ErrorCode.IMAGE_NOT_FOUND]: 'الصنف ده ملوش صورة متسجّلة.',
+
   // الإعدادات
+
 
   [ErrorCode.SETTING_UNKNOWN_KEY]: 'إعداد غير معروف.',
   [ErrorCode.SETTING_VALUE_INVALID]: 'قيمة الإعداد غير صحيحة.',

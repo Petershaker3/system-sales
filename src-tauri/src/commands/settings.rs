@@ -90,6 +90,7 @@ pub struct AppearanceDto {
     pub font: String,
     pub scale: String,
     pub digits: String,
+    pub images: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -101,9 +102,11 @@ impl From<Appearance> for AppearanceDto {
             font: a.font,
             scale: a.scale,
             digits: a.digits,
+            images: a.images,
         }
     }
 }
+
 
 /// The display choices. Needs no session: the sign-in screen is drawn in them,
 /// and they are neither business data nor secret.

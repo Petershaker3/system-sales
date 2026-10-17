@@ -57,6 +57,10 @@ pub fn run() {
             commands::catalog::next_shop_code,
             commands::catalog::next_shop_codes,
             commands::catalog::create_variants,
+            commands::catalog::list_product_images,
+            commands::catalog::set_product_image,
+            commands::catalog::remove_product_image,
+
 
             commands::identity_lifecycle::change_own_password,
             commands::identity_lifecycle::list_users_for_management,

@@ -24,16 +24,18 @@ pub enum AppearanceKey {
     Font,
     Scale,
     Digits,
+    Images,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 6] = [
+    pub const ALL: [AppearanceKey; 7] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
         AppearanceKey::Font,
         AppearanceKey::Scale,
         AppearanceKey::Digits,
+        AppearanceKey::Images,
     ];
 
     /// The stored key.
@@ -45,6 +47,7 @@ impl AppearanceKey {
             AppearanceKey::Font => "ui.font",
             AppearanceKey::Scale => "ui.scale",
             AppearanceKey::Digits => "ui.digits",
+            AppearanceKey::Images => "ui.images",
         }
     }
 
@@ -60,6 +63,12 @@ impl AppearanceKey {
     pub fn is_for_everyone(self) -> bool {
         matches!(self, AppearanceKey::Theme)
     }
+
+    /// Whether the owner may toggle this choice under [`Permission::ManageCatalog`]
+    /// alongside category and brand visibility in «الأصناف والبيع».
+    pub fn is_catalog_choice(self) -> bool {
+        matches!(self, AppearanceKey::Images)
+    }
 }
 
 /// The current display choices, defaults applied for anything never set.
@@ -71,11 +80,13 @@ pub struct Appearance {
     pub font: String,
     pub scale: String,
     pub digits: String,
+    pub images: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
-    /// look's own font, normal size, Latin digits (docs/ui/REDESIGN.md).
+    /// look's own font, normal size, Latin digits, product images on
+    /// (docs/ui/REDESIGN.md, ADR-018 §5).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -84,9 +95,11 @@ impl Default for Appearance {
             font: "auto".to_owned(),
             scale: "normal".to_owned(),
             digits: "latin".to_owned(),
+            images: "on".to_owned(),
         }
     }
 }
+
 
 fn is_hex_colour(value: &str) -> bool {
     value.len() == 7
@@ -109,6 +122,7 @@ impl Appearance {
             AppearanceKey::Font => matches!(value, "auto" | "plex" | "cairo" | "tajawal" | "readex"),
             AppearanceKey::Scale => matches!(value, "normal" | "large"),
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
+            AppearanceKey::Images => matches!(value, "on" | "off"),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -124,8 +138,10 @@ impl Appearance {
             AppearanceKey::Font => self.font = value,
             AppearanceKey::Scale => self.scale = value,
             AppearanceKey::Digits => self.digits = value,
+            AppearanceKey::Images => self.images = value,
         }
         Ok(())
+
     }
 }
 

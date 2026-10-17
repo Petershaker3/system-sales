@@ -19,13 +19,29 @@ import { listCategories } from '../api/categories';
 import type { CategoryEntry } from '../api/categories';
 import { describeError } from '../api/errors';
 import type { Disposition, Product, ProductStatus } from '../api/catalog';
+import {
+  listProductImages,
+  removeProductImage,
+  setProductImage,
+  type ProductImage,
+} from '../api/images';
+import { approxKilobytes, shrinkImageFile } from '../screens/store/image';
+import Icon from '../ui/Icon.vue';
+import type { IconName } from '../ui/icons';
+import { asIconName } from '../screens/pos/icons';
+
 
 const error = ref<string>('');
+const notice = ref<string>('');
 const busy = ref(false);
 
 const products = ref<Product[]>([]);
+const images = ref<ProductImage[]>([]);
 const filter = ref<ProductStatus>('active');
 const barcodeSearch = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+const pickingProduct = ref<Product | null>(null);
+
 
 /** Which product the form is editing, or null when creating a new one. */
 const editingId = ref<string | null>(null);
@@ -63,6 +79,24 @@ function categoryLabel(product: Product): string {
   return categoryOptions.value.find((c) => c.id === product.categoryId)?.label ?? 'من غير تصنيف';
 }
 
+const imageMap = computed<Record<string, ProductImage>>(() => {
+  const map: Record<string, ProductImage> = {};
+  for (const img of images.value) {
+    map[img.productId] = img;
+  }
+  return map;
+});
+
+function productIcon(product: Product): IconName {
+  if (product.disposition === 'serialized') return 'smartphone';
+  const cat = product.categoryId
+    ? categories.value.find((c) => c.id === product.categoryId)
+    : undefined;
+  return asIconName(cat?.icon ?? '') ?? 'package';
+}
+
+
+
 async function loadCategories(): Promise<void> {
   try {
     categories.value = await listCategories();
@@ -92,7 +126,12 @@ function statusLabel(status: ProductStatus): string {
 async function load(): Promise<void> {
   busy.value = true;
   try {
-    products.value = await api.listProducts(filter.value);
+    const [loadedProducts, loadedImages] = await Promise.all([
+      api.listProducts(filter.value),
+      listProductImages(),
+    ]);
+    products.value = loadedProducts;
+    images.value = loadedImages;
     error.value = '';
   } catch (err) {
     error.value = describeError(err);
@@ -100,6 +139,50 @@ async function load(): Promise<void> {
     busy.value = false;
   }
 }
+
+function openImagePicker(product: Product): void {
+  if (product.status !== 'active') return;
+  pickingProduct.value = product;
+  if (fileInput.value) {
+    fileInput.value.value = '';
+    fileInput.value.click();
+  }
+}
+
+async function onPickImageFile(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement | null;
+  const file = input?.files?.[0];
+  const target = pickingProduct.value;
+  pickingProduct.value = null;
+  if (!file || !target) return;
+  error.value = '';
+  notice.value = '';
+  try {
+    const dataUrl = await shrinkImageFile(file);
+    const saved = await setProductImage(target.id, dataUrl);
+    images.value = [
+      ...images.value.filter((img) => img.productId !== target.id),
+      saved,
+    ];
+    const kb = approxKilobytes(saved.dataUrl);
+    notice.value = `اتحفظت صورة «${target.name}» (${kb} ك.ب)`;
+  } catch (err) {
+    error.value = describeError(err);
+  }
+}
+
+async function deleteImage(product: Product): Promise<void> {
+  error.value = '';
+  notice.value = '';
+  try {
+    await removeProductImage(product.id);
+    images.value = images.value.filter((img) => img.productId !== product.id);
+    notice.value = 'اتشالت الصورة، والصنف رجع بالأيقونة';
+  } catch (err) {
+    error.value = describeError(err);
+  }
+}
+
 
 /**
  * Parse the price field.
@@ -308,15 +391,62 @@ onMounted(() => {
     <!-- List -->
     <p v-if="products.length === 0 && !busy" class="hint">لا توجد منتجات.</p>
 
+    <input
+      id="img-file"
+      ref="fileInput"
+      type="file"
+      accept="image/*"
+      hidden
+      @change="onPickImageFile"
+    />
+
+    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+
     <ul class="list">
       <li v-for="product in products" :key="product.id" class="item">
-        <div class="item-main">
-          <span class="item-name">{{ product.name }}</span>
-          <span class="hint">
-            {{ dispositionLabel(product.disposition) }} · {{ categoryLabel(product) }} ·
-            {{ priceLabel(product) }} · {{ statusLabel(product.status) }}
+        <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1">
+          <button
+            v-if="product.status === 'active'"
+            type="button"
+            class="pic"
+            :class="{ has: !!imageMap[product.id] }"
+            data-act="imgPick"
+            :data-id="product.id"
+            :title="imageMap[product.id] ? 'غيّر صورة الصنف' : 'ضيف صورة للصنف (اختياري)'"
+            @click="openImagePicker(product)"
+          >
+            <img v-if="imageMap[product.id]" :src="imageMap[product.id]!.dataUrl" alt="" />
+            <Icon v-else :name="productIcon(product)" />
+            <span class="cam"><Icon name="camera" /></span>
+          </button>
+          <span
+            v-else
+            class="pic"
+            :class="{ has: !!imageMap[product.id] }"
+          >
+            <img v-if="imageMap[product.id]" :src="imageMap[product.id]!.dataUrl" alt="" />
+
+            <Icon v-else :name="productIcon(product)" />
           </span>
-          <span v-if="product.barcode" class="hint">{{ product.barcode }}</span>
+          <button
+            v-if="product.status === 'active' && imageMap[product.id]"
+            type="button"
+            class="icon-btn xs"
+            data-act="imgDel"
+            :data-id="product.id"
+            title="شيل الصورة"
+            @click="deleteImage(product)"
+          >
+            <Icon name="x" :size="12" />
+          </button>
+          <div class="item-main">
+            <span class="item-name">{{ product.name }}</span>
+            <span class="hint">
+              {{ dispositionLabel(product.disposition) }} · {{ categoryLabel(product) }} ·
+              {{ priceLabel(product) }} · {{ statusLabel(product.status) }}
+            </span>
+            <span v-if="product.barcode" class="hint">{{ product.barcode }}</span>
+          </div>
         </div>
         <div class="row">
           <button
@@ -332,6 +462,7 @@ onMounted(() => {
         </div>
       </li>
     </ul>
+
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </section>

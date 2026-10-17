@@ -11,16 +11,21 @@
 //! covers every command module.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::domain::catalog::{
     CatalogError, Disposition, Product, ProductStatus, ProductVariant, VariantParent,
+};
+use crate::domain::identity::DomainError;
+use crate::services::catalog::images::{
+    self as image_use_cases, ImageServiceError, ProductImageEntry,
 };
 use crate::services::catalog::product::{self as use_cases, NewProduct, ProductPatch};
 use crate::services::catalog::variants::{
     self as variant_use_cases, NewVariantRow, NewVariants, VariantServiceError,
 };
 use crate::services::catalog::{require_session, CatalogContext};
+
 
 
 type Ctx<'a> = State<'a, CatalogContext>;
@@ -48,6 +53,15 @@ impl From<VariantServiceError> for CatalogCommandError {
         }
     }
 }
+
+impl From<ImageServiceError> for CatalogCommandError {
+    fn from(error: ImageServiceError) -> Self {
+        Self {
+            code: error.code(),
+        }
+    }
+}
+
 
 
 /// A product as the frontend sees it.
@@ -407,3 +421,78 @@ pub async fn find_product_by_barcode(
     let found = use_cases::find_by_barcode(&ctx, &session, &barcode).await?;
     Ok(to_dto(&found))
 }
+
+/// A product's stored 192×192 JPEG thumbnail metadata and data URL (`ADR-018` §5).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductImageDto {
+    pub product_id: String,
+    pub file: String,
+    pub w: u16,
+    pub h: u16,
+    pub bytes: usize,
+    pub data_url: String,
+}
+
+impl From<ProductImageEntry> for ProductImageDto {
+    fn from(entry: ProductImageEntry) -> Self {
+        Self {
+            product_id: entry.image.product_id.as_str(),
+            file: entry.image.file,
+            w: entry.image.w,
+            h: entry.image.h,
+            bytes: entry.image.bytes,
+            data_url: entry.data_url,
+        }
+    }
+}
+
+fn resolve_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, CatalogCommandError> {
+    app.path()
+        .app_local_data_dir()
+        .map_err(|_| CatalogCommandError {
+            code: DomainError::StorageUnavailable.code(),
+        })
+}
+
+/// List all stored product images for the store, sales screen, and settings.
+#[tauri::command]
+pub async fn list_product_images(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<Vec<ProductImageDto>, CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    let entries =
+        image_use_cases::list_images(&ctx.pool, ctx.tokens.as_ref(), &data_dir).await?;
+    Ok(entries.into_iter().map(ProductImageDto::from).collect())
+}
+
+/// Store or replace a product's 192×192 JPEG thumbnail (`ADR-018` §5).
+#[tauri::command]
+pub async fn set_product_image(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+    product_id: String,
+    data_url: String,
+) -> Result<ProductImageDto, CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    let id = parse_id(&product_id)?;
+    let entry =
+        image_use_cases::set_image(&ctx.pool, ctx.tokens.as_ref(), &data_dir, id, &data_url)
+            .await?;
+    Ok(ProductImageDto::from(entry))
+}
+
+/// Remove a product's stored 192×192 JPEG thumbnail (`ADR-018` §5).
+#[tauri::command]
+pub async fn remove_product_image(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+    product_id: String,
+) -> Result<(), CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    let id = parse_id(&product_id)?;
+    image_use_cases::remove_image(&ctx.pool, ctx.tokens.as_ref(), &data_dir, id).await?;
+    Ok(())
+}
+

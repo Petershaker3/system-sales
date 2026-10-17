@@ -709,6 +709,89 @@ await sleep(80);
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);
 
+// --- product images (ADR-018 §5, plan item 1.2 step 5) ---------------------
+await clickText('.rail .nav-btn', 'المخزن');
+await sleep(250);
+const imgUploaded = await page.evaluate(async () => {
+  const btn = document.querySelector('[data-act="imgPick"]');
+  if (!btn) return { ok: false, reason: 'no .pic button' };
+  const pid = btn.getAttribute('data-id');
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 240;
+  const x = c.getContext('2d');
+  x.fillStyle = '#0f6e5a';
+  x.fillRect(0, 0, 320, 240);
+  x.fillStyle = '#ffffff';
+  x.fillRect(80, 40, 160, 160);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const file = new File([blob], 'sample.png', { type: 'image/png' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  btn.click();
+  const inp = document.querySelector('#img-file');
+  inp.files = dt.files;
+  inp.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 250));
+  const imgEl = document.querySelector(`[data-act="imgPick"][data-id="${pid}"] img`);
+  const src = imgEl?.getAttribute('src') ?? '';
+  return {
+    ok: src.startsWith('data:image/jpeg;base64,') && src.length < 45000,
+    pid,
+    len: src.length,
+  };
+});
+check(
+  'picking a product image in the store centre-crops and shrinks it to a 192×192 JPEG (<45 KB)',
+  imgUploaded.ok && (await text('.catalog .notice')).includes('اتحفظت صورة'),
+  JSON.stringify(imgUploaded)
+);
+await shot('23-store-product-image');
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(120);
+check(
+  'the product image appears on its tile on the sales screen when «اعرض صور الأصناف» is on',
+  (await count('.tile .ico.img img')) >= 1
+);
+await shot('24-pos-product-image');
+
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#show-product-images');
+await sleep(120);
+check(
+  'the «صور الأصناف» card in settings shows the count of products with images',
+  (await text('.page')).includes('عندك 1 صنف بصورة دلوقتي')
+);
+await page.$eval('#show-product-images', (el) => el.click());
+await sleep(150);
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(100);
+check(
+  'turning off «اعرض صور الأصناف» hides product images on the sales screen without deleting them',
+  (await count('.tile .ico.img img')) === 0
+);
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#show-product-images');
+await page.$eval('#show-product-images', (el) => el.click());
+await sleep(150);
+
+await clickText('.rail .nav-btn', 'المخزن');
+await sleep(200);
+await page.click('[data-act="imgDel"]');
+await sleep(200);
+check(
+  'removing a product image in the store restores its category icon',
+  (await count('[data-act="imgDel"]')) === 0 &&
+    (await text('.catalog .notice')).includes('اتشالت الصورة، والصنف رجع بالأيقونة')
+);
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(80);
+
+
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen

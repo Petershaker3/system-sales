@@ -92,3 +92,8 @@ pub const BRANDS_AND_PHONE_DETAILS: &str = include_str!("0017_brands_and_phone_d
 /// keep the details whole.
 pub const PRODUCT_VARIANTS: &str = include_str!("0018_product_variants.sql");
 
+/// `0019`: product images (`product_images(product_id, file, w, h, bytes)`,
+/// ADR-018 §5), storing only the external file reference and verified metadata.
+pub const PRODUCT_IMAGES: &str = include_str!("0019_product_images.sql");
+
+

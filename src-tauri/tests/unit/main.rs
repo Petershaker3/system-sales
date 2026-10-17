@@ -6,13 +6,16 @@
 //! than assumed.
 
 use mobile_shop_system_lib::domain::catalog::{
-    brand_aliases, brand_lines, can_delete_brand, ean13, ean13_check_digit, is_default_brand,
-    next_shop_code, next_shop_codes, phone_title, storage_label, variant_combos, variant_title,
-    BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType, Disposition,
-    PhoneDetails, PhoneModel, Product, ProductId, ProductName, ProductStatus, SalePrice,
-    ShopCodeError, VariantDimension, VariantError, VariantParent, VariantParentId, VariantValue,
-    DEFAULT_BRANDS, MAX_VARIANTS, VARIANT_DIMENSIONS,
+    brand_aliases, brand_lines, can_delete_brand, decode_jpeg_data_url, ean13, ean13_check_digit,
+    encode_jpeg_data_url, is_default_brand, next_shop_code, next_shop_codes,
+    parse_jpeg_dimensions, phone_title, storage_label, validate_jpeg_192, variant_combos,
+    variant_title, BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType,
+    Disposition, ImageError, PhoneDetails, PhoneModel, Product, ProductId, ProductImage,
+    ProductName, ProductStatus, SalePrice, ShopCodeError, VariantDimension, VariantError,
+    VariantParent, VariantParentId, VariantValue, DEFAULT_BRANDS, IMAGE_SIDE, MAX_IMAGE_BYTES,
+    MAX_VARIANTS, VARIANT_DIMENSIONS,
 };
+
 
 use mobile_shop_system_lib::domain::identity::{
     group_recovery_code, is_locked, normalize_recovery_code, password_is_acceptable,
@@ -2434,3 +2437,95 @@ fn every_variant_error_has_a_stable_screaming_snake_code() {
         assert_eq!(error.to_string(), code);
     }
 }
+
+// ---------------------------------------------------------------------------
+// PRODUCT IMAGES (ADR-018 §5, plan item 1.2 step 5)
+// ---------------------------------------------------------------------------
+
+fn sample_jpeg(w: u16, h: u16, extra_app_bytes: usize) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xD8]; // SOI
+    let app_len = 2 + extra_app_bytes;
+    let app_len_u16 = u16::try_from(app_len).expect("app segment length");
+    out.extend_from_slice(&[0xFF, 0xE0]); // APP0
+    out.extend_from_slice(&app_len_u16.to_be_bytes());
+    out.extend(std::iter::repeat_n(0x4A, extra_app_bytes));
+    // SOF0 segment: length = 11 (2 length + 1 precision + 2 height + 2 width + 1 components + 3 comp)
+    out.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x0B, 0x08]);
+    out.extend_from_slice(&h.to_be_bytes());
+    out.extend_from_slice(&w.to_be_bytes());
+    out.extend_from_slice(&[0x01, 0x01, 0x11, 0x00]);
+    // SOS + minimal scan + EOI
+    out.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F]);
+    out.extend_from_slice(&[0xFF, 0xD9]);
+    out
+}
+
+#[test]
+fn jpeg_192_validation_accepts_a_192_square_jpeg_and_rejects_everything_else() {
+    let valid = sample_jpeg(IMAGE_SIDE, IMAGE_SIDE, 16);
+    assert_eq!(parse_jpeg_dimensions(&valid), Ok((192, 192)));
+    assert_eq!(validate_jpeg_192(&valid), Ok((192, 192)));
+
+    let id = ProductId::generate();
+    let img = ProductImage::from_jpeg_bytes(id, &valid).expect("valid 192x192 jpeg");
+    assert_eq!(img.product_id, id);
+    assert_eq!(img.file, format!("images/{id}.jpg"));
+    assert_eq!((img.w, img.h, img.bytes), (192, 192, valid.len()));
+
+    assert_eq!(validate_jpeg_192(&[]), Err(ImageError::Empty));
+    assert_eq!(
+        validate_jpeg_192(&vec![0xFF; MAX_IMAGE_BYTES + 1]),
+        Err(ImageError::TooLarge)
+    );
+    assert_eq!(
+        validate_jpeg_192(b"\x89PNG\r\n\x1a\nnot a jpeg"),
+        Err(ImageError::NotJpeg)
+    );
+    assert_eq!(
+        validate_jpeg_192(&sample_jpeg(128, 192, 4)),
+        Err(ImageError::DimensionsInvalid)
+    );
+    assert_eq!(
+        validate_jpeg_192(&sample_jpeg(192, 256, 4)),
+        Err(ImageError::DimensionsInvalid)
+    );
+}
+
+#[test]
+fn jpeg_data_url_round_trips_all_base64_padding_lengths() {
+    let id = ProductId::generate();
+    for extra in [10usize, 11, 12] {
+        let raw = sample_jpeg(192, 192, extra);
+        let url = encode_jpeg_data_url(&raw);
+        assert!(url.starts_with("data:image/jpeg;base64,"));
+        let decoded = decode_jpeg_data_url(&url).expect("decode data url");
+        assert_eq!(decoded, raw);
+
+        let (meta, bytes) = ProductImage::from_data_url(id, &url).expect("from_data_url");
+        assert_eq!(bytes, raw);
+        assert_eq!(meta.bytes, raw.len());
+    }
+
+    assert_eq!(
+        decode_jpeg_data_url("data:image/png;base64,AAAA"),
+        Err(ImageError::NotJpeg)
+    );
+    assert_eq!(decode_jpeg_data_url("   "), Err(ImageError::Empty));
+    assert_eq!(decode_jpeg_data_url("abc"), Err(ImageError::NotJpeg));
+}
+
+#[test]
+fn every_image_error_has_a_stable_screaming_snake_code() {
+    for error in [
+        ImageError::Empty,
+        ImageError::TooLarge,
+        ImageError::NotJpeg,
+        ImageError::DimensionsInvalid,
+        ImageError::NotFound,
+    ] {
+        let code = error.code();
+        assert!(code.starts_with("IMAGE_"), "{error:?} -> {code}");
+        assert_eq!(error.to_string(), code);
+    }
+}
+

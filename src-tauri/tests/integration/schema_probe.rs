@@ -131,23 +131,30 @@ async fn no_column_is_named_as_if_it_would_hold_a_payload() {
 }
 
 #[tokio::test]
-async fn there_is_no_image_reference_column_yet_and_that_is_a_known_gap() {
-    // The honest half. XC-10's rule is "the image is an external file with a
-    // record reference only", and this schema satisfies it **vacuously**: there
-    // is no image support at all — no column on any table holds or names an
-    // image.
-    //
-    // The delivery plan marks XC-10 "IMPLEMENTED" on the strength of a BLOB
-    // grep, and that grep was correct about blobs but said nothing about images
-    // being present. They are not. Product images belong to P3 (catalogue and
-    // hardware, which is BLOCKED on the barcode/scanner decision), so this is a
-    // recorded gap, not a defect — and it is asserted as one so that whoever
-    // adds the image column in P3 is forced to update this test rather than
-    // leaving a stale claim behind.
+async fn product_images_stores_a_bounded_file_reference_and_metadata_never_bytes() {
+    // XC-10 (`spec:220`) and ADR-018 §5: `product_images` holds the product id,
+    // the relative file path under `images/`, and the verified dimensions and
+    // byte count — never the image payload.
     let pool = db::open_in_memory().await.expect("in-memory database");
+    let columns = every_column(&pool).await;
 
-    let image_columns: Vec<String> = every_column(&pool)
-        .await
+    let image_table: Vec<(String, String)> = columns
+        .iter()
+        .filter(|(table, _, _)| table == "product_images")
+        .map(|(_, name, declared)| (name.clone(), declared.to_ascii_uppercase()))
+        .collect();
+    assert_eq!(
+        image_table,
+        vec![
+            ("product_id".to_string(), "TEXT".to_string()),
+            ("file".to_string(), "TEXT".to_string()),
+            ("w".to_string(), "INTEGER".to_string()),
+            ("h".to_string(), "INTEGER".to_string()),
+            ("bytes".to_string(), "INTEGER".to_string()),
+        ]
+    );
+
+    let image_columns: Vec<String> = columns
         .into_iter()
         .filter(|(_, name, _)| {
             let lowered = name.to_ascii_lowercase();
@@ -158,9 +165,7 @@ async fn there_is_no_image_reference_column_yet_and_that_is_a_known_gap() {
 
     assert!(
         image_columns.is_empty(),
-        "an image reference column now exists ({}) — update this test. It must \
-         stay a bounded path/TEXT reference, never bytes, and the payload-name \
-         probe above must be extended to allow it by name only.",
+        "no column is named after an embedded image payload ({})",
         image_columns.join(", ")
     );
 }

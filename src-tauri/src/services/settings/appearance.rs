@@ -49,9 +49,12 @@ pub async fn update(
     let session = identity_session::resolve(pool, tokens).await?;
     if parsed.is_for_everyone() {
         session.authorize(Permission::Sell)?;
+    } else if parsed.is_catalog_choice() {
+        session.authorize(Permission::ManageCatalog)?;
     } else {
         session.authorize(Permission::ManageSettings)?;
     }
+
 
     // Validation before storage, through the same `set` the read applies.
     Appearance::default().set(key, value)?;

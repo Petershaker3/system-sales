@@ -43,7 +43,9 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.font, "auto");
     assert_eq!(read.scale, "normal");
     assert_eq!(read.digits, "latin");
+    assert_eq!(read.images, "on");
 }
+
 
 #[tokio::test]
 async fn the_owner_changes_the_look_with_a_fresh_password() {

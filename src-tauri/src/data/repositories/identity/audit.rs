@@ -95,6 +95,12 @@ pub const DEFAULT_BRANDS_ADDED: &str = "default_brands_added";
 /// registered together in one transaction.
 pub const VARIANTS_CREATED: &str = "variants_created";
 
+/// Product images (ADR-018 §5): a 192×192 JPEG thumbnail stored or removed for
+/// one product.
+pub const PRODUCT_IMAGE_SET: &str = "product_image_set";
+pub const PRODUCT_IMAGE_REMOVED: &str = "product_image_removed";
+
+
 
 /// Inventory and costing (SP-2).
 ///

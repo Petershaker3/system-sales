@@ -32,6 +32,7 @@ export type Look = 'plate' | 'box';
 export type ThemeChoice = 'light' | 'dark' | 'auto';
 export type FontChoice = 'auto' | 'plex' | 'cairo' | 'tajawal' | 'readex';
 export type Scale = 'normal' | 'large';
+export type ImagesChoice = 'on' | 'off';
 
 export interface Appearance {
   look: Look;
@@ -40,6 +41,7 @@ export interface Appearance {
   font: FontChoice;
   scale: Scale;
   digits: Digits;
+  images: ImagesChoice;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -49,7 +51,9 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   font: 'auto',
   scale: 'normal',
   digits: 'latin',
+  images: 'on',
 };
+
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
 export const ACCENTS: readonly string[] = [
@@ -89,8 +93,10 @@ export function normalizeAppearance(raw: unknown): Appearance {
     font: oneOf(r['font'], ['auto', 'plex', 'cairo', 'tajawal', 'readex'] as const, DEFAULT_APPEARANCE.font),
     scale: oneOf(r['scale'], ['normal', 'large'] as const, DEFAULT_APPEARANCE.scale),
     digits: oneOf(r['digits'], ['latin', 'arabic'] as const, DEFAULT_APPEARANCE.digits),
+    images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
   };
 }
+
 
 /** The single, reactive appearance every component reads. */
 export const appearance: Appearance = reactive({ ...DEFAULT_APPEARANCE });
@@ -142,7 +148,9 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   font: 'ui.font',
   scale: 'ui.scale',
   digits: 'ui.digits',
+  images: 'ui.images',
 };
+
 
 /**
  * Change part of the appearance: repaint at once, then store it. When the store

@@ -11,6 +11,8 @@ import UserManagement from '../../components/UserManagement.vue';
 import AppearanceCard from './AppearanceCard.vue';
 import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
+import ProductImagesCard from './ProductImagesCard.vue';
+
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
 </script>
 
@@ -21,8 +23,10 @@ import RecoveryCodeCard from './RecoveryCodeCard.vue';
       <span class="sub">الشكل والتصنيفات الأول، وبعدهم إعدادات الجهاز والمستخدمين والنسخ الاحتياطي.</span>
     </div>
     <AppearanceCard />
+    <ProductImagesCard />
     <CategoriesCard />
     <BrandsCard />
+
     <RecoveryCodeCard />
     <div class="legacy-grid">
       <section class="card legacy-panel"><SettingsPanel /></section>

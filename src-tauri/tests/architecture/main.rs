@@ -1351,6 +1351,12 @@ const VARIANTS_SERVICE: &str = include_str!("../../src/services/catalog/variants
 const VARIANT_DOMAIN: &str = include_str!("../../src/domain/catalog/variant.rs");
 const VARIANTS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0018_product_variants.sql");
+/// Product images (ADR-018 §5).
+const IMAGES_SERVICE: &str = include_str!("../../src/services/catalog/images.rs");
+const IMAGE_DOMAIN: &str = include_str!("../../src/domain/catalog/image.rs");
+const IMAGES_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0019_product_images.sql");
+
 
 const SETTINGS_COMMANDS: &str = include_str!("../../src/commands/settings.rs");
 const ORGANISATION_SERVICE: &str =
@@ -1451,8 +1457,10 @@ fn authority_services_never_touch_sql() {
         ("brands", BRANDS_SERVICE),
         ("phone", PHONE_SERVICE),
         ("variants", VARIANTS_SERVICE),
+        ("images", IMAGES_SERVICE),
         ("settings", SETTINGS_SERVICE),
         ("approval", APPROVAL_SERVICE),
+
     ] {
 
         let code = code_only(source);
@@ -1540,7 +1548,10 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
         "BRAND_DELETED",
         "DEFAULT_BRANDS_ADDED",
         "VARIANTS_CREATED",
+        "PRODUCT_IMAGE_SET",
+        "PRODUCT_IMAGE_REMOVED",
     ] {
+
 
         assert!(
             declared.contains(&added_by_item_1_2.to_string()),
@@ -2016,6 +2027,63 @@ fn product_variants_are_whole_in_storage_and_named_by_the_domain() {
         );
     }
 }
+
+#[test]
+fn product_images_store_external_192_jpeg_files_never_database_blobs() {
+    // ADR-018 §5 and XC-10: `0019_product_images.sql` records only the relative
+    // file path under `images/` and the verified 192×192 dimensions and byte
+    // length, never raw image bytes.
+    let sql = sql_only(IMAGES_MIGRATION);
+    for required in [
+        "create table product_images",
+        "product_id text    primary key references products (id) on delete restrict",
+        "and file glob 'images/[0-9a-fa-f-]*.jpg'",
+        "check (w = 192)",
+        "check (h = 192)",
+        "check (bytes > 0 and bytes <= 65536)",
+    ] {
+        assert!(sql.contains(required), "0019 must keep `{required}`");
+    }
+    for forbidden in ["blob", "drop ", "delete from", "insert into"] {
+        assert!(
+            !sql.contains(forbidden),
+            "0019 must stay additive and free of BLOB columns: found `{forbidden}`"
+        );
+    }
+    let domain = code_only(IMAGE_DOMAIN);
+    for forbidden in ["sqlx", "tauri", "SqlitePool"] {
+        assert!(
+            !domain.contains(forbidden),
+            "the image domain must not reference `{forbidden}`"
+        );
+    }
+    let service = code_only(IMAGES_SERVICE);
+    for required in [
+        "ProductImage::from_data_url(",
+        "image_repo::upsert(",
+        "image_repo::delete(",
+        "audit::event::PRODUCT_IMAGE_SET",
+        "audit::event::PRODUCT_IMAGE_REMOVED",
+        "tx.commit()",
+    ] {
+        assert!(
+            service.contains(required),
+            "the image use cases must keep `{required}`"
+        );
+    }
+    let lib = code_only(LIB);
+    for command in [
+        "commands::catalog::list_product_images",
+        "commands::catalog::set_product_image",
+        "commands::catalog::remove_product_image",
+    ] {
+        assert!(
+            lib.contains(command),
+            "lib.rs must register `{command}`"
+        );
+    }
+}
+
 
 
 #[test]

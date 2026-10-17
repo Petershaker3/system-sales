@@ -7,6 +7,7 @@
 
 mod brand;
 mod catalog;
+mod image;
 mod shop_code;
 mod variant;
 
@@ -18,7 +19,12 @@ pub use brand::{
 pub use catalog::{
     Barcode, CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
 };
+pub use image::{
+    decode_jpeg_data_url, encode_jpeg_data_url, parse_jpeg_dimensions, validate_jpeg_192,
+    ImageError, ProductImage, IMAGES_DIR_PREFIX, IMAGE_SIDE, MAX_IMAGE_BYTES,
+};
 pub use shop_code::{ean13, ean13_check_digit, next_shop_code, next_shop_codes, ShopCodeError};
+
 pub use variant::{
     variant_combos, variant_title, ProductVariant, VariantDimension, VariantError, VariantParent,
     VariantParentId, VariantValue, MAX_VARIANTS, VARIANT_DIMENSIONS,

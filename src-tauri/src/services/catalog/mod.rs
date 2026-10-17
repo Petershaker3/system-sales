@@ -5,12 +5,15 @@
 
 /// Phone brands (ADR-018 §2).
 pub mod brands;
+/// Product images (ADR-018 §5).
+pub mod images;
 /// Registering a new phone (ADR-018 §2).
 pub mod phone;
 pub mod pos;
 pub mod product;
 /// Registering a counted item with variants (ADR-018 §4).
 pub mod variants;
+
 
 
 use std::sync::Arc;

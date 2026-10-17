@@ -16,9 +16,18 @@ export interface AppearanceDto {
   readonly font: string;
   readonly scale: string;
   readonly digits: string;
+  readonly images?: string;
 }
 
-export type AppearanceKey = 'ui.look' | 'ui.theme' | 'ui.accent' | 'ui.font' | 'ui.scale' | 'ui.digits';
+export type AppearanceKey =
+  | 'ui.look'
+  | 'ui.theme'
+  | 'ui.accent'
+  | 'ui.font'
+  | 'ui.scale'
+  | 'ui.digits'
+  | 'ui.images';
+
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');

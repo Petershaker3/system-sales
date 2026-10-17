@@ -16,10 +16,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
+import { listProductImages, type ProductImage } from '../../api/images';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
 import type { SaleOutcome } from '../../api/sales';
+import { appearance } from '../../ui/appearance';
 import { countWord, kindsWord, money, num, pcsWord } from '../../ui/format';
+
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
@@ -38,7 +41,9 @@ const props = defineProps<{ session: Session }>();
 const emit = defineEmits<{ go: [screen: 'store'] }>();
 
 const catalogue = ref<PosCatalog | null>(null);
+const productImages = ref<ProductImage[]>([]);
 const loadError = ref('');
+
 const state = reactive(cart.newCart());
 const query = ref('');
 const highlighted = ref(0);
@@ -55,7 +60,12 @@ const isOwner = computed(() => props.session.role === 'manager');
 
 async function load(): Promise<void> {
   try {
-    catalogue.value = await posApi.posCatalog();
+    const [loadedCatalog, loadedImages] = await Promise.all([
+      posApi.posCatalog(),
+      listProductImages(),
+    ]);
+    catalogue.value = loadedCatalog;
+    productImages.value = loadedImages;
     loadError.value = '';
     chip.value = keepSelection(tree.value, chip.value);
     const dropped = cart.reprice(state, sellable.value.map(asSellable));
@@ -64,6 +74,30 @@ async function load(): Promise<void> {
     loadError.value = describeError(err);
   }
 }
+
+const imageMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  for (const img of productImages.value) {
+    map[img.productId] = img.dataUrl;
+  }
+  return map;
+});
+
+function tileImage(p: PosProduct): string | null {
+  if (appearance.images !== 'on') return null;
+  return imageMap.value[p.id] ?? null;
+}
+
+function familyImage(variants: readonly PosProduct[]): string | null {
+  if (appearance.images !== 'on') return null;
+  for (const v of variants) {
+    const img = imageMap.value[v.id];
+    if (img) return img;
+  }
+  return null;
+}
+
+
 
 const tree = computed(() => buildTree(catalogue.value?.categories ?? []));
 const brandsById = computed(() => new Map((catalogue.value?.brands ?? []).map((b) => [b.id, b])));
@@ -444,8 +478,12 @@ const KEYS: readonly [string, string][] = [
                 @mousedown.prevent="pickResult(at)"
                 @mouseenter="highlighted = at"
               >
-                <div class="ico"><Icon :name="iconOf(p)" /></div>
+                <div class="ico" :class="{ img: !!tileImage(p) }">
+                  <img v-if="tileImage(p)" :src="tileImage(p)!" alt="" />
+                  <Icon v-else :name="iconOf(p)" />
+                </div>
                 <div class="t">
+
                   <div class="n"><bdi dir="rtl">{{ p.name }}</bdi></div>
                   <div class="s">
                     <span :class="{ 'danger-t': freeOf(p) <= 0 }">{{ freeOf(p) <= 0 ? 'خلصان' : `متاح ${num(freeOf(p))}` }}</span>
@@ -510,7 +548,10 @@ const KEYS: readonly [string, string][] = [
               :title="entry.product.salePriceMinor === null ? 'مالوش سعر بيع' : entry.product.name"
               @click="pick(entry.product)"
             >
-              <div class="ico"><Icon :name="iconOf(entry.product)" /></div>
+              <div class="ico" :class="{ img: !!tileImage(entry.product) }">
+                <img v-if="tileImage(entry.product)" :src="tileImage(entry.product)!" alt="" />
+                <Icon v-else :name="iconOf(entry.product)" />
+              </div>
               <div class="name"><bdi dir="rtl">{{ entry.product.name }}</bdi></div>
               <div class="foot">
                 <span class="price num">{{
@@ -540,8 +581,12 @@ const KEYS: readonly [string, string][] = [
               :title="`ليه ${kindsWord(entry.variants.length)}: اختار النوع بعد الدوسة`"
               @click="openFamily = entry"
             >
-              <div class="ico"><Icon :name="iconOf(entry.variants[0]!)" /></div>
+              <div class="ico" :class="{ img: !!familyImage(entry.variants) }">
+                <img v-if="familyImage(entry.variants)" :src="familyImage(entry.variants)!" alt="" />
+                <Icon v-else :name="iconOf(entry.variants[0]!)" />
+              </div>
               <span class="corner tag">
+
                 <Icon name="layers" /> {{ kindsWord(entry.variants.length) }}
               </span>
               <div class="name"><bdi dir="rtl">{{ entry.parentName }}</bdi></div>

@@ -796,3 +796,8 @@ mod pin;
 // operation — who may approve, the shared lockout, the two-minute window, one
 // use per approval, and what withdraws one. Replaces the Pattern.
 mod approval;
+
+// Plan item 1.2 step 5 (ADR-018 §5): product images stored under `images/` with
+// metadata in `product_images`, and round-tripped through the encrypted backup.
+mod images;
+
