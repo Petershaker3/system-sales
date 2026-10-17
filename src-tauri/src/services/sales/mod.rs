@@ -499,7 +499,7 @@ pub async fn record_sale_with_discounts(
         appearance.discount_limit_pct_num(),
     ) {
         let approval = session.require_sensitivity(Sensitivity::Sensitive, now)?;
-        Some(approval_service::consume_in_tx(&mut tx, &session, approval).await?)
+        approval_service::consume_in_tx(&mut tx, &session, approval).await?
     } else {
         None
     };
@@ -740,7 +740,7 @@ pub async fn cancel_sale(
             total_minor: original.total_minor,
             cost_total_minor: original.cost_total_minor,
             discount_minor: original.discount_minor,
-            approved_by: Some(approved_by.as_str().to_owned()),
+            approved_by: approved_by.as_ref().map(|u| u.as_str().to_owned()),
         },
     )
     .await
