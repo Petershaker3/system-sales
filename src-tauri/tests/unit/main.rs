@@ -2616,4 +2616,129 @@ fn unit_domain_enums_and_color_round_trip() {
     );
 }
 
+#[test]
+fn pay_methods_setting_requires_cash_and_canonicalizes_order() {
+    use mobile_shop_system_lib::domain::settings::appearance::{
+        parse_pay_methods, DEFAULT_PAY_METHODS,
+    };
+
+    assert_eq!(
+        parse_pay_methods(DEFAULT_PAY_METHODS).as_deref(),
+        Some(DEFAULT_PAY_METHODS)
+    );
+    assert_eq!(
+        parse_pay_methods("credit, cash, vf").as_deref(),
+        Some("cash,vf,credit")
+    );
+    // Cash cannot be disabled.
+    assert_eq!(parse_pay_methods("vf,instapay"), None);
+    // Duplicate methods and unknown methods are refused.
+    assert_eq!(parse_pay_methods("cash,vf,vf"), None);
+    assert_eq!(parse_pay_methods("cash,crypto"), None);
+}
+
+#[test]
+fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer() {
+    use mobile_shop_system_lib::domain::sales::{
+        validate_sale_payments, PaymentMethod, SaleError, SalePaymentInput,
+    };
+
+    let enabled = "cash,vf,instapay,install,credit";
+
+    // Split between cash and vf matching total succeeds.
+    let split = validate_sale_payments(
+        &[
+            SalePaymentInput {
+                method: "cash".to_string(),
+                amount_minor: 300_00,
+                reference: None,
+            },
+            SalePaymentInput {
+                method: "vf".to_string(),
+                amount_minor: 200_00,
+                reference: Some("  0100123  ".to_string()),
+            },
+        ],
+        500_00,
+        enabled,
+        false,
+    )
+    .expect("valid split");
+    assert_eq!(split.len(), 2);
+    assert_eq!(split[0].method, PaymentMethod::Cash);
+    assert_eq!(split[1].method, PaymentMethod::Vf);
+    assert_eq!(split[1].reference.as_deref(), Some("0100123"));
+
+    // Disabled method (`card` omitted from `enabled`) is refused.
+    assert_eq!(
+        validate_sale_payments(
+            &[SalePaymentInput {
+                method: "card".to_string(),
+                amount_minor: 500_00,
+                reference: None,
+            }],
+            500_00,
+            enabled,
+            false,
+        ),
+        Err(SaleError::PaymentMethodDisabled)
+    );
+
+    // Instalment without provider reference is refused.
+    assert_eq!(
+        validate_sale_payments(
+            &[SalePaymentInput {
+                method: "install".to_string(),
+                amount_minor: 500_00,
+                reference: Some("   ".to_string()),
+            }],
+            500_00,
+            enabled,
+            false,
+        ),
+        Err(SaleError::InstallmentProviderRequired)
+    );
+
+    // Credit without customer is refused; with customer succeeds.
+    assert_eq!(
+        validate_sale_payments(
+            &[SalePaymentInput {
+                method: "credit".to_string(),
+                amount_minor: 500_00,
+                reference: None,
+            }],
+            500_00,
+            enabled,
+            false,
+        ),
+        Err(SaleError::CreditRequiresCustomer)
+    );
+    assert!(validate_sale_payments(
+        &[SalePaymentInput {
+            method: "credit".to_string(),
+            amount_minor: 500_00,
+            reference: None,
+        }],
+        500_00,
+        enabled,
+        true,
+    )
+    .is_ok());
+
+    // Mismatched total is refused.
+    assert_eq!(
+        validate_sale_payments(
+            &[SalePaymentInput {
+                method: "cash".to_string(),
+                amount_minor: 450_00,
+                reference: None,
+            }],
+            500_00,
+            enabled,
+            false,
+        ),
+        Err(SaleError::PaymentTotalMismatch)
+    );
+}
+
 

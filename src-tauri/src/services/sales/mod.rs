@@ -20,15 +20,18 @@ use crate::data::repositories::identity::audit;
 use crate::data::repositories::inventory::stock as stock_repo;
 use crate::data::repositories::inventory::unit as unit_repo;
 use crate::data::repositories::sales as sales_repo;
-use crate::data::repositories::sales::{MovementRecord, SaleLineRecord, SaleRecord};
+use crate::data::repositories::sales::{
+    MovementRecord, SaleLineRecord, SalePaymentRecord, SaleRecord,
+};
 use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::domain::catalog::{CatalogError, Disposition, ProductId, ProductStatus};
 use crate::domain::costing::CostError;
-use crate::domain::customer::{CustomerError, NewCustomer};
+use crate::domain::customer::{CustomerError, CustomerLedgerEntry, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
 use crate::domain::organisation::CostMethod;
 use crate::domain::sales::{
-    civil_ymd_from_millis, format_invoice_reference, SaleError, WarrantyDate,
+    civil_ymd_from_millis, format_invoice_reference, validate_sale_payments, PaymentMethod,
+    SaleError, SalePaymentInput, WarrantyDate,
 };
 use crate::domain::unit::{Imei, UnitError};
 use crate::services::identity::secure_store::SecureTokenStore;
@@ -199,6 +202,19 @@ pub async fn record_sale_with_units(
     lines: &[SaleLineWithUnitInput],
     confirmed_total_minor: Option<i64>,
 ) -> Result<SaleOutcome, SaleServiceError> {
+    record_sale_with_payments(pool, tokens, lines, confirmed_total_minor, None, None).await
+}
+
+/// Record a sale with optional serialized device IMEIs (`ADR-019`), single or
+/// split payment rows (`ADR-020` §2), and an optional linked customer (`ADR-020` §3).
+pub async fn record_sale_with_payments(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    lines: &[SaleLineWithUnitInput],
+    confirmed_total_minor: Option<i64>,
+    payments: Option<&[SalePaymentInput]>,
+    customer_id: Option<&str>,
+) -> Result<SaleOutcome, SaleServiceError> {
     if lines.is_empty() {
         return Err(SaleError::Empty.into());
     }
@@ -237,6 +253,17 @@ pub async fn record_sale_with_units(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     let prefix = snapshot.invoice_prefix.clone();
+
+    let clean_customer_id = customer_id.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(cid) = clean_customer_id {
+        let live = customer_repo::find_by_id(&mut *tx, cid)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?
+            .ok_or(CustomerError::NotFound)?;
+        if live.archived {
+            return Err(CustomerError::IsArchived.into());
+        }
+    }
 
     struct PendingLine {
         product_id: String,
@@ -401,6 +428,18 @@ pub async fn record_sale_with_units(
         }
     }
 
+    let default_cash = [SalePaymentInput {
+        method: "cash".to_owned(),
+        amount_minor: total_minor,
+        reference: None,
+    }];
+    let validated_payments = validate_sale_payments(
+        payments.unwrap_or(&default_cash),
+        total_minor,
+        &appearance.pay_methods,
+        clean_customer_id.is_some(),
+    )?;
+
     let reference = next_reference(&mut tx, &prefix, now).await?;
     let sale_id = Uuid::now_v7().to_string();
 
@@ -419,6 +458,56 @@ pub async fn record_sale_with_units(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(cid) = clean_customer_id {
+        sales_repo::set_sale_customer(&mut *tx, &sale_id, cid)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
+
+    let mut credit_minor: i64 = 0;
+    for (idx, p) in validated_payments.iter().enumerate() {
+        sales_repo::insert_sale_payment(
+            &mut *tx,
+            &SalePaymentRecord {
+                id: Uuid::now_v7().to_string(),
+                sale_id: sale_id.clone(),
+                payment_no: idx as i64 + 1,
+                method: p.method.as_str().to_owned(),
+                amount_minor: p.amount_minor,
+                reference: p.reference.clone(),
+                occurred_at: now.as_millis(),
+            },
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+        if p.method == PaymentMethod::Credit {
+            credit_minor = credit_minor
+                .checked_add(p.amount_minor)
+                .ok_or(CostError::Overflow)?;
+        }
+    }
+
+    if credit_minor > 0 {
+        let cid = clean_customer_id.ok_or(SaleError::CreditRequiresCustomer)?;
+        customer_repo::insert_ledger_entry(
+            &mut *tx,
+            &CustomerLedgerEntry {
+                id: Uuid::now_v7().to_string(),
+                customer_id: cid.to_owned(),
+                kind: "credit_sale".to_owned(),
+                amount_minor: credit_minor,
+                method: None,
+                sale_id: Some(sale_id.clone()),
+                note: Some(format!("فاتورة {reference}")),
+                actor_id: actor,
+                occurred_at: now,
+            },
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     for (index, line) in pending.iter().enumerate() {
         let line_id = Uuid::now_v7().to_string();
@@ -555,6 +644,13 @@ pub async fn cancel_sale(
     let lines = sales_repo::list_lines(&mut *tx, sale_id)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+    let (_, original_customer_id) = sales_repo::link_state(&mut *tx, sale_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(SaleError::NotFound)?;
+    let original_payments = sales_repo::list_sale_payments(&mut *tx, sale_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
 
     let snapshot = settings_repo::load_snapshot(&mut *tx)
         .await
@@ -580,6 +676,58 @@ pub async fn cancel_sale(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(ref cid) = original_customer_id {
+        sales_repo::set_sale_customer(&mut *tx, &reversal_id, cid)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
+
+    let mut reversed_credit_minor: i64 = 0;
+    for orig_p in &original_payments {
+        sales_repo::insert_sale_payment(
+            &mut *tx,
+            &SalePaymentRecord {
+                id: Uuid::now_v7().to_string(),
+                sale_id: reversal_id.clone(),
+                payment_no: orig_p.payment_no,
+                method: orig_p.method.clone(),
+                amount_minor: orig_p.amount_minor,
+                reference: orig_p.reference.clone(),
+                occurred_at: now.as_millis(),
+            },
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+        if orig_p.method == "credit" {
+            reversed_credit_minor = reversed_credit_minor
+                .checked_add(orig_p.amount_minor)
+                .ok_or(CostError::Overflow)?;
+        }
+    }
+
+    if reversed_credit_minor > 0 {
+        let cid = original_customer_id
+            .as_deref()
+            .ok_or(SaleError::ReversalInconsistent)?;
+        customer_repo::insert_ledger_entry(
+            &mut *tx,
+            &CustomerLedgerEntry {
+                id: Uuid::now_v7().to_string(),
+                customer_id: cid.to_owned(),
+                kind: "sale_reversal".to_owned(),
+                amount_minor: -reversed_credit_minor,
+                method: None,
+                sale_id: Some(reversal_id.clone()),
+                note: Some(format!("إلغاء فاتورة {}", original.reference)),
+                actor_id: actor,
+                occurred_at: now,
+            },
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     for line in &lines {
         // The method the line was sold under must be one this build knows; the

@@ -27,6 +27,7 @@ import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './col
 import type { Grounds, Rgb } from './color.ts';
 import { setDigits } from './format.ts';
 import type { Digits } from './format.ts';
+import type { IconName } from './icons.ts';
 
 export type Look = 'plate' | 'box';
 export type ThemeChoice = 'light' | 'dark' | 'auto';
@@ -34,6 +35,80 @@ export type FontChoice = 'auto' | 'plex' | 'cairo' | 'tajawal' | 'readex';
 export type Scale = 'normal' | 'large';
 export type ImagesChoice = 'on' | 'off';
 export type ImeiModeChoice = 'optional' | 'required';
+export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit';
+
+export interface PayMethodMeta {
+  readonly id: PayMethodId;
+  readonly name: string;
+  readonly icon: IconName;
+  readonly hint: string;
+  readonly alwaysEnabled?: boolean;
+}
+
+export const PAY_METHODS: readonly PayMethodMeta[] = [
+  {
+    id: 'cash',
+    name: 'كاش',
+    icon: 'banknote',
+    hint: 'شغّالة دايمًا — مع حساب الباقي واقتراحات المبلغ',
+    alwaysEnabled: true,
+  },
+  {
+    id: 'vf',
+    name: 'فودافون كاش',
+    icon: 'wallet',
+    hint: 'للعملاء اللي بيحوّلوا على محفظة المحل',
+  },
+  {
+    id: 'instapay',
+    name: 'إنستاباي',
+    icon: 'zap',
+    hint: 'للتحويل على حساب المحل في إنستاباي',
+  },
+  {
+    id: 'card',
+    name: 'فيزا / ميزة',
+    icon: 'credit-card',
+    hint: 'لو عندك ماكينة كروت في المحل',
+  },
+  {
+    id: 'install',
+    name: 'تقسيط',
+    icon: 'calendar-clock',
+    hint: 'valU، سهولة، Sympl، حالًا، كونتكت',
+  },
+  {
+    id: 'credit',
+    name: 'آجل',
+    icon: 'notebook-pen',
+    hint: 'بيسجّل المبلغ على حساب العميل (لازم تختار عميل)',
+  },
+];
+
+export const INSTALLMENT_PROVIDERS: readonly string[] = [
+  'valU',
+  'سهولة',
+  'Sympl',
+  'حالًا',
+  'كونتكت',
+];
+
+export const DEFAULT_PAY_METHODS = 'cash,vf,instapay,card,install,credit';
+
+export function normalizePayMethods(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_PAY_METHODS;
+  const allowed = PAY_METHODS.map((m) => m.id);
+  const seen = new Set<PayMethodId>();
+  for (const part of raw.split(',')) {
+    const token = part.trim().toLowerCase() as PayMethodId;
+    if (!allowed.includes(token) || seen.has(token)) {
+      return DEFAULT_PAY_METHODS;
+    }
+    seen.add(token);
+  }
+  if (!seen.has('cash')) return DEFAULT_PAY_METHODS;
+  return allowed.filter((id) => seen.has(id)).join(',');
+}
 
 export interface Appearance {
   look: Look;
@@ -44,6 +119,7 @@ export interface Appearance {
   digits: Digits;
   images: ImagesChoice;
   imeiMode: ImeiModeChoice;
+  payMethods: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -55,6 +131,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   digits: 'latin',
   images: 'on',
   imeiMode: 'optional',
+  payMethods: DEFAULT_PAY_METHODS,
 };
 
 
@@ -98,7 +175,25 @@ export function normalizeAppearance(raw: unknown): Appearance {
     digits: oneOf(r['digits'], ['latin', 'arabic'] as const, DEFAULT_APPEARANCE.digits),
     images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
     imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
+    payMethods: normalizePayMethods(r['payMethods']),
   };
+}
+
+export function isPayMethodEnabled(
+  id: PayMethodId,
+  raw: string = appearance.payMethods
+): boolean {
+  if (id === 'cash') return true;
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .includes(id);
+}
+
+export function enabledPayMethods(
+  raw: string = appearance.payMethods
+): PayMethodMeta[] {
+  return PAY_METHODS.filter((m) => isPayMethodEnabled(m.id, raw));
 }
 
 
@@ -154,6 +249,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   digits: 'ui.digits',
   images: 'ui.images',
   imeiMode: 'ui.imei_mode',
+  payMethods: 'ui.pay_methods',
 };
 
 

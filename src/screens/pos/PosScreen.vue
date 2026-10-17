@@ -14,13 +14,14 @@
 // again.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 
+import { type Customer, listCustomers } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
 import { listProductImages, type ProductImage } from '../../api/images';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
 import type { SaleOutcome } from '../../api/sales';
-import { appearance } from '../../ui/appearance';
+import { appearance, enabledPayMethods } from '../../ui/appearance';
 import { countWord, kindsWord, money, num, pcsWord } from '../../ui/format';
 
 import Icon from '../../ui/Icon.vue';
@@ -29,6 +30,7 @@ import { beep, toast } from '../../ui/toast';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
 import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
+import CustomerPickerModal from './CustomerPickerModal.vue';
 import { asIconName, tileIcon } from './icons';
 import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
@@ -44,6 +46,7 @@ const emit = defineEmits<{ go: [screen: 'store'] }>();
 
 const catalogue = ref<PosCatalog | null>(null);
 const productImages = ref<ProductImage[]>([]);
+const customers = ref<Customer[]>([]);
 const loadError = ref('');
 
 const state = reactive(cart.newCart());
@@ -51,6 +54,7 @@ const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
 const modal = ref<null | 'pay' | 'qty' | 'clear'>(null);
+const customerPickerOpen = ref(false);
 const openFamily = ref<Extract<PosTileEntry<PosProduct>, { kind: 'family' }> | null>(null);
 const imeiTarget = ref<
   | null
@@ -67,12 +71,14 @@ const isOwner = computed(() => props.session.role === 'manager');
 
 async function load(): Promise<void> {
   try {
-    const [loadedCatalog, loadedImages] = await Promise.all([
+    const [loadedCatalog, loadedImages, loadedCustomers] = await Promise.all([
       posApi.posCatalog(),
       listProductImages(),
+      listCustomers(),
     ]);
     catalogue.value = loadedCatalog;
     productImages.value = loadedImages;
+    customers.value = loadedCustomers;
     loadError.value = '';
     chip.value = keepSelection(tree.value, chip.value);
     const dropped = cart.reprice(state, sellable.value.map(asSellable));
@@ -219,11 +225,51 @@ function iconOf(p: PosProduct) {
 const invoice = computed(() => cart.current(state));
 const totals = computed(() => cart.totals(invoice.value));
 const empty = computed(() => invoice.value.lines.length === 0);
+const selectedCustomer = computed<Customer | null>(() => {
+  const cid = invoice.value.customerId;
+  if (!cid) return null;
+  return customers.value.find((c) => c.id === cid) ?? null;
+});
+const enabledMethodsSummary = computed(() =>
+  enabledPayMethods(appearance.payMethods)
+    .map((m) => m.name)
+    .join(' · ')
+);
 
 function focusSearch(): void {
-  if (modal.value === null && openFamily.value === null && imeiTarget.value === null) {
+  if (
+    modal.value === null &&
+    !customerPickerOpen.value &&
+    openFamily.value === null &&
+    imeiTarget.value === null
+  ) {
     searchInput.value?.focus({ preventScroll: true });
   }
+}
+
+function openCustomerPicker(): void {
+  customerPickerOpen.value = true;
+}
+
+function closeCustomerPicker(): void {
+  customerPickerOpen.value = false;
+  void nextTick(focusSearch);
+}
+
+function onCustomerUpdated(updated: Customer): void {
+  const idx = customers.value.findIndex((c) => c.id === updated.id);
+  if (idx >= 0) {
+    customers.value.splice(idx, 1, updated);
+  } else {
+    customers.value.push(updated);
+    customers.value.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }
+}
+
+function onPickCustomer(picked: Customer | null): void {
+  customerPickerOpen.value = false;
+  cart.setInvoiceCustomer(state, picked ? picked.id : null, picked ? picked.name : '');
+  void nextTick(focusSearch);
 }
 
 
@@ -449,6 +495,7 @@ function onPickVariant(p: PosProduct): void {
 function onKey(event: KeyboardEvent): void {
   if (
     modal.value !== null ||
+    customerPickerOpen.value ||
     openFamily.value !== null ||
     imeiTarget.value !== null ||
     document.querySelector('.overlay') !== null
@@ -463,6 +510,7 @@ function onKey(event: KeyboardEvent): void {
 
   if (/^F([1-9]|1[0-2])$/.test(key) && key !== 'F5') event.preventDefault();
   if (key === 'F2') return openQty();
+  if (key === 'F4') return openCustomerPicker();
   if (key === 'F8') return hold();
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
     event.preventDefault();
@@ -532,6 +580,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 const KEYS: readonly [string, string][] = [
   ['Enter', 'إضافة ثم دفع'],
   ['F2', 'الكمية'],
+  ['F4', 'العميل'],
   ['F8', 'انتظار'],
   ['F12', 'دفع'],
   ['Del', 'حذف سطر'],
@@ -756,6 +805,35 @@ const KEYS: readonly [string, string][] = [
           <button type="button" class="inv-tab" title="فاتورة جديدة" @click="newTab"><Icon name="plus" /></button>
         </div>
 
+        <button
+          id="pos-customer-btn"
+          type="button"
+          class="cust-row"
+          :class="{ set: !!selectedCustomer }"
+          @click="openCustomerPicker"
+        >
+          <div class="ci"><Icon :name="selectedCustomer ? 'user' : 'user-plus'" /></div>
+          <div class="t">
+            <template v-if="selectedCustomer">
+              <b>
+                <bdi dir="rtl">{{ selectedCustomer.name }}</bdi>
+                <span v-if="selectedCustomer.balanceMinor > 0" class="cb num">
+                  عليه {{ money(selectedCustomer.balanceMinor) }} آجل
+                </span>
+              </b>
+              <small>
+                <span v-if="selectedCustomer.contact" class="mono" dir="ltr">{{ selectedCustomer.contact }}</span>
+                <span v-else>عميل مسجّل</span>
+              </small>
+            </template>
+            <template v-else>
+              <b>عميل الفاتورة (اختياري)</b>
+              <small>للضمان أو البيع الآجل</small>
+            </template>
+          </div>
+          <kbd>F4</kbd>
+        </button>
+
         <div ref="linesBox" class="lines">
           <div v-if="empty" class="empty">
             <div class="big-i"><Icon name="shopping-cart" /></div>
@@ -828,7 +906,7 @@ const KEYS: readonly [string, string][] = [
     <div class="keys-bar">
       <span v-for="[k, label] in KEYS" :key="k"><kbd>{{ k }}</kbd>{{ label }}</span>
       <span class="sp" />
-      <span><Icon name="banknote" /> الدفع كاش في النسخة دي</span>
+      <span><Icon name="banknote" /> {{ enabledMethodsSummary }}</span>
     </div>
 
     <PayModal
@@ -836,9 +914,19 @@ const KEYS: readonly [string, string][] = [
       :lines="invoice.lines"
       :total-minor="totals.totalMinor"
       :count="totals.count"
+      :selected-customer="selectedCustomer"
       @close="closeModal"
       @paid="onPaid"
       @price-changed="onPriceChanged"
+      @open-customer-picker="openCustomerPicker"
+    />
+    <CustomerPickerModal
+      v-if="customerPickerOpen"
+      :customers="customers"
+      :selected-customer-id="invoice.customerId"
+      @close="closeCustomerPicker"
+      @pick="onPickCustomer"
+      @updated="onCustomerUpdated"
     />
     <QtyModal
       v-if="modal === 'qty' && invoice.lines[state.selected]"

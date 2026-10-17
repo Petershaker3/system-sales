@@ -275,6 +275,7 @@ const appearance = {
   digits: 'latin',
   images: 'on',
   imeiMode: 'optional',
+  payMethods: 'cash,vf,instapay,card,install,credit',
 };
 interface DemoUnit {
   id: string;
@@ -318,10 +319,39 @@ interface DemoProductImage {
 }
 const productImages = new Map<string, DemoProductImage>();
 
-const customers: { id: string; name: string; contact: string | null; archived: boolean }[] = [
-  { id: 'c-1', name: 'أحمد سمير', contact: '01001234567', archived: false },
+const customers: {
+  id: string;
+  name: string;
+  contact: string | null;
+  archived: boolean;
+  balanceMinor: number;
+}[] = [
+  {
+    id: 'c-1',
+    name: 'أحمد سمير',
+    contact: '01001234567',
+    archived: false,
+    balanceMinor: 0,
+  },
 ];
-const sales: { id: string; reference: string; totalMinor: number }[] = [];
+interface DemoCustomerLedgerEntry {
+  id: string;
+  customerId: string;
+  kind: 'credit_sale' | 'payment' | 'sale_reversal';
+  amountMinor: number;
+  method: string | null;
+  saleId: string | null;
+  note: string | null;
+  occurredAt: number;
+}
+const customerLedger: DemoCustomerLedgerEntry[] = [];
+const sales: {
+  id: string;
+  reference: string;
+  totalMinor: number;
+  customerId: string | null;
+  payments: { method: string; amountMinor: number; reference: string | null }[];
+}[] = [];
 const settings = {
   defaultCostMethod: 'moving_average',
   invoicePrefix: 'INV',
@@ -511,11 +541,16 @@ const handlers: Record<string, (args: Args) => unknown> = {
   update_appearance: (args) => {
     const rawKey = str(args, 'key');
     const key = (
-      rawKey === 'ui.imei_mode' ? 'imeiMode' : rawKey.replace(/^ui\./, '')
+      rawKey === 'ui.imei_mode'
+        ? 'imeiMode'
+        : rawKey === 'ui.pay_methods'
+          ? 'payMethods'
+          : rawKey.replace(/^ui\./, '')
     ) as keyof typeof appearance;
     if (!(key in appearance)) fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
-    else if (key === 'images' || key === 'imeiMode') requireManager(false);
+    else if (key === 'images' || key === 'imeiMode' || key === 'payMethods')
+      requireManager(false);
     else requireManager(true);
     appearance[key] = str(args, 'value').toLowerCase();
     return { ...appearance };
@@ -591,6 +626,50 @@ const handlers: Record<string, (args: Args) => unknown> = {
     }
     const confirmed = args?.['confirmedTotalMinor'];
     if (typeof confirmed === 'number' && confirmed !== total) fail('SALE_PRICE_CHANGED');
+
+    const rawCustomerId = str(args, 'customerId').trim() || null;
+    const linkedCustomer =
+      rawCustomerId === null
+        ? null
+        : (customers.find((c) => c.id === rawCustomerId) ?? fail('CUSTOMER_NOT_FOUND'));
+    if (linkedCustomer && linkedCustomer.archived) fail('CUSTOMER_IS_ARCHIVED');
+
+    const rawPayments = Array.isArray(args?.['payments'])
+      ? (args['payments'] as {
+          method: string;
+          amountMinor: number;
+          reference?: string | null;
+        }[])
+      : [{ method: 'cash', amountMinor: total, reference: null }];
+    if (rawPayments.length === 0) fail('SALE_PAYMENT_MISSING');
+
+    const enabledSet = new Set(
+      appearance.payMethods.split(',').map((s) => s.trim())
+    );
+    enabledSet.add('cash');
+    let paySum = 0;
+    let creditSum = 0;
+    const cleanPayments: {
+      method: string;
+      amountMinor: number;
+      reference: string | null;
+    }[] = [];
+    for (const p of rawPayments) {
+      const m = (p.method ?? '').trim();
+      if (!['cash', 'vf', 'instapay', 'card', 'install', 'credit'].includes(m)) {
+        fail('SALE_PAYMENT_METHOD_INVALID');
+      }
+      if (!enabledSet.has(m)) fail('SALE_PAYMENT_METHOD_DISABLED');
+      if (total > 0 && !(p.amountMinor > 0)) fail('SALE_PAYMENT_AMOUNT_INVALID');
+      const ref = typeof p.reference === 'string' && p.reference.trim() !== '' ? p.reference.trim() : null;
+      if (m === 'install' && ref === null) fail('SALE_INSTALLMENT_PROVIDER_REQUIRED');
+      if (m === 'credit' && linkedCustomer === null) fail('SALE_CREDIT_REQUIRES_CUSTOMER');
+      paySum += p.amountMinor;
+      if (m === 'credit') creditSum += p.amountMinor;
+      cleanPayments.push({ method: m, amountMinor: p.amountMinor, reference: ref });
+    }
+    if (paySum !== total) fail('SALE_PAYMENT_TOTAL_MISMATCH');
+
     let cost = 0;
     for (const line of lines) {
       const x = findProduct(line.productId);
@@ -654,8 +733,27 @@ const handlers: Record<string, (args: Args) => unknown> = {
       }
     }
     const reference = `${settings.invoicePrefix}-${today()}-${String(sales.length + 1).padStart(4, '0')}`;
-    const sale = { id: newId('s'), reference, totalMinor: total };
+    const sale = {
+      id: newId('s'),
+      reference,
+      totalMinor: total,
+      customerId: linkedCustomer ? linkedCustomer.id : null,
+      payments: cleanPayments,
+    };
     sales.push(sale);
+    if (linkedCustomer && creditSum > 0) {
+      linkedCustomer.balanceMinor += creditSum;
+      customerLedger.unshift({
+        id: newId('cl'),
+        customerId: linkedCustomer.id,
+        kind: 'credit_sale',
+        amountMinor: creditSum,
+        method: null,
+        saleId: sale.id,
+        note: `فاتورة ${reference}`,
+        occurredAt: now(),
+      });
+    }
     return { saleId: sale.id, reference, totalMinor: total, costTotalMinor: cost };
   },
   set_sale_customer_name: (args) => {
@@ -1143,21 +1241,62 @@ const handlers: Record<string, (args: Args) => unknown> = {
 
   // customers
   list_customers: () => {
-    requireManager();
-    return customers;
+    requireUser();
+    return customers.filter((c) => !c.archived).map((c) => ({ ...c }));
   },
-  get_customer: (args) => customers.find((c) => c.id === str(args, 'id')) ?? fail('CUSTOMER_NOT_FOUND'),
+  get_customer: (args) => {
+    requireUser();
+    const c = customers.find((x) => x.id === str(args, 'id')) ?? fail('CUSTOMER_NOT_FOUND');
+    return { ...c };
+  },
   create_customer: (args) => {
     requireUser();
-    const c = { id: newId('c'), name: str(args, 'name'), contact: str(args, 'contact') || null, archived: false };
+    const name = str(args, 'name').trim();
+    if (!name) fail('CUSTOMER_NAME_INVALID');
+    const c = {
+      id: newId('c'),
+      name,
+      contact: str(args, 'contact').trim() || null,
+      archived: false,
+      balanceMinor: 0,
+    };
     customers.push(c);
-    return c;
+    return { ...c };
   },
   archive_customer: (args) => {
     requireManager();
     const c = customers.find((x) => x.id === str(args, 'id')) ?? fail('CUSTOMER_NOT_FOUND');
     c.archived = true;
-    return c;
+    return { ...c };
+  },
+  record_customer_payment: (args) => {
+    requireUser();
+    const c = customers.find((x) => x.id === str(args, 'customerId')) ?? fail('CUSTOMER_NOT_FOUND');
+    if (c.archived) fail('CUSTOMER_IS_ARCHIVED');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('CUSTOMER_PAYMENT_AMOUNT_INVALID');
+    if (amountMinor > c.balanceMinor) fail('CUSTOMER_PAYMENT_EXCEEDS_BALANCE');
+    const method = str(args, 'method').trim();
+    if (!['cash', 'vf', 'instapay', 'card'].includes(method)) fail('CUSTOMER_PAYMENT_METHOD_INVALID');
+    const note = str(args, 'note').trim() || null;
+    c.balanceMinor -= amountMinor;
+    customerLedger.unshift({
+      id: newId('cl'),
+      customerId: c.id,
+      kind: 'payment',
+      amountMinor: -amountMinor,
+      method,
+      saleId: null,
+      note,
+      occurredAt: now(),
+    });
+    return { ...c };
+  },
+  list_customer_ledger: (args) => {
+    requireUser();
+    const cid = str(args, 'customerId');
+    if (!customers.some((x) => x.id === cid)) fail('CUSTOMER_NOT_FOUND');
+    return customerLedger.filter((e) => e.customerId === cid);
   },
 
   // settings panels

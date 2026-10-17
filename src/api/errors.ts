@@ -151,6 +151,14 @@ export const ErrorCode = {
   SALE_LINK_NOT_ALLOWED: 'SALE_LINK_NOT_ALLOWED',
   SALE_WARRANTY_DATE_INVALID: 'SALE_WARRANTY_DATE_INVALID',
   SALE_WARRANTY_RANGE_INVALID: 'SALE_WARRANTY_RANGE_INVALID',
+  SALE_PAYMENT_MISSING: 'SALE_PAYMENT_MISSING',
+  SALE_PAYMENT_METHOD_INVALID: 'SALE_PAYMENT_METHOD_INVALID',
+  SALE_PAYMENT_METHOD_DISABLED: 'SALE_PAYMENT_METHOD_DISABLED',
+  SALE_PAYMENT_AMOUNT_INVALID: 'SALE_PAYMENT_AMOUNT_INVALID',
+  SALE_PAYMENT_TOTAL_MISMATCH: 'SALE_PAYMENT_TOTAL_MISMATCH',
+  SALE_PAYMENT_REFERENCE_INVALID: 'SALE_PAYMENT_REFERENCE_INVALID',
+  SALE_INSTALLMENT_PROVIDER_REQUIRED: 'SALE_INSTALLMENT_PROVIDER_REQUIRED',
+  SALE_CREDIT_REQUIRES_CUSTOMER: 'SALE_CREDIT_REQUIRES_CUSTOMER',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -180,7 +188,11 @@ export const ErrorCode = {
   SUPPLIER_NAME_TOO_LONG: 'SUPPLIER_NAME_TOO_LONG',
   CUSTOMER_CONTACT_INVALID: 'CUSTOMER_CONTACT_INVALID',
   CUSTOMER_NOT_FOUND: 'CUSTOMER_NOT_FOUND',
-  CUSTOMER_IS_ARCHIVED: 'CUSTOMER_IS_ARCHIVED'
+  CUSTOMER_IS_ARCHIVED: 'CUSTOMER_IS_ARCHIVED',
+  CUSTOMER_PAYMENT_AMOUNT_INVALID: 'CUSTOMER_PAYMENT_AMOUNT_INVALID',
+  CUSTOMER_PAYMENT_EXCEEDS_BALANCE: 'CUSTOMER_PAYMENT_EXCEEDS_BALANCE',
+  CUSTOMER_PAYMENT_METHOD_INVALID: 'CUSTOMER_PAYMENT_METHOD_INVALID',
+  CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -388,6 +400,22 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'تاريخ الضمان غير صحيح. اكتبه بالصيغة سنة-شهر-يوم مثل 2027-03-15.',
   [ErrorCode.SALE_WARRANTY_RANGE_INVALID]:
     'نهاية الضمان قبل بدايته. راجع التاريخين.',
+  [ErrorCode.SALE_PAYMENT_MISSING]:
+    'اختار طريقة دفع واحدة على الأقل.',
+  [ErrorCode.SALE_PAYMENT_METHOD_INVALID]:
+    'طريقة الدفع دي غير معروفة.',
+  [ErrorCode.SALE_PAYMENT_METHOD_DISABLED]:
+    'طريقة الدفع دي مقفولة من الإعدادات.',
+  [ErrorCode.SALE_PAYMENT_AMOUNT_INVALID]:
+    'مبلغ الدفع لازم يكون أكبر من صفر.',
+  [ErrorCode.SALE_PAYMENT_TOTAL_MISMATCH]:
+    'مجموع المدفوع مش بيساوي المطلوب في الفاتورة.',
+  [ErrorCode.SALE_PAYMENT_REFERENCE_INVALID]:
+    'مرجع عملية الدفع طويل زيادة عن اللزوم.',
+  [ErrorCode.SALE_INSTALLMENT_PROVIDER_REQUIRED]:
+    'اختار شركة التقسيط الأول.',
+  [ErrorCode.SALE_CREDIT_REQUIRES_CUSTOMER]:
+    'البيع الآجل لازم يتربط بعميل متسجّل.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:
@@ -435,7 +463,15 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CUSTOMER_NOT_FOUND]:
     'لا يوجد عميل بهذا السجل.',
   [ErrorCode.CUSTOMER_IS_ARCHIVED]:
-    'سجل العميل هذا مؤرشف ولا يقبل عمليات جديدة.'
+    'سجل العميل هذا مؤرشف ولا يقبل عمليات جديدة.',
+  [ErrorCode.CUSTOMER_PAYMENT_AMOUNT_INVALID]:
+    'مبلغ السداد لازم يكون أكبر من صفر.',
+  [ErrorCode.CUSTOMER_PAYMENT_EXCEEDS_BALANCE]:
+    'مبلغ السداد أكبر من الرصيد الآجل اللي على العميل.',
+  [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
+    'طريقة تحصيل الآجل غير مسموحة.',
+  [ErrorCode.CUSTOMER_NOTE_INVALID]:
+    'الملاحظة طويلة زيادة عن اللزوم.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

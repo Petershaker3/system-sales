@@ -56,6 +56,14 @@ pub enum CustomerError {
     NotFound,
     /// The record is archived; the operation needs a live one.
     IsArchived,
+    /// The debt-settlement payment amount is zero or negative.
+    PaymentAmountInvalid,
+    /// The debt-settlement payment exceeds the customer's current آجل balance.
+    PaymentExceedsBalance,
+    /// The debt-settlement method is not one of `cash`, `vf`, `instapay`, `card`.
+    PaymentMethodInvalid,
+    /// The ledger note exceeds 200 characters.
+    NoteInvalid,
 }
 
 impl CustomerError {
@@ -66,6 +74,10 @@ impl CustomerError {
             CustomerError::ContactInvalid => "CUSTOMER_CONTACT_INVALID",
             CustomerError::NotFound => "CUSTOMER_NOT_FOUND",
             CustomerError::IsArchived => "CUSTOMER_IS_ARCHIVED",
+            CustomerError::PaymentAmountInvalid => "CUSTOMER_PAYMENT_AMOUNT_INVALID",
+            CustomerError::PaymentExceedsBalance => "CUSTOMER_PAYMENT_EXCEEDS_BALANCE",
+            CustomerError::PaymentMethodInvalid => "CUSTOMER_PAYMENT_METHOD_INVALID",
+            CustomerError::NoteInvalid => "CUSTOMER_NOTE_INVALID",
         }
     }
 }
@@ -77,7 +89,71 @@ impl fmt::Display for CustomerError {
             CustomerError::ContactInvalid => "customer contact is invalid",
             CustomerError::NotFound => "customer not found",
             CustomerError::IsArchived => "customer is archived",
+            CustomerError::PaymentAmountInvalid => "customer payment amount must be positive",
+            CustomerError::PaymentExceedsBalance => {
+                "customer payment exceeds current credit balance"
+            }
+            CustomerError::PaymentMethodInvalid => "customer payment method is invalid",
+            CustomerError::NoteInvalid => "customer ledger note is too long",
         })
+    }
+}
+
+/// A customer record paired with their current آجل balance in piastres (`ADR-020` §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomerWithBalance {
+    pub customer: Customer,
+    pub balance_minor: i64,
+}
+
+/// One row of a customer's credit (`آجل`) ledger (`ADR-020` §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomerLedgerEntry {
+    pub id: String,
+    pub customer_id: String,
+    /// `"credit_sale"`, `"payment"`, or `"sale_reversal"`.
+    pub kind: String,
+    /// Signed delta in piastres (`+` increases debt, `-` reduces debt).
+    pub amount_minor: i64,
+    pub method: Option<String>,
+    pub sale_id: Option<String>,
+    pub note: Option<String>,
+    pub actor_id: UserId,
+    pub occurred_at: Timestamp,
+}
+
+/// Validated input for recording a customer debt payment (`ADR-020` §3).
+#[derive(Debug, Clone)]
+pub struct NewCustomerPayment {
+    pub customer_id: String,
+    pub amount_minor: i64,
+    pub method: String,
+    pub note: Option<String>,
+}
+
+impl NewCustomerPayment {
+    pub fn cleaned(&self) -> Result<(i64, String, Option<String>), CustomerError> {
+        if self.amount_minor <= 0 {
+            return Err(CustomerError::PaymentAmountInvalid);
+        }
+        let method = self.method.trim();
+        if !matches!(method, "cash" | "vf" | "instapay" | "card") {
+            return Err(CustomerError::PaymentMethodInvalid);
+        }
+        let note = match self.note.as_deref() {
+            None => None,
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.chars().count() > 200 {
+                    return Err(CustomerError::NoteInvalid);
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+        };
+        Ok((self.amount_minor, method.to_owned(), note))
     }
 }
 

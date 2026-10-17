@@ -9,7 +9,7 @@
 
 use sqlx::{Row, SqliteConnection};
 
-use crate::domain::customer::Customer;
+use crate::domain::customer::{Customer, CustomerLedgerEntry, CustomerWithBalance};
 use crate::domain::identity::{Timestamp, UserId};
 
 pub async fn insert(
@@ -65,6 +65,107 @@ pub async fn list_unarchived(
     .await?;
 
     rows.into_iter().map(row_to_customer).collect()
+}
+
+/// Live (unarchived) customers together with their current آجل balance (`ADR-020` §3).
+pub async fn list_unarchived_with_balances(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<CustomerWithBalance>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT c.id, c.name, c.contact, c.archived, c.created_by, c.created_at, c.updated_at,
+                COALESCE((SELECT SUM(cl.amount_minor) FROM customer_ledger cl WHERE cl.customer_id = c.id), 0) AS balance_minor
+         FROM customers c
+         WHERE c.archived = 0
+         ORDER BY c.name COLLATE NOCASE, c.id",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let balance_minor: i64 = row.try_get("balance_minor")?;
+        let customer = row_to_customer(row)?;
+        out.push(CustomerWithBalance {
+            customer,
+            balance_minor,
+        });
+    }
+    Ok(out)
+}
+
+/// Read the customer's current آجل balance in piastres (`ADR-020` §3).
+pub async fn balance_minor(
+    conn: &mut SqliteConnection,
+    customer_id: &str,
+) -> Result<i64, sqlx::Error> {
+    let sum: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(amount_minor), 0) FROM customer_ledger WHERE customer_id = ?1",
+    )
+    .bind(customer_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(sum)
+}
+
+/// Append one entry to `customer_ledger` (`ADR-020` §3).
+pub async fn insert_ledger_entry(
+    conn: &mut SqliteConnection,
+    entry: &CustomerLedgerEntry,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO customer_ledger
+             (id, customer_id, kind, amount_minor, method, sale_id, note, actor_id, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    )
+    .bind(&entry.id)
+    .bind(&entry.customer_id)
+    .bind(&entry.kind)
+    .bind(entry.amount_minor)
+    .bind(entry.method.as_deref())
+    .bind(entry.sale_id.as_deref())
+    .bind(entry.note.as_deref())
+    .bind(entry.actor_id.as_str())
+    .bind(entry.occurred_at.as_millis())
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// List a customer's ledger entries, newest first (`ADR-020` §3).
+pub async fn list_ledger_entries(
+    conn: &mut SqliteConnection,
+    customer_id: &str,
+) -> Result<Vec<CustomerLedgerEntry>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, customer_id, kind, amount_minor, method, sale_id, note, actor_id, occurred_at
+         FROM customer_ledger
+         WHERE customer_id = ?1
+         ORDER BY occurred_at DESC, id DESC",
+    )
+    .bind(customer_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let actor_raw: String = row.try_get("actor_id")?;
+        let actor_id = actor_raw
+            .parse()
+            .map(UserId::from_uuid)
+            .map_err(|_| sqlx::Error::Decode("customer_ledger.actor_id is not a UUID".into()))?;
+        out.push(CustomerLedgerEntry {
+            id: row.try_get("id")?,
+            customer_id: row.try_get("customer_id")?,
+            kind: row.try_get("kind")?,
+            amount_minor: row.try_get("amount_minor")?,
+            method: row.try_get("method")?,
+            sale_id: row.try_get("sale_id")?,
+            note: row.try_get("note")?,
+            actor_id,
+            occurred_at: Timestamp::from_millis(row.try_get("occurred_at")?),
+        });
+    }
+    Ok(out)
 }
 
 /// Archive a customer by id, stamping the change. Returns the rows changed

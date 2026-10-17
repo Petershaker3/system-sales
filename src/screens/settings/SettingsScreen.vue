@@ -12,6 +12,7 @@ import AppearanceCard from './AppearanceCard.vue';
 import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
+import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
 
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
@@ -26,6 +27,7 @@ import RecoveryCodeCard from './RecoveryCodeCard.vue';
     <AppearanceCard />
     <ProductImagesCard />
     <ImeiModeCard />
+    <PaymentMethodsCard />
     <CategoriesCard />
     <BrandsCard />
 

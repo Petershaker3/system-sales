@@ -11,7 +11,9 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::domain::customer::Customer;
+use crate::domain::customer::{
+    Customer, CustomerLedgerEntry, CustomerWithBalance, NewCustomerPayment,
+};
 use crate::services::customer::{self as use_cases, CustomerServiceError};
 use crate::services::identity::IdentityContext;
 
@@ -31,9 +33,8 @@ impl From<CustomerServiceError> for CustomerCommandError {
     }
 }
 
-/// The customer as the frontend sees it: identity only, no attribution
-/// metadata. The list is a browsing surface (`spec:18`), so it carries the
-/// minimum needed to recognise a record.
+/// The customer as the frontend sees it, including their current آجل balance
+/// in piastres (`ADR-020` §3).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomerDto {
@@ -41,6 +42,7 @@ pub struct CustomerDto {
     pub name: String,
     pub contact: Option<String>,
     pub archived: bool,
+    pub balance_minor: i64,
 }
 
 impl From<Customer> for CustomerDto {
@@ -50,6 +52,48 @@ impl From<Customer> for CustomerDto {
             name: customer.name,
             contact: customer.contact,
             archived: customer.archived,
+            balance_minor: 0,
+        }
+    }
+}
+
+impl From<CustomerWithBalance> for CustomerDto {
+    fn from(item: CustomerWithBalance) -> Self {
+        Self {
+            id: item.customer.id,
+            name: item.customer.name,
+            contact: item.customer.contact,
+            archived: item.customer.archived,
+            balance_minor: item.balance_minor,
+        }
+    }
+}
+
+/// One row of a customer's credit (`آجل`) ledger as seen by the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomerLedgerEntryDto {
+    pub id: String,
+    pub customer_id: String,
+    pub kind: String,
+    pub amount_minor: i64,
+    pub method: Option<String>,
+    pub sale_id: Option<String>,
+    pub note: Option<String>,
+    pub occurred_at: i64,
+}
+
+impl From<CustomerLedgerEntry> for CustomerLedgerEntryDto {
+    fn from(entry: CustomerLedgerEntry) -> Self {
+        Self {
+            id: entry.id,
+            customer_id: entry.customer_id,
+            kind: entry.kind,
+            amount_minor: entry.amount_minor,
+            method: entry.method,
+            sale_id: entry.sale_id,
+            note: entry.note,
+            occurred_at: entry.occurred_at.as_millis(),
         }
     }
 }
@@ -67,20 +111,20 @@ pub async fn create_customer(
     Ok(customer.into())
 }
 
-/// List live customers. Manager-only; a sales caller is refused in Rust.
+/// List live customers with their current آجل balance (`ADR-020` §3).
 #[tauri::command]
 pub async fn list_customers(ctx: Ctx<'_>) -> Result<Vec<CustomerDto>, CustomerCommandError> {
-    let customers = use_cases::list(&ctx.pool, ctx.tokens.as_ref()).await?;
+    let customers = use_cases::list_with_balances(&ctx.pool, ctx.tokens.as_ref()).await?;
     Ok(customers.into_iter().map(CustomerDto::from).collect())
 }
 
-/// Read one customer. Manager-only.
+/// Read one customer with their current آجل balance (`ADR-020` §3).
 #[tauri::command]
 pub async fn get_customer(
     ctx: Ctx<'_>,
     id: String,
 ) -> Result<CustomerDto, CustomerCommandError> {
-    let customer = use_cases::get(&ctx.pool, ctx.tokens.as_ref(), &id).await?;
+    let customer = use_cases::get_with_balance(&ctx.pool, ctx.tokens.as_ref(), &id).await?;
     Ok(customer.into())
 }
 
@@ -92,4 +136,41 @@ pub async fn archive_customer(
 ) -> Result<CustomerDto, CustomerCommandError> {
     let customer = use_cases::archive(&ctx.pool, ctx.tokens.as_ref(), &id).await?;
     Ok(customer.into())
+}
+
+/// Record a payment from a customer against their آجل balance (`ADR-020` §3).
+#[tauri::command]
+pub async fn record_customer_payment(
+    ctx: Ctx<'_>,
+    customer_id: String,
+    amount_minor: i64,
+    method: String,
+    note: Option<String>,
+) -> Result<CustomerDto, CustomerCommandError> {
+    let updated = use_cases::record_payment(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        NewCustomerPayment {
+            customer_id,
+            amount_minor,
+            method,
+            note,
+        },
+    )
+    .await?;
+    Ok(updated.into())
+}
+
+/// List a customer's credit ledger entries (`ADR-020` §3).
+#[tauri::command]
+pub async fn list_customer_ledger(
+    ctx: Ctx<'_>,
+    customer_id: String,
+) -> Result<Vec<CustomerLedgerEntryDto>, CustomerCommandError> {
+    let entries =
+        use_cases::list_ledger(&ctx.pool, ctx.tokens.as_ref(), &customer_id).await?;
+    Ok(entries
+        .into_iter()
+        .map(CustomerLedgerEntryDto::from)
+        .collect())
 }

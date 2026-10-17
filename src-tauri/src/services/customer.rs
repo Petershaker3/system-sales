@@ -21,8 +21,11 @@ use sqlx::SqlitePool;
 
 use crate::data::repositories::customer as repo;
 use crate::data::repositories::identity::audit;
-use crate::domain::customer::{Customer, CustomerError, NewCustomer};
-use crate::domain::identity::{DomainError, Permission, Timestamp, UserId};
+use crate::domain::customer::{
+    Customer, CustomerError, CustomerLedgerEntry, CustomerWithBalance, NewCustomer,
+    NewCustomerPayment,
+};
+use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 
@@ -203,4 +206,135 @@ pub async fn archive(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     Ok(customer)
+}
+
+/// Read one customer together with their current آجل balance (`ADR-020` §3).
+pub async fn get_with_balance(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    id: &str,
+) -> Result<CustomerWithBalance, CustomerServiceError> {
+    authorize_seller(pool, tokens).await?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let customer = repo::find_by_id(&mut conn, id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(CustomerError::NotFound)?;
+    let balance_minor = repo::balance_minor(&mut conn, id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(CustomerWithBalance {
+        customer,
+        balance_minor,
+    })
+}
+
+/// List live customers together with their current آجل balance (`ADR-020` §3).
+/// Open to `Permission::Sell` so POS operators can pick a customer for an آجل
+/// invoice and see their balance.
+pub async fn list_with_balances(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+) -> Result<Vec<CustomerWithBalance>, CustomerServiceError> {
+    authorize_seller(pool, tokens).await?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(repo::list_unarchived_with_balances(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?)
+}
+
+/// Record a customer payment against their آجل balance (`ADR-020` §3).
+pub async fn record_payment(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    input: NewCustomerPayment,
+) -> Result<CustomerWithBalance, CustomerServiceError> {
+    let session = authorize_seller(pool, tokens).await?;
+    session.require_sensitivity(Sensitivity::Routine, Timestamp::now())?;
+    let (amount_minor, method, note) = input.cleaned()?;
+    let now = Timestamp::now();
+    let actor = session.user_id();
+
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let customer = repo::find_by_id(&mut tx, &input.customer_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(CustomerError::NotFound)?;
+    if customer.archived {
+        return Err(CustomerError::IsArchived.into());
+    }
+    let current_balance = repo::balance_minor(&mut tx, &customer.id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    if amount_minor > current_balance {
+        return Err(CustomerError::PaymentExceedsBalance.into());
+    }
+
+    let entry = CustomerLedgerEntry {
+        id: UserId::generate().as_str().to_string(),
+        customer_id: customer.id.clone(),
+        kind: "payment".to_owned(),
+        amount_minor: -amount_minor,
+        method: Some(method.clone()),
+        sale_id: None,
+        note,
+        actor_id: actor,
+        occurred_at: now,
+    };
+    repo::insert_ledger_entry(&mut tx, &entry)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(
+        &mut tx,
+        actor,
+        audit::event::CUSTOMER_PAYMENT_RECORDED,
+        now,
+        Some(
+            serde_json::json!({
+                "customer_id": customer.id,
+                "amount_minor": amount_minor,
+                "method": method,
+            })
+            .to_string(),
+        ),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(CustomerWithBalance {
+        customer,
+        balance_minor: current_balance - amount_minor,
+    })
+}
+
+/// List a customer's credit ledger entries, newest first (`ADR-020` §3).
+pub async fn list_ledger(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    customer_id: &str,
+) -> Result<Vec<CustomerLedgerEntry>, CustomerServiceError> {
+    authorize_seller(pool, tokens).await?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let _ = repo::find_by_id(&mut conn, customer_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(CustomerError::NotFound)?;
+    Ok(repo::list_ledger_entries(&mut conn, customer_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?)
 }

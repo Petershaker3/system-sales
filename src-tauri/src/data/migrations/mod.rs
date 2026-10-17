@@ -101,5 +101,11 @@ pub const PRODUCT_IMAGES: &str = include_str!("0019_product_images.sql");
 /// `sale_lines.unit_id`, ADR-019).
 pub const IMEI_UNITS_AND_RECEIVING: &str = include_str!("0020_imei_units_and_receiving.sql");
 
+/// `0021`: invoice payments (`sale_payments`) and customer credit ledger
+/// (`customer_ledger`) for Plan item 1.5 (ADR-020).
+pub const SALE_PAYMENTS_AND_CUSTOMER_LEDGER: &str =
+    include_str!("0021_sale_payments_and_customer_ledger.sql");
+
+
 
 

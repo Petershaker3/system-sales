@@ -32,6 +32,7 @@ export interface CartLine {
 export interface Invoice {
   readonly id: string;
   lines: CartLine[];
+  customerId: string | null;
   customerName: string;
   held: boolean;
 }
@@ -63,7 +64,7 @@ function nextLineId(): string {
 }
 
 export function newInvoice(id: string = nextId()): Invoice {
-  return { id, lines: [], customerName: '', held: false };
+  return { id, lines: [], customerId: null, customerName: '', held: false };
 }
 
 export function newCart(): CartState {
@@ -239,7 +240,8 @@ export function switchTo(state: CartState, index: number): void {
   const now = current(state);
   const target = state.invoices[index];
   if (target === undefined) return;
-  if (now.lines.length === 0 && now.customerName === '') state.invoices.splice(state.active, 1);
+  if (now.lines.length === 0 && now.customerName === '' && now.customerId === null)
+    state.invoices.splice(state.active, 1);
   else now.held = true;
   target.held = false;
   state.active = state.invoices.indexOf(target);
@@ -257,8 +259,20 @@ export function drop(state: CartState, index: number): void {
 export function clear(state: CartState): void {
   const inv = current(state);
   inv.lines = [];
+  inv.customerId = null;
   inv.customerName = '';
   state.selected = -1;
+}
+
+/** Attach or clear a customer on the current invoice (`ADR-020` §3). */
+export function setInvoiceCustomer(
+  state: CartState,
+  customerId: string | null,
+  customerName = ''
+): void {
+  const inv = current(state);
+  inv.customerId = customerId;
+  inv.customerName = customerName;
 }
 
 /** After a sale: the paid invoice closes and the next held one (or a fresh one) opens. */

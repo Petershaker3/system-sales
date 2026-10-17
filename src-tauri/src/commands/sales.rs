@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::domain::identity::Permission;
-use crate::domain::sales::WarrantyDate;
+use crate::domain::sales::{SalePaymentInput, WarrantyDate};
 use crate::services::identity::{session as identity_session};
 use crate::services::identity::IdentityContext;
 use crate::services::sales::{self as use_cases, SaleLineWithUnitInput, SaleOutcome, SaleServiceError};
@@ -121,7 +121,27 @@ impl From<SaleOutcome> for SaleOutcomeWithCostDto {
     }
 }
 
-/// Record one cash sale.
+/// One payment row as sent by the frontend (`ADR-020` §2).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalePaymentInputDto {
+    pub method: String,
+    pub amount_minor: i64,
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+impl From<SalePaymentInputDto> for SalePaymentInput {
+    fn from(dto: SalePaymentInputDto) -> Self {
+        Self {
+            method: dto.method,
+            amount_minor: dto.amount_minor,
+            reference: dto.reference,
+        }
+    }
+}
+
+/// Record one sale (single payment or split payments, with optional customer link).
 ///
 /// The service re-reads prices under a transaction and compares the total
 /// against `confirmed_total_minor`. A mismatch aborts the sale with
@@ -131,13 +151,24 @@ pub async fn record_sale(
     ctx: Ctx<'_>,
     lines: Vec<SaleLineInputDto>,
     confirmed_total_minor: Option<i64>,
+    payments: Option<Vec<SalePaymentInputDto>>,
+    customer_id: Option<String>,
 ) -> Result<serde_json::Value, SalesCommandError> {
     let lines = lines
         .into_iter()
         .map(SaleLineInputDto::into_input)
         .collect::<Result<Vec<SaleLineWithUnitInput>, SalesCommandError>>()?;
-    let outcome = use_cases::record_sale_with_units(&ctx.pool, ctx.tokens.as_ref(), &lines, confirmed_total_minor)
-        .await?;
+    let mapped_payments: Option<Vec<SalePaymentInput>> =
+        payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
+    let outcome = use_cases::record_sale_with_payments(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &lines,
+        confirmed_total_minor,
+        mapped_payments.as_deref(),
+        customer_id.as_deref(),
+    )
+    .await?;
     // Authorize cost visibility from the session, not from caller role alone.
     let session = identity_session::resolve(&ctx.pool, ctx.tokens.as_ref()).await
         .map_err(|_| SalesCommandError { code: "IDENTITY_RESOLUTION_FAILED" })?;

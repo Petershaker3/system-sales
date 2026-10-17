@@ -805,4 +805,10 @@ mod images;
 // unit sales, late IMEI registration, oldest-unit auto-retirement, and required mode.
 mod imei_units;
 
+// Plan item 1.5 (ADR-020): invoice payments (cash, wallets, InstaPay, card,
+// instalments, credit, split payments), disabled method gating, and customer
+// credit ledger.
+mod payments;
+
+
 

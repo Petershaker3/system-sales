@@ -77,6 +77,18 @@ pub struct MovementRecord {
     pub receipt_kind: Option<String>,
 }
 
+/// One payment row on a sale document (`ADR-020` §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SalePaymentRecord {
+    pub id: String,
+    pub sale_id: String,
+    pub payment_no: i64,
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+    pub occurred_at: i64,
+}
+
 pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO sales
@@ -411,4 +423,74 @@ fn row_to_movement(row: sqlx::sqlite::SqliteRow) -> MovementRecord {
         supplier_name: row.get("supplier_name"),
         receipt_kind: row.get("receipt_kind"),
     }
+}
+
+pub async fn insert_sale_payment(
+    conn: &mut SqliteConnection,
+    payment: &SalePaymentRecord,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO sale_payments
+             (id, sale_id, payment_no, method, amount_minor, reference, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    )
+    .bind(&payment.id)
+    .bind(&payment.sale_id)
+    .bind(payment.payment_no)
+    .bind(&payment.method)
+    .bind(payment.amount_minor)
+    .bind(payment.reference.as_deref())
+    .bind(payment.occurred_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_sale_payments(
+    conn: &mut SqliteConnection,
+    sale_id: &str,
+) -> Result<Vec<SalePaymentRecord>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, sale_id, payment_no, method, amount_minor, reference, occurred_at
+         FROM sale_payments
+         WHERE sale_id = ?1
+         ORDER BY payment_no",
+    )
+    .bind(sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SalePaymentRecord {
+            id: row.get("id"),
+            sale_id: row.get("sale_id"),
+            payment_no: row.get("payment_no"),
+            method: row.get("method"),
+            amount_minor: row.get("amount_minor"),
+            reference: row.get("reference"),
+            occurred_at: row.get("occurred_at"),
+        })
+        .collect())
+}
+
+/// Net amount collected per payment method across all sales (`sale` minus `reversal`).
+pub async fn net_paid_by_method(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT sp.method AS method,
+                COALESCE(SUM(CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END), 0) AS net_minor
+         FROM sale_payments sp
+         JOIN sales s ON s.id = sp.sale_id
+         GROUP BY sp.method
+         ORDER BY sp.method",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get("method"), row.get("net_minor")))
+        .collect())
 }

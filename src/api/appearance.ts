@@ -18,6 +18,7 @@ export interface AppearanceDto {
   readonly digits: string;
   readonly images?: string;
   readonly imeiMode?: string;
+  readonly payMethods?: string;
 }
 
 export type AppearanceKey =
@@ -28,7 +29,8 @@ export type AppearanceKey =
   | 'ui.scale'
   | 'ui.digits'
   | 'ui.images'
-  | 'ui.imei_mode';
+  | 'ui.imei_mode'
+  | 'ui.pay_methods';
 
 
 export function readAppearance(): Promise<AppearanceDto> {

@@ -1678,6 +1678,12 @@ fn every_authority_command_is_registered_in_lib() {
         ("inventory", "list_product_units"),
         ("inventory", "remove_stock"),
         ("inventory", "get_position"),
+        ("customer", "create_customer"),
+        ("customer", "list_customers"),
+        ("customer", "get_customer"),
+        ("customer", "archive_customer"),
+        ("customer", "record_customer_payment"),
+        ("customer", "list_customer_ledger"),
     ] {
         assert!(
             code.contains(&format!("commands::{module}::{command}")),
@@ -1794,6 +1800,8 @@ const COSTING_FIFO: &str = include_str!("../../src/domain/costing/fifo.rs");
 const STOCK_MIGRATION: &str = include_str!("../../src/data/migrations/0008_stock_and_cost_layers.sql");
 const IMEI_UNITS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0020_imei_units_and_receiving.sql");
+const SALE_PAYMENTS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0021_sale_payments_and_customer_ledger.sql");
 const COSTING_SERVICE: &str = include_str!("../../src/services/inventory/stock.rs");
 const INVENTORY_COMMANDS: &str = include_str!("../../src/commands/inventory.rs");
 const FRONTEND_INVENTORY_API: &str = include_str!("../../../src/api/inventory.ts");
@@ -2271,6 +2279,30 @@ fn the_imei_units_migration_enforces_15_digits_and_opening_stock_rules() {
         assert!(
             sql.contains(required),
             "0020_imei_units_and_receiving.sql must contain `{required}`"
+        );
+    }
+}
+
+#[test]
+fn the_sale_payments_migration_enforces_append_only_and_credit_customer_rules() {
+    // ADR-020 (plan item 1.5): sale_payments and customer_ledger are append-only,
+    // money is integer minor units, and credit payments require a linked customer.
+    let sql = sql_only(SALE_PAYMENTS_MIGRATION);
+    for required in [
+        "create table sale_payments (",
+        "check (method in ('cash', 'vf', 'instapay', 'card', 'install', 'credit'))",
+        "amount_minor  integer not null check (amount_minor >= 0)",
+        "create trigger sale_payments_credit_requires_customer",
+        "create trigger sale_payments_no_update",
+        "create trigger sale_payments_no_delete",
+        "create table customer_ledger (",
+        "check (kind in ('credit_sale', 'payment', 'sale_reversal'))",
+        "create trigger customer_ledger_no_update",
+        "create trigger customer_ledger_no_delete",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0021_sale_payments_and_customer_ledger.sql must contain `{required}`"
         );
     }
 }

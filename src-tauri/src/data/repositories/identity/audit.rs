@@ -137,6 +137,7 @@ pub const SALE_CUSTOMER_LINKED: &str = "sale_customer_linked";
 /// customer row rather than duplicated into the trail.
 pub const CUSTOMER_CREATED: &str = "customer_created";
 pub const CUSTOMER_ARCHIVED: &str = "customer_archived";
+pub const CUSTOMER_PAYMENT_RECORDED: &str = "customer_payment_recorded";
 
 /// Settings, and the retired Pattern.
 ///

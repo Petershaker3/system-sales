@@ -107,6 +107,8 @@ pub fn run() {
             commands::customer::list_customers,
             commands::customer::get_customer,
             commands::customer::archive_customer,
+            commands::customer::record_customer_payment,
+            commands::customer::list_customer_ledger,
             commands::backup::create_backup,
             commands::backup::restore_backup,
         ])

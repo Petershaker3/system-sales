@@ -58,6 +58,22 @@ pub enum SaleError {
     WarrantyDateInvalid,
     /// A warranty range ends before it starts.
     WarrantyRangeInvalid,
+    /// A sale payment list is empty when payments were explicitly supplied.
+    PaymentMissing,
+    /// The payment method code is not one of the six supported methods.
+    PaymentMethodInvalid,
+    /// The payment method has been disabled by the owner in Settings.
+    PaymentMethodDisabled,
+    /// A payment row has a non-positive (or overflowing) amount.
+    PaymentAmountInvalid,
+    /// The sum of payment rows does not match the sale's authoritative total.
+    PaymentTotalMismatch,
+    /// The payment reference exceeds 120 characters.
+    PaymentReferenceInvalid,
+    /// An instalment (`install`) payment was submitted without naming the provider.
+    InstallmentProviderRequired,
+    /// A credit (`credit` / آجل) payment was submitted without a linked customer.
+    CreditRequiresCustomer,
 }
 
 impl SaleError {
@@ -79,6 +95,14 @@ impl SaleError {
             SaleError::LinkNotAllowed => "SALE_LINK_NOT_ALLOWED",
             SaleError::WarrantyDateInvalid => "SALE_WARRANTY_DATE_INVALID",
             SaleError::WarrantyRangeInvalid => "SALE_WARRANTY_RANGE_INVALID",
+            SaleError::PaymentMissing => "SALE_PAYMENT_MISSING",
+            SaleError::PaymentMethodInvalid => "SALE_PAYMENT_METHOD_INVALID",
+            SaleError::PaymentMethodDisabled => "SALE_PAYMENT_METHOD_DISABLED",
+            SaleError::PaymentAmountInvalid => "SALE_PAYMENT_AMOUNT_INVALID",
+            SaleError::PaymentTotalMismatch => "SALE_PAYMENT_TOTAL_MISMATCH",
+            SaleError::PaymentReferenceInvalid => "SALE_PAYMENT_REFERENCE_INVALID",
+            SaleError::InstallmentProviderRequired => "SALE_INSTALLMENT_PROVIDER_REQUIRED",
+            SaleError::CreditRequiresCustomer => "SALE_CREDIT_REQUIRES_CUSTOMER",
         }
     }
 }
@@ -119,8 +143,159 @@ impl fmt::Display for SaleError {
             SaleError::WarrantyRangeInvalid => {
                 write!(f, "a warranty cannot end before it starts")
             }
+            SaleError::PaymentMissing => {
+                write!(f, "a sale must carry at least one payment row")
+            }
+            SaleError::PaymentMethodInvalid => {
+                write!(f, "unknown payment method")
+            }
+            SaleError::PaymentMethodDisabled => {
+                write!(f, "this payment method is disabled in settings")
+            }
+            SaleError::PaymentAmountInvalid => {
+                write!(f, "payment amount must be positive")
+            }
+            SaleError::PaymentTotalMismatch => {
+                write!(f, "sum of payment rows does not equal the sale total")
+            }
+            SaleError::PaymentReferenceInvalid => {
+                write!(f, "payment reference exceeds maximum length")
+            }
+            SaleError::InstallmentProviderRequired => {
+                write!(f, "instalment payment requires a provider name")
+            }
+            SaleError::CreditRequiresCustomer => {
+                write!(f, "credit sale requires a linked customer")
+            }
         }
     }
+}
+
+/// Supported invoice payment methods (`ADR-020` §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentMethod {
+    Cash,
+    Vf,
+    Instapay,
+    Card,
+    Install,
+    Credit,
+}
+
+impl PaymentMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PaymentMethod::Cash => "cash",
+            PaymentMethod::Vf => "vf",
+            PaymentMethod::Instapay => "instapay",
+            PaymentMethod::Card => "card",
+            PaymentMethod::Install => "install",
+            PaymentMethod::Credit => "credit",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        match raw.trim() {
+            "cash" => Ok(PaymentMethod::Cash),
+            "vf" => Ok(PaymentMethod::Vf),
+            "instapay" => Ok(PaymentMethod::Instapay),
+            "card" => Ok(PaymentMethod::Card),
+            "install" => Ok(PaymentMethod::Install),
+            "credit" => Ok(PaymentMethod::Credit),
+            _ => Err(SaleError::PaymentMethodInvalid),
+        }
+    }
+}
+
+/// Raw payment row supplied by the caller (`ADR-020` §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SalePaymentInput {
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+}
+
+/// Validated payment row ready to be persisted on a sale (`ADR-020` §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedSalePayment {
+    pub method: PaymentMethod,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+}
+
+/// Maximum characters allowed in a payment reference (`0021_sale_payments_and_customer_ledger.sql`).
+pub const MAX_PAYMENT_REFERENCE_LEN: usize = 120;
+
+/// Validate the payment rows for a sale against `total_minor`, `enabled_pay_methods`,
+/// and whether a live customer is linked to the sale (`has_customer`).
+pub fn validate_sale_payments(
+    raw_payments: &[SalePaymentInput],
+    total_minor: i64,
+    enabled_pay_methods: &str,
+    has_customer: bool,
+) -> Result<Vec<ValidatedSalePayment>, SaleError> {
+    if raw_payments.is_empty() {
+        return Err(SaleError::PaymentMissing);
+    }
+
+    let mut out = Vec::with_capacity(raw_payments.len());
+    let mut sum_minor: i64 = 0;
+
+    for raw in raw_payments {
+        let method = PaymentMethod::parse(&raw.method)?;
+        let is_enabled = method == PaymentMethod::Cash
+            || enabled_pay_methods
+                .split(',')
+                .any(|m| m.trim() == method.as_str());
+        if !is_enabled {
+            return Err(SaleError::PaymentMethodDisabled);
+        }
+
+        if total_minor == 0 {
+            if raw_payments.len() != 1 || raw.amount_minor != 0 || method == PaymentMethod::Credit {
+                return Err(SaleError::PaymentAmountInvalid);
+            }
+        } else if raw.amount_minor <= 0 {
+            return Err(SaleError::PaymentAmountInvalid);
+        }
+
+        let reference = match raw.reference.as_deref() {
+            None => None,
+            Some(s) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.chars().count() > MAX_PAYMENT_REFERENCE_LEN {
+                    return Err(SaleError::PaymentReferenceInvalid);
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+        };
+
+        if method == PaymentMethod::Install && reference.is_none() {
+            return Err(SaleError::InstallmentProviderRequired);
+        }
+        if method == PaymentMethod::Credit && !has_customer {
+            return Err(SaleError::CreditRequiresCustomer);
+        }
+
+        sum_minor = sum_minor
+            .checked_add(raw.amount_minor)
+            .ok_or(SaleError::PaymentAmountInvalid)?;
+
+        out.push(ValidatedSalePayment {
+            method,
+            amount_minor: raw.amount_minor,
+            reference,
+        });
+    }
+
+    if sum_minor != total_minor {
+        return Err(SaleError::PaymentTotalMismatch);
+    }
+
+    Ok(out)
 }
 
 impl std::error::Error for SaleError {}

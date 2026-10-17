@@ -57,8 +57,19 @@ pub async fn update(
 
 
     // Validation before storage, through the same `set` the read applies.
-    Appearance::default().set(key, value)?;
-    let stored = value.to_ascii_lowercase();
+    let mut validated = Appearance::default();
+    validated.set(key, value)?;
+    let stored = match parsed {
+        AppearanceKey::Look => validated.look,
+        AppearanceKey::Theme => validated.theme,
+        AppearanceKey::Accent => validated.accent,
+        AppearanceKey::Font => validated.font,
+        AppearanceKey::Scale => validated.scale,
+        AppearanceKey::Digits => validated.digits,
+        AppearanceKey::Images => validated.images,
+        AppearanceKey::ImeiMode => validated.imei_mode,
+        AppearanceKey::PayMethods => validated.pay_methods,
+    };
     let now = Timestamp::now();
 
     let mut tx = pool

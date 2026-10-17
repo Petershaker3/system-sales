@@ -909,6 +909,114 @@ await clickText('.rail .nav-btn', 'الإعدادات');
 await page.waitForSelector('#imei-mode-optional');
 await page.$eval('#imei-mode-optional', (el) => el.click());
 await sleep(150);
+
+// --- invoice payments, split payments & customer credit ledger (ADR-020, plan item 1.5) ---
+await page.waitForSelector('[data-card="payment-methods"]');
+check(
+  'settings shows the payment methods card with cash always enabled and 5 toggleable methods',
+  (await count('[data-pay-method-row]')) === 6 &&
+    (await page.$eval('#pay-method-toggle-cash', (el) => el.disabled && el.checked))
+);
+await page.$eval('[data-card="payment-methods"]', (el) => el.scrollIntoView({ block: 'center' }));
+await page.$eval('#pay-method-toggle-install', (el) => el.click());
+await sleep(150);
+await shot('27-settings-payment-methods');
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(120);
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(100);
+await clickText('.tile', 'شاحن آيفون 20 وات');
+await sleep(120);
+await page.keyboard.press('F12');
+await page.waitForSelector('.methods');
+await sleep(120);
+check(
+  'turning off «تقسيط» in settings hides it from the POS pay modal while keeping enabled methods',
+  (await count('[data-method="install"]')) === 0 &&
+    (await count('[data-method="cash"]')) === 1 &&
+    (await count('[data-method="vf"]')) === 1 &&
+    (await count('[data-method="credit"]')) === 1
+);
+await page.click('[data-method="credit"]');
+await sleep(100);
+check(
+  'choosing «آجل» without a linked customer warns the seller and disables «تم الدفع» until a customer is chosen',
+  (await count('[data-credit-needs-customer]')) === 1 &&
+    (await page.$eval('#confirm-pay-btn', (el) => el.disabled))
+);
+await page.click('#pick-credit-customer-btn');
+await page.waitForSelector('#toggle-new-customer-btn');
+await page.click('#toggle-new-customer-btn');
+await page.waitForSelector('#new-cust-name-in');
+await page.type('#new-cust-name-in', 'محمود عبد الرحمن');
+await page.type('#new-cust-contact-in', '01099887766');
+await page.click('#save-new-customer-btn');
+await sleep(200);
+check(
+  'creating and picking a customer from inside the pay modal links them to the invoice and shows their آجل balance summary',
+  (await count('[data-credit-customer-summary]')) === 1 &&
+    (await text('[data-credit-customer-summary]')).includes('محمود عبد الرحمن')
+);
+
+await page.click('[data-method="cash"]');
+await sleep(100);
+await page.type('#cash-in', '150');
+await sleep(100);
+check(
+  'typing a partial cash amount less than the invoice total offers «دفع جزئي» to split the invoice',
+  (await count('#add-split-payment-btn')) === 1
+);
+await page.click('#add-split-payment-btn');
+await sleep(120);
+await page.click('[data-method="credit"]');
+await sleep(120);
+check(
+  'adding a 150 EGP cash split leaves 300 EGP remaining on the 450 EGP invoice for the second payment method',
+  (await count('.split-box .paid-item')) === 1 &&
+    (await text('.due-box')).includes('300')
+);
+await shot('28-pos-split-and-credit-pay');
+await page.click('#confirm-pay-btn');
+await page.waitForSelector('.done-hero');
+await sleep(150);
+check(
+  'completing a split cash + credit sale shows both payment parts in «تم البيع»',
+  (await text('.modal')).includes('كاش') && (await text('.modal')).includes('آجل')
+);
+await page.keyboard.press('Enter');
+await sleep(150);
+
+await page.click('#pos-customer-btn');
+await page.waitForSelector('#cust-search-in');
+await sleep(120);
+check(
+  'after the credit sale, the customer picker shows the customer’s 300 EGP آجل balance',
+  (await text('.cust-list')).includes('محمود عبد الرحمن') &&
+    (await text('.cust-list')).includes('عليه 300 ج.م آجل')
+);
+await clickText('.cust-list .result button', 'تحصيل');
+await page.waitForSelector('#repay-amount-in');
+await page.$eval('#repay-amount-in', (el) => {
+  el.value = '50';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(100);
+await shot('29-customer-credit-repay');
+await page.click('#confirm-repay-btn');
+await sleep(200);
+check(
+  'recording a 50 EGP repayment updates the customer’s آجل balance to 250 EGP immediately',
+  (await text('.cust-list')).includes('عليه 250 ج.م آجل')
+);
+await page.keyboard.press('Escape');
+await sleep(120);
+
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#pay-method-toggle-install');
+await page.$eval('#pay-method-toggle-install', (el) => el.click());
+await sleep(120);
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('.tile');
 await sleep(80);

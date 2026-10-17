@@ -80,9 +80,24 @@ export interface SaleOutcome {
  * `SALE_REFERENCE_CONFLICT`, `SALE_WARRANTY_DATE_INVALID` and
  * `SALE_WARRANTY_RANGE_INVALID`, and `SALE_BUSY` (retryable).
  */
+/** One payment row on a sale (`ADR-020` §2). */
+export interface SalePaymentInput {
+  readonly method: string;
+  readonly amountMinor: number;
+  readonly reference?: string | null;
+}
+
+/**
+ * Record one sale (single payment or split payments, with optional customer link).
+ *
+ * Routine work: it needs no re-authentication and never waits for the owner's
+ * approval (ADR-017 §3).
+ */
 export async function recordSale(
   lines: readonly SaleLine[],
-  confirmedTotalMinor?: number
+  confirmedTotalMinor?: number,
+  payments?: readonly SalePaymentInput[],
+  customerId?: string | null
 ): Promise<SaleOutcome> {
   return invoke<SaleOutcome>('record_sale', {
     lines: lines.map((line) => ({
@@ -93,6 +108,15 @@ export async function recordSale(
       imei: line.imei ?? null,
     })),
     confirmedTotalMinor: confirmedTotalMinor ?? null,
+    payments:
+      payments && payments.length > 0
+        ? payments.map((p) => ({
+            method: p.method,
+            amountMinor: p.amountMinor,
+            reference: p.reference ?? null,
+          }))
+        : null,
+    customerId: customerId ?? null,
   });
 }
 

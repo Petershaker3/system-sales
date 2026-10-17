@@ -26,10 +26,11 @@ pub enum AppearanceKey {
     Digits,
     Images,
     ImeiMode,
+    PayMethods,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 8] = [
+    pub const ALL: [AppearanceKey; 9] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -38,6 +39,7 @@ impl AppearanceKey {
         AppearanceKey::Digits,
         AppearanceKey::Images,
         AppearanceKey::ImeiMode,
+        AppearanceKey::PayMethods,
     ];
 
     /// The stored key.
@@ -51,6 +53,7 @@ impl AppearanceKey {
             AppearanceKey::Digits => "ui.digits",
             AppearanceKey::Images => "ui.images",
             AppearanceKey::ImeiMode => "ui.imei_mode",
+            AppearanceKey::PayMethods => "ui.pay_methods",
         }
     }
 
@@ -70,8 +73,47 @@ impl AppearanceKey {
     /// Whether the owner may toggle this choice under [`Permission::ManageCatalog`]
     /// alongside category and brand visibility in «الأصناف والبيع».
     pub fn is_catalog_choice(self) -> bool {
-        matches!(self, AppearanceKey::Images | AppearanceKey::ImeiMode)
+        matches!(
+            self,
+            AppearanceKey::Images | AppearanceKey::ImeiMode | AppearanceKey::PayMethods
+        )
     }
+}
+
+/// Canonical order of all supported invoice payment methods (`ADR-020`).
+pub const CANONICAL_PAY_METHODS: [&str; 6] = [
+    "cash", "vf", "instapay", "card", "install", "credit",
+];
+
+/// Default enabled payment methods (`ADR-020` §1: all enabled).
+pub const DEFAULT_PAY_METHODS: &str = "cash,vf,instapay,card,install,credit";
+
+/// Validate and canonicalize a comma-separated list of enabled payment methods.
+///
+/// `"cash"` is mandatory and cannot be disabled; every other token must be one
+/// of [`CANONICAL_PAY_METHODS`] with no duplicates.
+pub fn parse_pay_methods(raw: &str) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::new();
+    for part in raw.split(',') {
+        let token = part.trim();
+        let canonical = CANONICAL_PAY_METHODS
+            .iter()
+            .copied()
+            .find(|candidate| candidate.eq_ignore_ascii_case(token))?;
+        if seen.contains(&canonical) {
+            return None;
+        }
+        seen.push(canonical);
+    }
+    if !seen.contains(&"cash") {
+        return None;
+    }
+    let ordered: Vec<&str> = CANONICAL_PAY_METHODS
+        .iter()
+        .copied()
+        .filter(|m| seen.contains(m))
+        .collect();
+    Some(ordered.join(","))
 }
 
 /// The current display choices, defaults applied for anything never set.
@@ -85,12 +127,14 @@ pub struct Appearance {
     pub digits: String,
     pub images: String,
     pub imei_mode: String,
+    pub pay_methods: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
     /// look's own font, normal size, Latin digits, product images on, IMEI
-    /// mode optional (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2).
+    /// mode optional, all payment methods enabled (docs/ui/REDESIGN.md,
+    /// ADR-018 §5, ADR-019 §2, ADR-020 §1).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -101,6 +145,7 @@ impl Default for Appearance {
             digits: "latin".to_owned(),
             images: "on".to_owned(),
             imei_mode: "optional".to_owned(),
+            pay_methods: DEFAULT_PAY_METHODS.to_owned(),
         }
     }
 }
@@ -120,6 +165,15 @@ impl Appearance {
         let parsed = AppearanceKey::parse(key).ok_or_else(|| SettingsError::UnknownKey {
             key: key.to_owned(),
         })?;
+        if parsed == AppearanceKey::PayMethods {
+            let canonical =
+                parse_pay_methods(value).ok_or_else(|| SettingsError::MalformedValue {
+                    key: parsed.as_str().to_owned(),
+                    reason: "invalid enabled payment methods list (cash must stay enabled)",
+                })?;
+            self.pay_methods = canonical;
+            return Ok(());
+        }
         let allowed = match parsed {
             AppearanceKey::Look => matches!(value, "plate" | "box"),
             AppearanceKey::Theme => matches!(value, "light" | "dark" | "auto"),
@@ -129,6 +183,7 @@ impl Appearance {
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
+            AppearanceKey::PayMethods => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -146,9 +201,15 @@ impl Appearance {
             AppearanceKey::Digits => self.digits = value,
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
+            AppearanceKey::PayMethods => unreachable!(),
         }
         Ok(())
+    }
 
+    /// Whether a payment method code (`cash`, `vf`, `instapay`, `card`,
+    /// `install`, `credit`) is currently enabled in settings (`ADR-020` §1).
+    pub fn is_pay_method_enabled(&self, method_code: &str) -> bool {
+        method_code == "cash" || self.pay_methods.split(',').any(|m| m == method_code)
     }
 }
 
