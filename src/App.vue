@@ -7,24 +7,26 @@
 //   3. shell            — an operator is signed in (AppShell: rail, top bar,
 //                         and the screens of the approved mockup)
 //
-// The sign-in screens wear the mockup's lock-screen card: pick who is working,
-// then the password. (A PIN per user and quick switching are plan item 1.1,
-// waiting at the decision gate; until then it is the account password.)
+// Signing in wears the mockup's lock card (LockCard): pick who is working, then
+// their PIN, or the password for an account with no PIN yet (ADR-017 §2).
+// Ctrl+L and «قفل» lock the screen: the session ends and the lock card covers
+// the running screens, so open invoices are still there for whoever signs in
+// next (`docs/PLAN.md` §4). Switching user from the chip is a PIN sign-in too.
 //
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
+import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import * as api from './api/identity';
 import { describeError } from './api/errors';
 import type { Session, UserSummary } from './api/identity';
 import ForcedPasswordChange from './components/ForcedPasswordChange.vue';
 import * as lifecycle from './api/lifecycle';
 import AppShell from './shell/AppShell.vue';
-import { avatarColour, roleName } from './shell/nav';
-import Icon from './ui/Icon.vue';
+import LockCard from './shell/LockCard.vue';
+import PinSetup from './shell/PinSetup.vue';
 import Toasts from './ui/Toasts.vue';
-import { toast } from './ui/toast';
+import { clearToasts, toast } from './ui/toast';
 
 type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
 
@@ -58,7 +60,6 @@ const error = ref<string>('');
 
 const displayName = ref('');
 const password = ref('');
-const selectedId = ref<string>('');
 const busy = ref(false);
 /**
  * Whether the backend says this account must change its password.
@@ -68,6 +69,12 @@ const busy = ref(false);
  * render.
  */
 const mustChangePassword = ref(false);
+
+/** The lock card covers the running screens (Ctrl+L, «قفل»); the session has ended. */
+const locked = ref(false);
+const lockCard = ref<InstanceType<typeof LockCard> | null>(null);
+/** The «اعمل PIN» / «غيّر الـ PIN» window, when open. */
+const pinSetup = ref<{ first: boolean; offered: boolean } | null>(null);
 
 // Rust sends a stable code, never prose. Rendering happens here so the Arabic
 // wording lives in one reviewable file (`api/errors.ts`) rather than in domain
@@ -99,6 +106,7 @@ async function decideView(): Promise<void> {
       // operation, so the shell would refuse every command until it is done.
       mustChangePassword.value = await lifecycle.passwordChangeRequired();
       view.value = mustChangePassword.value ? 'forced-change' : 'shell';
+      await loadUsers();
       return;
     }
   } catch {
@@ -110,12 +118,10 @@ async function decideView(): Promise<void> {
   await loadUsers();
 }
 
+/** The people on the lock card and in the switch menu (no secret material). */
 async function loadUsers(): Promise<void> {
   try {
     users.value = await api.listUsers();
-    if (selectedId.value === '' && users.value.length > 0) {
-      selectedId.value = users.value[0]?.id ?? '';
-    }
   } catch (err) {
     report(err);
   }
@@ -126,7 +132,8 @@ async function submitSetup(): Promise<void> {
   error.value = '';
   try {
     session.value = await api.createFirstManager(displayName.value, password.value);
-    await enterAfterAuth();
+    password.value = '';
+    await afterSignIn('password');
   } catch (err) {
     report(err);
   } finally {
@@ -134,18 +141,50 @@ async function submitSetup(): Promise<void> {
   }
 }
 
-async function submitLogin(): Promise<void> {
-  busy.value = true;
+/** Someone signed in on the lock card: the first sign-in, or after a lock. */
+async function onSignedIn(next: Session, method: 'pin' | 'password'): Promise<void> {
+  session.value = next;
+  locked.value = false;
   error.value = '';
-  try {
-    session.value = await api.login(selectedId.value, password.value);
-    await enterAfterAuth();
-  } catch (err) {
-    report(err);
-    password.value = '';
-  } finally {
-    busy.value = false;
+  await afterSignIn(method);
+}
+
+/** Someone else signed in from the user chip; the screens and their invoices stay. */
+async function onSwitched(next: Session): Promise<void> {
+  session.value = next;
+  await enterAfterAuth();
+  toast(`${next.displayName} شغّال دلوقتي`, 'info');
+}
+
+async function afterSignIn(method: 'pin' | 'password'): Promise<void> {
+  await enterAfterAuth();
+  await loadUsers();
+  // A password sign-in on an account with no PIN: offer one («بعدين» skips it).
+  const mine = users.value.find((user) => user.id === session.value?.userId);
+  if (method === 'password' && view.value === 'shell' && mine !== undefined && !mine.hasPin) {
+    pinSetup.value = { first: true, offered: true };
   }
+}
+
+/** Lock the screen: cover it first, then end the session. */
+async function lockScreen(): Promise<void> {
+  if (locked.value || view.value !== 'shell') return;
+  locked.value = true;
+  pinSetup.value = null;
+  clearToasts();
+  try {
+    await api.logout();
+  } catch {
+    // The cover is up either way, and the next sign-in replaces any session left.
+  }
+  await loadUsers();
+}
+
+/** The switch menu picked someone with no PIN: lock, and open the card on them. */
+async function lockFor(userId: string): Promise<void> {
+  await lockScreen();
+  await nextTick();
+  lockCard.value?.open(userId);
 }
 
 async function signOut(): Promise<void> {
@@ -156,6 +195,8 @@ async function signOut(): Promise<void> {
     session.value = null;
     password.value = '';
     mustChangePassword.value = false;
+    locked.value = false;
+    pinSetup.value = null;
     view.value = 'login';
     await loadUsers();
   } catch (err) {
@@ -185,38 +226,42 @@ function afterForcedChange(): void {
   error.value = '';
 }
 
+function openPinSetup(): void {
+  const mine = users.value.find((user) => user.id === session.value?.userId);
+  pinSetup.value = { first: !(mine?.hasPin ?? false), offered: false };
+}
+
+async function afterPinSaved(): Promise<void> {
+  pinSetup.value = null;
+  await loadUsers();
+}
+
 /** The browser demo's sign-in hint; an empty string (and no text) in real builds. */
 const demoHint =
   import.meta.env.VITE_DEMO === '1'
-    ? 'للتجربة بس: كلمة السر لكل الحسابات 1234. البيانات وهمية ومش بتتحفظ.'
+    ? 'للتجربة بس: الـ PIN بيتر 1111، يوسف 2222، مارينا 3333، وكلمة السر لكل الحسابات 1234. البيانات وهمية ومش بتتحفظ.'
     : '';
 
-/** Users who can sign in, in the order Rust lists them. */
-const loginUsers = computed(() => users.value.filter((user) => !user.disabled));
-const selectedUser = computed(() => users.value.find((user) => user.id === selectedId.value) ?? null);
-/** Login step: pick a person first, then the password (mockup lock screen). */
-const picked = ref(false);
-
-function pickUser(id: string): void {
-  selectedId.value = id;
-  picked.value = true;
-  password.value = '';
-  error.value = '';
-}
-
-function backToPeople(): void {
-  picked.value = false;
-  password.value = '';
-  error.value = '';
-}
-
 async function afterSignOut(): Promise<void> {
-  picked.value = false;
   await signOut();
   if (view.value === 'login') toast('اتسجّل الخروج', 'info');
 }
 
-onMounted(decideView);
+/** Ctrl+L locks from anywhere in the shell (the mockup's shortcut). */
+function onGlobalKey(event: KeyboardEvent): void {
+  if (view.value !== 'shell' || locked.value) return;
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === 'KeyL') {
+    event.preventDefault();
+    event.stopPropagation();
+    void lockScreen();
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onGlobalKey, true);
+  void decideView();
+});
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
 </script>
 
 <template>
@@ -224,11 +269,35 @@ onMounted(decideView);
     v-if="view === 'shell' && session"
     :session="session"
     :busy="busy"
+    :users="users"
     @sign-out="afterSignOut"
+    @lock="lockScreen"
+    @switched="onSwitched"
+    @set-pin="openPinSetup"
+    @open-lock-for="lockFor"
   />
 
-  <div v-else class="lock">
-    <div class="lock-card" :class="{ shake: error !== '' && view === 'login' && picked }">
+  <!-- The lock: over the running screens, so open invoices survive it. -->
+  <div v-if="view === 'shell' && locked" class="lock over">
+    <LockCard ref="lockCard" :users="users" :hint="demoHint" @signed-in="onSignedIn" />
+  </div>
+
+  <!-- State 2: accounts exist, nobody signed in. -->
+  <div v-else-if="view === 'login'" class="lock">
+    <div class="stack-center">
+      <LockCard :users="users" :hint="demoHint" @signed-in="onSignedIn" />
+      <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
+      <!--
+        Recovery builds only. `RecoveryPanel` is null in a default production
+        build, so this renders nothing there; the guard is that the Rust commands
+        do not exist at all.
+      -->
+      <component :is="RecoveryPanel" v-if="RecoveryPanel" />
+    </div>
+  </div>
+
+  <div v-else-if="view !== 'shell'" class="lock">
+    <div class="lock-card">
       <div class="logo" aria-hidden="true">م</div>
       <h1>نقطة البيع</h1>
 
@@ -244,56 +313,10 @@ onMounted(decideView);
         <div class="field">
           <label for="setup-pass">كلمة السر</label>
           <input id="setup-pass" v-model="password" type="password" autocomplete="new-password" required minlength="8" />
-          <span class="hint">ثمانية حروف على الأقل.</span>
+          <span class="hint">ثمانية حروف على الأقل. بعدها هتعمل PIN للدخول اليومي.</span>
         </div>
         <button type="submit" class="btn primary lg block" :disabled="busy">اعمل الحساب وادخل</button>
       </form>
-
-      <!-- State 2: accounts exist, nobody signed in. Pick a person, then the password. -->
-      <template v-else-if="view === 'login'">
-        <template v-if="!picked || !selectedUser">
-          <div class="muted">مين هيشتغل دلوقتي؟</div>
-          <div class="users">
-            <button
-              v-for="user in loginUsers"
-              :key="user.id"
-              type="button"
-              class="user-card"
-              @click="pickUser(user.id)"
-            >
-              <span class="avatar lg" :style="{ background: avatarColour(user.id) }">{{ user.displayName.charAt(0) }}</span>
-              <b>{{ user.displayName }}</b>
-              <small>{{ roleName(user.role) }} · <bdi dir="ltr">{{ user.username }}</bdi></small>
-            </button>
-          </div>
-        </template>
-        <form v-else class="stack auth-form" @submit.prevent="submitLogin">
-          <div class="who-row">
-            <button type="button" class="icon-btn sm" title="رجوع" @click="backToPeople"><Icon name="arrow-right" /></button>
-            <span class="avatar lg" :style="{ background: avatarColour(selectedUser.id) }">{{ selectedUser.displayName.charAt(0) }}</span>
-            <span class="t"><b>{{ selectedUser.displayName }}</b><small>{{ roleName(selectedUser.role) }}</small></span>
-          </div>
-          <div class="field">
-            <label for="login-pass">كلمة السر</label>
-            <input
-              id="login-pass"
-              v-model="password"
-              type="password"
-              autocomplete="current-password"
-              required
-              autofocus
-            />
-          </div>
-          <button type="submit" class="btn primary lg block" :disabled="busy">دخول</button>
-        </form>
-
-        <!--
-          Recovery builds only. `RecoveryPanel` is null in a default production
-          build, so this renders nothing there; the guard is that the Rust commands
-          do not exist at all.
-        -->
-        <component :is="RecoveryPanel" v-if="RecoveryPanel" />
-      </template>
 
       <!--
         State 3: signed in, but the backend requires a password change first. The
@@ -305,9 +328,16 @@ onMounted(decideView);
       </div>
 
       <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
-      <div v-if="demoHint && view === 'login'" class="demo-hint">{{ demoHint }}</div>
     </div>
   </div>
+
+  <PinSetup
+    v-if="pinSetup && view === 'shell' && !locked"
+    :first="pinSetup.first"
+    :offered="pinSetup.offered"
+    @close="pinSetup = null"
+    @saved="afterPinSaved"
+  />
 
   <Toasts />
 </template>
@@ -317,23 +347,16 @@ onMounted(decideView);
   text-align: start;
   margin-top: 16px;
 }
-.who-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.who-row .t {
-  display: grid;
-  line-height: 1.25;
-}
-.who-row small {
-  color: var(--muted);
-}
 .auth-error {
   margin-top: 12px;
 }
 .hint {
   font-size: 0.8rem;
   color: var(--muted);
+}
+.stack-center {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
 }
 </style>

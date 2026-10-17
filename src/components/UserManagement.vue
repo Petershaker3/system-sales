@@ -12,7 +12,9 @@
 import { ref } from 'vue';
 
 import * as lifecycle from '../api/lifecycle';
-import { describeError } from '../api/errors';
+import * as identity from '../api/identity';
+import { asCommandError, describeError } from '../api/errors';
+import { toLatinDigits } from '../ui/format';
 import type { ManagedUser, Role } from '../api/lifecycle';
 
 const emit = defineEmits<{ reauthenticated: [] }>();
@@ -59,15 +61,22 @@ async function confirmReauth(): Promise<void> {
 // --- list ------------------------------------------------------------------
 const accounts = ref<ManagedUser[]>([]);
 const loaded = ref(false);
+/** Accounts that have a daily PIN (ADR-017), from the sign-in picker: the fact only. */
+const withPin = ref<Set<string>>(new Set());
 
-async function load(): Promise<void> {
+/** Load the accounts. `prompt`: asked for by the owner («تحديث»), so a stale password opens the password window. */
+async function load(prompt = false): Promise<void> {
   busy.value = true;
   try {
     accounts.value = await lifecycle.listUsersForManagement();
+    withPin.value = new Set((await identity.listUsers()).filter((u) => u.hasPin).map((u) => u.id));
     loaded.value = true;
     error.value = '';
   } catch (err) {
-    error.value = describeError(err);
+    // Listing accounts is `ManageUsers` too. When the owner asked («تحديث»), ask for
+    // the password and load; the silent load on opening Settings never pops a window.
+    if (prompt && asCommandError(err)?.code === 'REAUTHENTICATION_REQUIRED') await withReauth(() => load());
+    else error.value = describeError(err);
   } finally {
     busy.value = false;
   }
@@ -104,6 +113,34 @@ async function create(): Promise<void> {
 }
 
 // --- per-account actions ---------------------------------------------------
+const pinFor = ref<ManagedUser | null>(null);
+const pinValue = ref('');
+
+function startPin(user: ManagedUser): void {
+  pinFor.value = user;
+  pinValue.value = '';
+  error.value = '';
+}
+
+/** The owner sets an account's daily PIN (ADR-017 §1); the password was just proven. */
+async function performPin(): Promise<void> {
+  const target = pinFor.value;
+  if (target === null) return;
+
+  busy.value = true;
+  error.value = '';
+  try {
+    await lifecycle.setUserPin(target.userId, toLatinDigits(pinValue.value.trim()));
+    pinFor.value = null;
+    pinValue.value = '';
+    await load();
+  } catch (err) {
+    error.value = describeError(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
 const resetFor = ref<ManagedUser | null>(null);
 const resetPassword = ref('');
 const renameFor = ref<ManagedUser | null>(null);
@@ -213,6 +250,7 @@ void load();
             بيانات الحساب ناقصة — كلّم المسؤول الفني
           </span>
           <span v-if="user.disabled" class="hint status-offline">معطّل</span>
+          <span v-if="!withPin.has(user.userId)" class="hint status-warn">من غير PIN: بيدخل بكلمة السر</span>
           <span v-if="user.mustChangePassword" class="hint status-warn">
             يجب تغيير كلمة المرور
           </span>
@@ -221,6 +259,9 @@ void load();
         <div class="row">
           <button type="button" :disabled="busy" @click="startRename(user)">
             تغيير الاسم
+          </button>
+          <button type="button" :disabled="busy" @click="startPin(user)">
+            PIN الدخول
           </button>
           <button type="button" :disabled="busy" @click="startReset(user)">
             إعادة تعيين كلمة المرور
@@ -247,7 +288,7 @@ void load();
       <button type="button" :disabled="busy" @click="creating = !creating">
         {{ creating ? 'إلغاء' : 'إضافة مستخدم' }}
       </button>
-      <button type="button" :disabled="busy" @click="load">تحديث</button>
+      <button type="button" :disabled="busy" @click="load(true)">تحديث</button>
     </div>
 
     <form v-if="creating" class="form" @submit.prevent="withReauth(create)">
@@ -291,6 +332,26 @@ void load();
     </form>
 
     <!-- Password reset: the manager chooses a temporary password and never sees it again. -->
+    <form v-if="pinFor !== null" class="form" @submit.prevent="withReauth(performPin)">
+      <p class="hint">
+        PIN من 4 لـ6 أرقام لـ{{ pinFor.displayName }}. بيه هيدخل ويبدّل بسرعة، وبيتغيّر من هنا لو اتنسى.
+      </p>
+      <label class="field">
+        <span>الـ PIN</span>
+        <input
+          id="user-pin"
+          v-model="pinValue"
+          type="password"
+          inputmode="numeric"
+          autocomplete="off"
+          required
+          minlength="4"
+          maxlength="6"
+        />
+      </label>
+      <button type="submit" :disabled="busy">حفظ الـ PIN</button>
+    </form>
+
     <form v-if="resetFor !== null" class="form" @submit.prevent="withReauth(performReset)">
       <p class="hint">
         كلمة مرور مؤقتة لـ{{ resetFor.displayName }}. سيُطلب منه تغييرها عند أول دخول.

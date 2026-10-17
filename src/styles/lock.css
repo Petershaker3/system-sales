@@ -6,6 +6,9 @@
   position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; overflow: auto;
   background: var(--bg);
 }
+/* The lock over the running screens (Ctrl+L, «قفل»): above modals (100), below toasts (120).
+   Opaque, so nothing of the screen underneath shows while it is locked (ADR-017 §2). */
+.lock.over { z-index: 110; }
 .lock-card { width: min(540px, 96vw); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); padding: 26px 28px; box-shadow: var(--shadow); text-align: center; }
 .lock-card .logo { margin: 0 auto 8px; width: 60px; height: 60px; border-radius: var(--r-l); font-size: 1.5rem; }
 .lock-card h1 { margin: 4px 0 2px; font-size: 1.5rem; line-height: 1.2; }

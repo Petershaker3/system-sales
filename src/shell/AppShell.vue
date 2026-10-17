@@ -2,13 +2,20 @@
 // The frame every signed-in screen sits in (docs/ui/mockup-v1/app.js: rail,
 // top bar, user menu). Positions and steps follow the approved mockup; only
 // screens that exist in this build appear on the rail.
+//
+// The user chip switches who is working (ADR-017 §2, `docs/PLAN.md` §4): pick
+// someone, and the menu becomes their PIN pad; their PIN signs them in and the
+// open invoices stay where they are. «قفل» on the rail and Ctrl+L lock the
+// screen (App.vue owns the lock).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-import type { Session } from '../api/identity';
+import * as api from '../api/identity';
+import type { Session, UserSummary } from '../api/identity';
 import { describeError } from '../api/errors';
 import { resolvedTheme, appearance, toggleTheme } from '../ui/appearance';
 import { fmtTime } from '../ui/format';
 import Icon from '../ui/Icon.vue';
+import PinPad from '../ui/PinPad.vue';
 import { toast } from '../ui/toast';
 import PosScreen from '../screens/pos/PosScreen.vue';
 import SalesScreen from '../screens/sales/SalesScreen.vue';
@@ -17,10 +24,19 @@ import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import { avatarColour, navFor, roleName, TITLES } from './nav';
 import type { ScreenId } from './nav';
 
-const props = defineProps<{ session: Session; busy: boolean }>();
-const emit = defineEmits<{ signOut: [] }>();
+const props = defineProps<{ session: Session; busy: boolean; users: readonly UserSummary[] }>();
+const emit = defineEmits<{
+  signOut: [];
+  lock: [];
+  switched: [session: Session];
+  setPin: [];
+  openLockFor: [userId: string];
+}>();
 
 const demo = import.meta.env.VITE_DEMO === '1';
+/** The browser demo's PINs, shown under the switch pad as the mockup does. Empty in real builds. */
+const DEMO_PINS: Record<string, string> = demo ? { peter: '1111', youssef: '2222', marina: '3333' } : {};
+
 const screen = ref<ScreenId>('pos');
 const items = computed(() => navFor(props.session.role));
 const dark = computed(() => {
@@ -28,7 +44,7 @@ const dark = computed(() => {
   return resolvedTheme() === 'dark';
 });
 
-// A seller never lands on an owner screen, even after a role change.
+// A seller never lands on an owner screen, even after a switch or a role change.
 watch(
   () => props.session.role,
   () => {
@@ -36,21 +52,81 @@ watch(
   }
 );
 
+const me = computed(() => props.users.find((user) => user.id === props.session.userId) ?? null);
+const others = computed(() => props.users.filter((user) => !user.disabled && user.id !== props.session.userId));
+
 const menuOpen = ref(false);
+const swUser = ref<UserSummary | null>(null);
+const swError = ref('');
+const swBusy = ref(false);
+const swPad = ref<InstanceType<typeof PinPad> | null>(null);
+
+function closeMenu(): void {
+  menuOpen.value = false;
+  swUser.value = null;
+  swError.value = '';
+}
+
+function swPick(user: UserSummary): void {
+  if (!user.hasPin) {
+    // No PIN yet: the lock card takes their password instead.
+    closeMenu();
+    emit('openLockFor', user.id);
+    return;
+  }
+  swUser.value = user;
+  swError.value = '';
+  // The pad owns the keyboard now; a focused search box must not take the digits.
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+}
+
+async function swSubmit(pin: string): Promise<void> {
+  const user = swUser.value;
+  if (user === null || swBusy.value) return;
+  swBusy.value = true;
+  swError.value = '';
+  try {
+    const next = await api.loginWithPin(user.id, pin);
+    closeMenu();
+    emit('switched', next);
+  } catch (err) {
+    swError.value = describeError(err);
+    swPad.value?.clear();
+  } finally {
+    swBusy.value = false;
+  }
+}
+
+function menuAction(action: 'lock' | 'setPin' | 'signOut'): void {
+  closeMenu();
+  if (action === 'lock') emit('lock');
+  else if (action === 'setPin') emit('setPin');
+  else emit('signOut');
+}
+
+/** While the switch pad is open, every key is the pad's and stops here. */
+function onSwitchKey(event: KeyboardEvent): void {
+  if (swUser.value === null) return;
+  event.stopPropagation();
+  if (swPad.value?.handleKey(event)) event.preventDefault();
+}
+
 const clock = ref(fmtTime());
 let tick = 0;
 
 function onDocClick(event: MouseEvent): void {
-  if (!(event.target instanceof Element) || !event.target.closest('.user-switch')) menuOpen.value = false;
+  if (!(event.target instanceof Element) || !event.target.closest('.user-switch')) closeMenu();
 }
 
 onMounted(() => {
   tick = window.setInterval(() => (clock.value = fmtTime()), 15_000);
   document.addEventListener('mousedown', onDocClick);
+  window.addEventListener('keydown', onSwitchKey, true);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
   document.removeEventListener('mousedown', onDocClick);
+  window.removeEventListener('keydown', onSwitchKey, true);
 });
 
 async function switchTheme(): Promise<void> {
@@ -84,9 +160,9 @@ async function switchTheme(): Promise<void> {
         <Icon :name="dark ? 'sun' : 'moon'" />
         <span>{{ dark ? 'فاتح' : 'غامق' }}</span>
       </button>
-      <button type="button" class="nav-btn" title="تسجيل الخروج" :disabled="busy" @click="emit('signOut')">
-        <Icon name="log-out" />
-        <span>خروج</span>
+      <button type="button" class="nav-btn" title="قفل الشاشة (Ctrl+L)" :disabled="busy" @click="emit('lock')">
+        <Icon name="lock-keyhole" />
+        <span>قفل</span>
       </button>
     </nav>
 
@@ -104,7 +180,7 @@ async function switchTheme(): Promise<void> {
             class="user-chip"
             aria-haspopup="true"
             :aria-expanded="menuOpen ? 'true' : 'false'"
-            @click="menuOpen = !menuOpen"
+            @click="menuOpen ? closeMenu() : (menuOpen = true)"
           >
             <span class="avatar" :style="{ background: avatarColour(session.userId) }">{{
               session.displayName.charAt(0)
@@ -112,16 +188,60 @@ async function switchTheme(): Promise<void> {
             <span class="who">{{ session.displayName }}<small>{{ roleName(session.role) }}</small></span>
             <Icon name="chevron-down" class="chev" />
           </button>
-          <div v-if="menuOpen" class="sw-menu" role="menu">
+
+          <div v-if="menuOpen && swUser === null" class="sw-menu" role="menu" aria-label="تبديل البيّاع">
             <div class="sw-cur">
               <span class="avatar" :style="{ background: avatarColour(session.userId) }">{{
                 session.displayName.charAt(0)
               }}</span>
               <span class="t"><b>{{ session.displayName }}</b><small>{{ roleName(session.role) }}، شغّال دلوقتي</small></span>
             </div>
-            <button type="button" class="sw-item sm" role="menuitem" :disabled="busy" @click="emit('signOut')">
+            <template v-if="others.length > 0">
+              <div class="sw-h">بدّل لـ</div>
+              <button
+                v-for="user in others"
+                :key="user.id"
+                type="button"
+                class="sw-item"
+                role="menuitem"
+                @click="swPick(user)"
+              >
+                <span class="avatar" :style="{ background: avatarColour(user.id) }">{{ user.displayName.charAt(0) }}</span>
+                <span class="t"><b>{{ user.displayName }}</b><small>{{ roleName(user.role) }}{{ user.hasPin ? '' : '، بكلمة السر' }}</small></span>
+                <Icon name="chevron-left" />
+              </button>
+            </template>
+            <div class="sw-sep" />
+            <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('setPin')">
+              <Icon name="key-round" /><span class="t">{{ me?.hasPin ? 'غيّر الـ PIN' : 'اعمل PIN' }}</span>
+            </button>
+            <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('lock')">
+              <Icon name="lock-keyhole" /><span class="t">قفل الشاشة</span><kbd>Ctrl+L</kbd>
+            </button>
+            <button type="button" class="sw-item sm" role="menuitem" :disabled="busy" @click="menuAction('signOut')">
               <Icon name="log-out" /><span class="t">تسجيل الخروج</span>
             </button>
+          </div>
+
+          <div v-else-if="menuOpen && swUser" class="sw-menu pin" role="dialog" aria-label="الـ PIN">
+            <div class="sw-pin-h">
+              <button type="button" class="icon-btn sm" title="رجوع (Esc)" @click="swUser = null"><Icon name="arrow-right" /></button>
+              <span class="avatar" :style="{ background: avatarColour(swUser.id) }">{{ swUser.displayName.charAt(0) }}</span>
+              <span class="t"><b>{{ swUser.displayName }}</b><small>اكتب الـ PIN بتاعه</small></span>
+            </div>
+            <PinPad
+              ref="swPad"
+              size="sm"
+              :error="swError"
+              :busy="swBusy"
+              :class="{ shake: swError !== '' }"
+              @submit="swSubmit"
+              @back="swUser = null"
+              @input="swError = ''"
+            />
+            <div v-if="demo && DEMO_PINS[swUser.username]" class="sw-hint">
+              للتجربة: {{ swUser.displayName }} <bdi dir="ltr" class="mono">{{ DEMO_PINS[swUser.username] }}</bdi>
+            </div>
           </div>
         </div>
       </header>

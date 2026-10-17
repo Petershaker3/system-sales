@@ -28,6 +28,11 @@ export function toast(message: string, kind: ToastKind = 'ok', ms = 2800): void 
   }, ms + 300);
 }
 
+/** Drop every toast at once: a lock must leave nothing of the locked session on screen. */
+export function clearToasts(): void {
+  toasts.splice(0, toasts.length);
+}
+
 let audio: AudioContext | null = null;
 
 /** A short low beep for a refused scan or an out-of-stock item. */

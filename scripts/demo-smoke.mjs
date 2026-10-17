@@ -51,24 +51,27 @@ async function clickText(selector, label) {
   }
   return false;
 }
-async function signIn(name) {
+/** Sign in on the lock card with the PIN (ADR-017): pick the person, type the digits, Enter. */
+async function signIn(name, pin) {
   await page.waitForSelector('.user-card');
   await clickText('.user-card', name);
-  await page.waitForSelector('#login-pass');
-  await page.type('#login-pass', '1234');
+  await page.waitForSelector('.pinpad');
+  await page.keyboard.type(pin);
   await page.keyboard.press('Enter');
   await page.waitForSelector('.shell', { timeout: 5000 });
+  await page.waitForSelector('.lock.over', { hidden: true, timeout: 5000 });
 }
+const chipName = () => text('.user-chip .who');
 
 await page.goto(URL, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.lock-card');
 check('sign-in card shows the three demo accounts', (await count('.user-card')) === 3);
-check('demo hint is shown on the sign-in card', (await text('.demo-hint')).includes('1234'));
+check('demo hint is shown on the sign-in card', (await text('.demo-hint')).includes('1111'));
 check('the plate look is applied before sign-in', (await page.$eval('html', (h) => h.dataset.look)) === 'plate');
 await shot('01-login');
 
 // --- a seller sells ---------------------------------------------------------
-await signIn('يوسف');
+await signIn('يوسف', '2222');
 await page.waitForSelector('.tile');
 check('seller lands on the sales screen', (await text('.topbar h1')) === 'البيع');
 const rail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
@@ -145,10 +148,79 @@ await shot('06-pos-dark');
 await clickText('.rail .nav-btn', 'فاتح');
 await sleep(100);
 
+// --- lock, PIN, switch (plan item 1.1, ADR-017) -----------------------------
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over', { timeout: 3000 });
+check('Ctrl+L locks the screen', (await count('.lock.over .user-card')) === 3);
+await page.keyboard.press('F12');
+await sleep(200);
+check('keys do not reach the screen under the lock (F12 opens nothing)', (await count('.modal-h')) === 0);
+await clickText('.lock.over .user-card', 'بيتر');
+await page.waitForSelector('.lock.over .pinpad');
+await page.keyboard.type('9999');
+await page.keyboard.press('Enter');
+await sleep(250);
+check('a wrong PIN is refused on the card', (await text('.lock.over .err-msg')).length > 0 && (await count('.lock.over')) === 1);
+await shot('10-lock-wrong-pin');
+await page.keyboard.type('1111');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 });
+check('the owner PIN unlocks, as the owner', (await chipName()).includes('بيتر'));
+check('the held invoice survived the lock', (await count('.inv-tab.held')) === 1);
+
+await page.click('.user-chip');
+await page.waitForSelector('.sw-menu');
+await clickText('.sw-item', 'مارينا');
+await page.waitForSelector('.sw-menu.pin', { timeout: 3000 });
+await shot('11-switch-pin');
+await page.keyboard.type('3333');
+await page.keyboard.press('Enter');
+await sleep(400);
+const marinaRail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
+check('switching from the chip with her PIN makes مارينا the seller', (await chipName()).includes('مارينا') && !marinaRail.includes('المخزن'));
+check('the held invoice survived the switch', (await count('.inv-tab.held')) === 1);
+
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over');
+await clickText('.lock.over .user-card', 'بيتر');
+await page.waitForSelector('.lock.over .pinpad');
+await clickText('.lock.over .link-btn', 'دخول بكلمة السر');
+await page.waitForSelector('#login-pass');
+await page.type('#login-pass', '1234');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 });
+check('the password still signs in, as the fallback', (await chipName()).includes('بيتر'));
+
+await page.click('.user-chip');
+await page.waitForSelector('.sw-menu');
+await clickText('.sw-item', 'غيّر الـ PIN');
+await page.waitForSelector('#pin-current');
+await page.type('#pin-current', '1234');
+await page.type('#pin-new', '4321');
+await page.type('#pin-again', '4321');
+await page.keyboard.press('Enter');
+await sleep(300);
+check('the owner changes his PIN with his password', (await text('#toasts')).includes('اتغيّر'));
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over');
+await clickText('.lock.over .user-card', 'بيتر');
+await page.waitForSelector('.lock.over .pinpad');
+await page.keyboard.type('1111');
+await page.keyboard.press('Enter');
+await sleep(250);
+const oldPinRefused = (await count('.lock.over')) === 1;
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 });
+check('the old PIN stops working and the new one works', oldPinRefused && (await chipName()).includes('بيتر'));
+
 // --- the owner changes the look --------------------------------------------
-await clickText('.rail .nav-btn', 'خروج');
-await page.waitForSelector('.lock-card');
-await signIn('بيتر');
 const ownerRail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
 check('the owner sees المخزن and الإعدادات', ownerRail.includes('المخزن') && ownerRail.includes('الإعدادات'));
 await clickText('.rail .nav-btn', 'الإعدادات');
@@ -162,6 +234,43 @@ await sleep(300);
 check('the box look is applied and stored', (await page.$eval('html', (h) => h.dataset.look)) === 'box');
 await shot('07-settings-box');
 await clickText('.swatch', '');
+
+// the owner sets a seller's PIN in المستخدمين (his password first), and she signs in with it
+await clickText('.users button', 'تحديث');
+await page.waitForSelector('li.item', { timeout: 3000 });
+for (const item of await page.$$('li.item')) {
+  if (!(await item.evaluate((n) => n.textContent ?? '')).includes('مارينا')) continue;
+  for (const b of await item.$$('button')) {
+    if ((await b.evaluate((n) => n.textContent ?? '')).includes('PIN الدخول')) {
+      await b.click();
+      break;
+    }
+  }
+  break;
+}
+await page.waitForSelector('#user-pin');
+await page.type('#user-pin', '5555');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.overlay form.modal input[type=password]');
+await page.type('.overlay form.modal input[type=password]', '1234');
+await page.keyboard.press('Enter');
+await sleep(400);
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over');
+await clickText('.lock.over .user-card', 'مارينا');
+await page.waitForSelector('.lock.over .pinpad');
+await page.keyboard.type('5555');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 }).catch(() => {});
+check("the owner sets a seller's PIN (with his password) and she signs in with it", (await chipName()).includes('مارينا'));
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyL');
+await page.keyboard.up('Control');
+await page.waitForSelector('.lock.over');
+await signIn('بيتر', '4321');
+
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('.tile');
 await shot('08-pos-box');
