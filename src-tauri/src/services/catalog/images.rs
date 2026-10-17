@@ -41,7 +41,7 @@ pub enum ImageServiceError {
 
 impl ImageServiceError {
     #[must_use]
-    pub const fn code(&self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Identity(e) => e.code(),
             Self::Catalog(e) => e.code(),
@@ -49,6 +49,7 @@ impl ImageServiceError {
         }
     }
 }
+
 
 impl fmt::Display for ImageServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
