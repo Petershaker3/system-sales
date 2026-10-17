@@ -15,6 +15,7 @@ import {
   moveSelection,
   newCart,
   removeLine,
+  reprice,
   setQuantity,
   switchTo,
   totals,
@@ -139,4 +140,17 @@ test('change is due only when the cash covers the total', () => {
   assert.equal(changeDue(15000, 20000), 5000);
   assert.equal(changeDue(15000, 15000), 0);
   assert.equal(changeDue(15000, 10000), null);
+});
+
+test('a fresh catalogue reprices open lines and drops what can no longer be sold', () => {
+  const cart = newCart();
+  addProduct(cart, charger);
+  addProduct(cart, cable);
+  hold(cart);
+  addProduct(cart, cable);
+  const dropped = reprice(cart, [{ ...cable, priceMinor: 6000 }]);
+  assert.deepEqual(dropped, ['شاحن']);
+  assert.equal(cart.invoices[0]?.lines.length, 1);
+  assert.equal(cart.invoices[0]?.lines[0]?.unitPriceMinor, 6000);
+  assert.equal(current(cart).lines[0]?.unitPriceMinor, 6000);
 });

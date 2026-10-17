@@ -36,15 +36,24 @@ const devHost = process.env['TAURI_DEV_HOST'];
 const platform = process.env['TAURI_ENV_PLATFORM'];
 const isDebug = process.env['TAURI_ENV_DEBUG'] !== undefined;
 
-export default defineConfig({
+// `--mode demo` builds the browser demo (src/dev/demo-backend.ts): the screens
+// on an in-memory stand-in for Rust, served to any host so it can be previewed.
+// It is never used by Tauri, and its output goes to `dist-demo/`, apart from the
+// `dist/` that Tauri embeds and the architecture tests inspect.
+export default defineConfig(({ mode }) => {
+  const demo = mode === 'demo';
+  return {
   plugins: [vue()],
+
+  ...(demo ? { define: { 'import.meta.env.VITE_DEMO': JSON.stringify('1') } } : {}),
 
   server: {
     // Tauri expects a fixed port and fails fast if it is unavailable, because
     // a silent fallback would leave the app loading the wrong dev server.
     port: 5173,
     strictPort: true,
-    host: devHost || false,
+    host: demo ? '0.0.0.0' : devHost || false,
+    ...(demo ? { allowedHosts: true as const } : {}),
     // `exactOptionalPropertyTypes` forbids passing an explicit `undefined`, so
     // the key is spread in only when there is something to pass.
     ...(devHost ? { hmr: { protocol: 'ws', host: devHost, port: 1421 } } : {}),
@@ -63,7 +72,10 @@ export default defineConfig({
     // Do not minify debug builds so stack traces stay readable on device.
     minify: !isDebug,
     sourcemap: isDebug,
-    outDir: 'dist',
+    outDir: demo ? 'dist-demo' : 'dist',
     emptyOutDir: true,
   },
+
+  preview: demo ? { host: '0.0.0.0', port: 4173, allowedHosts: true as const } : {},
+  };
 });

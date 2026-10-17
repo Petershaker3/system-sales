@@ -1,0 +1,24 @@
+/* The lock screen and the PIN pad.
+   Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
+   class names and values are kept so the real screens match the mockup (DESIGN.md). */
+/* ===== شاشة القفل ===== */
+.lock {
+  position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; overflow: auto;
+  background: var(--bg);
+}
+.lock-card { width: min(540px, 96vw); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); padding: 26px 28px; box-shadow: var(--shadow); text-align: center; }
+.lock-card .logo { margin: 0 auto 8px; width: 60px; height: 60px; border-radius: var(--r-l); font-size: 1.5rem; }
+.lock-card h1 { margin: 4px 0 2px; font-size: 1.5rem; line-height: 1.2; }
+.users { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.user-card { border: 1.5px solid var(--border); border-radius: var(--r-l); padding: 16px 8px 12px; display: grid; justify-items: center; gap: 6px; background: var(--surface); }
+.user-card:hover { border-color: var(--accent-text); background: var(--accent-weak); }
+.user-card small { color: var(--muted); }
+.pin-dots { display: flex; gap: 14px; justify-content: center; margin: 16px 0 6px; direction: ltr; }
+.pin-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); }
+.pin-dots i.on { background: var(--accent-fill); border-color: var(--accent-fill); }
+.numpad { display: grid; grid-template-columns: repeat(3, 76px); gap: 10px; justify-content: center; direction: ltr; margin-top: 12px; }
+.numpad button { height: 58px; border-radius: var(--r-m); border: 1px solid var(--border); background: var(--surface-2); font-size: 1.35rem; font-weight: 600; display: grid; place-items: center; }
+.numpad button:hover { background: var(--surface-3); }
+.demo-hint { margin-top: 16px; font-size: .8rem; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--r-s); padding: 6px 10px; }
+.shake { animation: shake .38s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }

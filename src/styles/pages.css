@@ -1,0 +1,134 @@
+/* Pages: cards, tables, page heads.
+   Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
+   class names and values are kept so the real screens match the mockup (DESIGN.md). */
+/* ===== صفحات ===== */
+.page { padding: 18px 20px 28px; display: flex; flex-direction: column; gap: 16px; min-height: 100%; }
+.page-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.page-h h2 { margin: 0; font-size: 1.2rem; line-height: 1.3; }
+.page-h .sub { color: var(--muted); font-size: .88rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); padding: 16px; min-width: 0; }
+.card h3 { margin: 0 0 12px; font-size: .96rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.kpi .label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .85rem; }
+.kpi .value { font-size: 1.45rem; font-weight: 700; margin: 6px 0 4px; }
+.kpi .sub { font-size: .8rem; display: flex; align-items: center; gap: 4px; }
+.kpi .sub svg.i { width: 15px; height: 15px; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; }
+.bars { display: flex; align-items: flex-end; gap: 10px; height: 200px; padding-top: 8px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; min-width: 0; }
+.bar { width: 100%; max-width: 46px; border-radius: var(--r-xs) var(--r-xs) 0 0; background: color-mix(in srgb, var(--accent-text) 32%, var(--surface)); }
+.bar.today { background: var(--accent-fill); }
+.bar-col .bv, .bar-col .bl { font-size: .8rem; color: var(--muted); max-width: 100%; text-align: center; overflow-wrap: anywhere; }
+.split { display: flex; height: 14px; border-radius: var(--r-s); overflow: hidden; gap: 2px; margin-bottom: 12px; }
+.split i { height: 100%; }
+.li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: .9rem; min-width: 0; }
+.li:last-child { border-bottom: 0; }
+.rank { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-3); display: inline-grid; place-items: center; font-size: .8rem; font-weight: 700; flex: none; }
+.table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface); }
+table.t { width: 100%; border-collapse: collapse; font-size: .88rem; }
+table.t th { text-align: start; padding: 10px 12px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+table.t td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.t tr:last-child td { border-bottom: 0; }
+table.t tr.hov:hover td { background: var(--surface-2); }
+table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7px 12px; }
+.t-ico { width: 32px; height: 32px; border-radius: var(--r-s); background: var(--surface-3); color: var(--text-2); display: grid; place-items: center; flex: none; }
+.t-ico svg.i { width: 17px; height: 17px; }
+.pic { position: relative; width: 36px; height: 36px; border-radius: var(--r-s); border: 1px solid var(--border); background: var(--surface-3); color: var(--text-2); display: grid; place-items: center; flex: none; padding: 0; overflow: hidden; }
+.pic.has { background: var(--surface-2); }
+.pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pic svg.i { width: 17px; height: 17px; }
+.pic .cam { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(15, 23, 42, .55); color: #fff; opacity: 0; transition: opacity .12s; }
+.pic:hover .cam, .pic:focus-visible .cam { opacity: 1; }
+.exp-sp { width: 32px; flex: none; }
+.imei-cnt { display: block; font-size: .8rem; font-weight: 500; }
+/* مسافة جوّه منطقة التمرير، وهامش سالب بنفس القدر عشان العمود الأول يفضل على خط عنوان الصفحة */
+.kanban { display: grid; grid-template-columns: repeat(5, minmax(236px, 1fr)); gap: 16px; overflow-x: auto; align-items: start; padding: 0 12px 6px; margin-inline: -12px; }
+.kcol { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.kh { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .9rem; padding: 2px 2px 8px; border-bottom: 1px solid var(--border-strong); }
+.kh svg.i { color: var(--muted); }
+.kh .cnt { margin-inline-start: auto; font-size: .8rem; color: var(--muted); font-weight: 600; }
+.ticket { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); padding: 10px; display: grid; gap: 5px; font-size: .84rem; min-width: 0; }
+/* حالة التذكرة بيبيّنها العمود نفسه — المسلّمة أرضيتها أهدى من غير شفافية (عشان الكلام يفضل مقروء) */
+.ticket.delivered { background: var(--surface-2); }
+.tk-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ticket .dev { font-weight: 700; overflow-wrap: anywhere; }
+.ticket .iss { color: var(--text-2); overflow-wrap: anywhere; }
+.ticket .who { color: var(--muted); font-size: .8rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ticket .who svg.i { width: 14px; height: 14px; }
+.ticket .note-s { color: var(--warn); font-size: .8rem; display: flex; gap: 4px; align-items: flex-start; }
+.ticket .note-s svg.i { width: 14px; height: 14px; margin-top: 2px; }
+.money-row { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: .8rem; color: var(--text-2); }
+.tk-f { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.k-empty { color: var(--muted); text-align: center; padding: 14px; font-size: .8rem; }
+.settings { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
+.s-nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; }
+.s-nav button { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--r-s); border: 0; background: transparent; text-align: start; font-weight: 600; color: var(--text-2); }
+.s-nav button:hover { background: var(--surface-3); }
+.s-nav button.on { background: var(--accent-weak); color: var(--accent-text); }
+.s-sec { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.s-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.s-row:last-of-type { border-bottom: 0; }
+.s-row .t { flex: 1; min-width: 200px; }
+.s-row .t b { display: flex; align-items: center; gap: 6px; }
+.s-row .t small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; display: grid; place-items: center; padding: 0; }
+.swatch.on { outline: 2px solid var(--text); outline-offset: 2px; }
+.color-in { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 4px 10px; cursor: pointer; font-size: .85rem; font-weight: 600; }
+.color-in input { width: 28px; height: 28px; border: 0; padding: 0; background: none; cursor: pointer; }
+.font-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; flex: 1; min-width: 280px; }
+.font-card { border: 1.5px solid var(--border); border-radius: var(--r-m); padding: 10px 12px; background: var(--surface); text-align: start; display: grid; gap: 2px; }
+.font-card .fs { font-size: 1.1rem; }
+.font-card small { color: var(--muted); font-family: var(--font); }
+.font-card.on { border-color: var(--accent-text); background: var(--accent-weak); }
+.look-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; flex: 1; min-width: 280px; }
+.look-card {
+  border: 1.5px solid var(--border); border-radius: var(--r-m); padding: 10px; background: var(--surface); text-align: start;
+  display: grid; gap: 4px; color: var(--text);
+}
+.look-card:hover { border-color: var(--border-strong); }
+.look-card.on { border-color: var(--accent-text); background: var(--accent-weak); }
+.look-card b { font-size: .95rem; }
+.look-card small { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+/* المعاينة: شريط جانبي + صنفين + زرار دفع، بستايل كل طابع */
+.lk { display: grid; grid-template-columns: 1fr 1fr 22px; grid-template-rows: 30px 14px; gap: 5px; height: 64px; padding: 7px; margin-bottom: 4px; direction: rtl; }
+.lk i { display: block; }
+.lk-rail { grid-row: 1 / 3; grid-column: 3; }
+.lk-pay { grid-column: 1 / 3; grid-row: 2; }
+.lk-plate { background: color-mix(in srgb, var(--accent) 6%, #eceef0); border-radius: 6px; }
+.lk-plate .lk-rail, .lk-plate .lk-pay { background: var(--accent-fill); border-radius: 4px; outline: 1px solid color-mix(in srgb, var(--on-accent) 65%, transparent); outline-offset: -3px; }
+.lk-plate .lk-a, .lk-plate .lk-b { background: #ffffff; border: 1px solid #d3d8de; border-radius: 4px; }
+.lk-box { background: #ffffff; border: 1px solid #c9cbcf; border-top: 4px solid var(--accent-fill); border-radius: 3px; }
+.lk-box .lk-rail { background: #ffffff; border-inline-start: 1px solid #c9cbcf; }
+.lk-box .lk-a, .lk-box .lk-b { background: #ffffff; border: 1px solid #18191b; border-radius: 2px; }
+.lk-box .lk-pay { background: var(--accent-fill); border-radius: 2px; }
+.preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+.logo-up { display: flex; gap: 12px; align-items: center; }
+.logo-up .logo { width: 64px; height: 64px; border-radius: var(--r-l); font-size: 1.5rem; }
+.qr-box { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.pair-qr { border-radius: var(--r-s); padding: 6px; background: #fff; border: 1px solid var(--border); }
+.cat-list { display: grid; gap: 4px; }
+.cat-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto auto auto 32px; gap: 8px; align-items: center; padding: 5px 8px; border-radius: var(--r-m); }
+.cat-row:hover { background: var(--surface-2); }
+.cat-row.sub { margin-inline-start: 34px; }
+.cat-row.off .t-ico, .cat-row.off .cat-name, .cat-row.off .cat-n { opacity: .5; }
+.cat-name { height: 36px; min-width: 0; width: 100%; border: 1px solid transparent; border-radius: var(--r-s); padding: 0 10px; background: transparent; font-weight: 600; }
+.cat-row:hover .cat-name, .cat-name:focus { border-color: var(--border-strong); background: var(--surface); }
+.cat-name:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.cat-row .cat-n { font-size: .8rem; white-space: nowrap; }
+.cat-del-sp { width: 32px; }
+.cat-add { display: grid; grid-template-columns: minmax(0, 1fr) 220px auto; gap: 10px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.cat-add .btn { height: 44px; }
+.icon-pick { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+/* ===== باقي الشاشات (المرحلة 3 — docs/ui/REDESIGN.md) ===== */
+/* التقارير: المؤشرات شريط واحد بفواصل رفيعة بدل كروت متطابقة */
+.cards:has(> .kpi) { gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-l); overflow: hidden; }
+.cards > .kpi.card { border: 0; border-radius: 0; border-inline-start: 1px solid var(--border); }
+.cards > .kpi.card:first-child { border-inline-start: 0; }
+.kpi .value { font-size: 1.6rem; }
+/* الملاحظة جوّه كارت: سطر هادي بأيقونة، مش صندوق جوّه صندوق */
+.card .note { background: transparent; border: 0; padding: 0; }
+.card .note.warn { background: transparent; border: 0; color: var(--warn); }
+/* شاشات الموبايل: قوايم بفواصل رفيعة بدل كروت جوّه الموبايل */
+.ph-card, .ph-item, .ph-sale { background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding-inline: 2px; }
+.ph-sale.fresh { background: var(--accent-weak); border-color: var(--border); padding-inline: 8px; }

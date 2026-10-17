@@ -19,8 +19,9 @@ export interface SellableProduct {
 
 export interface CartLine {
   readonly productId: string;
-  readonly name: string;
-  readonly unitPriceMinor: number;
+  name: string;
+  /** The catalogue price when the line was added; refreshed by `reprice`. */
+  unitPriceMinor: number;
   quantity: number;
 }
 
@@ -200,4 +201,28 @@ export function closePaid(state: CartState): void {
 /** Change for a cash payment, or `null` when the cash does not cover the total. */
 export function changeDue(totalMinor: number, cashMinor: number): number | null {
   return cashMinor >= totalMinor ? cashMinor - totalMinor : null;
+}
+
+/**
+ * Bring every open invoice in line with a freshly read catalogue: new prices
+ * and names are taken, and lines whose product can no longer be sold (archived,
+ * or its price removed) are dropped. Returns the names of the dropped lines.
+ */
+export function reprice(state: CartState, catalogue: readonly SellableProduct[]): string[] {
+  const byId = new Map(catalogue.map((product) => [product.id, product]));
+  const dropped: string[] = [];
+  for (const inv of state.invoices) {
+    inv.lines = inv.lines.filter((line) => {
+      const product = byId.get(line.productId);
+      if (product === undefined || product.priceMinor === null) {
+        dropped.push(line.name);
+        return false;
+      }
+      line.unitPriceMinor = product.priceMinor;
+      line.name = product.name;
+      return true;
+    });
+  }
+  state.selected = Math.min(state.selected, current(state).lines.length - 1);
+  return dropped;
 }

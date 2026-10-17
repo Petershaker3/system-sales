@@ -1,0 +1,28 @@
+/* The panels written before the redesign (src/components/*), hosted inside the
+   new screens until each screen is rebuilt from the mockup. They keep their own
+   markup; this file only makes them read in both looks and both themes: their
+   scoped styles hard-code light greys and a white modal. Delete a rule here when
+   the panel it serves is replaced. */
+.legacy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 12px; align-items: start; }
+.legacy-panel > section, .legacy-panel > div { margin: 0 !important; padding: 0 !important; border: 0 !important; }
+.legacy-panel h2 { font-size: 1.05rem !important; margin: 0 0 12px !important; }
+.legacy-panel h3, .legacy-panel h4 { font-size: .96rem !important; }
+.legacy-panel .hint { color: var(--muted) !important; font-size: .84rem; }
+.legacy-panel .error { color: var(--danger) !important; border-color: color-mix(in srgb, var(--danger) 45%, transparent) !important; border-radius: var(--r-s); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.legacy-panel .notice { color: var(--ok) !important; border-color: color-mix(in srgb, var(--ok) 45%, transparent) !important; border-radius: var(--r-s); }
+.legacy-panel .field { margin-bottom: 10px; }
+.legacy-panel .field > span { font-size: .82rem; font-weight: 600; color: var(--text-2); }
+.legacy-panel select, .legacy-panel input:not([type="checkbox"]):not([type="radio"]) {
+  height: 40px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 10px; background: var(--surface); color: var(--text); width: 100%;
+}
+.legacy-panel button:not([class]), .legacy-panel button.link, .legacy-panel .row > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 14px;
+  border-radius: var(--r-s); border: 1px solid var(--border-strong); background: var(--surface); font-weight: 600; color: var(--text);
+}
+.legacy-panel button:not([class]):hover { background: var(--surface-3); }
+.legacy-panel button[type="submit"]:not([class]) { background: var(--accent-fill); border-color: var(--accent-text); color: var(--on-accent); }
+.legacy-panel button:disabled { opacity: .45; cursor: not-allowed; }
+.legacy-panel .form, .legacy-panel .layers, .legacy-panel .item, .legacy-panel li { border-color: var(--border) !important; }
+.legacy-panel .modal { background: var(--surface) !important; color: var(--text); border-radius: var(--r-l); padding: 16px !important; box-shadow: var(--shadow); }
+.legacy-panel dl { margin: 0 0 10px; }
+.legacy-panel dt { color: var(--muted); }

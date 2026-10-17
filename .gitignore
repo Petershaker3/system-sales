@@ -73,3 +73,6 @@ adb-status-evidence.txt
 # NOTE: `src-tauri/icons/` and `src-tauri/app-icon/` are deliberately NOT ignored.
 # They are build inputs, not artifacts, so a fresh clone builds identically.
 # The current set is a neutral placeholder until final branding is decided.
+
+# ── Browser demo build (npm run build:demo); never shipped ──
+dist-demo/

@@ -4,25 +4,27 @@
 // Three states, decided once at start-up and never guessed:
 //   1. first-run setup  — the database has no accounts
 //   2. login            — accounts exist, nobody is signed in
-//   3. shell            — an operator is signed in
+//   3. shell            — an operator is signed in (AppShell: rail, top bar,
+//                         and the screens of the approved mockup)
+//
+// The sign-in screens wear the mockup's lock-screen card: pick who is working,
+// then the password. (A PIN per user and quick switching are plan item 1.1,
+// waiting at the decision gate; until then it is the account password.)
 //
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
-import { defineAsyncComponent, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import * as api from './api/identity';
 import { describeError } from './api/errors';
 import type { Session, UserSummary } from './api/identity';
-import CatalogPanel from './components/CatalogPanel.vue';
-import BackupPanel from './components/BackupPanel.vue';
-import CustomerPanel from './components/CustomerPanel.vue';
-import DepartmentsPanel from './components/DepartmentsPanel.vue';
 import ForcedPasswordChange from './components/ForcedPasswordChange.vue';
-import SettingsPanel from './components/SettingsPanel.vue';
-import StockPanel from './components/StockPanel.vue';
-import SalesPanel from './components/SalesPanel.vue';
-import UserManagement from './components/UserManagement.vue';
 import * as lifecycle from './api/lifecycle';
+import AppShell from './shell/AppShell.vue';
+import { avatarColour, roleName } from './shell/nav';
+import Icon from './ui/Icon.vue';
+import Toasts from './ui/Toasts.vue';
+import { toast } from './ui/toast';
 
 type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
 
@@ -183,201 +185,155 @@ function afterForcedChange(): void {
   error.value = '';
 }
 
-function roleLabel(role: string): string {
-  return role === 'manager' ? 'مدير' : 'مبيعات';
+/** The browser demo's sign-in hint; an empty string (and no text) in real builds. */
+const demoHint =
+  import.meta.env.VITE_DEMO === '1'
+    ? 'للتجربة بس: كلمة السر لكل الحسابات 1234. البيانات وهمية ومش بتتحفظ.'
+    : '';
+
+/** Users who can sign in, in the order Rust lists them. */
+const loginUsers = computed(() => users.value.filter((user) => !user.disabled));
+const selectedUser = computed(() => users.value.find((user) => user.id === selectedId.value) ?? null);
+/** Login step: pick a person first, then the password (mockup lock screen). */
+const picked = ref(false);
+
+function pickUser(id: string): void {
+  selectedId.value = id;
+  picked.value = true;
+  password.value = '';
+  error.value = '';
+}
+
+function backToPeople(): void {
+  picked.value = false;
+  password.value = '';
+  error.value = '';
+}
+
+async function afterSignOut(): Promise<void> {
+  picked.value = false;
+  await signOut();
+  if (view.value === 'login') toast('اتسجّل الخروج', 'info');
 }
 
 onMounted(decideView);
 </script>
 
 <template>
-  <main class="screen">
-    <h1 class="title">نظام نقطة البيع</h1>
+  <AppShell
+    v-if="view === 'shell' && session"
+    :session="session"
+    :busy="busy"
+    @sign-out="afterSignOut"
+  />
 
-    <p v-if="view === 'loading'" class="hint">جارٍ التحميل…</p>
+  <div v-else class="lock">
+    <div class="lock-card" :class="{ shake: error !== '' && view === 'login' && picked }">
+      <div class="logo" aria-hidden="true">م</div>
+      <h1>نقطة البيع</h1>
 
-    <!-- State 1: no accounts exist yet. One-time only; Rust enforces that. -->
-    <section v-else-if="view === 'setup'" class="panel">
-      <h2 class="panel-title">الإعداد لأول مرة</h2>
-      <p class="hint">
-        لا يوجد أي مستخدم على هذا الجهاز. أنشئ حساب المدير الأول.
-      </p>
+      <p v-if="view === 'loading'" class="muted">لحظة واحدة…</p>
 
-      <form @submit.prevent="submitSetup">
-        <label class="field">
-          <span>اسم المدير</span>
-          <input v-model="displayName" autocomplete="off" required />
-        </label>
-
-        <label class="field">
-          <span>كلمة المرور</span>
-          <input v-model="password" type="password" autocomplete="new-password" required minlength="8" />
-        </label>
-
-        <p class="hint">ثمانية أحرف على الأقل.</p>
-        <button type="submit" :disabled="busy">إنشاء الحساب</button>
-      </form>
-    </section>
-
-    <!-- State 2: accounts exist, nobody signed in. -->
-    <section v-else-if="view === 'login'" class="panel">
-      <h2 class="panel-title">تسجيل الدخول</h2>
-
-      <label class="field">
-        <span>اختر المستخدم</span>
-        <select v-model="selectedId">
-          <option v-for="user in users" :key="user.id" :value="user.id">
-            {{ user.displayName }} — {{ user.username }} — {{ roleLabel(user.role) }}
-          </option>
-        </select>
-      </label>
-
-      <form @submit.prevent="submitLogin">
-        <label class="field">
-          <span>كلمة المرور</span>
-          <input v-model="password" type="password" autocomplete="current-password" required />
-        </label>
-        <button type="submit" :disabled="busy">دخول</button>
+      <!-- State 1: no accounts exist yet. One-time only; Rust enforces that. -->
+      <form v-else-if="view === 'setup'" class="stack auth-form" @submit.prevent="submitSetup">
+        <div class="muted">أول تشغيل على الجهاز ده: اعمل حساب المالك.</div>
+        <div class="field">
+          <label for="setup-name">اسم المالك</label>
+          <input id="setup-name" v-model="displayName" autocomplete="off" required />
+        </div>
+        <div class="field">
+          <label for="setup-pass">كلمة السر</label>
+          <input id="setup-pass" v-model="password" type="password" autocomplete="new-password" required minlength="8" />
+          <span class="hint">ثمانية حروف على الأقل.</span>
+        </div>
+        <button type="submit" class="btn primary lg block" :disabled="busy">اعمل الحساب وادخل</button>
       </form>
 
-      <!--
-        Recovery builds only. `RecoveryPanel` is null in a default production
-        build, so this renders nothing there; the guard is that the Rust commands
-        do not exist at all.
-      -->
-      <component :is="RecoveryPanel" v-if="RecoveryPanel" />
-    </section>
+      <!-- State 2: accounts exist, nobody signed in. Pick a person, then the password. -->
+      <template v-else-if="view === 'login'">
+        <template v-if="!picked || !selectedUser">
+          <div class="muted">مين هيشتغل دلوقتي؟</div>
+          <div class="users">
+            <button
+              v-for="user in loginUsers"
+              :key="user.id"
+              type="button"
+              class="user-card"
+              @click="pickUser(user.id)"
+            >
+              <span class="avatar lg" :style="{ background: avatarColour(user.id) }">{{ user.displayName.charAt(0) }}</span>
+              <b>{{ user.displayName }}</b>
+              <small>{{ roleName(user.role) }} · <bdi dir="ltr">{{ user.username }}</bdi></small>
+            </button>
+          </div>
+        </template>
+        <form v-else class="stack auth-form" @submit.prevent="submitLogin">
+          <div class="who-row">
+            <button type="button" class="icon-btn sm" title="رجوع" @click="backToPeople"><Icon name="arrow-right" /></button>
+            <span class="avatar lg" :style="{ background: avatarColour(selectedUser.id) }">{{ selectedUser.displayName.charAt(0) }}</span>
+            <span class="t"><b>{{ selectedUser.displayName }}</b><small>{{ roleName(selectedUser.role) }}</small></span>
+          </div>
+          <div class="field">
+            <label for="login-pass">كلمة السر</label>
+            <input
+              id="login-pass"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              autofocus
+            />
+          </div>
+          <button type="submit" class="btn primary lg block" :disabled="busy">دخول</button>
+        </form>
 
-    <!--
-      State 3: signed in, but the backend requires a password change first. The
-      backend refuses every other command in this state, so this screen is not a
-      convenience and has no exit by design.
-    -->
-    <ForcedPasswordChange
-      v-else-if="view === 'forced-change'"
-      @changed="afterForcedChange"
-    />
-
-    <!-- State 4: an operator is signed in. -->
-    <section v-else class="panel">
-      <h2 class="panel-title">مرحبًا {{ session?.displayName }}</h2>
-      <dl class="facts">
-        <dt>الدور</dt>
-        <dd>{{ session ? roleLabel(session.role) : '' }}</dd>
-        <dt>مستوى التأكيد</dt>
-        <dd>{{ session?.assurance === 'reauthenticated' ? 'مُعاد التحقق' : 'عادي' }}</dd>
-      </dl>
-      <p class="hint">
-        تُعرّف هذه الشريحة هوية المستخدمين والمنتجات. أما المخزون والبيع ومسح
-        الباركود فتأتي في شريحتين لاحقتين.
-      </p>
-
-      <!--
-        The catalogue is shown to managers only. Rust refuses a sales user
-        regardless (`Permission::ManageCatalog`), so hiding the panel here is
-        presentation that matches the enforced rule rather than the rule
-        itself — `spec:210` keeps hiding a screen distinct from securing it.
-      -->
-      <CatalogPanel v-if="session?.role === 'manager'" />
-
-      <UserManagement v-if="session?.role === 'manager'" />
-
-      <DepartmentsPanel v-if="session?.role === 'manager'" />
-
-      <!--
-        Customer file. Browsing is manager-only (`Permission::ManageCustomers`);
-        hiding it from sales matches the enforced rule rather than being the
-        rule itself — `spec:210` keeps hiding a screen distinct from securing
-        it. Sales-side invoice-time entry rides on `Sell` and arrives with the
-        sale link (P5).
-      -->
-      <CustomerPanel v-if="session?.role === 'manager'" />
-
-      <!-- Sales: recording is open to both manager and sales (Sell); cancellation
-        is manager-only (CancelTransaction), hidden in presentation. -->
-      <SalesPanel
-        :can-cancel="session?.role === 'manager'"
-        :can-browse-customers="session?.role === 'manager'"
-      />
+        <!--
+          Recovery builds only. `RecoveryPanel` is null in a default production
+          build, so this renders nothing there; the guard is that the Rust commands
+          do not exist at all.
+        -->
+        <component :is="RecoveryPanel" v-if="RecoveryPanel" />
+      </template>
 
       <!--
-        Stock and costing. Shown to managers only, matching the enforced
-        `Permission::ManageInventory`; the backend refuses a sales user
-        regardless of what the DOM offers (`spec:210`).
+        State 3: signed in, but the backend requires a password change first. The
+        backend refuses every other command in this state, so this screen is not a
+        convenience and has no exit by design.
       -->
-      <StockPanel v-if="session?.role === 'manager'" />
+      <div v-else-if="view === 'forced-change'" class="legacy-panel auth-form">
+        <ForcedPasswordChange @changed="afterForcedChange" />
+      </div>
 
-      <SettingsPanel v-if="session?.role === 'manager'" />
+      <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
+      <div v-if="demoHint && view === 'login'" class="demo-hint">{{ demoHint }}</div>
+    </div>
+  </div>
 
-      <!--
-        Encrypted backup (P2a, ADR-003). Manager-only (`ManageSettings`,
-        blanket re-authenticated); the backend refuses anyone else. Restore
-        never restarts automatically: the panel tells the operator to restart
-        manually, on success and on failure alike.
-      -->
-      <BackupPanel v-if="session?.role === 'manager'" />
-
-      <button type="button" :disabled="busy" @click="signOut">تسجيل الخروج</button>
-    </section>
-
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-  </main>
+  <Toasts />
 </template>
 
-<style>
-/* `.field`, `.hint` and `.error` are shared vocabulary — App itself plus every
-   panel (CatalogPanel, UserManagement, DepartmentsPanel, SettingsPanel) uses
-   them. Scoped styles in this root component never reach a child component's
-   markup, so these three rules are global by necessity: an unscoped block is
-   the fix for children rendering unstyled. Everything below the next block
-   stays scoped because only this screen uses it. */
-.field {
-  display: block;
-  margin-bottom: 0.9rem;
+<style scoped>
+.auth-form {
+  text-align: start;
+  margin-top: 16px;
 }
-.field span {
-  display: block;
-  margin-bottom: 0.25rem;
+.who-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.field input,
-.field select {
-  width: 100%;
-  padding: 0.5rem;
-  font: inherit;
+.who-row .t {
+  display: grid;
+  line-height: 1.25;
+}
+.who-row small {
+  color: var(--muted);
+}
+.auth-error {
+  margin-top: 12px;
 }
 .hint {
-  color: #555;
-  font-size: 0.9rem;
-}
-.error {
-  margin-top: 1rem;
-  padding: 0.6rem;
-  border: 1px solid #b00;
-  color: #b00;
-}
-</style>
-
-<style scoped>
-/* Minimal on purpose. Visual design is a later slice; committing to a look
-   now would be deciding something nobody has decided. The only requirement met
-   here is legibility of Arabic text at RTL. */
-.screen {
-  font-family: system-ui, 'Segoe UI', sans-serif;
-  padding: 1.5rem;
-  max-width: 34rem;
-  margin: 0 auto;
-}
-.title {
-  font-size: 1.4rem;
-  margin: 0 0 1.5rem;
-}
-.panel-title {
-  font-size: 1.1rem;
-  margin: 0 0 0.75rem;
-}
-.facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.25rem 1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 </style>

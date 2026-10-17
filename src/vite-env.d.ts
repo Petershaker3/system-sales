@@ -18,6 +18,15 @@ interface ImportMetaEnv {
    * calls do not exist at all.
    */
   readonly VITE_RECOVERY?: string;
+  /**
+   * Builds the browser demo: an in-memory stand-in for the Rust backend
+   * (src/dev/demo-backend.ts) so the screens can be seen in a plain browser.
+   *
+   * Unset by default. The production bundle and every Tauri build leave the
+   * demo code out entirely, by the same dead-branch rule as above. Nothing in
+   * the demo is persisted, and every screen says it shows demo data.
+   */
+  readonly VITE_DEMO?: string;
 }
 
 interface ImportMeta {

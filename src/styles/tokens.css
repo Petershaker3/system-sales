@@ -1,0 +1,103 @@
+/* Tokens: the two looks × light/dark, the shop colour, fonts, base elements.
+   Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
+   class names and values are kept so the real screens match the mockup (DESIGN.md). */
+:root {
+  --accent: #1d4f91;
+  --accent-fill: var(--accent); --on-accent: #ffffff;
+  --accent-text: color-mix(in srgb, var(--accent) 85%, #000000);
+  --accent-weak: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --ok: #17683f; --warn: #8a5000; --danger: #b42318;
+  --font-plate: 'Changa', 'Segoe UI', Tahoma, sans-serif;
+  --font-box: 'Vazirmatn', 'Segoe UI', Tahoma, sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  /* ظل واحد بس، للحاجات اللي بتطلع فوق الشاشة (نوافذ وقوايم ورسايل) — الكروت من غير ظل */
+  --shadow: 0 1px 2px rgba(17, 20, 26, .08), 0 16px 36px -12px rgba(17, 20, 26, .32);
+}
+/* «لافتة الشارع»: أرضية هادية فيها لمسة من لون المحل، وأسطح بيضا بخط رفيع، وحواف 6 */
+html[data-look="plate"] {
+  --font-look: var(--font-plate); --lh: 1.42;
+  --bg: color-mix(in srgb, var(--accent) 5%, #eceef0);
+  --surface: #ffffff;
+  --surface-2: color-mix(in srgb, var(--accent) 3%, #f6f7f8);
+  --surface-3: color-mix(in srgb, var(--accent) 7%, #edeff1);
+  --border: color-mix(in srgb, var(--accent) 10%, #d8dce1);
+  --border-strong: color-mix(in srgb, var(--accent) 14%, #b8bfc7);
+  --text: color-mix(in srgb, var(--accent) 12%, #15181d);
+  --text-2: color-mix(in srgb, var(--accent) 12%, #363c45);
+  --muted: color-mix(in srgb, var(--accent) 10%, #545b65);
+  --r-xs: 3px; --r-s: 6px; --r-m: 6px; --r-l: 10px;
+}
+html[data-look="plate"][data-theme="dark"] {
+  --bg: color-mix(in srgb, var(--accent) 9%, #0e1114);
+  --surface: color-mix(in srgb, var(--accent) 7%, #161a1f);
+  --surface-2: color-mix(in srgb, var(--accent) 8%, #1b1f25);
+  --surface-3: color-mix(in srgb, var(--accent) 11%, #22272e);
+  --border: color-mix(in srgb, var(--accent) 13%, #2b3138);
+  --border-strong: color-mix(in srgb, var(--accent) 15%, #3c434c);
+  --text: color-mix(in srgb, var(--accent) 5%, #edf0f3);
+  --text-2: color-mix(in srgb, var(--accent) 6%, #c8cfd7);
+  --muted: color-mix(in srgb, var(--accent) 6%, #a6afb9);
+  --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
+  color-scheme: dark;
+}
+/* «علبة الموبايل»: أبيض وحبر وخطوط شعرة، وحواف 4، والستيكر ورقة بيضا بإطار حبر */
+html[data-look="box"] {
+  --font-look: var(--font-box); --lh: 1.5;
+  --bg: #eff0f1; --surface: #ffffff; --surface-2: #f7f7f8; --surface-3: #ebecee;
+  --border: #dadbde; --border-strong: #b3b6bb;
+  --text: #18191b; --text-2: #3a3c40; --muted: #5b5e64;
+  --ink-line: #18191b; --sticker-bg: #ffffff; --sticker-ink: #18191b;
+  --r-xs: 2px; --r-s: 4px; --r-m: 4px; --r-l: 8px;
+}
+html[data-look="box"][data-theme="dark"] {
+  --bg: #151618; --surface: #1d1e20; --surface-2: #222426; --surface-3: #2a2c2f;
+  --border: #35373b; --border-strong: #4b4e53;
+  --text: #f0f0ef; --text-2: #cfd0d2; --muted: #abaeb3;
+  --ink-line: #e9e9e6; --sticker-bg: #ecebe6; --sticker-ink: #18191b;
+  --ok: #4cc38a; --warn: #f0b04a; --danger: #ff7b72;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 18px 40px -12px rgba(0, 0, 0, .65);
+  color-scheme: dark;
+}
+/* سلسلة البيانات (تقسيم طرق الدفع في التقارير): 5 درجات من لون المحل بدل 5 ألوان مختلفة — والاسم والنسبة مكتوبين جنبها */
+html {
+  --c0: var(--accent-fill);
+  --c1: color-mix(in srgb, var(--accent-text) 72%, var(--surface));
+  --c2: color-mix(in srgb, var(--accent-text) 50%, var(--surface));
+  --c3: color-mix(in srgb, var(--accent-text) 32%, var(--surface));
+  --c4: color-mix(in srgb, var(--accent-text) 18%, var(--surface));
+}
+/* الخط: «خط الطابع» افتراضي، وباقي الخطوط اختيار من الإعدادات */
+html { --font: var(--font-look); }
+html[data-font="plex"] { --font: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, sans-serif; }
+html[data-font="cairo"] { --font: 'Cairo', 'Segoe UI', Tahoma, sans-serif; }
+html[data-font="tajawal"] { --font: 'Tajawal', 'Segoe UI', Tahoma, sans-serif; }
+html[data-font="readex"] { --font: 'Readex Pro', 'Segoe UI', Tahoma, sans-serif; }
+html { font-size: 15px; }
+html[data-scale="large"] { font-size: 17px; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: var(--font); background: var(--bg); color: var(--text); line-height: var(--lh);
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg.i { width: 18px; height: 18px; flex: none; }
+:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+::selection { background: var(--accent-fill); color: var(--on-accent); }
+input, textarea { caret-color: var(--accent-text); }
+::placeholder { color: var(--muted); opacity: 1; }
+.search-box input:focus-visible, .inline-search input:focus-visible, .field input:focus-visible,
+.field select:focus-visible, .field textarea:focus-visible, .cat-name:focus-visible { outline: none; }
+.muted { color: var(--muted); }
+.ok-t { color: var(--ok); } .warn-t { color: var(--warn); } .danger-t { color: var(--danger); }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); letter-spacing: 0; }
+.sp { flex: 1; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row.wrap { flex-wrap: wrap; }
+.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-s); border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 2px solid transparent; background-clip: padding-box; }

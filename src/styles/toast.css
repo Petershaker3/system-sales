@@ -1,0 +1,34 @@
+/* Toasts, smaller screens and the large text size.
+   Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
+   class names and values are kept so the real screens match the mockup (DESIGN.md). */
+/* ===== رسائل التنبيه ===== */
+#toasts { position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
+/* والنافذة مفتوحة: الرسايل فوق على جنب، عشان ما تغطيش كلام النافذة */
+body.has-modal #toasts { bottom: auto; top: 14px; left: auto; transform: none; inset-inline-start: 16px; align-items: flex-start; max-width: 340px; }
+body.has-modal .toast { max-width: 340px; }
+.toast {
+  background: #1b1d21; color: #ffffff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: var(--shadow);
+  display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: .9rem; max-width: 440px; animation: tin .18s ease-out; transition: opacity .3s, transform .3s;
+}
+.toast svg.i { color: #5ad19a; }
+.toast.err { background: #8f1d14; }
+.toast.err svg.i { color: #fecaca; }
+.toast.info svg.i { color: #9cc2ff; }
+html[data-theme="dark"] .toast { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong); }
+html[data-theme="dark"] .toast.err { background: #7a1a12; color: #ffffff; border-color: #a3291e; }
+.toast.out { opacity: 0; transform: translateY(6px); }
+@keyframes tin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ===== مقاسات أصغر وحجم كلام كبير ===== */
+html[data-scale="large"] .cart-actions .btn:not(.btn-pay) kbd { display: none; }
+@media (max-width: 1180px) {
+  .pos { grid-template-columns: minmax(0, 1fr) 390px; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .topbar .hide-sm { display: none; }
+  .cart-actions .btn:not(.btn-pay) kbd { display: none; }
+}
+@media (max-width: 980px) {
+  .pos { grid-template-columns: minmax(0, 1fr) 340px; }
+  .settings, .pay, .done-wrap, .shift, .intake, .preview-pair { grid-template-columns: minmax(0, 1fr); }
+  .s-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+}

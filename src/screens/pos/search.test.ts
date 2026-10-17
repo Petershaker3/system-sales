@@ -47,3 +47,15 @@ test('a long run of digits looks like a scan', () => {
   assert.equal(looksLikeCode('١٢٣٤٥٦٧'), true);
   assert.equal(looksLikeCode('20 وات'), false);
 });
+
+test('tile icons are guessed from the name, top-up cards before chargers', async () => {
+  const { iconFor } = await import('./icons.ts');
+  assert.equal(iconFor('شاحن سامسونج 25 وات'), 'battery-charging', 'the brand does not make it a phone');
+  assert.equal(iconFor('سامسونج A15'), 'smartphone');
+  assert.equal(iconFor('كارت شحن فودافون 50'), 'credit-card');
+  assert.equal(iconFor('كارت ميموري 64 جيجا'), 'memory-stick');
+  assert.equal(iconFor('جراب سيليكون'), 'package');
+  assert.equal(iconFor('حاجة تانية'), 'tag');
+  assert.equal(iconFor('جراب سيليكون آيفون 13', 'حماية وجرابات'), 'package', 'the name wins over the department');
+  assert.equal(iconFor('ستاند', 'سماعات'), 'headphones', 'the department decides when the name says nothing');
+});
