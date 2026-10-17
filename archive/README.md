@@ -10,6 +10,31 @@
 
 ---
 
+## أرشفة 2026-10-17 — الـPattern يحل محله PIN المالك
+
+**القرار:** [`ADR-017`](../docs/decisions/ADR-017-pin-approval-recovery-code.md) §3، تنفيذًا لقول المالك في `docs/PLAN.md` §4: العمليات الحساسة بـPIN المالك. والتنفيذ هو البند 1.1، الخطوة 3.
+
+**ما بقي في مكانه:** جدول `manager_pattern`، وأعمدة `sessions.pattern_*`، ومفتاح الإعداد `pattern_required`. الترحيلات المطبَّقة لا تُعدَّل، وقاعدة قديمة فيها المفتاح لازم تفضل تتفتح. والكود لا يقرأ أيًّا منها، وفحص المعمارية `the_retired_pattern_is_read_by_nothing` يضمن ذلك.
+
+### `superseded-2026-10-17/pattern/` — الـPattern
+
+| كان في | لماذا | ما يحل محله |
+|---|---|---|
+| `src-tauri/src/services/pattern/mod.rs` | خدمة الـPattern: التعيين، والتحقق، وإعادة التعيين، والتعطيل | `services/identity/approval.rs`: موافقة المالك بالـPIN |
+| `src-tauri/src/commands/pattern.rs` | أوامره الخمسة | الأمر `approve_with_owner_pin` في `commands/identity.rs` |
+| `src-tauri/src/data/repositories/identity/pattern.rs` | قراءة وكتابة `manager_pattern` | `session.rs`: `set_owner_approval` و`consume_owner_approval` و`clear_approvals_granted_by` |
+| `src-tauri/tests/integration/pattern.rs` | فحوصه السبعة | `tests/integration/approval.rs` |
+| `src/components/PatternPrompt.vue` | نافذة إدخال الـPattern | `src/shell/ApprovalPrompt.vue` |
+| `src/api/pattern.ts` | واجهة أوامره | `approveWithOwnerPin` في `src/api/identity.ts` |
+
+### `superseded-2026-10-17/sales-panel/` — لوحة البيع القديمة
+
+| كان في | لماذا | ما يحل محله |
+|---|---|---|
+| `src/components/SalesPanel.vue` | <ul><li>لم تعد معروضة منذ شاشة «البيع» (البند 1.6).</li><li>كانت الوحيدة التي تستعمل `PatternPrompt`.</li><li>مرجع لمن يبني شاشة المبيعات.</li></ul> | «البيع» للبيع، وشاشة المبيعات في البند 1.14 للإلغاء من القائمة |
+
+---
+
 ## أرشفة 2026-10-16 — بعد اعتماد الخطة الحالية
 
 **قول المالك:** «ملناش دعوة بالقديم، خلينا في اللي بنتفق عليه أنا وانت. عدّل كل الملفات بما يتوافق مع الخطة الحالية، وأرشف اللي ملهوش لازمة.»

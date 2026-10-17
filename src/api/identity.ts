@@ -75,6 +75,16 @@ export function loginWithPin(userId: string, pin: string): Promise<Session> {
   return invoke<Session>('login_with_pin', { userId, pin });
 }
 
+/**
+ * Approve one sensitive operation on the current session with a manager's PIN
+ * (ADR-017 §3). Asked after a command answered `OWNER_APPROVAL_REQUIRED`; the
+ * screen then retries that command once. Nothing comes back: the approval stays
+ * in Rust, on the session, where only the operation can spend it.
+ */
+export function approveWithOwnerPin(approverId: string, pin: string): Promise<void> {
+  return invoke<void>('approve_with_owner_pin', { approverId, pin });
+}
+
 export function logout(): Promise<void> {
   return invoke<void>('logout');
 }

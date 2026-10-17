@@ -21,7 +21,7 @@ use crate::domain::identity::DomainError;
 use crate::domain::identity::Permission;
 use crate::domain::identity::Role;
 use crate::domain::identity::UserId;
-use super::sensitivity::PatternApproval;
+use super::sensitivity::OwnerApproval;
 
 /// Milliseconds since the Unix epoch, UTC.
 ///
@@ -141,17 +141,14 @@ pub struct SessionFacts {
     pub must_change_password: bool,
     /// When the account was disabled, or `None` while it is active.
     pub disabled_at: Option<Timestamp>,
-    /// When this session last passed the Pattern, or `None` if it never has.
+    /// The owner approval waiting on this session, or `None` (ADR-017 §3).
     ///
-    /// Stored rather than derived, because the five-minute window is measured from
-    /// the moment of verification and must not restart on every command.
-    pub pattern_approved_at: Option<Timestamp>,
-    /// The Pattern epoch this approval was granted under.
-    ///
-    /// Compared against the current epoch on every sensitive operation. A Pattern
-    /// change advances the epoch and invalidates outstanding approvals without a
-    /// sweep. See `ADR-014`.
-    pub pattern_epoch: Option<i64>,
+    /// Read from `sessions.approved_by` / `approved_at`. Unlike role and the
+    /// disable state it records an event on *this* session, so the session row
+    /// is its home. Whether it may still be spent is decided twice: freshness
+    /// when the operation is authorized, and one use — by a manager who is
+    /// still active — when the operation commits.
+    pub owner_approval: Option<OwnerApproval>,
 }
 
 /// Policy constants, fixed by Product Owner decision on 2026-10-03.
@@ -170,12 +167,9 @@ pub struct Session {
     last_seen_at: Timestamp,
     absolute_expires_at: Timestamp,
     must_change_password: bool,
-    /// When this session last passed the Pattern, and under which epoch.
-    ///
-    /// Both are private with accessors, exactly as every other session field: a
-    /// caller must not be able to declare itself Pattern-approved.
-    pattern_approved_at: Option<Timestamp>,
-    pattern_epoch: Option<i64>,
+    /// Private with an accessor, exactly as every other session field: a
+    /// caller must not be able to declare itself approved.
+    owner_approval: Option<OwnerApproval>,
 }
 
 impl Session {
@@ -210,8 +204,7 @@ impl Session {
             last_seen_at: facts.last_seen_at,
             absolute_expires_at: facts.absolute_expires_at,
             must_change_password: facts.must_change_password,
-            pattern_approved_at: facts.pattern_approved_at,
-            pattern_epoch: facts.pattern_epoch,
+            owner_approval: facts.owner_approval,
         })
     }
 
@@ -264,50 +257,13 @@ impl Session {
         self.assurance = Assurance::Normal;
     }
 
-    /// Test whether an approved Pattern exists and is current for this
-    /// session, using both the session's stored pattern epoch and the
-    /// current Pattern epoch at the time of the check.
+    /// The owner approval waiting on this session, or `None`.
     ///
-    /// Delegates to [`PatternApproval::is_fresh`] so there is exactly one
-    /// freshness rule in the codebase: inside the TTL window **and** the epoch
-    /// still current.
-    pub fn pattern_approval_is_current(
-        &self,
-        now: Timestamp,
-        current_pattern_epoch: i64,
-        ttl_ms: i64,
-    ) -> bool {
-        match (self.pattern_approved_at, self.pattern_epoch) {
-            (Some(approved_at), Some(granted_epoch)) => {
-                PatternApproval::granted(approved_at, granted_epoch)
-                    .is_fresh(now, current_pattern_epoch, ttl_ms)
-            }
-            _ => false,
-        }
-    }
-
-    /// Clear any stored Pattern approval: called when a manager resets or
-    /// changes their Pattern, so that every existing session must approve
-    /// again with the new epoch.
-    pub fn clear_pattern_approval(&mut self) {
-        self.pattern_approved_at = None;
-        self.pattern_epoch = None;
-    }
-
-    /// Update session fields after a Pattern verification or reset.
-    pub fn set_pattern_approval(&mut self, approved_at: Timestamp, epoch: i64) {
-        self.pattern_approved_at = Some(approved_at);
-        self.pattern_epoch = Some(epoch);
-    }
-
-    /// When this session last passed the Pattern, or `None` if it never has.
-    pub fn pattern_approved_at(&self) -> Option<Timestamp> {
-        self.pattern_approved_at
-    }
-
-    /// The Pattern epoch this session's approval was granted under.
-    pub fn pattern_epoch(&self) -> Option<i64> {
-        self.pattern_epoch
+    /// Read-only on purpose: an approval is stamped by the approval service and
+    /// spent by the operation's transaction, both in the database, never by
+    /// mutating a `Session` value that could outlive the row it was read from.
+    pub fn owner_approval(&self) -> Option<OwnerApproval> {
+        self.owner_approval
     }
 
     /// Whether the owner still owes a forced password change.
@@ -334,10 +290,10 @@ impl Session {
     ///    figures (`plan:151`) or user administration are released.
     ///
     /// `spec:210` requires this decision at the application/data layer, which is
-    /// why it lives here and not in the frontend. The fourth axis — Pattern
-    /// approval for sensitive operations — is deliberately separate, in
+    /// why it lives here and not in the frontend. The fourth axis — the owner's
+    /// PIN approval for sensitive operations — is deliberately separate, in
     /// [`Session::require_sensitivity`], because inventory work is a mix of
-    /// routine and sensitive (`plan` SP-1b).
+    /// routine and sensitive (ADR-017 §3).
     pub fn authorize(&self, permission: Permission) -> Result<(), DomainError> {
         if self.must_change_password && permission != Permission::ChangeOwnPassword {
             return Err(DomainError::PasswordChangeRequired);

@@ -363,6 +363,7 @@ fn every_registered_command_is_a_named_function() {
         "list_users_for_picker",
         "login",
         "login_with_pin",
+        "approve_with_owner_pin",
         "logout",
         "whoami",
         "reauthenticate",
@@ -1328,24 +1329,25 @@ fn username_normalisation_stays_in_the_domain() {
 }
 
 // ---------------------------------------------------------------------------
-// Authority, settings and pattern (SP-1b/c, plan Tasks 8-9)
+// Authority, settings and the owner's approval (SP-1b/c; ADR-017 §3)
 // ---------------------------------------------------------------------------
 
 const DEPARTMENTS_COMMANDS: &str = include_str!("../../src/commands/departments.rs");
 const SETTINGS_COMMANDS: &str = include_str!("../../src/commands/settings.rs");
-const PATTERN_COMMANDS: &str = include_str!("../../src/commands/pattern.rs");
 const ORGANISATION_SERVICE: &str =
     include_str!("../../src/services/organisation/departments.rs");
 const SETTINGS_SERVICE: &str = include_str!("../../src/services/settings/mod.rs");
-const PATTERN_SERVICE: &str = include_str!("../../src/services/pattern/mod.rs");
+const APPROVAL_SERVICE: &str = include_str!("../../src/services/identity/approval.rs");
 const AUDIT_EVENTS: &str = include_str!("../../src/data/repositories/identity/audit.rs");
 
 /// Every command module added by SP-1b/c, with its module path in `lib.rs`.
+///
+/// The Pattern's module left with the Pattern (ADR-017 §3); the owner's
+/// approval is an identity command, covered with the identity rules.
 fn authority_command_modules() -> Vec<(&'static str, &'static str)> {
     vec![
         ("departments", DEPARTMENTS_COMMANDS),
         ("settings", SETTINGS_COMMANDS),
-        ("pattern", PATTERN_COMMANDS),
     ]
 }
 
@@ -1384,7 +1386,7 @@ fn authority_commands_take_no_token_role_or_actor() {
         .into_iter()
         .flat_map(|(_, source)| command_parameters(&code_only(source)))
         .collect();
-    for known in ["ctx", "pattern", "ordered_ids", "key", "password"] {
+    for known in ["ctx", "ordered_ids", "archived", "key", "value"] {
         assert!(
             all.iter().any(|p| p == known),
             "expected the authority commands to still declare a `{known}` parameter; \
@@ -1392,8 +1394,8 @@ fn authority_commands_take_no_token_role_or_actor() {
         );
     }
     assert!(
-        parsed >= 13,
-        "expected at least one parameter per registered authority command (13); parsed {parsed}"
+        parsed >= 8,
+        "expected at least one parameter per registered authority command (8); parsed {parsed}"
     );
 }
 
@@ -1426,7 +1428,7 @@ fn authority_services_never_touch_sql() {
     for (name, source) in [
         ("departments", ORGANISATION_SERVICE),
         ("settings", SETTINGS_SERVICE),
-        ("pattern", PATTERN_SERVICE),
+        ("approval", APPROVAL_SERVICE),
     ] {
         let code = code_only(source);
         assert!(
@@ -1479,6 +1481,8 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
          found {}: {declared:?}",
         declared.len()
     );
+    // The Pattern's two events stay although nothing writes them since ADR-017:
+    // rows written before still need their name.
     for added_by_sp1bc in [
         "DEPARTMENT_CREATED",
         "DEPARTMENT_UPDATED",
@@ -1492,14 +1496,24 @@ fn every_audit_event_constant_is_ascii_screaming_snake() {
             "`{added_by_sp1bc}` must stay in the audit event vocabulary"
         );
     }
+    for added_by_item_1_1 in [
+        "PIN_SET",
+        "PIN_SET_BY_MANAGER",
+        "OWNER_APPROVAL_GRANTED",
+        "OWNER_APPROVAL_FAILED",
+    ] {
+        assert!(
+            declared.contains(&added_by_item_1_1.to_string()),
+            "`{added_by_item_1_1}` must stay in the audit event vocabulary (ADR-017)"
+        );
+    }
 }
 
 #[test]
-fn the_stored_pattern_material_never_reaches_the_frontend() {
+fn stored_secret_material_never_reaches_the_frontend() {
     // A verifier (or anything that could re-derive one) in WebView code would
-    // put the second factor within reach of a script. The Pattern *entry* is
-    // necessarily a frontend concern — an operator types it — but the stored
-    // material is not.
+    // put a secret within reach of a script. Typing a PIN is necessarily a
+    // frontend concern; the stored material never is.
     let frontend_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
     let mut sources: Vec<(String, String)> = Vec::new();
 
@@ -1532,12 +1546,12 @@ fn the_stored_pattern_material_never_reaches_the_frontend() {
         frontend_root.display()
     );
 
-    // Non-vacuous anchor: errors.ts already declares the PATTERN_* codes, so
-    // the frontend does speak about patterns — the ban below is aimed at real
-    // code, not at a frontend that never mentions them.
+    // Non-vacuous anchor: errors.ts declares the PIN codes, so the frontend
+    // does speak about PINs — the ban below is aimed at real code, not at a
+    // frontend that never mentions them.
     assert!(
-        sources.iter().any(|(_, text)| text.contains("PATTERN")),
-        "expected the frontend error table to declare the PATTERN_* codes; without one \
+        sources.iter().any(|(_, text)| text.contains("PIN_NOT_SET")),
+        "expected the frontend error table to declare the PIN codes; without one \
          this guard would pass vacuously"
     );
 
@@ -1552,7 +1566,7 @@ fn the_stored_pattern_material_never_reaches_the_frontend() {
         ] {
             assert!(
                 !lower.contains(forbidden),
-                "`{name}` mentions `{forbidden}`; stored Pattern material must stay in Rust"
+                "`{name}` mentions `{forbidden}`; stored secret material must stay in Rust"
             );
         }
     }
@@ -1595,11 +1609,6 @@ fn every_authority_command_is_registered_in_lib() {
         ("departments", "reorder_departments"),
         ("settings", "read_settings"),
         ("settings", "update_setting"),
-        ("pattern", "get_pattern_status"),
-        ("pattern", "verify_pattern"),
-        ("pattern", "set_pattern"),
-        ("pattern", "reset_pattern"),
-        ("pattern", "disable_pattern"),
         ("inventory", "receive_stock"),
         ("inventory", "remove_stock"),
         ("inventory", "get_position"),
@@ -1607,6 +1616,97 @@ fn every_authority_command_is_registered_in_lib() {
         assert!(
             code.contains(&format!("commands::{module}::{command}")),
             "command `{module}::{command}` must stay registered in lib.rs"
+        );
+    }
+}
+
+#[test]
+fn the_retired_pattern_is_read_by_nothing() {
+    // ADR-017 §3. `manager_pattern` and the `pattern_*` session columns stay in
+    // the schema, because an applied migration never changes, but no code may
+    // read them again: a stale read would be a second approval path.
+    for (name, source) in [
+        ("services/inventory/stock.rs", COSTING_SERVICE),
+        ("services/sales/mod.rs", SALES_SERVICE),
+        ("services/identity/approval.rs", APPROVAL_SERVICE),
+        ("services/identity/auth.rs", AUTH_SERVICE),
+        ("data/repositories/identity/session.rs", SESSION_REPO),
+        ("domain/identity/session.rs", DOMAIN_SESSION),
+        ("domain/identity/mod.rs", DOMAIN_MOD),
+    ] {
+        let code = code_only(source).to_lowercase();
+        for forbidden in [
+            "manager_pattern",
+            "pattern_approved_at",
+            "pattern_epoch",
+            "services::pattern",
+            "patternapproval",
+            "pattern_ttl_ms",
+        ] {
+            assert!(
+                !code.contains(forbidden),
+                "{name} still reaches the retired Pattern (`{forbidden}`)"
+            );
+        }
+    }
+    assert!(
+        !code_only(LIB).contains("commands::pattern"),
+        "the Pattern commands are retired and must stay unregistered"
+    );
+    assert!(
+        !code_only(COMMANDS_MOD).contains("mod pattern"),
+        "commands/mod.rs must not declare the Pattern module again"
+    );
+}
+
+#[test]
+fn every_sensitive_operation_spends_its_approval_inside_its_transaction() {
+    // ADR-017 §3: one approval, one operation. The spend is what makes it one —
+    // a service that only checked freshness would let one approval serve
+    // every operation for two minutes.
+    for (name, source) in [
+        ("services/inventory/stock.rs", COSTING_SERVICE),
+        ("services/sales/mod.rs", SALES_SERVICE),
+    ] {
+        let code = code_only(source);
+        assert!(
+            code.contains("require_sensitivity("),
+            "{name} must state each operation's sensitivity"
+        );
+        assert!(
+            code.contains("consume_in_tx(&mut tx,"),
+            "{name} must spend the approval it was authorized with, inside its own \
+             transaction"
+        );
+    }
+
+    // The spend is one conditional statement: the exact approval, from a
+    // manager who is still active and still holds a PIN.
+    let repo = code_only(SESSION_REPO)
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for condition in [
+        "set approved_by = null, approved_at = null where user_id = ?1 and approved_by = ?2 and approved_at = ?3",
+        "u.role = 'manager'",
+        "u.disabled_at is null",
+        "c.pin_verifier is not null",
+        "rows_affected() == 1",
+    ] {
+        assert!(
+            repo.contains(condition),
+            "consume_owner_approval must keep `{condition}`"
+        );
+    }
+
+    // The approval service holds no SQL of its own and keeps the lockout
+    // shared with sign-in.
+    let service = code_only(APPROVAL_SERVICE);
+    for required in ["register_failure(", "update_lockout(", "is_locked(", "OWNER_APPROVAL_GRANTED"] {
+        assert!(
+            service.contains(required),
+            "the approval service must keep `{required}`"
         );
     }
 }

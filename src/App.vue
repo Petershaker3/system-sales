@@ -13,6 +13,10 @@
 // the running screens, so open invoices are still there for whoever signs in
 // next (`docs/PLAN.md` §4). Switching user from the chip is a PIN sign-in too.
 //
+// A sensitive operation asks for the owner's PIN through the one approval
+// prompt mounted here (`shell/approval.ts`, ADR-017 §3). Locking, switching or
+// signing out backs out of a pending request: the session it was for is gone.
+//
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
@@ -23,6 +27,8 @@ import type { Session, UserSummary } from './api/identity';
 import ForcedPasswordChange from './components/ForcedPasswordChange.vue';
 import * as lifecycle from './api/lifecycle';
 import AppShell from './shell/AppShell.vue';
+import ApprovalPrompt from './shell/ApprovalPrompt.vue';
+import { dismissApproval, pendingApproval } from './shell/approval';
 import LockCard from './shell/LockCard.vue';
 import PinSetup from './shell/PinSetup.vue';
 import Toasts from './ui/Toasts.vue';
@@ -151,6 +157,7 @@ async function onSignedIn(next: Session, method: 'pin' | 'password'): Promise<vo
 
 /** Someone else signed in from the user chip; the screens and their invoices stay. */
 async function onSwitched(next: Session): Promise<void> {
+  dismissApproval();
   session.value = next;
   await enterAfterAuth();
   toast(`${next.displayName} شغّال دلوقتي`, 'info');
@@ -171,6 +178,7 @@ async function lockScreen(): Promise<void> {
   if (locked.value || view.value !== 'shell') return;
   locked.value = true;
   pinSetup.value = null;
+  dismissApproval();
   clearToasts();
   try {
     await api.logout();
@@ -197,6 +205,7 @@ async function signOut(): Promise<void> {
     mustChangePassword.value = false;
     locked.value = false;
     pinSetup.value = null;
+    dismissApproval();
     view.value = 'login';
     await loadUsers();
   } catch (err) {
@@ -234,6 +243,11 @@ function openPinSetup(): void {
 async function afterPinSaved(): Promise<void> {
   pinSetup.value = null;
   await loadUsers();
+}
+
+/** Answer the pending owner-approval request (the prompt reports how it ended). */
+function settleApproval(approved: boolean): void {
+  pendingApproval.value?.settle(approved);
 }
 
 /** The browser demo's sign-in hint; an empty string (and no text) in real builds. */
@@ -337,6 +351,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
     :offered="pinSetup.offered"
     @close="pinSetup = null"
     @saved="afterPinSaved"
+  />
+
+  <!-- The owner's PIN for one sensitive operation (ADR-017 §3). -->
+  <ApprovalPrompt
+    v-if="pendingApproval && view === 'shell' && !locked"
+    :label="pendingApproval.label"
+    @approved="settleApproval(true)"
+    @cancel="settleApproval(false)"
   />
 
   <Toasts />

@@ -31,8 +31,8 @@ use crate::domain::sales::{
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
+use crate::services::identity::approval as approval_service;
 use crate::services::inventory::stock as inventory;
-use crate::services::pattern as pattern_service;
 
 /// What one line of a sale names: a product and how many of it.
 ///
@@ -161,12 +161,8 @@ pub async fn record_sale(
 
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::Sell)?;
-    session.require_sensitivity(
-        Sensitivity::Routine,
-        pattern_service::is_enabled(pool).await?,
-        pattern_service::current_epoch(pool).await?,
-        Timestamp::now(),
-    )?;
+    // Selling is routine: it never waits for the owner (ADR-017 §3).
+    session.require_sensitivity(Sensitivity::Routine, Timestamp::now())?;
     let now = Timestamp::now();
     let actor = session.user_id();
 
@@ -405,18 +401,16 @@ pub async fn cancel_sale(
 ) -> Result<SaleOutcome, SaleServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::CancelTransaction)?;
-    // Cancellation restores inventory value, so it is Sensitive: the Pattern is
-    // required when one is configured, gated per operation rather than blanket.
-    session.require_sensitivity(
-        Sensitivity::Sensitive,
-        pattern_service::is_enabled(pool).await?,
-        pattern_service::current_epoch(pool).await?,
-        Timestamp::now(),
-    )?;
+    // Cancellation restores inventory value, so it is Sensitive: it spends one
+    // owner approval (ADR-017 §3), gated per operation rather than blanket.
+    let approval = session.require_sensitivity(Sensitivity::Sensitive, Timestamp::now())?;
     let now = Timestamp::now();
     let actor = session.user_id();
 
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
+    // Spent inside the cancellation's transaction: if the cancellation is
+    // refused below, the rollback leaves the approval for the retry.
+    let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
 
     let original = sales_repo::find_sale(&mut *tx, sale_id)
         .await
@@ -529,11 +523,12 @@ pub async fn cancel_sale(
         audit::event::SALE_CANCELLED,
         now,
         Some(format!(
-            r#"{{"reference":"{}","reverses":"{}","total_minor":{},"lines":{}}}"#,
+            r#"{{"reference":"{}","reverses":"{}","total_minor":{},"lines":{},"approved_by":{}}}"#,
             reference,
             original.reference,
             original.total_minor,
-            lines.len()
+            lines.len(),
+            approved_by.map_or("null".to_owned(), |id| format!("\"{id}\""))
         )),
     )
     .await

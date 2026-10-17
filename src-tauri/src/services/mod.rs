@@ -9,6 +9,5 @@ pub mod customer;
 pub mod identity;
 pub mod inventory;
 pub mod organisation;
-pub mod pattern;
 pub mod sales;
 pub mod settings;

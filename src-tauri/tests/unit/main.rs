@@ -11,9 +11,9 @@ use mobile_shop_system_lib::domain::catalog::{
 use mobile_shop_system_lib::domain::identity::{
     is_locked, password_is_acceptable, recovery_delay_ms, register_failure, register_success,
     Assurance,
-    CredentialVerifier, DomainError, LockoutState, PatternApproval, Permission, Role, Sensitivity,
+    CredentialVerifier, DomainError, LockoutState, OwnerApproval, Permission, Role, Sensitivity,
     Session, SessionFacts, SessionToken, Timestamp, UserId, ABSOLUTE_LIFETIME_MS,
-    IDLE_TIMEOUT_MS, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN, PATTERN_TTL_MS,
+    IDLE_TIMEOUT_MS, LOCKOUT_MS, MAX_FAILED_ATTEMPTS, MIN_PASSWORD_LEN, OWNER_APPROVAL_TTL_MS,
     RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
 };
 use mobile_shop_system_lib::domain::money::{MoneyError, Piastres};
@@ -57,8 +57,7 @@ fn facts() -> SessionFacts {
         absolute_expires_at: now.plus_millis(ABSOLUTE_LIFETIME_MS),
         must_change_password: false,
         disabled_at: None,
-        pattern_approved_at: None,
-        pattern_epoch: None,
+        owner_approval: None,
     }
 }
 
@@ -436,6 +435,7 @@ fn every_domain_error_yields_a_non_empty_screaming_snake_code() {
         DomainError::ReauthenticationRequired,
         DomainError::AccountDisabled,
         DomainError::PasswordChangeRequired,
+        DomainError::OwnerApprovalRequired,
         DomainError::UsernameAlreadyExists,
         DomainError::UsernameInvalid,
         DomainError::DisplayNameRequired,
@@ -1061,207 +1061,145 @@ fn every_department_error_has_a_stable_screaming_snake_code() {
 }
 
 // ---------------------------------------------------------------------------
-// Sensitivity: the fourth authorization axis (plan SP-1b, Task 4)
+// Sensitivity: the owner's PIN approval (ADR-017 §3)
 // ---------------------------------------------------------------------------
 
-/// A session that has proved its password, optionally carrying a Pattern
-/// approval granted at `approved_at` under `epoch`.
-fn reauthenticated(
-    assurance: Assurance,
-    approved_at: Option<Timestamp>,
-    epoch: Option<i64>,
-) -> Session {
+/// A healthy session at `assurance`, optionally carrying an owner approval.
+fn session_with(assurance: Assurance, approval: Option<OwnerApproval>) -> Session {
     let mut data = facts();
     data.assurance = assurance;
-    data.pattern_approved_at = approved_at;
-    data.pattern_epoch = epoch;
-    Session::open(data, at(0)).expect("session facts are valid")
+    data.owner_approval = approval;
+    Session::open(data, at(0)).expect("a valid session")
 }
 
 #[test]
-fn routine_operations_never_ask_for_the_pattern() {
-    // The shortest-circuit branch: routine work passes on every axis, even
-    // with protection on and no approval anywhere — proving `Routine` is
-    // checked before assurance, the pattern flag and the epoch.
-    let session = reauthenticated(Assurance::Normal, None, None);
+fn routine_work_never_asks_for_an_approval() {
+    let session = session_with(Assurance::Normal, None);
     assert_eq!(
-        session.require_sensitivity(Sensitivity::Routine, true, Some(1), at(0)),
-        Ok(()),
-        "routine work must not be gated by any axis"
+        session.require_sensitivity(Sensitivity::Routine, at(0)),
+        Ok(None)
     );
 }
 
 #[test]
-fn sensitive_work_demands_reauthentication_before_the_pattern() {
-    // Assurance is the second branch: a Normal session is refused even when
-    // pattern protection is off, so the axes cannot be swapped.
-    let session = reauthenticated(Assurance::Normal, None, None);
+fn routine_work_does_not_claim_a_waiting_approval() {
+    // Claiming it would make the service spend it on a sale.
+    let approval = OwnerApproval::granted(UserId::generate(), at(0));
+    let session = session_with(Assurance::Normal, Some(approval));
     assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, false, None, at(0)),
-        Err(DomainError::ReauthenticationRequired),
-        "the pattern flag must not let a Normal session past the assurance check"
+        session.require_sensitivity(Sensitivity::Routine, at(0)),
+        Ok(None)
     );
 }
 
 #[test]
-fn sensitive_work_passes_when_pattern_protection_is_off() {
-    let session = reauthenticated(Assurance::Reauthenticated, None, None);
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, false, Some(1), at(0)),
-        Ok(()),
-        "with protection off, re-authenticated sensitive work needs no approval"
-    );
+fn sensitive_work_without_an_approval_asks_for_the_owner() {
+    for assurance in [Assurance::Normal, Assurance::Reauthenticated] {
+        let session = session_with(assurance, None);
+        assert_eq!(
+            session.require_sensitivity(Sensitivity::Sensitive, at(0)),
+            Err(DomainError::OwnerApprovalRequired),
+            "{assurance:?}: a password, even freshly proven, is not the owner's approval"
+        );
+    }
 }
 
 #[test]
-fn protection_on_without_a_stored_pattern_fails_closed() {
-    // `Some`/`None` of the *current epoch* is how "a Pattern exists" reaches
-    // the domain: no row means no epoch, and that must not read as "off".
-    let session = reauthenticated(Assurance::Reauthenticated, None, None);
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, true, None, at(0)),
-        Err(DomainError::PatternNotConfigured),
-        "an enabled but unconfigured Pattern must fail closed"
-    );
+fn a_fresh_approval_is_handed_to_the_operation_that_will_spend_it() {
+    let owner = UserId::generate();
+    let approval = OwnerApproval::granted(owner, at(0));
+    let session = session_with(Assurance::Normal, Some(approval));
+    let granted = session
+        .require_sensitivity(Sensitivity::Sensitive, at(1))
+        .expect("a one-minute-old approval is fresh");
+    assert_eq!(granted, Some(approval));
+    assert_eq!(granted.map(|spent| spent.approved_by()), Some(owner));
 }
 
 #[test]
-fn a_session_that_never_approved_is_asked_for_the_pattern() {
-    let session = reauthenticated(Assurance::Reauthenticated, None, Some(1));
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, true, Some(1), at(0)),
-        Err(DomainError::PatternRequired),
-        "an approval that was never granted is the remedy-by-entry case"
-    );
-}
-
-#[test]
-fn an_approval_from_another_epoch_is_stale_even_when_new() {
-    // A Pattern change bumps the epoch; every open approval must die with it
-    // without any sweep of session rows.
-    let session = reauthenticated(Assurance::Reauthenticated, Some(at(0)), Some(1));
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, true, Some(2), at(1)),
-        Err(DomainError::PatternApprovalStale),
-        "an approval granted under epoch 1 must not survive epoch 2"
-    );
-}
-
-#[test]
-fn a_fresh_approval_unlocks_sensitive_work() {
-    let session = reauthenticated(Assurance::Reauthenticated, Some(at(0)), Some(1));
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, true, Some(1), at(4)),
-        Ok(()),
-        "inside the window, under the current epoch: the operation proceeds"
-    );
-}
-
-#[test]
-fn an_approval_exactly_at_the_ttl_is_stale() {
-    // Boundary: `is_fresh` is strictly-less-than the TTL, so the millisecond
-    // the window closes, the Pattern must be asked for again.
-    let session = reauthenticated(Assurance::Reauthenticated, Some(at(0)), Some(1));
-    assert_eq!(
-        session.require_sensitivity(Sensitivity::Sensitive, true, Some(1), at(5)),
-        Err(DomainError::PatternApprovalStale),
-        "exactly five minutes is outside the window, not inside it"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// PatternApproval freshness (plan SP-1b, Testing)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn the_pattern_ttl_is_five_minutes() {
-    // A Product Owner assumption made executable: 5 * 60 * 1000.
-    assert_eq!(PATTERN_TTL_MS, 300_000);
+fn the_owner_approval_window_is_two_minutes() {
+    // ADR-017 §3.
+    assert_eq!(OWNER_APPROVAL_TTL_MS, 120_000);
 }
 
 #[test]
 fn an_approval_is_fresh_inside_the_window_and_stale_at_the_boundary() {
-    let approval = PatternApproval::granted(at(0), 1);
+    let approval = OwnerApproval::granted(UserId::generate(), at(0));
     assert!(
-        approval.is_fresh(at(0).plus_millis(PATTERN_TTL_MS - 1), 1, PATTERN_TTL_MS),
-        "one millisecond before the deadline is still fresh"
+        approval.is_fresh(at(0), OWNER_APPROVAL_TTL_MS),
+        "fresh the instant it is granted"
     );
     assert!(
-        !approval.is_fresh(at(0).plus_millis(PATTERN_TTL_MS), 1, PATTERN_TTL_MS),
-        "the deadline millisecond is stale"
+        approval.is_fresh(at(0).plus_millis(OWNER_APPROVAL_TTL_MS - 1), OWNER_APPROVAL_TTL_MS),
+        "fresh one millisecond before the window closes"
     );
     assert!(
-        approval.is_fresh(at(0), 1, PATTERN_TTL_MS),
-        "granted at now is fresh at now"
-    );
-}
-
-#[test]
-fn an_epoch_mismatch_outranks_a_fresh_timestamp() {
-    let approval = PatternApproval::granted(at(0), 3);
-    assert!(
-        !approval.is_fresh(at(1), 4, PATTERN_TTL_MS),
-        "a recent approval under a superseded epoch is stale"
-    );
-    assert!(
-        !approval.is_fresh(at(6), 3, PATTERN_TTL_MS),
-        "the right epoch outside the window is stale too"
+        !approval.is_fresh(at(0).plus_millis(OWNER_APPROVAL_TTL_MS), OWNER_APPROVAL_TTL_MS),
+        "stale exactly at the window, matching the session deadlines' `>=`"
     );
 }
 
 #[test]
-fn a_clock_that_moved_backwards_does_not_age_an_approval() {
-    // `millis_since` saturates at zero, so time travel yields "not yet
-    // elapsed" rather than an approval that outlives its window.
-    let approval = PatternApproval::granted(at(10), 1);
-    assert!(
-        approval.is_fresh(at(0), 1, PATTERN_TTL_MS),
-        "an elapsed time below zero must read as just-granted, never as expired"
-    );
-}
-
-#[test]
-fn pattern_approvals_compare_by_both_fields() {
+fn a_session_refuses_an_approval_exactly_at_the_window() {
+    let approval = OwnerApproval::granted(UserId::generate(), at(0));
+    let session = session_with(Assurance::Normal, Some(approval));
     assert_eq!(
-        PatternApproval::granted(at(0), 1),
-        PatternApproval::granted(at(0), 1)
+        session.require_sensitivity(
+            Sensitivity::Sensitive,
+            at(0).plus_millis(OWNER_APPROVAL_TTL_MS)
+        ),
+        Err(DomainError::OwnerApprovalRequired)
     );
-    assert_ne!(
-        PatternApproval::granted(at(0), 1),
-        PatternApproval::granted(at(0), 2),
-        "the epoch is part of the approval's identity"
-    );
-    assert_ne!(
-        PatternApproval::granted(at(0), 1),
-        PatternApproval::granted(at(1), 1),
-        "the grant moment is part of the approval's identity"
+    assert_eq!(
+        session.require_sensitivity(
+            Sensitivity::Sensitive,
+            at(0).plus_millis(OWNER_APPROVAL_TTL_MS - 1)
+        ),
+        Ok(Some(approval))
     );
 }
 
 #[test]
-fn a_session_delegates_pattern_freshness_to_one_rule() {
-    let mut session = reauthenticated(Assurance::Reauthenticated, None, None);
-    session.set_pattern_approval(at(0), 7);
+fn an_approval_stamped_in_the_future_is_not_fresh() {
+    // The clock moved backwards since the PIN was entered. Trusting the stamp
+    // would stretch the window by however far the clock jumped; refusing costs
+    // one more PIN entry.
+    let approval = OwnerApproval::granted(UserId::generate(), at(10));
+    assert!(!approval.is_fresh(at(9), OWNER_APPROVAL_TTL_MS));
+    let session = session_with(Assurance::Normal, Some(approval));
+    assert_eq!(
+        session.require_sensitivity(Sensitivity::Sensitive, at(9)),
+        Err(DomainError::OwnerApprovalRequired)
+    );
+}
 
-    assert_eq!(session.pattern_approved_at(), Some(at(0)));
-    assert_eq!(session.pattern_epoch(), Some(7));
-    assert!(session.pattern_approval_is_current(at(1), 7, PATTERN_TTL_MS));
-    assert!(
-        !session.pattern_approval_is_current(at(1), 8, PATTERN_TTL_MS),
-        "the session must not accept a superseded epoch"
+#[test]
+fn owner_approvals_compare_by_approver_and_moment() {
+    let owner = UserId::generate();
+    assert_eq!(
+        OwnerApproval::granted(owner, at(0)),
+        OwnerApproval::granted(owner, at(0))
     );
-    assert!(
-        !session.pattern_approval_is_current(at(5), 7, PATTERN_TTL_MS),
-        "the session must not accept an expired approval"
+    assert_ne!(
+        OwnerApproval::granted(owner, at(0)),
+        OwnerApproval::granted(owner, at(1)),
+        "approving again is a different approval"
     );
+    assert_ne!(
+        OwnerApproval::granted(owner, at(0)),
+        OwnerApproval::granted(UserId::generate(), at(0)),
+        "another manager's approval is a different approval"
+    );
+}
 
-    session.clear_pattern_approval();
-    assert_eq!(session.pattern_approved_at(), None);
-    assert_eq!(session.pattern_epoch(), None);
-    assert!(
-        !session.pattern_approval_is_current(at(0), 7, PATTERN_TTL_MS),
-        "a cleared approval is never current"
+#[test]
+fn a_session_carries_its_approval_through_open_unchanged() {
+    let approval = OwnerApproval::granted(UserId::generate(), at(0));
+    assert_eq!(
+        session_with(Assurance::Normal, Some(approval)).owner_approval(),
+        Some(approval)
     );
+    assert_eq!(session_with(Assurance::Normal, None).owner_approval(), None);
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,8 +1248,9 @@ fn every_setting_key_round_trips_through_its_stored_form() {
 
 #[test]
 fn the_pattern_toggle_is_refused_by_the_generic_settings_write() {
-    // The design guarantee: only the pattern slice may flip protection, so
-    // the generic write path must not even recognise the key.
+    // The retired Pattern's flag (ADR-017 §3): an older database may still
+    // hold the row, but the generic write path must never recognise the key,
+    // so nothing can recreate it.
     let mut snapshot = SettingsSnapshot::default();
     assert_eq!(
         snapshot.set(PATTERN_REQUIRED, "1"),

@@ -236,6 +236,17 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const target = users.find((u) => u.id === str(args, 'userId')) ?? fail('INVALID_CREDENTIALS');
     target.pin = pin;
   },
+  // The owner's PIN approval (ADR-017 §3): any session may ask, only an active
+  // manager's PIN answers. No demo command is sensitive yet, so nothing spends
+  // the approval; the prompt can still be seen working.
+  approve_with_owner_pin: (args) => {
+    requireUser();
+    const approver = users.find((u) => u.id === str(args, 'approverId')) ?? fail('INVALID_CREDENTIALS');
+    if (approver.role !== 'manager') fail('PERMISSION_DENIED');
+    if (approver.disabled) fail('ACCOUNT_DISABLED');
+    if (approver.pin === null) fail('PIN_NOT_SET');
+    if (approver.pin !== str(args, 'pin')) fail('INVALID_CREDENTIALS');
+  },
   logout: () => {
     current = null;
     freshUntil = 0;
@@ -444,7 +455,6 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const key = str(args, 'key');
     if (key === 'invoice_prefix') settings.invoicePrefix = str(args, 'value');
   },
-  get_pattern_status: () => ({ enabled: false, configured: false }),
   list_users_for_management: () => {
     requireManager(true);
     return users.map((u) => ({
@@ -464,8 +474,8 @@ export function install(): void {
   mockIPC((cmd, args) => {
     const handler = handlers[cmd];
     if (handler === undefined) {
-      // Not part of the demo (backups, the Pattern, user changes): refused, so
-      // nothing pretends to have happened.
+      // Not part of the demo (backups, user changes): refused, so nothing
+      // pretends to have happened.
       throw { code: 'DEMO_UNAVAILABLE' };
     }
     return handler(args as Args);

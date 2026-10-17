@@ -72,7 +72,7 @@ pub enum Permission {
     ManageDepartments,
 
     /// Read and change device settings: costing default, invoice prefix, VAT
-    /// defaults, maximum Sales discount, and the Pattern itself.
+    /// defaults and the maximum Sales discount.
     ///
     /// Blanket re-authenticated. Unlike the two above, this is **not** a mix: every
     /// settings change is sensitive, so a per-permission rule costs nothing and
@@ -83,8 +83,9 @@ pub enum Permission {
     ///
     /// Cancellation restores inventory and preserves the cancelled document, so it
     /// is an inventory operation as much as a sales one. Not blanket
-    /// re-authenticated; gated per operation so the Pattern can be required
-    /// without a password prompt on every manager action.
+    /// re-authenticated; gated per operation, so each cancellation spends one
+    /// owner PIN approval (ADR-017 §3) without a password prompt on every
+    /// manager action.
     CancelTransaction,
 
     /// Browse customer records (P4, `spec:18` CUST-03).

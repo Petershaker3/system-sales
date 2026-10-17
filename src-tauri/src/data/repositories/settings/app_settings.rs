@@ -71,8 +71,9 @@ pub async fn set(
 /// A stored value that does not parse is reported, never silently defaulted:
 /// the write path refuses such values, so reaching this branch means something
 /// wrote around the domain and the corruption should be visible. The one row
-/// the snapshot does not own is [`PATTERN_REQUIRED`], read by the pattern
-/// slice; it is skipped by name rather than dropped with every unknown key,
+/// the snapshot does not own is [`PATTERN_REQUIRED`], the retired Pattern flag
+/// (ADR-017) an older database may still hold; it is skipped by name rather
+/// than dropped with every unknown key,
 /// because `update` already guarantees no other unknown key can exist.
 pub async fn load_snapshot(
     conn: &mut SqliteConnection,
@@ -80,7 +81,7 @@ pub async fn load_snapshot(
     let rows = read_all(conn).await?;
     let mut snapshot = SettingsSnapshot::default();
     for (key, value) in rows {
-        // Rows another slice owns: the Pattern flag, and the display choices
+        // Rows the snapshot does not own: the retired Pattern flag, and the display choices
         // (`ui.*`), which must never be able to fail a sale's snapshot read.
         if key == crate::domain::settings::PATTERN_REQUIRED || key.starts_with(APPEARANCE_PREFIX) {
             continue;

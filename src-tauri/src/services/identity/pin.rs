@@ -86,6 +86,10 @@ pub async fn set_own_pin(
     if changed != 1 {
         return Err(DomainError::AccountDataIntegrityError);
     }
+    // ADR-017 §3: a new PIN withdraws every approval the old one granted.
+    session_repo::clear_approvals_granted_by(&mut tx, user.id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
     audit::append(
         &mut tx,
         user.id,
@@ -133,6 +137,10 @@ pub async fn manager_set_pin(
     if changed != 1 {
         return Err(DomainError::AccountDataIntegrityError);
     }
+    // ADR-017 §3: a new PIN withdraws every approval the old one granted.
+    session_repo::clear_approvals_granted_by(&mut tx, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
     let revoked = if target == actor {
         0
     } else {

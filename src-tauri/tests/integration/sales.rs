@@ -11,7 +11,7 @@ use mobile_shop_system_lib::domain::identity::Sensitivity;
 use mobile_shop_system_lib::domain::sales::WarrantyDate;
 use mobile_shop_system_lib::services::catalog::{product as catalog, CatalogContext};
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
-use mobile_shop_system_lib::services::identity::{auth, bootstrap, session};
+use mobile_shop_system_lib::services::identity::{approval, auth, bootstrap, pin, session};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
 use mobile_shop_system_lib::services::sales::{self as sales_use_cases, SaleLineInput};
 use sqlx::SqlitePool;
@@ -36,6 +36,25 @@ async fn sales_tables_exist_with_their_constraints() {
             "migration 0011 must create `{table}`"
         );
     }
+}
+
+/// The owner's PIN in these tests.
+const OWNER_PIN: &str = "2580";
+
+/// The signed-in owner approves the next sensitive operation with the PIN
+/// (ADR-017 §3), setting that PIN first if the shop has none yet.
+async fn owner_approves(pool: &SqlitePool, tokens: &InMemoryTokenStore) {
+    let current = session::resolve(pool, tokens).await.expect("session");
+    let owner = current.user_id();
+    let holders = pin::pin_holders(pool).await.expect("PIN holders");
+    if !holders.contains(&owner.as_str()) {
+        pin::set_own_pin(pool, &current, None, OWNER_PIN)
+            .await
+            .expect("the owner sets a PIN");
+    }
+    approval::approve_with_owner_pin(pool, tokens, owner, OWNER_PIN)
+        .await
+        .expect("the owner approves");
 }
 
 /// A manager-signed-in shop with one priced quantity product holding ten units
@@ -144,11 +163,9 @@ async fn cancelling_a_sale_restores_stock_and_links_the_reversal() {
     .expect("record sale");
     assert_eq!(on_hand(&pool, &product_id).await, 7, "ten minus three sold");
 
-    // Cancellation restores inventory value, so it is Sensitive: the operator
-    // re-authenticates first, exactly as the command layer will require.
-    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
+    // Cancellation restores inventory value, so it is Sensitive: the owner
+    // approves it with the PIN first (ADR-017 §3).
+    owner_approves(&pool, tokens.as_ref()).await;
 
     let reversal = sales_use_cases::cancel_sale(
         &pool,
@@ -208,13 +225,14 @@ async fn cancelling_the_same_sale_twice_is_refused() {
     .await
     .expect("record sale");
 
-    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
+    owner_approves(&pool, tokens.as_ref()).await;
     sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "mistake")
         .await
         .expect("first cancel");
 
+    // The first cancellation spent its approval; a fresh one lets the second
+    // attempt reach the rule this test is about.
+    owner_approves(&pool, tokens.as_ref()).await;
     let second = sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "again")
         .await
         .expect_err("a second cancellation must be refused");
@@ -440,9 +458,7 @@ async fn a_cancellation_mirrors_the_warranty_dates_onto_its_reversal_line() {
     .await
     .expect("record");
 
-    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
+    owner_approves(&pool, tokens.as_ref()).await;
     let reversal = sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "mistake")
         .await
         .expect("cancel");
@@ -498,9 +514,7 @@ async fn a_line_sold_under_fifo_before_1_3_is_restored_into_the_average_at_its_o
         .await
         .expect("mark the line as sold under FIFO");
 
-    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
-        .await
-        .expect("reauthenticate");
+    owner_approves(&pool, tokens.as_ref()).await;
     sales_use_cases::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "legacy")
         .await
         .expect("a line sold under FIFO must stay cancellable");

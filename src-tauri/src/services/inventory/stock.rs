@@ -50,12 +50,14 @@ use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
 use crate::domain::costing::fifo::{FifoLayer, FifoPosition};
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
-use crate::domain::identity::{DomainError, Permission, Sensitivity, Session, Timestamp, UserId};
+use crate::domain::identity::{
+    DomainError, OwnerApproval, Permission, Sensitivity, Session, Timestamp, UserId,
+};
 use crate::domain::organisation::{CostMethod, DepartmentError};
 use crate::domain::supplier::SupplierName;
 use crate::services::identity::secure_store::SecureTokenStore;
+use crate::services::identity::approval as approval_service;
 use crate::services::identity::session as identity_session;
-use crate::services::pattern as pattern_service;
 
 /// The costing method of every product counted by quantity (`ADR-016` #7).
 ///
@@ -192,25 +194,21 @@ pub struct StockOutcome {
 }
 
 /// Resolve the session, require inventory management, then apply the operation's
-/// own sensitivity.
+/// own sensitivity — returning the owner approval a sensitive operation will
+/// spend, or `None` for routine work.
 ///
 /// The order matters and is the same one every other service uses: role and
-/// permission first, so a session that may not touch inventory never causes a
-/// database read to decide whether it needs a Pattern.
+/// permission first, so a session that may not touch inventory is refused
+/// before anything asks whether it holds the owner's approval.
 async fn authorize(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
     sensitivity: Sensitivity,
-) -> Result<Session, StockServiceError> {
+) -> Result<(Session, Option<OwnerApproval>), StockServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageInventory)?;
-    session.require_sensitivity(
-        sensitivity,
-        pattern_service::is_enabled(pool).await?,
-        pattern_service::current_epoch(pool).await?,
-        Timestamp::now(),
-    )?;
-    Ok(session)
+    let approval = session.require_sensitivity(sensitivity, Timestamp::now())?;
+    Ok((session, approval))
 }
 
 /// Refuse an unknown product before anything is read or written for it.
@@ -460,7 +458,9 @@ pub(crate) async fn remove_in_tx(
 ///
 /// `Routine` by default. An opening balance is the same arithmetic with a
 /// different `Sensitivity`, so the caller chooses rather than this function
-/// guessing what a receipt means.
+/// guessing what a receipt means. A `Sensitive` receipt spends the session's
+/// owner approval in its own transaction and names the approver in its audit
+/// row (ADR-017 §3).
 ///
 /// `supplier` is the label the operator typed on the delivery (D1). It is
 /// recorded on the receipt movement and nowhere else: a sale, a reversal, a
@@ -476,11 +476,14 @@ pub async fn receive(
     sensitivity: Sensitivity,
     supplier: Option<SupplierName>,
 ) -> Result<StockOutcome, StockServiceError> {
-    let session = authorize(pool, tokens, sensitivity).await?;
+    let (session, approval) = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
     let actor = session.user_id();
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    // Spent here, inside the receipt's transaction, so the approval and the
+    // receipt commit together or not at all. `None` for a routine receipt.
+    let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
 
     ensure_product(&mut *tx, product_id).await?;
     collapse_legacy_in_tx(&mut *tx, &actor, product_id, now).await?;
@@ -541,7 +544,7 @@ pub async fn receive(
         audit::event::STOCK_RECEIVED,
         now,
         Some(format!(
-            r#"{{"product":"{}","quantity":{},"unit_cost_minor":{},"method":"{}","on_hand":{},"supplier":{}}}"#,
+            r#"{{"product":"{}","quantity":{},"unit_cost_minor":{},"method":"{}","on_hand":{},"supplier":{}{}}}"#,
             product_id,
             quantity,
             unit_cost_minor,
@@ -551,7 +554,10 @@ pub async fn receive(
             // named a supplier" from an empty label.
             supplier.as_ref().map_or("null".to_owned(), |name| {
                 format!("\"{}\"", name.as_str().replace('"', "\\\""))
-            })
+            }),
+            // Only a sensitive receipt carries an approver, so a routine
+            // receipt's detail is exactly what it always was.
+            approved_by.map_or(String::new(), |id| format!(r#","approved_by":"{id}""#))
         )),
     )
     .await
@@ -574,7 +580,7 @@ pub async fn remove(
     product_id: &str,
     quantity: i64,
 ) -> Result<StockOutcome, StockServiceError> {
-    let session = authorize(pool, tokens, Sensitivity::Routine).await?;
+    let (session, _) = authorize(pool, tokens, Sensitivity::Routine).await?;
     let now = Timestamp::now();
     let actor = session.user_id();
 

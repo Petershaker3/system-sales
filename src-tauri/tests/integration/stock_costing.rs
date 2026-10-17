@@ -669,8 +669,9 @@ async fn declaring_an_opening_balance_is_sensitive_work() {
 
     assert_eq!(
         refused.err().map(|error| error.code()),
-        Some("REAUTHENTICATION_REQUIRED"),
-        "an opening balance declares what the shop is worth (role.rs)"
+        Some("OWNER_APPROVAL_REQUIRED"),
+        "an opening balance declares what the shop is worth, so it waits for the \
+         owner's PIN (ADR-017 §3); the approval itself is proven in approval.rs"
     );
     assert!(position(&shop, &product).await.is_none());
 }

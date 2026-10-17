@@ -1,16 +1,14 @@
 <script setup lang="ts">
-// Device settings and the Pattern (SP-1b, `plan` Task 11).
+// Device settings (SP-1b, `plan` Task 11).
 //
 // Reading settings and every change to them is blanket re-authenticated
 // (`ManageSettings`), so this panel opens behind the same re-auth modal user
 // management uses — the backend would refuse regardless; this is about not
 // letting an operator discover that from an error.
 //
-// The Pattern section manages the step-up mechanism itself: set it for the
-// first time, prove the one in place works, switch protection off, and reset a
-// forgotten one with the Manager password — the recovery path, and the only
-// one (`plan` Task 9). Nothing here keeps the entered Pattern beyond the input
-// binding; it travels once and is dropped.
+// The Pattern section that used to live here is gone with the Pattern: a
+// sensitive operation now asks for the owner's PIN at the moment it happens
+// (ADR-017 §3), and there is nothing left to configure for it.
 //
 // Saving is a diff against the snapshot the panel was read with: only changed
 // keys are written, one audit event each, and the form is not allowed to
@@ -19,12 +17,9 @@
 import { ref } from 'vue';
 
 import * as api from '../api/settings';
-import * as patternApi from '../api/pattern';
 import * as lifecycle from '../api/lifecycle';
 import { describeError } from '../api/errors';
-import PatternPrompt from './PatternPrompt.vue';
 import type { SettingsSnapshot, DiscountKind } from '../api/settings';
-import type { PatternStatus } from '../api/pattern';
 
 // --- re-authentication modal -----------------------------------------------
 // Mirrors UserManagement.vue: every read and every write of `ManageSettings`
@@ -71,9 +66,6 @@ const defaultVatInclusive = ref(false);
 const maxDiscountKind = ref<DiscountKind>('money');
 const maxDiscountValue = ref('0');
 
-const status = ref<PatternStatus | null>(null);
-const verified = ref(false);
-
 async function load(): Promise<void> {
   busy.value = true;
   try {
@@ -88,22 +80,12 @@ async function load(): Promise<void> {
     defaultVatInclusive.value = snapshot.defaultVatInclusive;
     maxDiscountKind.value = snapshot.maxDiscountKind;
     maxDiscountValue.value = String(snapshot.maxDiscountValue);
-    status.value = await patternApi.getPatternStatus();
     loaded.value = true;
     error.value = '';
   } catch (err) {
     error.value = describeError(err);
   } finally {
     busy.value = false;
-  }
-}
-
-async function refreshStatus(): Promise<void> {
-  try {
-    status.value = await patternApi.getPatternStatus();
-    error.value = '';
-  } catch (err) {
-    error.value = describeError(err);
   }
 }
 
@@ -173,82 +155,6 @@ async function saveSettings(vatRateBp: number | null, discountRaw: string): Prom
   }
 }
 
-// --- Pattern: first set -----------------------------------------------------
-const showSetForm = ref(false);
-const newPattern = ref('');
-const newPatternConfirm = ref('');
-
-async function saveNewPattern(): Promise<void> {
-  if (newPattern.value !== newPatternConfirm.value) {
-    error.value = 'النمطان غير متطابقين.';
-    return;
-  }
-
-  busy.value = true;
-  error.value = '';
-  try {
-    await patternApi.setPattern(newPattern.value);
-    newPattern.value = '';
-    newPatternConfirm.value = '';
-    showSetForm.value = false;
-    await refreshStatus();
-  } catch (err) {
-    error.value = describeError(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-// --- Pattern: prove / reset / disable --------------------------------------
-const showPrompt = ref(false);
-
-function afterVerified(): void {
-  showPrompt.value = false;
-  verified.value = true;
-  error.value = '';
-}
-
-const showReset = ref(false);
-const resetPassword = ref('');
-
-function startReset(): void {
-  resetPassword.value = '';
-  error.value = '';
-  showReset.value = true;
-}
-
-async function performReset(): Promise<void> {
-  await withReauth(async () => {
-    busy.value = true;
-    error.value = '';
-    try {
-      await patternApi.resetPattern(resetPassword.value);
-      showReset.value = false;
-      resetPassword.value = '';
-      await refreshStatus();
-    } catch (err) {
-      error.value = describeError(err);
-    } finally {
-      busy.value = false;
-    }
-  });
-}
-
-async function disableProtection(): Promise<void> {
-  verified.value = false;
-  await withReauth(async () => {
-    busy.value = true;
-    error.value = '';
-    try {
-      await patternApi.disablePattern();
-      await refreshStatus();
-    } catch (err) {
-      error.value = describeError(err);
-    } finally {
-      busy.value = false;
-    }
-  });
-}
 </script>
 
 <template>
@@ -315,115 +221,12 @@ async function disableProtection(): Promise<void> {
       <button type="submit" :disabled="busy">حفظ التغييرات</button>
     </form>
 
-    <div v-if="loaded && status !== null" class="pattern-block">
-      <h3 class="pattern-title">نمط التأكيد</h3>
-
-      <p class="hint">
-        {{
-          status.enabled
-            ? 'الحماية مفعّلة: العمليات الحسّاسة تطلب النمط قبل الخمس دقائق من آخر تأكيد.'
-            : status.configured
-              ? 'الحماية معطّلة حاليًا. عيّن نمطًا جديدًا لتفعيلها.'
-              : 'لا يوجد نمط بعد.'
-        }}
-      </p>
-      <p v-if="verified" class="hint verified">النمط صحيح — التأكيد ساري للدقائق الخمس القادمة.</p>
-
-      <div class="row">
-        <button
-          v-if="status.enabled"
-          type="button"
-          :disabled="busy"
-          @click="showPrompt = true"
-        >
-          تأكيد النمط
-        </button>
-        <button
-          v-if="status.enabled"
-          type="button"
-          :disabled="busy"
-          @click="disableProtection"
-        >
-          تعطيل الحماية
-        </button>
-        <button v-if="status.configured" type="button" :disabled="busy" @click="startReset">
-          إعادة تعيين النمط
-        </button>
-        <button
-          v-if="!status.enabled && !showSetForm"
-          type="button"
-          :disabled="busy"
-          @click="showSetForm = true"
-        >
-          {{ status.configured ? 'تعيين نمط جديد' : 'تعيين نمط' }}
-        </button>
-      </div>
-
-      <form
-        v-if="showSetForm || !status.enabled"
-        class="form"
-        @submit.prevent="withReauth(saveNewPattern)"
-      >
-        <p class="hint">
-          {{
-            status.configured
-              ? 'النمط الحالي سيُستبدل ويُفعّل الحماية.'
-              : 'ثمانية أحرف على الأقل — النمط يحمي العمليات الحسّاسة ولا يمكن استرجاعه إلا بكلمة مرور المدير.'
-          }}
-        </p>
-        <label class="field">
-          <span>النمط الجديد</span>
-          <input
-            v-model="newPattern"
-            type="password"
-            autocomplete="new-password"
-            required
-            minlength="8"
-          />
-        </label>
-        <label class="field">
-          <span>تأكيد النمط</span>
-          <input
-            v-model="newPatternConfirm"
-            type="password"
-            autocomplete="new-password"
-            required
-            minlength="8"
-          />
-        </label>
-        <button type="submit" :disabled="busy">حفظ النمط</button>
-      </form>
-    </div>
+    <p v-if="loaded" class="hint approvals">
+      العمليات الحسّاسة — رصيد البداية وإلغاء الفاتورة — تطلب PIN المالك في
+      كل مرة.
+    </p>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-
-    <!-- Step-up prompt: permissionless by design, so no re-auth in front of it. -->
-    <PatternPrompt :visible="showPrompt" @verified="afterVerified" @cancelled="showPrompt = false" />
-
-    <!-- Reset: the Manager password is re-proved here on purpose — losing the
-         Pattern must cost exactly as much as losing the password. -->
-    <div v-if="showReset" class="overlay">
-      <form class="modal" @submit.prevent="performReset">
-        <h3 class="modal-title">إعادة تعيين النمط</h3>
-        <p class="hint">
-          النمط الحالي سيُحذف. أدخل كلمة مرور المدير للمتابعة.
-        </p>
-        <label class="field">
-          <span>كلمة مرور المدير</span>
-          <input
-            v-model="resetPassword"
-            type="password"
-            autocomplete="current-password"
-            required
-            autofocus
-          />
-        </label>
-        <div class="row">
-          <button type="submit" :disabled="busy">إعادة التعيين</button>
-          <button type="button" :disabled="busy" @click="showReset = false">إلغاء</button>
-        </div>
-      </form>
-    </div>
 
     <!-- Re-authentication for reading and writing the settings themselves. -->
     <div v-if="showReauth" class="overlay">
@@ -460,18 +263,8 @@ async function disableProtection(): Promise<void> {
 .gate {
   margin-bottom: 1rem;
 }
-.pattern-block {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid #eee;
-}
-.pattern-title {
-  font-size: 1rem;
-  margin: 0 0 0.5rem;
-}
-.verified {
-  color: #070;
-  font-weight: 600;
+.approvals {
+  margin-top: 1.25rem;
 }
 .check {
   display: flex;

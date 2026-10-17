@@ -17,11 +17,16 @@ import Icon from './Icon.vue';
 const MIN = 4;
 const MAX = 6;
 
-const props = withDefaults(defineProps<{ size?: 'lg' | 'sm'; error?: string; busy?: boolean }>(), {
-  size: 'lg',
-  error: '',
-  busy: false,
-});
+const props = withDefaults(
+  defineProps<{ size?: 'lg' | 'sm'; error?: string; busy?: boolean; go?: string }>(),
+  {
+    size: 'lg',
+    error: '',
+    busy: false,
+    /** The submit button's word: «دخول» to sign in, «وافق» to approve. */
+    go: 'دخول',
+  }
+);
 const emit = defineEmits<{ submit: [pin: string]; back: []; input: [] }>();
 
 const pin = ref('');
@@ -94,7 +99,7 @@ defineExpose({ handleKey, clear });
       :disabled="busy || pin.length < 4"
       @click="submit"
     >
-      دخول <kbd>Enter</kbd>
+      {{ go }} <kbd>Enter</kbd>
     </button>
   </div>
 </template>

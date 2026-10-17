@@ -65,9 +65,8 @@ export interface SaleOutcome {
 /**
  * Record one cash sale.
  *
- * Routine work, so it needs no re-authentication; the Pattern is still asked for
- * when protection is on, and Rust answers `PATTERN_REQUIRED` rather than the
- * frontend guessing.
+ * Routine work: it needs no re-authentication and never waits for the owner's
+ * approval (ADR-017 §3).
  *
  * `confirmedTotalMinor` is the total the operator saw on screen. When it is
  * present and Rust's authoritative total differs, the sale is refused with
@@ -104,8 +103,10 @@ export async function recordSale(
  * `SALE_ALREADY_CANCELLED` rather than reversing the reversal.
  *
  * Manager-only (`Permission::CancelTransaction`) and Sensitive: it restores
- * inventory value, so expect `REAUTHENTICATION_REQUIRED` and, when the Pattern
- * is on, `PATTERN_REQUIRED`.
+ * inventory value, so each cancellation spends one owner PIN approval and Rust
+ * answers `OWNER_APPROVAL_REQUIRED` without one. Call it through
+ * `withOwnerApproval` (`shell/approval.ts`), which asks for the PIN and retries
+ * once.
  *
  * `reason` is recorded as written and is the operator's own account of why; it
  * is not validated into a fixed vocabulary.

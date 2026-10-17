@@ -711,8 +711,6 @@ mod windows_credential;
 // Device settings: defaults, audit, blanket re-authentication (plan SP-1c).
 mod settings;
 
-// The Pattern lifecycle: set, verify, epoch, reset, disable (plan SP-1c).
-mod pattern;
 
 // Department authority: the audit trail, role refusals, the assurance mix
 // (plan SP-1b).
@@ -781,3 +779,8 @@ mod appearance;
 // Plan item 1.1 (ADR-017): the daily PIN — its shape, setting it, signing in with
 // it, and the lockout it shares with the password.
 mod pin;
+
+// Plan item 1.1 (ADR-017 §3): the owner's PIN approval for one sensitive
+// operation — who may approve, the shared lockout, the two-minute window, one
+// use per approval, and what withdraws one. Replaces the Pattern.
+mod approval;

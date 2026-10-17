@@ -46,6 +46,16 @@ pub mod event {
     /// A manager set a seller's PIN (ADR-017 §1). Detail names the target and
     /// how many of the target's sessions were ended.
     pub const PIN_SET_BY_MANAGER: &str = "pin_set_by_manager";
+    /// The owner entered the PIN to approve one sensitive operation on the
+    /// current session (ADR-017 §3). Detail names the approver and the
+    /// session's operator; never the PIN or its verifier. The operation that
+    /// spends the approval names the approver again in its own detail.
+    pub const OWNER_APPROVAL_GRANTED: &str = "owner_approval_granted";
+    /// An approval attempt was refused. Detail carries the reason — bad_pin,
+    /// no_pin, locked, disabled, not_a_manager or no_such_user — and, for a
+    /// wrong PIN, the approver's failure count: the same counter a wrong
+    /// sign-in advances.
+    pub const OWNER_APPROVAL_FAILED: &str = "owner_approval_failed";
 
 /// Departments: the product classification.
 ///
@@ -65,7 +75,7 @@ pub const DEPARTMENT_ARCHIVED: &str = "department_archived";
 /// to be able to find those moments without inferring them from a diff of two
 /// department rows.
 ///
-/// Detail carries amounts only, never a Pattern: `spec:19` attributes every
+/// Detail carries amounts only, never a PIN: `spec:19` attributes every
 /// operation, and the schema forbids storing anything secret in `detail`.
 pub const STOCK_RECEIVED: &str = "stock_received";
 pub const STOCK_REMOVED: &str = "stock_removed";
@@ -93,14 +103,11 @@ pub const SALE_CUSTOMER_LINKED: &str = "sale_customer_linked";
 pub const CUSTOMER_CREATED: &str = "customer_created";
 pub const CUSTOMER_ARCHIVED: &str = "customer_archived";
 
-/// Settings and Pattern.
+/// Settings, and the retired Pattern.
 ///
-/// `PATTERN_VERIFIED` is intentionally **not** recorded. A successful Pattern
-/// entry changes no state: it neither alters the Pattern nor grants a persistent
-/// privilege, because the approval expires in five minutes. Logging every prompt
-/// would fill the trail with entries that mean nothing, which trains a reader to
-/// skip the ones that do. `PATTERN_SET` and `PATTERN_RESET` are recorded because
-/// both change the stored verifier and advance the epoch.
+/// The Pattern was replaced by the owner's PIN approval (ADR-017 §3) and nothing
+/// writes `PATTERN_SET` or `PATTERN_RESET` any more. Both names stay so the rows
+/// written before that keep a meaning, and so the vocabulary never shrinks.
 pub const SETTING_CHANGED: &str = "setting_changed";
 pub const PATTERN_SET: &str = "pattern_set";
 pub const PATTERN_RESET: &str = "pattern_reset";

@@ -48,27 +48,14 @@ pub enum DomainError {
     ReauthenticationRequired,
     /// The account must change its password before any other operation.
     PasswordChangeRequired,
-    /// A sensitive operation needs a Pattern approval and this session has
-    /// never had one.
+    /// A sensitive operation needs the owner's PIN approval, and this session
+    /// holds none that may still be spent (ADR-017 §3).
     ///
-    /// Never-granted and lapsed are deliberately different codes: both mean
-    /// "approve again" to the operator, but an approval that vanished because
-    /// the Pattern was *changed* is a different event from one nobody ever
-    /// gave, and the log should say which happened.
-    PatternRequired,
-    /// A Pattern approval exists but is no longer current: its five-minute
-    /// window passed, or the Pattern was changed or reset since it was granted.
-    ///
-    /// The epoch is what makes the second case cheap — `manager_pattern.epoch`
-    /// is bumped and every stored approval compares unequal, with no sweep of
-    /// open sessions (`ADR-014`).
-    PatternApprovalStale,
-    /// Pattern protection is switched on but no Pattern has ever been configured.
-    ///
-    /// An integrity fault rather than a permission problem. It fails closed: a shop
-    /// that enabled Pattern protection without setting a Pattern cannot perform
-    /// sensitive operations until a Manager sets or resets one.
-    PatternNotConfigured,
+    /// One code for "never approved", "the two minutes passed" and "already
+    /// used by another operation": to the operator they all have the same
+    /// remedy — the owner enters the PIN — and the audit log records which
+    /// approvals were granted and which operation spent each one.
+    OwnerApprovalRequired,
     /// The requested username is already taken.
     UsernameAlreadyExists,
     /// The requested username violates the format rules.
@@ -164,9 +151,7 @@ impl DomainError {
             DomainError::AccountLocked => "ACCOUNT_TEMPORARILY_LOCKED",
             DomainError::AccountDisabled => "ACCOUNT_DISABLED",
             DomainError::PasswordChangeRequired => "PASSWORD_CHANGE_REQUIRED",
-            DomainError::PatternRequired => "PATTERN_REQUIRED",
-            DomainError::PatternApprovalStale => "PATTERN_APPROVAL_STALE",
-            DomainError::PatternNotConfigured => "PATTERN_NOT_CONFIGURED",
+            DomainError::OwnerApprovalRequired => "OWNER_APPROVAL_REQUIRED",
             DomainError::UsernameAlreadyExists => "USERNAME_ALREADY_EXISTS",
             DomainError::UsernameInvalid => "USERNAME_INVALID",
             DomainError::DisplayNameRequired => "DISPLAY_NAME_REQUIRED",
@@ -221,16 +206,9 @@ impl fmt::Display for DomainError {
             DomainError::PasswordChangeRequired => {
                 write!(f, "password must be changed before continuing")
             }
-            DomainError::PatternRequired => {
-                write!(f, "this operation needs a fresh Pattern approval")
+            DomainError::OwnerApprovalRequired => {
+                write!(f, "this operation needs the owner's PIN approval")
             }
-            DomainError::PatternApprovalStale => {
-                write!(f, "the Pattern approval has expired or was invalidated")
-            }
-            DomainError::PatternNotConfigured => write!(
-                f,
-                "Pattern protection is enabled but no Pattern has been configured"
-            ),
             DomainError::UsernameAlreadyExists => write!(f, "username is already taken"),
             DomainError::UsernameInvalid => write!(f, "username is not valid"),
             DomainError::DisplayNameRequired => write!(f, "display name is required"),

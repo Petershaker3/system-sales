@@ -17,7 +17,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::domain::identity::DomainError;
-use crate::services::identity::{auth, bootstrap, pin, session};
+use crate::services::identity::{approval, auth, bootstrap, pin, session};
 use crate::services::identity::IdentityContext;
 
 type Ctx<'a> = State<'a, IdentityContext>;
@@ -221,6 +221,35 @@ pub async fn login_with_pin(
     .map_err(CommandError::from)?;
 
     Ok(to_session_dto(&signed_in))
+}
+
+/// Approve one sensitive operation on the current session with a manager's PIN
+/// (ADR-017 §3).
+///
+/// Asked when a command answered `OWNER_APPROVAL_REQUIRED`; the screen then
+/// retries that command once. `approver_id` names whose PIN is being typed,
+/// because a shop may have more than one manager. It is only a claim: Rust
+/// checks the PIN against that account and refuses anyone who is not an
+/// active manager. Nothing comes back but success — the approval stays on the
+/// session row, where only Rust can read or spend it.
+#[tauri::command]
+pub async fn approve_with_owner_pin(
+    ctx: Ctx<'_>,
+    approver_id: String,
+    pin: String,
+) -> Result<(), CommandError> {
+    // An id that is not even a UUID is answered like a wrong PIN.
+    let parsed = uuid::Uuid::parse_str(&approver_id)
+        .map_err(|_| CommandError::from(DomainError::InvalidCredentials))?;
+
+    approval::approve_with_owner_pin(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        crate::domain::identity::UserId::from_uuid(parsed),
+        &pin,
+    )
+    .await
+    .map_err(CommandError::from)
 }
 
 /// End the current session.

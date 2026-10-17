@@ -301,10 +301,9 @@ async fn sign_in(
         absolute_expires_at: now.plus_millis(ABSOLUTE_LIFETIME_MS),
         must_change_password,
         disabled_at: disabled_at.flatten(),
-        // A new session has never passed the Pattern. Logging in proves who the
-        // operator is; the Pattern re-proves it at the moment of a sensitive action.
-        pattern_approved_at: None,
-        pattern_epoch: None,
+        // A new session holds no owner approval. Signing in proves who the
+        // operator is; the owner's PIN approves one sensitive action at a time.
+        owner_approval: None,
     };
 
     // Release the pooled connection before opening a transaction. Holding a

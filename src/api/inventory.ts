@@ -1,7 +1,7 @@
 /**
  * Stock and costing API (SP-2, `ADR-013`, `ADR-015`).
  *
- * A thin typed wrapper over `invoke`, mirroring `pattern.ts`. Every function is a
+ * A thin typed wrapper over `invoke`, like the other `api/` files. Every function is a
  * use case that already exists in Rust; this file decides nothing about
  * permission, rounding or cost. In particular it never computes an average — the
  * ceiling rule lives in `domain/costing` and the value comes back from Rust

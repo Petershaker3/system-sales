@@ -3,7 +3,7 @@
 //! The plan's settings guarantees, each proven against the live service layer:
 //! defaults for anything never stored, a change audited inside the same
 //! transaction, unknown keys refused without a write, blanket
-//! re-authentication on `ManageSettings`, and the Pattern's own key staying
+//! re-authentication on `ManageSettings`, and the retired Pattern's key staying
 //! out of the generic write path.
 
 use std::sync::Arc;
@@ -185,9 +185,10 @@ async fn an_unknown_setting_key_is_refused_without_a_write() {
 async fn the_pattern_key_is_not_writable_through_the_generic_settings_api() {
     let (pool, tokens) = reauthenticated_manager().await;
 
-    // `pattern_required` is deliberately not a `SettingKey`: only the Pattern
-    // service's own transactional slices may move it, so a generic settings
-    // write cannot turn protection on with no verifier in place.
+    // `pattern_required` is deliberately not a `SettingKey`. The Pattern is
+    // retired (ADR-017 §3) and nothing reads the flag any more, but an older
+    // database may still hold it, so the name stays known — and stays outside
+    // the generic writer, which must never be able to recreate it.
     let error = settings::update(&pool, tokens.as_ref(), PATTERN_REQUIRED, "1")
         .await
         .expect_err("the pattern flag must refuse the generic writer");

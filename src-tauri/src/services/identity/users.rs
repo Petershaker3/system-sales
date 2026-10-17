@@ -301,6 +301,10 @@ pub async fn disable_user(
     let revoked = session_repo::delete_by_user(&mut tx, target)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+    // ADR-017 §3: a disabled manager's unspent approvals go with the account.
+    session_repo::clear_approvals_granted_by(&mut tx, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
 
     audit::append(
         &mut tx,

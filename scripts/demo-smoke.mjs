@@ -278,6 +278,52 @@ await clickText('.rail .nav-btn', 'المخزن');
 await sleep(300);
 await shot('09-store');
 
+// --- the owner's PIN approval (ADR-017 §3) ---------------------------------
+// No demo screen is sensitive yet, so the prompt is opened the way a screen
+// will open it: through the app's own module, which the dev server shares with
+// the page. On a static build that module path does not exist; the checks say so.
+const APPROVAL_MODULE = '/src/shell/approval.ts';
+const ask = (label) =>
+  page.evaluate(
+    async (spec, what) => {
+      try {
+        const approval = await import(spec);
+        window.__approval = approval.requestOwnerApproval(what);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    APPROVAL_MODULE,
+    label
+  );
+if (!(await ask('رصيد بداية: شاحن آيفون'))) {
+  check('owner approval prompt (needs the dev server; skipped on a static build)', true);
+} else {
+  await page.waitForSelector('.modal .approver', { timeout: 3000 });
+  check(
+    'a sensitive operation opens «موافقة المالك» saying what it is for',
+    (await text('.modal-h .mt')) === 'موافقة المالك' && (await text('.modal-h small')).includes('رصيد بداية')
+  );
+  check('the owner is the one asked, with the «وافق» pad', (await text('.modal .approver b')).includes('بيتر') && (await text('.modal .pin-go')).includes('وافق'));
+  await page.keyboard.type('9999');
+  await page.keyboard.press('Enter');
+  await sleep(250);
+  check('a wrong PIN is refused inside the prompt', (await count('.modal .approver')) === 1 && (await text('.modal .pinpad .err-msg')).length > 0);
+  await shot('12-approval-wrong-pin');
+  await page.keyboard.type('4321');
+  await page.keyboard.press('Enter');
+  const approved = await page.evaluate(() => window.__approval);
+  await sleep(150);
+  check('the owner PIN approves and the prompt closes', approved === true && (await count('.modal .approver')) === 0);
+  await ask('إلغاء الفاتورة');
+  await page.waitForSelector('.modal .approver', { timeout: 3000 });
+  await page.keyboard.press('Escape');
+  const backedOut = await page.evaluate(() => window.__approval);
+  await sleep(150);
+  check('Esc backs out of the approval', backedOut === false && (await count('.modal .approver')) === 0);
+}
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

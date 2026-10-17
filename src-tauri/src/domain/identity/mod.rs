@@ -23,7 +23,7 @@ pub use policy::{
     RECOVERY_BASE_DELAY_MS, RECOVERY_MAX_DELAY_MS,
 };
 pub use role::{Permission, Role};
-pub use sensitivity::{PatternApproval, Sensitivity, PATTERN_TTL_MS};
+pub use sensitivity::{OwnerApproval, Sensitivity, OWNER_APPROVAL_TTL_MS};
 pub use session::{
     Session, SessionFacts, SessionToken, Timestamp, Assurance, ABSOLUTE_LIFETIME_MS,
     IDLE_TIMEOUT_MS,

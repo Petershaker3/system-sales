@@ -1,8 +1,8 @@
-//! Sensitivity: step-up authorization for sensitive operations.
+//! Sensitivity: the owner's PIN approval for sensitive operations (ADR-017 §3).
 //!
 //! `spec:210` requires the authorization decision to be proven at the
 //! application/data layer, and inventory work is a *mix*: receiving a carton is
-//! routine, opening a balance is not. So Pattern approval is deliberately NOT
+//! routine, opening a balance is not. So the approval is deliberately NOT
 //! folded into `Permission::requires_reauthenticated` — that is a blanket
 //! per-permission rule, and a blanket rule cannot express "routine for one
 //! operation, sensitive for another".
@@ -10,8 +10,22 @@
 //! This module owns the fourth axis, and the [`Session`] type owns the first
 //! three (`Session::authorize`). Services call both; neither is re-implemented
 //! at a call site.
+//!
+//! # The rule
+//!
+//! A sensitive operation needs one fresh owner approval: an active manager
+//! typed their PIN on this session less than [`OWNER_APPROVAL_TTL_MS`] ago, and
+//! nothing has used that approval since. There is no password
+//! re-authentication in it — speed at the counter is the point — and the
+//! owner's own session needs the PIN too, so a signed-in session left
+//! unattended is never a standing approval.
+//!
+//! The domain decides *freshness*. *One use* is enforced where the operation
+//! commits (`session_repo::consume_owner_approval`, inside the operation's own
+//! transaction), because only the database can see a second operation racing
+//! for the same approval.
 
-use crate::domain::identity::{Assurance, DomainError, Session, Timestamp};
+use crate::domain::identity::{DomainError, Session, Timestamp, UserId};
 
 /// How much authority an operation needs, decided by the operation itself.
 ///
@@ -19,97 +33,78 @@ use crate::domain::identity::{Assurance, DomainError, Session, Timestamp};
 /// sensitive in every shop on every device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sensitivity {
-    /// Ordinary catalogue or sales work. No step-up.
+    /// Ordinary catalogue or sales work. No approval.
     Routine,
-    /// Changes inventory value or money at risk. Requires the fourth axis.
+    /// Changes inventory value or money at risk. Needs a fresh owner approval.
     Sensitive,
 }
 
-/// How long a Pattern approval survives, in milliseconds.
+/// How long an unused owner approval survives, in milliseconds.
 ///
-/// **5 minutes** — a Product Owner assumption (plan SP-1b, Assumption 1), not a
-/// decision taken here: a step-up for one operation should not outlive its
-/// purpose, and five minutes covers filling in a form without becoming a
-/// standing unlock.
-pub const PATTERN_TTL_MS: i64 = 5 * 60 * 1000;
+/// **2 minutes** (ADR-017 §3): long enough to hand the screen back to the
+/// seller and press the button, short enough that an approval nobody used does
+/// not wait around for the next operation.
+pub const OWNER_APPROVAL_TTL_MS: i64 = 2 * 60 * 1000;
 
-/// A recorded Pattern approval: *when* it was granted, and *under which epoch*.
-///
-/// Both conditions must hold for the approval to be fresh — inside the TTL
-/// window **and** the epoch still current. The second condition is what lets a
-/// Pattern change invalidate every open approval without a sweep: the epoch is
-/// bumped in `manager_pattern` and every stored approval compares unequal.
+/// An owner approval waiting on a session: who approved, and when.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PatternApproval {
+pub struct OwnerApproval {
+    approved_by: UserId,
     approved_at: Timestamp,
-    epoch: i64,
 }
 
-impl PatternApproval {
-    /// Record an approval granted at `approved_at` under `epoch`.
-    pub fn granted(approved_at: Timestamp, epoch: i64) -> Self {
-        Self { approved_at, epoch }
+impl OwnerApproval {
+    /// Record an approval `approved_by` granted at `approved_at`.
+    pub fn granted(approved_by: UserId, approved_at: Timestamp) -> Self {
+        Self {
+            approved_by,
+            approved_at,
+        }
     }
 
-    /// Fresh means: inside the TTL window **and** the epoch still current.
+    /// The manager whose PIN was entered.
+    pub fn approved_by(&self) -> UserId {
+        self.approved_by
+    }
+
+    /// When the PIN was entered.
+    pub fn approved_at(&self) -> Timestamp {
+        self.approved_at
+    }
+
+    /// Fresh means: granted no later than `now`, and less than `ttl_ms` before it.
     ///
-    /// `millis_since` saturates at zero rather than going negative, so a clock
-    /// that moved backwards yields "not yet elapsed" rather than an approval
-    /// that lasts longer than its window.
-    pub fn is_fresh(&self, now: Timestamp, current_epoch: i64, ttl_ms: i64) -> bool {
-        self.epoch == current_epoch
-            && now.millis_since(self.approved_at) < ttl_ms
+    /// An approval stamped in the future — the clock moved backwards since — is
+    /// *not* fresh. Failing closed costs one more PIN entry; trusting it would
+    /// stretch the window by however far the clock jumped.
+    pub fn is_fresh(&self, now: Timestamp, ttl_ms: i64) -> bool {
+        self.approved_at <= now && now.millis_since(self.approved_at) < ttl_ms
     }
 }
 
 impl Session {
-    /// The fourth authorization axis: Pattern step-up for sensitive work.
+    /// The fourth authorization axis: the owner's approval for sensitive work.
     ///
     /// Consulted after `Session::authorize` has already approved role and
-    /// assurance. `pattern_required` and `current_pattern_epoch` come from
-    /// settings and `manager_pattern` at call time, so the domain stays free of
-    /// I/O — the service reads them and passes them in.
-    ///
-    /// Refuses distinguish three states, because the operator's remedy differs:
-    ///
-    /// * [`DomainError::PatternNotConfigured`] — protection is enabled but no
-    ///   Pattern exists yet; only a manager can fix that.
-    /// * [`DomainError::PatternRequired`] — nobody has approved in this session;
-    ///   entering the Pattern is the remedy.
-    /// * [`DomainError::PatternApprovalStale`] — an approval exists but has
-    ///   expired or was invalidated by a Pattern change; approving again is the
-    ///   remedy.
+    /// assurance. Routine work returns `Ok(None)`. Sensitive work returns the
+    /// approval it will spend, so the service can consume exactly that one
+    /// inside its transaction and name the approver in its audit row; without
+    /// a fresh approval it is refused with
+    /// [`DomainError::OwnerApprovalRequired`], whose remedy is always the same
+    /// — the owner enters the PIN.
     pub fn require_sensitivity(
         &self,
         sensitivity: Sensitivity,
-        pattern_required: bool,
-        current_pattern_epoch: Option<i64>,
         now: Timestamp,
-    ) -> Result<(), DomainError> {
-        if sensitivity == Sensitivity::Routine {
-            return Ok(());
-        }
-
-        if self.assurance() != Assurance::Reauthenticated {
-            return Err(DomainError::ReauthenticationRequired);
-        }
-
-        if !pattern_required {
-            return Ok(());
-        }
-
-        let Some(current_epoch) = current_pattern_epoch else {
-            return Err(DomainError::PatternNotConfigured);
-        };
-
-        if self.pattern_approved_at().is_none() {
-            return Err(DomainError::PatternRequired);
-        }
-
-        if self.pattern_approval_is_current(now, current_epoch, PATTERN_TTL_MS) {
-            Ok(())
-        } else {
-            Err(DomainError::PatternApprovalStale)
+    ) -> Result<Option<OwnerApproval>, DomainError> {
+        match sensitivity {
+            Sensitivity::Routine => Ok(None),
+            Sensitivity::Sensitive => match self.owner_approval() {
+                Some(approval) if approval.is_fresh(now, OWNER_APPROVAL_TTL_MS) => {
+                    Ok(Some(approval))
+                }
+                _ => Err(DomainError::OwnerApprovalRequired),
+            },
         }
     }
 }

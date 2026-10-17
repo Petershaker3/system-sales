@@ -3,6 +3,7 @@
 //! Orchestration across repositories and infrastructure. No SQL here; queries
 //! live under `data/repositories/`.
 
+pub mod approval;
 pub mod auth;
 pub mod bootstrap;
 pub mod crypto;

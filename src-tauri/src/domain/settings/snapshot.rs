@@ -12,14 +12,15 @@ use std::fmt;
 
 use crate::domain::organisation::{CostMethod, VatRate};
 
-/// The operational on/off flag for Pattern protection.
+/// The retired on/off flag for Pattern protection.
 ///
-/// Deliberately **not** a [`SettingKey`]: the generic settings write path
-/// refuses unknown keys, so leaving this one out is what guarantees only the
-/// pattern slice (`set` / `disable`) can flip protection, never an arbitrary
-/// `settings_update`. The snapshot skips the row when it loads (its value is
-/// read by `services::pattern::is_enabled`), and since `update` refuses
-/// unknown keys, every stored key other than this one is a snapshot key.
+/// The Pattern was replaced by the owner's PIN approval (ADR-017 §3) and nothing
+/// reads this row any more, but a database that once switched protection on
+/// still holds it. So the name stays known: the snapshot skips the row when it
+/// loads instead of failing on an unknown key, and it is still deliberately
+/// **not** a [`SettingKey`], so the generic write path keeps refusing it. Since
+/// `update` refuses unknown keys, every stored key other than this one (and the
+/// `ui.*` display choices) is a snapshot key.
 pub const PATTERN_REQUIRED: &str = "pattern_required";
 
 /// A setting name the domain recognises.

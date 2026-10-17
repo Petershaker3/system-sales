@@ -23,6 +23,7 @@ export const ErrorCode = {
   PASSWORD_DOES_NOT_MEET_POLICY: 'PASSWORD_DOES_NOT_MEET_POLICY',
   PIN_DOES_NOT_MEET_POLICY: 'PIN_DOES_NOT_MEET_POLICY',
   PIN_NOT_SET: 'PIN_NOT_SET',
+  OWNER_APPROVAL_REQUIRED: 'OWNER_APPROVAL_REQUIRED',
   BOOTSTRAP_ALREADY_COMPLETED: 'BOOTSTRAP_ALREADY_COMPLETED',
   SESSION_IDLE_EXPIRED: 'SESSION_IDLE_EXPIRED',
   SESSION_LIFETIME_EXPIRED: 'SESSION_LIFETIME_EXPIRED',
@@ -62,10 +63,7 @@ export const ErrorCode = {
     'DEPARTMENT_COST_METHOD_REQUIRES_SWITCH',
   VAT_RATE_REQUIRED: 'VAT_RATE_REQUIRED',
   VAT_RATE_NEGATIVE: 'VAT_RATE_NEGATIVE',
-  // الخطوة الثانية (النمط / الإعدادات)
-  PATTERN_REQUIRED: 'PATTERN_REQUIRED',
-  PATTERN_APPROVAL_STALE: 'PATTERN_APPROVAL_STALE',
-  PATTERN_NOT_CONFIGURED: 'PATTERN_NOT_CONFIGURED',
+  // الإعدادات
   SETTING_UNKNOWN_KEY: 'SETTING_UNKNOWN_KEY',
   SETTING_VALUE_INVALID: 'SETTING_VALUE_INVALID',
 
@@ -154,6 +152,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'كلمة المرور لا تحقق الحد المطلوب، ثمانية أحرف على الأقل.',
   [ErrorCode.PIN_DOES_NOT_MEET_POLICY]: 'الـPIN لازم يكون من 4 لـ6 أرقام.',
   [ErrorCode.PIN_NOT_SET]: 'الحساب ده لسه ماعندوش PIN. ادخل بكلمة السر وحطّ PIN.',
+  [ErrorCode.OWNER_APPROVAL_REQUIRED]: 'العملية دي محتاجة موافقة المالك بالـPIN.',
   [ErrorCode.BOOTSTRAP_ALREADY_COMPLETED]:
     'تم إعداد هذا الجهاز بالفعل ولا يمكن إنشاء حساب آخر.',
   [ErrorCode.SESSION_IDLE_EXPIRED]:
@@ -224,13 +223,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'يجب تحديد نسبة ضريبة قبل تفعيل الضريبة على القسم.',
   [ErrorCode.VAT_RATE_NEGATIVE]: 'لا يُقبل أن تكون نسبة الضريبة سالبة.',
 
-  // الخطوة الثانية (النمط / الإعدادات)
-  [ErrorCode.PATTERN_REQUIRED]:
-    'هذه العملية حسّاسة وتحتاج تأكيد النمط من جديد.',
-  [ErrorCode.PATTERN_APPROVAL_STALE]:
-    'انتهت صلاحية تأكيد النمط أو تم تغييره. أكّد النمط من جديد للمتابعة.',
-  [ErrorCode.PATTERN_NOT_CONFIGURED]:
-    'حماية النمط مُفعّلة ولم يُعيَّن نمط بعد. كلّم مدير المحل.',
+  // الإعدادات
   [ErrorCode.SETTING_UNKNOWN_KEY]: 'إعداد غير معروف.',
   [ErrorCode.SETTING_VALUE_INVALID]: 'قيمة الإعداد غير صحيحة.',
 
