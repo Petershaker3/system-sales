@@ -4,8 +4,10 @@
 //! means, and what a refusal looks like. Reading and writing rows lives in
 //! `data/repositories/settings`, and orchestration in `services/settings`.
 
+pub mod appearance;
 pub mod snapshot;
 
+pub use appearance::{Appearance, AppearanceKey, APPEARANCE_PREFIX};
 pub use snapshot::{
     DiscountKind, SettingKey, SettingsError, SettingsSnapshot, PATTERN_REQUIRED,
 };

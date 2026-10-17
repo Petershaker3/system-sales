@@ -773,3 +773,7 @@ mod no_drop;
 
 // Plan item 1.6: the sales screen's catalogue, readable by a seller, with no cost.
 mod pos_catalog;
+
+// Display choices (`ui.*`): readable before sign-in, theme for everyone, the rest
+// the owner's; never able to fail a sale.
+mod appearance;

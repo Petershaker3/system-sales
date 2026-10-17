@@ -50,6 +50,20 @@ if (results.length) {
   out.push(note('notice', `${label}: ${head}`, clip(body, 6000)));
 }
 
+// 1b. node --test (frontend unit tests): "# pass N" / "# fail N".
+const nodePass = text.match(/^# pass (\d+)$/m);
+const nodeFail = text.match(/^# fail (\d+)$/m);
+if (nodePass && nodeFail) {
+  const failing = lines.filter((l) => /^not ok \d+ - /.test(l)).map((l) => l.replace(/^not ok \d+ - /, ''));
+  out.push(
+    note(
+      Number(nodeFail[1]) > 0 ? 'error' : 'notice',
+      `${label}: ${nodePass[1]} passed, ${nodeFail[1]} failed (unit)`,
+      failing.length ? `failing:\n${failing.join('\n')}` : 'all unit tests passed'
+    )
+  );
+}
+
 // 2. Failing tests with their panic message.
 const failed = [...new Set(lines.map((l) => l.match(/^test (\S+) \.\.\. FAILED/)?.[1]).filter(Boolean))];
 for (const name of failed.slice(0, 12)) {
@@ -77,9 +91,9 @@ for (let i = 0; i < lines.length && errors.length < 12; i++) {
 for (const e of errors) out.push(note('error', `${label}: compile`, clip(e, 3000)));
 
 // 4. Nothing recognisable: show the tail so the cause is never invisible.
-if (!results.length && !failed.length && !errors.length) {
+if (!results.length && !failed.length && !errors.length && !(nodePass && nodeFail)) {
   const tail = lines.filter((l) => l.trim()).slice(-25).join('\n');
-  out.push(note('warning', `${label}: tail`, clip(tail, 5000)));
+  out.push(note('notice', `${label}: tail`, clip(tail, 5000)));
 }
 
 console.log(out.join('\n'));

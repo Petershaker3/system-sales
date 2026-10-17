@@ -67,6 +67,8 @@ pub fn run() {
             commands::departments::reorder_departments,
             commands::settings::read_settings,
             commands::settings::update_setting,
+            commands::settings::read_appearance,
+            commands::settings::update_appearance,
             commands::pattern::get_pattern_status,
             commands::pattern::verify_pattern,
             commands::pattern::set_pattern,

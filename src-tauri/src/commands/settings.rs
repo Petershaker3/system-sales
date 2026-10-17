@@ -7,7 +7,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::domain::settings::SettingsSnapshot;
+use crate::domain::settings::{Appearance, SettingsSnapshot};
 use crate::services::identity::IdentityContext;
 use crate::services::settings::{self as use_cases, SettingsServiceError};
 
@@ -78,4 +78,51 @@ pub async fn update_setting(
 ) -> Result<(), SettingsCommandError> {
     use_cases::update(&ctx.pool, ctx.tokens.as_ref(), &key, &value).await?;
     Ok(())
+}
+
+/// The display choices as the frontend sees them (DESIGN.md).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceDto {
+    pub look: String,
+    pub theme: String,
+    pub accent: String,
+    pub font: String,
+    pub scale: String,
+    pub digits: String,
+}
+
+impl From<Appearance> for AppearanceDto {
+    fn from(a: Appearance) -> Self {
+        Self {
+            look: a.look,
+            theme: a.theme,
+            accent: a.accent,
+            font: a.font,
+            scale: a.scale,
+            digits: a.digits,
+        }
+    }
+}
+
+/// The display choices. Needs no session: the sign-in screen is drawn in them,
+/// and they are neither business data nor secret.
+#[tauri::command]
+pub async fn read_appearance(ctx: Ctx<'_>) -> Result<AppearanceDto, SettingsCommandError> {
+    let appearance = use_cases::appearance::read(&ctx.pool).await?;
+    Ok(appearance.into())
+}
+
+/// Change one display choice (`ui.look`, `ui.theme`, `ui.accent`, `ui.font`,
+/// `ui.scale`, `ui.digits`). The theme is for everyone; the rest is the
+/// owner's, with a fresh password. Returns every choice after the change.
+#[tauri::command]
+pub async fn update_appearance(
+    ctx: Ctx<'_>,
+    key: String,
+    value: String,
+) -> Result<AppearanceDto, SettingsCommandError> {
+    let appearance =
+        use_cases::appearance::update(&ctx.pool, ctx.tokens.as_ref(), &key, &value).await?;
+    Ok(appearance.into())
 }

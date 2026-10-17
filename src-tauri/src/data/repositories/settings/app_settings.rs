@@ -8,7 +8,7 @@
 
 use sqlx::{Row, SqliteConnection};
 
-use crate::domain::settings::SettingsSnapshot;
+use crate::domain::settings::{Appearance, SettingsSnapshot, APPEARANCE_PREFIX};
 
 /// Read every stored row as `(key, value)` pairs.
 ///
@@ -80,7 +80,9 @@ pub async fn load_snapshot(
     let rows = read_all(conn).await?;
     let mut snapshot = SettingsSnapshot::default();
     for (key, value) in rows {
-        if key == crate::domain::settings::PATTERN_REQUIRED {
+        // Rows another slice owns: the Pattern flag, and the display choices
+        // (`ui.*`), which must never be able to fail a sale's snapshot read.
+        if key == crate::domain::settings::PATTERN_REQUIRED || key.starts_with(APPEARANCE_PREFIX) {
             continue;
         }
         snapshot
@@ -88,4 +90,23 @@ pub async fn load_snapshot(
             .map_err(|error| sqlx::Error::Protocol(format!("bad setting `{key}`: {error}")))?;
     }
     Ok(snapshot)
+}
+
+/// Build the display choices from stored `ui.*` rows, defaults for the rest.
+///
+/// A stored value that does not parse is reported, exactly as for the
+/// snapshot: the write path validates first, so it means something wrote
+/// around the domain.
+pub async fn load_appearance(conn: &mut SqliteConnection) -> Result<Appearance, sqlx::Error> {
+    let rows = read_all(conn).await?;
+    let mut appearance = Appearance::default();
+    for (key, value) in rows {
+        if !key.starts_with(APPEARANCE_PREFIX) {
+            continue;
+        }
+        appearance
+            .set(&key, &value)
+            .map_err(|error| sqlx::Error::Protocol(format!("bad setting `{key}`: {error}")))?;
+    }
+    Ok(appearance)
 }

@@ -13,6 +13,8 @@
 //! read path uses — so a key or value one side would refuse, the other refuses
 //! too. Nothing is written before validation passes.
 
+pub mod appearance;
+
 use std::fmt;
 
 use sqlx::SqlitePool;

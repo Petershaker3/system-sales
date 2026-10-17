@@ -46,6 +46,8 @@ jobs:
       - run: npm ci
       - name: Typecheck (vue-tsc)
         run: npm run typecheck 2>&1 | tee web.log; exit ${PIPESTATUS[0]}
+      - name: Unit tests (node --test)
+        run: npm run -s test:unit 2>&1 | tee -a web.log; exit ${PIPESTATUS[0]}
       - name: Build (vite)
         run: npx vite build 2>&1 | tee -a web.log; exit ${PIPESTATUS[0]}
       - name: Annotate
