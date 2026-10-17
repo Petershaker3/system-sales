@@ -33,6 +33,9 @@ import * as lifecycle from '../api/lifecycle';
 import { describeError } from '../api/errors';
 import type { Product } from '../api/catalog';
 import type { StockPosition } from '../api/inventory';
+import Icon from '../ui/Icon.vue';
+
+const emit = defineEmits<{ 'new-item': [] }>();
 
 // --- product picker --------------------------------------------------------
 
@@ -210,7 +213,13 @@ void loadPickers();
 
 <template>
   <section class="stock">
-    <h2 class="stock-title">المخزن والتكلفة</h2>
+    <div class="stock-head">
+      <h2 class="stock-title">المخزن والتكلفة</h2>
+      <span class="sp"></span>
+      <button type="button" class="btn sm soft" @click="emit('new-item')">
+        <Icon name="package-plus" /> صنف جديد
+      </button>
+    </div>
 
     <!-- Product picker -->
     <label class="field">
@@ -307,9 +316,18 @@ void loadPickers();
   padding-top: 1.25rem;
   border-top: 1px solid #ddd;
 }
+.stock-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.stock-head .sp {
+  flex: 1;
+}
 .stock-title {
   font-size: 1.05rem;
-  margin: 0 0 1rem;
+  margin: 0;
 }
 .gate {
   margin-bottom: 1rem;

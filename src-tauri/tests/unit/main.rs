@@ -1,4 +1,4 @@
-﻿//! Domain unit tests: no Tauri, no SQLite, no operating system.
+//! Domain unit tests: no Tauri, no SQLite, no operating system.
 //!
 //! Every rule the identity domain owns is exercised here as a pure function.
 //! `spec:135` requires role permissions to be unit tested, and `spec:139`
@@ -6,10 +6,10 @@
 //! than assumed.
 
 use mobile_shop_system_lib::domain::catalog::{
-    brand_aliases, brand_lines, can_delete_brand, is_default_brand, phone_title, storage_label,
-    BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType, Disposition,
-    PhoneDetails, PhoneModel, Product, ProductId, ProductName, ProductStatus, SalePrice,
-    DEFAULT_BRANDS,
+    brand_aliases, brand_lines, can_delete_brand, ean13, ean13_check_digit, is_default_brand,
+    next_shop_code, phone_title, storage_label, BrandDeviceType, BrandError, BrandId, BrandName,
+    CatalogError, DeviceType, Disposition, PhoneDetails, PhoneModel, Product, ProductId,
+    ProductName, ProductStatus, SalePrice, ShopCodeError, DEFAULT_BRANDS,
 };
 use mobile_shop_system_lib::domain::identity::{
     group_recovery_code, is_locked, normalize_recovery_code, password_is_acceptable,
@@ -618,6 +618,101 @@ fn a_free_price_is_still_a_price_and_not_an_absent_one() {
 
     let unset: Option<SalePrice> = None;
     assert!(unset.is_none(), "an unset price must stay distinguishable from zero");
+}
+
+// ---------------------------------------------------------------------------
+// The shop's own barcode (ADR-018 §3, PLAN §6)
+// ---------------------------------------------------------------------------
+//
+// The mockup's `ean13` and `nextCode` are the specification: a manufacturer's
+// example proves the check digit is the standard one, and the first code proves
+// the shop's numbering starts where the mockup starts it.
+
+#[test]
+fn the_ean13_check_digit_matches_the_standard_example() {
+    // 4006381333931 is the example used wherever EAN-13 is explained; agreeing
+    // with it means the weights are the standard 1,3 and not a lookalike.
+    assert_eq!(ean13_check_digit("400638133393"), Some(1));
+    assert_eq!(ean13("400638133393"), Some("4006381333931".to_string()));
+    // A total already divisible by ten yields zero rather than ten.
+    assert_eq!(ean13_check_digit("200000000006"), Some(0));
+}
+
+#[test]
+fn a_body_that_is_not_twelve_ascii_digits_has_no_check_digit() {
+    for body in [
+        "",
+        "20000000000",    // eleven
+        "2000000000001",  // thirteen
+        "20000000000A",   // a letter
+        "20000000000 ",   // a space
+        "٢٠٠٠٠٠٠٠٠٠٠١", // Arabic-Indic digits
+    ] {
+        assert_eq!(ean13_check_digit(body), None, "{body:?} must be refused");
+        assert_eq!(ean13(body), None);
+    }
+}
+
+#[test]
+fn the_first_shop_code_is_two_and_zeroes_ending_in_five() {
+    // The mockup's `nextCode` with no internal code stored.
+    assert_eq!(
+        next_shop_code(std::iter::empty::<&str>()).expect("the range is not full"),
+        "2000000000015"
+    );
+}
+
+#[test]
+fn the_next_shop_code_follows_the_highest_one_already_stored() {
+    assert_eq!(
+        next_shop_code(["2000000000015", "2000000000022"]).expect("the range is not full"),
+        "2000000000039"
+    );
+    // Order does not matter: the highest is what counts.
+    assert_eq!(
+        next_shop_code(["2000000000022", "2000000000015"]).expect("the range is not full"),
+        "2000000000039"
+    );
+}
+
+#[test]
+fn a_manufacturer_barcode_never_moves_the_shops_numbering() {
+    // A real product's EAN starts with something other than 2; a short code
+    // that happens to start with 2 is not 13 digits. Neither is the shop's.
+    assert_eq!(
+        next_shop_code(["4006381333931", "2123", "2000000000022"])
+            .expect("the range is not full"),
+        "2000000000039"
+    );
+}
+
+#[test]
+fn a_hand_typed_shop_code_still_reserves_its_sequence() {
+    // `2000000000029` has the shape but a wrong check digit (the valid one is
+    // `2000000000022`). Skipping it would make the next code repeat its number
+    // and the UNIQUE barcode would refuse the insert.
+    assert_eq!(
+        next_shop_code(["2000000000029"]).expect("the range is not full"),
+        "2000000000039"
+    );
+}
+
+#[test]
+fn the_last_shop_code_is_refused_rather_than_wrapped() {
+    // 2999999999991 is the last code the range can hold. Wrapping would reuse
+    // barcodes the shop has already printed.
+    assert_eq!(
+        next_shop_code(["2999999999991"]),
+        Err(ShopCodeError::Exhausted)
+    );
+}
+
+#[test]
+fn the_exhausted_shop_code_has_a_stable_code() {
+    assert_eq!(ShopCodeError::Exhausted.code(), "SHOP_CODE_EXHAUSTED");
+    assert_eq!(CatalogError::ShopCodeExhausted.code(), "SHOP_CODE_EXHAUSTED");
+    assert!(!ShopCodeError::Exhausted.to_string().is_empty());
+    assert!(!CatalogError::ShopCodeExhausted.to_string().is_empty());
 }
 
 // ---------------------------------------------------------------------------

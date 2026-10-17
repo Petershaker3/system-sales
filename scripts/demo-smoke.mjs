@@ -443,8 +443,80 @@ await clickText('.rail .nav-btn', 'المخزن');
 await sleep(300);
 await shot('09-store');
 
+// --- «صنف جديد»: the kind chooser and a counted item (ADR-018 §3) ----------
+check('the store offers «صنف جديد», not a lone «موبايل جديد»', (await text('.page-h button')).includes('صنف جديد'));
+check('the receiving panel has its own «صنف جديد»', (await text('.stock-head')).includes('صنف جديد'));
+await clickText('.page-h button', 'صنف جديد');
+await page.waitForSelector('.ni-kinds');
+const kinds = await page.$$eval('.ni-kind .t b', (els) => els.map((e) => (e.textContent ?? '').trim()));
+check(
+  'the kind chooser offers a phone and a counted item, and hides «مستعمل» until 1.4',
+  kinds.length === 2 &&
+    kinds.includes('موبايل جديد') &&
+    kinds.some((k) => k.includes('إكسسوار أو أي صنف بالعدد')) &&
+    !kinds.some((k) => k.includes('مستعمل')),
+  kinds.join('، ')
+);
+await clickText('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
+await page.waitForSelector('#ni-name');
+await sleep(100);
+const itemCatNames = await page.$$eval('#ni-cats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+check(
+  'counted items are offered the counted categories, not the phone ones',
+  itemCatNames.includes('جرابات') && itemCatNames.includes('ساعات ذكية') && !itemCatNames.includes('موبايلات جديدة'),
+  itemCatNames.join('، ')
+);
+await shot('19-new-item-empty');
+
+// inline «تصنيف جديد»: under the main of the chosen category, then chosen
+await clickText('#ni-cats .chip', 'تصنيف جديد');
+await page.waitForSelector('#ni-cat-new');
+await page.type('#ni-cat-new', 'قطع غيار');
+await page.keyboard.press('Enter');
+await page.waitForSelector('#ni-cat-new', { hidden: true, timeout: 3000 });
+await sleep(200);
+const chosenCat = await page.$$eval('#ni-cats .chip.on', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()));
+check('an inline «تصنيف جديد» is added under the chosen main and becomes the choice', chosenCat.some((t) => t.includes('قطع غيار')), chosenCat.join('، '));
+
+await page.type('#ni-name', 'جراب سيليكون شفاف');
+await clickText('.new-item button', 'اعمل كود للمحل');
+await page.waitForFunction(() => (document.querySelector('#ni-sku')?.value.length ?? 0) === 13);
+const shopCode = await page.$eval('#ni-sku', (el) => el.value);
+const checkDigit = (body) => {
+  const sum = [...body].reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3), 0);
+  return (10 - (sum % 10)) % 10;
+};
+check(
+  'the shop code is an EAN-13 starting with 2 and its check digit is right',
+  /^2\d{12}$/.test(shopCode) && checkDigit(shopCode.slice(0, 12)) === Number(shopCode[12]),
+  shopCode
+);
+check('the form says the code is the shop’s own', (await text('.new-item .field .hint')).includes('كود المحل'));
+await page.type('#ni-price', '75');
+await sleep(80);
+await shot('20-new-item');
+await page.keyboard.press('Enter');
+await page.waitForSelector('#ni-name', { hidden: true, timeout: 3000 });
+check('the counted item is registered from «صنف جديد»', (await text('#toasts')).includes('اتسجّل «جراب سيليكون شفاف»'));
+
+// the same barcode again is refused, as the real backend refuses it
+await clickText('.page-h button', 'صنف جديد');
+await page.waitForSelector('.ni-kinds');
+await clickText('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
+await page.waitForSelector('#ni-name');
+await page.type('#ni-name', 'جراب تاني');
+await page.type('#ni-sku', shopCode);
+await page.type('#ni-price', '90');
+await page.keyboard.press('Enter');
+await sleep(300);
+check('a barcode already used is refused with its Arabic message', (await text('.new-item .err-msg')).includes('الباركود'));
+await page.keyboard.press('Escape');
+await sleep(150);
+
 // --- «موبايل جديد» (ADR-018 §2) ---------------------------------------------
-await clickText('.page-h button', 'موبايل جديد');
+await clickText('.page-h button', 'صنف جديد');
+await page.waitForSelector('.ni-kinds');
+await clickText('.ni-kind', 'موبايل جديد');
 await page.waitForSelector('#np-model');
 await sleep(150);
 const touchBrands = await page.$$eval('#np-brands .chip', (els) => els.map((e) => e.textContent?.trim() ?? ''));
@@ -467,7 +539,9 @@ check(
   'the phone is registered with its built name',
   (await count('#np-model')) === 0 && (await text('#toasts')).includes('اتسجّل «Samsung Galaxy A26 256GB»')
 );
-await clickText('.page-h button', 'موبايل جديد');
+await clickText('.page-h button', 'صنف جديد');
+await page.waitForSelector('.ni-kinds');
+await clickText('.ni-kind', 'موبايل جديد');
 await page.waitForSelector('#np-model');
 await clickText('.new-phone .seg button', 'زراير');
 await sleep(80);
@@ -495,6 +569,14 @@ await sleep(80);
 check(
   'the new phone sells under its company on the sales screen',
   (await page.$$eval('.chips.subcats .chip', (els) => els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim()))).includes('Samsung2')
+);
+await clickText('.chips.cats .chip', 'إكسسوارات');
+await sleep(80);
+await clickText('.chips.subcats .chip', 'قطع غيار');
+await sleep(80);
+check(
+  'the new counted item sells under its category',
+  (await page.$$eval('.tile .name', (els) => els.map((e) => e.textContent ?? ''))).some((t) => t.includes('جراب سيليكون شفاف'))
 );
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);

@@ -145,24 +145,17 @@ async function submit(): Promise<void> {
       return;
     }
 
-    if (editingId.value === null) {
-      await api.createProduct({
-        name: formName.value,
-        disposition: formDisposition.value,
-        barcode: formBarcode.value.trim() === '' ? null : formBarcode.value.trim(),
-        salePriceMinor: price,
-        categoryId: formCategory.value === '' ? null : formCategory.value,
-      });
-    } else {
-      const updated = await api.updateProduct(editingId.value, {
-        name: formName.value,
-        disposition: formDisposition.value,
-        barcode: formBarcode.value.trim() === '' ? null : formBarcode.value.trim(),
-        salePriceMinor: price,
-      });
-      const chosen = formCategory.value === '' ? null : formCategory.value;
-      if (updated.categoryId !== chosen) await api.setProductCategory(updated.id, chosen);
-    }
+    // The form edits an existing product only. Adding one is «صنف جديد»
+    // (ADR-018 §3), which knows the category kind and the shop code.
+    if (editingId.value === null) return;
+    const updated = await api.updateProduct(editingId.value, {
+      name: formName.value,
+      disposition: formDisposition.value,
+      barcode: formBarcode.value.trim() === '' ? null : formBarcode.value.trim(),
+      salePriceMinor: price,
+    });
+    const chosen = formCategory.value === '' ? null : formCategory.value;
+    if (updated.categoryId !== chosen) await api.setProductCategory(updated.id, chosen);
     error.value = '';
     resetForm();
     await load();
@@ -258,11 +251,12 @@ onMounted(() => {
       <button type="button" @click="clearSearch">مسح</button>
     </form>
 
-    <!-- Create or edit -->
-    <form class="panel-form" @submit.prevent="submit">
-      <p class="hint">
-        {{ editingId === null ? 'إضافة منتج' : 'تعديل منتج' }}
-      </p>
+    <!-- Edit only: a new product is «صنف جديد» above (ADR-018 §3). -->
+    <p v-if="editingId === null" class="hint">
+      الإضافة من «صنف جديد» فوق. ومن هنا تعدّل صنف موجود أو تأرشفه.
+    </p>
+    <form v-else class="panel-form" @submit.prevent="submit">
+      <p class="hint">تعديل منتج</p>
 
       <label class="field">
         <span>الاسم</span>
@@ -306,12 +300,8 @@ onMounted(() => {
       </p>
 
       <div class="row">
-        <button type="submit" :disabled="busy">
-          {{ editingId === null ? 'إضافة' : 'حفظ' }}
-        </button>
-        <button v-if="editingId !== null" type="button" @click="resetForm">
-          إلغاء
-        </button>
+        <button type="submit" :disabled="busy">حفظ</button>
+        <button type="button" @click="resetForm">إلغاء</button>
       </div>
     </form>
 

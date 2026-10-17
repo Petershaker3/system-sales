@@ -88,6 +88,16 @@ export async function setProductCategory(id: string, categoryId: string | null):
   return invoke<Product>('set_product_category', { id, categoryId });
 }
 
+/**
+ * The next free barcode the shop makes for itself (ADR-018 §3, `PLAN` §6).
+ *
+ * An EAN-13 starting with 2, one past the highest internal code already stored.
+ * It reserves nothing; `createProduct` with the same barcode is what claims it.
+ */
+export async function nextShopCode(): Promise<string> {
+  return invoke<string>('next_shop_code');
+}
+
 export async function getProduct(id: string): Promise<Product> {
   return invoke<Product>('get_product', { id });
 }

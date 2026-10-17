@@ -216,6 +216,19 @@ pub async fn set_product_category(
     Ok(to_dto(&updated))
 }
 
+/// The next free internal barcode for «اعمل كود للمحل» (`ADR-018` §3).
+///
+/// A read-only suggestion; the product is still created by `create_product`
+/// with the code the operator kept.
+#[tauri::command]
+pub async fn next_shop_code(ctx: Ctx<'_>) -> Result<String, CatalogCommandError> {
+    let session = require_session(&ctx)
+        .await
+        .map_err(|e| CatalogCommandError { code: e.code() })?;
+    let code = use_cases::next_shop_code(&ctx, &session).await?;
+    Ok(code)
+}
+
 #[tauri::command]
 pub async fn set_product_archived(
     ctx: Ctx<'_>,

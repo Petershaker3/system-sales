@@ -7,6 +7,7 @@
 
 mod brand;
 mod catalog;
+mod shop_code;
 
 pub use brand::{
     brand_aliases, brand_lines, can_delete_brand, is_default_brand, phone_title, storage_label,
@@ -16,3 +17,4 @@ pub use brand::{
 pub use catalog::{
     Barcode, CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
 };
+pub use shop_code::{ean13, ean13_check_digit, next_shop_code, ShopCodeError};

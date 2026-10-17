@@ -468,3 +468,61 @@ async fn a_missing_product_reports_not_found_rather_than_failing_opaquely() {
         Err(CatalogError::NoProductWithThisId)
     ));
 }
+
+// ---------------------------------------------------------------------------
+// The shop's own barcode (ADR-018 §3, PLAN §6)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_next_shop_code_reads_the_codes_already_stored() {
+    let (ctx, session) = ctx_as_manager().await;
+    let first = NewProduct {
+        barcode: Some("2000000000015".to_string()),
+        ..new_product("جراب")
+    };
+    use_cases::create(&ctx, &session, first).await.expect("create");
+
+    // A manufacturer's barcode, and a short code that merely starts with 2,
+    // must not move the shop's numbering.
+    for barcode in ["4006381333931", "2123"] {
+        let input = NewProduct {
+            barcode: Some(barcode.to_string()),
+            ..new_product("صنف")
+        };
+        use_cases::create(&ctx, &session, input).await.expect("create");
+    }
+
+    assert_eq!(
+        use_cases::next_shop_code(&ctx, &session).await.expect("next"),
+        "2000000000022"
+    );
+}
+
+#[tokio::test]
+async fn a_generated_code_can_be_stored_and_the_next_one_moves_on() {
+    let (ctx, session) = ctx_as_manager().await;
+    let first = use_cases::next_shop_code(&ctx, &session).await.expect("first");
+    assert_eq!(first, "2000000000015");
+
+    let input = NewProduct {
+        barcode: Some(first),
+        ..new_product("جراب")
+    };
+    use_cases::create(&ctx, &session, input).await.expect("create");
+
+    assert_eq!(
+        use_cases::next_shop_code(&ctx, &session).await.expect("second"),
+        "2000000000022"
+    );
+}
+
+#[tokio::test]
+async fn a_seller_may_not_ask_for_a_shop_code() {
+    let (ctx, _) = ctx_as_manager().await;
+    let seller = sign_in_seller(&ctx, "مندوب").await;
+    let result = use_cases::next_shop_code(&ctx, &seller).await;
+    assert!(
+        matches!(result, Err(CatalogError::PermissionDenied)),
+        "got {result:?}"
+    );
+}

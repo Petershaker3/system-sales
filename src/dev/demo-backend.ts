@@ -220,6 +220,22 @@ const products: DemoProduct[] = [
   { ...p('Redmi 14C 128GB', 6299, 3, 2, 'c-phones'), brandId: 'b-xiaomi', model: 'Redmi 14C', deviceType: 'touch', storageGb: 128, ramGb: 4 },
 ];
 
+// The shop's own barcode (ADR-018 §3, PLAN §6), mirroring
+// `domain::catalog::shop_code`: an EAN-13 starting with 2, one past the highest
+// internal code the demo catalogue already holds.
+function ean13(body: string): string {
+  const sum = [...body].reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3), 0);
+  return body + String((10 - (sum % 10)) % 10);
+}
+function nextShopCode(): string {
+  const sequences = products
+    .map((product) => product.barcode)
+    .filter((code): code is string => /^2\d{12}$/.test(code ?? ''))
+    .map((code) => Number(code.slice(1, 12)));
+  const next = (sequences.length > 0 ? Math.max(...sequences) : 0) + 1;
+  return ean13(`2${String(next).padStart(11, '0')}`);
+}
+
 const appearance = { look: 'plate', theme: 'light', accent: '#1d4f91', font: 'auto', scale: 'normal', digits: 'latin' };
 const customers: { id: string; name: string; contact: string | null; archived: boolean }[] = [
   { id: 'c-1', name: 'أحمد سمير', contact: '01001234567', archived: false },
@@ -487,12 +503,17 @@ const handlers: Record<string, (args: Args) => unknown> = {
   get_product: (args) => productDto(findProduct(str(args, 'id'))),
   create_product: (args) => {
     requireManager();
+    const name = str(args, 'name').trim();
+    if (name === '') fail('PRODUCT_NAME_REQUIRED');
+    const barcode = str(args, 'barcode').trim() || null;
+    if (barcode !== null && products.some((x) => x.barcode === barcode)) fail('BARCODE_ALREADY_EXISTS');
     const price = args?.['salePriceMinor'];
+    if (typeof price === 'number' && price < 0) fail('PRICE_NEGATIVE');
     const x: DemoProduct = {
       id: newId('p'),
-      name: str(args, 'name'),
+      name,
       disposition: (str(args, 'disposition') || 'quantity') as DemoProduct['disposition'],
-      barcode: str(args, 'barcode') || null,
+      barcode,
       salePriceMinor: typeof price === 'number' ? price : null,
       categoryId: categoryOf(args),
       brandId: null,
@@ -507,6 +528,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
     };
     products.push(x);
     return productDto(x);
+  },
+  next_shop_code: () => {
+    requireManager();
+    return nextShopCode();
   },
   update_product: (args) => {
     requireManager();

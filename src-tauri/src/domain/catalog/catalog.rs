@@ -363,6 +363,11 @@ pub enum CatalogError {
     /// The category named for a product does not exist or is archived
     /// (ADR-018 §1).
     CategoryNotFound,
+    /// Every internal shop code has been used (`ADR-018` §3, `PLAN` §6).
+    ///
+    /// Practically unreachable — the range holds a hundred billion codes — but
+    /// refusing is the honest answer where wrapping would repeat a code.
+    ShopCodeExhausted,
 }
 
 impl CatalogError {
@@ -380,6 +385,7 @@ impl CatalogError {
             CatalogError::ProductArchived => "PRODUCT_IS_ARCHIVED",
             CatalogError::PermissionDenied => "PERMISSION_DENIED",
             CatalogError::CategoryNotFound => "PRODUCT_CATEGORY_NOT_FOUND",
+            CatalogError::ShopCodeExhausted => "SHOP_CODE_EXHAUSTED",
         }
     }
 }
@@ -397,6 +403,7 @@ impl fmt::Display for CatalogError {
             CatalogError::ProductArchived => write!(f, "product is archived"),
             CatalogError::PermissionDenied => write!(f, "permission denied"),
             CatalogError::CategoryNotFound => write!(f, "no live category with this id"),
+            CatalogError::ShopCodeExhausted => write!(f, "every internal shop code is in use"),
         }
     }
 }

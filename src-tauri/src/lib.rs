@@ -54,6 +54,7 @@ pub fn run() {
             commands::catalog::set_product_archived,
             commands::catalog::find_product_by_barcode,
             commands::catalog::set_product_category,
+            commands::catalog::next_shop_code,
             commands::identity_lifecycle::change_own_password,
             commands::identity_lifecycle::list_users_for_management,
             commands::identity_lifecycle::create_user,

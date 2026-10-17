@@ -19,7 +19,8 @@ use sqlx::SqliteConnection;
 use crate::data::repositories::catalog::product as repo;
 use crate::data::repositories::organisation::department as category_repo;
 use crate::domain::catalog::{
-    Barcode, CatalogError, Disposition, Product, ProductId, ProductName, ProductStatus, SalePrice,
+    next_shop_code as next_code, Barcode, CatalogError, Disposition, Product, ProductId,
+    ProductName, ProductStatus, SalePrice,
 };
 use crate::domain::identity::{Permission, Session, Timestamp};
 use crate::domain::organisation::DepartmentId;
@@ -168,6 +169,25 @@ pub async fn list(
     repo::list(&mut conn, status)
         .await
         .map_err(|_| CatalogError::NoProductWithThisId)
+}
+
+/// The next free shop code for «اعمل كود للمحل» (`ADR-018` §3, `PLAN` §6).
+///
+/// This reserves nothing: two screens asking at the same moment are told the
+/// same code. The product insert is what makes it true, and the `barcode`
+/// column's UNIQUE index refuses the second one — the operator is told the
+/// barcode is in use and asks again.
+pub async fn next_shop_code(
+    ctx: &CatalogContext,
+    session: &Session,
+) -> Result<String, CatalogError> {
+    authorize(session)?;
+    let mut conn = ctx.pool.acquire().await.map_err(|_| CatalogError::NoProductWithThisId)?;
+    let codes = repo::internal_codes(&mut conn)
+        .await
+        .map_err(|_| CatalogError::NoProductWithThisId)?;
+    next_code(codes.iter().map(String::as_str))
+        .map_err(|_| CatalogError::ShopCodeExhausted)
 }
 
 pub async fn update(

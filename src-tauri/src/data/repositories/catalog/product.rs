@@ -1,4 +1,4 @@
-﻿//! Product catalogue persistence.
+//! Product catalogue persistence.
 //!
 //! The only place SQL for the catalogue may appear. Functions take
 //! `&mut SqliteConnection` so the same code serves a pooled call and a call
@@ -117,6 +117,26 @@ pub async fn list(
         products.push(row_to_product(row)?);
     }
     Ok(products)
+}
+
+/// Every barcode that has the shape of one of the shop's own codes: 13 ASCII
+/// digits starting with 2.
+///
+/// The maximum is not taken in SQL. Which code comes next — and what counts as
+/// one of the shop's codes — is the domain's rule (`domain::catalog::shop_code`),
+/// so the same rule is testable without a database.
+pub async fn internal_codes(conn: &mut SqliteConnection) -> Result<Vec<String>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT barcode FROM products
+         WHERE barcode GLOB '2[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| row.get::<String, _>("barcode"))
+        .collect())
 }
 
 /// Persist an edited product.

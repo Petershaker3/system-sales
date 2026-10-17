@@ -1638,6 +1638,7 @@ fn every_authority_command_is_registered_in_lib() {
         ("categories", "move_category"),
         ("categories", "delete_category"),
         ("catalog", "set_product_category"),
+        ("catalog", "next_shop_code"),
         ("brands", "list_brands"),
         ("brands", "create_brand"),
         ("brands", "rename_brand"),

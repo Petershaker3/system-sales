@@ -50,6 +50,7 @@ export const ErrorCode = {
   PRICE_NEGATIVE: 'PRICE_NEGATIVE',
   PRODUCT_IS_ARCHIVED: 'PRODUCT_IS_ARCHIVED',
   PRODUCT_CATEGORY_NOT_FOUND: 'PRODUCT_CATEGORY_NOT_FOUND',
+  SHOP_CODE_EXHAUSTED: 'SHOP_CODE_EXHAUSTED',
   // Money
   MONEY_NEGATIVE: 'MONEY_NEGATIVE',
   // Departments (product classification)
@@ -219,6 +220,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'هذا المنتج مؤرشف. لا يُمكن تعديله ما لم يُرشف من الأرشيف.',
   [ErrorCode.PRODUCT_CATEGORY_NOT_FOUND]:
     'التصنيف ده مش موجود دلوقتي. حدّث الصفحة واختار تصنيف تاني.',
+  [ErrorCode.SHOP_CODE_EXHAUSTED]:
+    'أكواد المحل الداخلية خلصت. اكتب باركود بنفسك.',
 
   // المال
   // Currently unreachable from a command: a catalogue price converts a negative
