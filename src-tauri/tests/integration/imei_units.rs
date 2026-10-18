@@ -684,7 +684,7 @@ async fn used_phone_registration_opening_stock_and_imei_check_work_end_to_end() 
         .expect("Samsung brand");
     let used_cat = DEFAULT_CATEGORIES
         .iter()
-        .find(|c| c.name == "موبايلات مستعملة")
+        .find(|c| c.name == "مستعمل")
         .map(|c| c.department_id())
         .expect("used phones category");
 
