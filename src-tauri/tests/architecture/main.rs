@@ -3271,7 +3271,7 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
     }
 
     for marker in [
-        "بطاقة 14 رقم",
+        "14 رقم بالظبط",
         "من المستعمل اللي في المحل يوم البداية",
     ] {
         assert!(

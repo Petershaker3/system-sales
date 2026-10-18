@@ -3019,7 +3019,7 @@ fn ean13_bar_encoding_and_tspl_label_formatting() {
     let tspl = format_tspl_barcode_label(LabelDimensionsMm::STANDARD_40X30, &code, 3);
     assert!(tspl.contains("SIZE 40 mm, 30 mm"));
     assert!(tspl.contains("GAP 2 mm, 0 mm"));
-    assert!(tspl.contains("BARCODE 24,88,\"EAN13\",68,1,0,2,2,\"2000000000015\""));
+    assert!(tspl.contains("BARCODE 24,88,\"EAN13\",64,1,0,2,2,\"2000000000015\""));
     assert!(tspl.contains("PRINT 3,1"));
 }
 
