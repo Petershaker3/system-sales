@@ -3006,7 +3006,8 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
 
 #[test]
 fn ean13_bar_encoding_and_tspl_label_formatting() {
-    let code = next_shop_code(&[]).expect("first internal shop code");
+    let empty: [&str; 0] = [];
+    let code = next_shop_code(empty).expect("first internal shop code");
     assert_eq!(code, "2000000000015");
     let bars = encode_ean13_bars(&code).expect("valid 95-module GS1 EAN-13 bars");
     assert_eq!(bars.len(), 95);
