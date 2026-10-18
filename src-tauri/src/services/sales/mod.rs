@@ -2512,7 +2512,7 @@ pub async fn list_sales_history(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     let bounded = limit.unwrap_or(500).clamp(1, 2000);
-    let mut rows = sales_repo::list_sales_history(&mut conn, only_seller, bounded)
+    let mut rows = sales_repo::list_sales_history(&mut conn, only_seller.as_deref(), bounded)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
