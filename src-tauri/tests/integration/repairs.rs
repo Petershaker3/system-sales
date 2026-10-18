@@ -5,13 +5,12 @@ use std::sync::Arc;
 
 use super::{fresh, PASSWORD};
 use mobile_shop_system_lib::domain::catalog::Disposition;
+use mobile_shop_system_lib::domain::customer::{NewCustomer, NewCustomerPayment};
 use mobile_shop_system_lib::domain::identity::{Role, Sensitivity, UserId};
 use mobile_shop_system_lib::domain::sales::SalePaymentInput;
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
-use mobile_shop_system_lib::services::customer::{
-    self as customer_service, NewCustomer, NewCustomerPayment,
-};
+use mobile_shop_system_lib::services::customer as customer_service;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{auth, bootstrap, session, users};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
@@ -420,10 +419,10 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
     //    - expected_cash_minor = 1,000 (opening) + 200 (repair cash deposit) = 1,200 EGP
     //    - vf_sales_minor includes the 600 EGP repair delivery paid via `vf`
     //    - services_fee_minor includes the 350 EGP net repair profit (800 - 450)
-    let shift_summary = shift_service::current_shift_summary(&pool, tokens.as_ref(), 5)
+    let shift_summary = shift_service::current_shift_summary(&pool, tokens.as_ref())
         .await
         .expect("shift summary")
-        .active
+        .open_shift
         .expect("active shift");
     assert_eq!(shift_summary.totals.expected_cash_minor, 1_200_00);
     assert_eq!(shift_summary.totals.services_cash_in_minor, 200_00);
