@@ -1089,7 +1089,7 @@ pub async fn list_all_units_in_stock(
 ) -> Result<Vec<UnitRecord>, StockServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageInventory)?;
-    let can_view_cost = session.authorize(Permission::ViewCostAndProfit).is_ok();
+    let can_view_cost = session.role().allows(Permission::ViewCostAndProfit);
 
     let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
     let mut units = unit_repo::list_all_in_stock_for_active_products(&mut conn)

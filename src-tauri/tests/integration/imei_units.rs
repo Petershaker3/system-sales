@@ -913,11 +913,14 @@ async fn stock_count_reconciliation_requires_owner_approval_and_retires_missing_
     assert_eq!(outcome.net_cost_delta_minor, -1_150_000);
 
     // Remaining position has quantity 1 and exact cost 1,000,000 (IMEI_1).
-    let pos = inventory::position(&shop.pool, shop.tokens.as_ref(), &phone_id)
-        .await
-        .expect("position after stock count");
-    assert_eq!(pos.quantity, 1);
-    assert_eq!(pos.total_cost_minor, Some(1_000_000));
+    let (qty, total_cost): (i64, i64) = sqlx::query_as(
+        "SELECT quantity, total_cost_minor FROM stock_levels WHERE product_id = ?1",
+    )
+    .bind(&phone_id)
+    .fetch_one(&shop.pool)
+    .await
+    .expect("stock_levels after stock count");
+    assert_eq!((qty, total_cost), (1, 1_000_000));
 
     let remaining_units =
         inventory::list_units_in_stock(&shop.pool, shop.tokens.as_ref(), &phone_id)
