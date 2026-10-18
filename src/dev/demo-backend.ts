@@ -389,6 +389,7 @@ interface DemoSale {
   kind: 'sale' | 'reversal';
   reversesSaleId: string | null;
   reference: string;
+  soldBy?: string;
   linesSubtotalMinor: number;
   invoiceDiscountMinor: number;
   totalMinor: number;
@@ -1522,6 +1523,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       kind: 'sale',
       reversesSaleId: null,
       reference,
+      soldBy: current?.id ?? 'u-peter',
       linesSubtotalMinor: linesNetSubtotal,
       invoiceDiscountMinor: invoiceDisc,
       totalMinor: total,
@@ -1551,6 +1553,162 @@ const handlers: Record<string, (args: Args) => unknown> = {
       });
     }
     return { saleId: sale.id, reference, totalMinor: total, costTotalMinor: cost };
+  },
+  cancel_sale: (args) => {
+    const user = requireManager(false);
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    approvedOnce = false;
+
+    const saleId = str(args, 'saleId').trim();
+    const reason = str(args, 'reason').trim();
+    if (!reason) fail('SALE_REVERSAL_REASON_REQUIRED');
+    const orig =
+      sales.find((s) => s.id === saleId && s.kind === 'sale') ?? fail('SALE_NOT_FOUND');
+    if (orig.isCancelled) fail('SALE_ALREADY_CANCELLED');
+
+    orig.isCancelled = true;
+    for (const l of orig.lines) {
+      const prod = products.find((p) => p.id === l.productId);
+      if (prod) {
+        prod.onHand += l.quantity;
+        prod.totalCostMinor += l.lineCostTotalMinor;
+      }
+      if (l.unitId) {
+        const u = productUnits.find((x) => x.id === l.unitId);
+        if (u) u.status = 'in_stock';
+      }
+    }
+
+    const revRef = `${orig.reference}-REV`;
+    const reversalSale: DemoSale = {
+      id: newId('s'),
+      kind: 'reversal',
+      reversesSaleId: orig.id,
+      reference: revRef,
+      soldBy: user.id,
+      linesSubtotalMinor: orig.linesSubtotalMinor,
+      invoiceDiscountMinor: orig.invoiceDiscountMinor,
+      totalMinor: orig.totalMinor,
+      costTotalMinor: orig.costTotalMinor,
+      discountMinor: orig.discountMinor,
+      customerId: orig.customerId,
+      isCancelled: false,
+      occurredAt: now(),
+      payments: orig.payments.map((p) => ({ ...p })),
+      lines: orig.lines.map((l) => ({ ...l })),
+    };
+    sales.push(reversalSale);
+
+    const creditTotal = orig.payments
+      .filter((p) => p.method === 'credit')
+      .reduce((sum, p) => sum + p.amountMinor, 0);
+    if (creditTotal > 0 && orig.customerId) {
+      const cust = customers.find((c) => c.id === orig.customerId);
+      if (cust) {
+        cust.balanceMinor -= creditTotal;
+        customerLedger.unshift({
+          id: newId('cl'),
+          customerId: cust.id,
+          kind: 'sale_reversal',
+          amountMinor: -creditTotal,
+          method: 'credit',
+          saleId: reversalSale.id,
+          note: `إلغاء فاتورة ${orig.reference}: ${reason}`,
+          occurredAt: reversalSale.occurredAt,
+        });
+      }
+    }
+
+    return {
+      saleId: reversalSale.id,
+      reference: revRef,
+      totalMinor: orig.totalMinor,
+      costTotalMinor: orig.costTotalMinor,
+    };
+  },
+  list_sales_history: (args) => {
+    const user = requireUser();
+    const isManager = user.role === 'manager';
+    const canSeeCost = isManager;
+    const limit = Math.min(2000, Math.max(1, numArg(args, 'limit') || 500));
+
+    const filtered = sales
+      .filter(
+        (s) =>
+          s.kind === 'sale' &&
+          (isManager || (s.soldBy ?? 'u-peter') === user.id)
+      )
+      .slice(-limit);
+
+    return filtered.map((s) => {
+      const sellerId = s.soldBy ?? 'u-peter';
+      const sellerUser = users.find((u) => u.id === sellerId);
+      const cust = s.customerId
+        ? (customers.find((c) => c.id === s.customerId) ?? null)
+        : null;
+      const prevReturns = demoSaleReturns.filter((r) => r.originalSaleId === s.id);
+      const alreadyRefundedMinor = s.isCancelled
+        ? s.totalMinor
+        : prevReturns.reduce((sum, r) => sum + r.refundMinor, 0);
+
+      const lineDtos = s.lines.map((l) => {
+        const prod = products.find((p) => p.id === l.productId);
+        const catId = prod?.categoryId ?? null;
+        const catObj = catId ? (categories.find((c) => c.id === catId) ?? null) : null;
+        return {
+          lineId: l.id,
+          lineNo: l.lineNo,
+          productId: l.productId,
+          productName: l.productName,
+          categoryId: catId,
+          categoryName: catObj ? catObj.name : null,
+          parentCategoryId: catObj ? catObj.parentId : null,
+          quantity: l.quantity,
+          unitSellingPriceMinor: l.unitSellingPriceMinor,
+          discountMinor: l.discountMinor,
+          lineTotalMinor: l.lineTotalMinor,
+          ...(canSeeCost
+            ? {
+                unitCostMinor: l.unitCostMinor,
+                lineCostMinor: l.lineCostTotalMinor,
+                lineProfitMinor: l.lineTotalMinor - l.lineCostTotalMinor,
+              }
+            : {}),
+          warrantyStart: l.warrantyStart,
+          warrantyEnd: l.warrantyEnd,
+          unitId: l.unitId,
+          imei: l.imei,
+        };
+      });
+
+      return {
+        saleId: s.id,
+        reference: s.reference,
+        occurredAt: s.occurredAt,
+        soldBy: sellerId,
+        sellerName: sellerUser ? sellerUser.displayName : sellerId,
+        customerId: s.customerId,
+        customerName: cust ? cust.name : null,
+        customerPhone: cust ? cust.contact : null,
+        linesSubtotalMinor: s.linesSubtotalMinor,
+        discountMinor: s.discountMinor,
+        totalMinor: s.totalMinor,
+        ...(canSeeCost
+          ? {
+              costTotalMinor: s.costTotalMinor,
+              profitMinor: s.totalMinor - s.costTotalMinor,
+            }
+          : {}),
+        alreadyRefundedMinor,
+        isCancelled: s.isCancelled,
+        lines: lineDtos,
+        payments: s.payments.map((p) => ({
+          method: p.method,
+          amountMinor: p.amountMinor,
+          reference: p.reference,
+        })),
+      };
+    });
   },
   set_sale_customer_name: (args) => {
     requireUser();

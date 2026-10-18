@@ -608,6 +608,59 @@ pub struct ReturnableSaleSummaryRow {
     pub is_cancelled: bool,
 }
 
+/// One sale line with category and IMEI metadata for the Sales history screen (`ADR-029`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleHistoryLineRow {
+    pub line_id: String,
+    pub line_no: i64,
+    pub product_id: String,
+    pub product_name: String,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub parent_category_id: Option<String>,
+    pub quantity: i64,
+    pub unit_selling_price_minor: i64,
+    pub discount_minor: i64,
+    pub line_total_minor: i64,
+    pub unit_cost_minor: Option<i64>,
+    pub line_cost_minor: Option<i64>,
+    pub line_profit_minor: Option<i64>,
+    pub warranty_start: Option<String>,
+    pub warranty_end: Option<String>,
+    pub unit_id: Option<String>,
+    pub imei: Option<String>,
+}
+
+/// One payment row on a sale history entry (`ADR-029`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleHistoryPaymentRow {
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+}
+
+/// One full sale entry for the Sales history & analytics screen (`ADR-029`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleHistoryRow {
+    pub sale_id: String,
+    pub reference: String,
+    pub occurred_at: i64,
+    pub sold_by: String,
+    pub seller_name: String,
+    pub customer_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub lines_subtotal_minor: i64,
+    pub discount_minor: i64,
+    pub total_minor: i64,
+    pub cost_total_minor: Option<i64>,
+    pub profit_minor: Option<i64>,
+    pub already_refunded_minor: i64,
+    pub is_cancelled: bool,
+    pub lines: Vec<SaleHistoryLineRow>,
+    pub payments: Vec<SaleHistoryPaymentRow>,
+}
+
 /// Insert a `sale_lines` row on a reversal/return sale with `reverses_line_id` and `return_condition`.
 pub async fn insert_return_sale_line(
     conn: &mut SqliteConnection,
@@ -993,4 +1046,155 @@ pub async fn list_recent_sales_for_return(
             }
         })
         .collect())
+}
+
+/// List `sale` documents with their lines, category metadata, IMEIs, customer info,
+/// seller name, and payment breakdown for the Sales history & analytics screen (`ADR-029`).
+///
+/// When `only_seller_id` is `Some(uid)`, only sales recorded by `uid` are returned.
+pub async fn list_sales_history(
+    conn: &mut SqliteConnection,
+    only_seller_id: Option<&str>,
+    limit: u32,
+) -> Result<Vec<SaleHistoryRow>, sqlx::Error> {
+    let sale_rows = sqlx::query(
+        "SELECT s.id AS sale_id,
+                s.reference AS reference,
+                s.occurred_at AS occurred_at,
+                s.sold_by AS sold_by,
+                COALESCE(usr.display_name, s.sold_by) AS seller_name,
+                s.customer_id AS customer_id,
+                COALESCE(c.name, s.customer_name_snapshot) AS customer_name,
+                c.contact AS customer_phone,
+                s.total_minor AS total_minor,
+                s.cost_total_minor AS cost_total_minor,
+                s.discount_minor AS discount_minor,
+                COALESCE((SELECT SUM(sr.refund_minor) FROM sale_returns sr WHERE sr.original_sale_id = s.id), 0) AS already_refunded_minor,
+                CASE WHEN EXISTS (SELECT 1 FROM sale_reversals rev WHERE rev.original_sale_id = s.id) THEN 1 ELSE 0 END AS is_cancelled
+         FROM sales s
+         LEFT JOIN users usr ON usr.id = s.sold_by
+         LEFT JOIN customers c ON c.id = s.customer_id
+         WHERE s.kind = 'sale'
+           AND (?1 IS NULL OR s.sold_by = ?1)
+         ORDER BY s.occurred_at ASC, s.id ASC
+         LIMIT ?2",
+    )
+    .bind(only_seller_id)
+    .bind(i64::from(limit))
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let mut out = Vec::with_capacity(sale_rows.len());
+    for srow in sale_rows {
+        let sale_id: String = srow.get("sale_id");
+        let total_minor: i64 = srow.get("total_minor");
+        let cost_total_minor: i64 = srow.get("cost_total_minor");
+        let discount_minor: i64 = srow.get("discount_minor");
+        let raw_refunded: i64 = srow.get("already_refunded_minor");
+        let is_cancelled_raw: i64 = srow.get("is_cancelled");
+        let is_cancelled = is_cancelled_raw != 0;
+
+        let line_rows = sqlx::query(
+            "SELECT sl.id AS line_id,
+                    sl.line_no AS line_no,
+                    sl.product_id AS product_id,
+                    sl.product_name AS product_name,
+                    COALESCE(sl.department_id, p.department_id) AS category_id,
+                    d.name AS category_name,
+                    d.parent_id AS parent_category_id,
+                    sl.quantity AS quantity,
+                    sl.unit_selling_price_minor AS unit_selling_price_minor,
+                    sl.discount_minor AS discount_minor,
+                    sl.line_total_minor AS line_total_minor,
+                    sl.unit_cost_minor AS unit_cost_minor,
+                    sl.line_cost_minor AS line_cost_minor,
+                    sl.warranty_start AS warranty_start,
+                    sl.warranty_end AS warranty_end,
+                    sl.unit_id AS unit_id,
+                    u.imei AS imei
+             FROM sale_lines sl
+             LEFT JOIN products p ON p.id = sl.product_id
+             LEFT JOIN departments d ON d.id = COALESCE(sl.department_id, p.department_id)
+             LEFT JOIN units u ON u.id = sl.unit_id
+             WHERE sl.sale_id = ?1
+             ORDER BY sl.line_no ASC",
+        )
+        .bind(&sale_id)
+        .fetch_all(&mut *conn)
+        .await?;
+
+        let mut lines = Vec::with_capacity(line_rows.len());
+        let mut lines_subtotal_minor = 0i64;
+        for lrow in line_rows {
+            let line_total_minor: i64 = lrow.get("line_total_minor");
+            let line_cost_minor: i64 = lrow.get("line_cost_minor");
+            lines_subtotal_minor = lines_subtotal_minor.saturating_add(line_total_minor);
+            lines.push(SaleHistoryLineRow {
+                line_id: lrow.get("line_id"),
+                line_no: lrow.get("line_no"),
+                product_id: lrow.get("product_id"),
+                product_name: lrow.get("product_name"),
+                category_id: lrow.get("category_id"),
+                category_name: lrow.get("category_name"),
+                parent_category_id: lrow.get("parent_category_id"),
+                quantity: lrow.get("quantity"),
+                unit_selling_price_minor: lrow.get("unit_selling_price_minor"),
+                discount_minor: lrow.get("discount_minor"),
+                line_total_minor,
+                unit_cost_minor: lrow.get("unit_cost_minor"),
+                line_cost_minor: Some(line_cost_minor),
+                line_profit_minor: Some(line_total_minor - line_cost_minor),
+                warranty_start: lrow.get("warranty_start"),
+                warranty_end: lrow.get("warranty_end"),
+                unit_id: lrow.get("unit_id"),
+                imei: lrow.get("imei"),
+            });
+        }
+
+        let raw_payments = list_sale_payments(&mut *conn, &sale_id).await?;
+        let payments = if raw_payments.is_empty() {
+            vec![SaleHistoryPaymentRow {
+                method: "cash".to_owned(),
+                amount_minor: total_minor,
+                reference: None,
+            }]
+        } else {
+            raw_payments
+                .into_iter()
+                .map(|p| SaleHistoryPaymentRow {
+                    method: p.method,
+                    amount_minor: p.amount_minor,
+                    reference: p.reference,
+                })
+                .collect()
+        };
+
+        let already_refunded_minor = if is_cancelled {
+            total_minor
+        } else {
+            raw_refunded.min(total_minor)
+        };
+
+        out.push(SaleHistoryRow {
+            sale_id,
+            reference: srow.get("reference"),
+            occurred_at: srow.get("occurred_at"),
+            sold_by: srow.get("sold_by"),
+            seller_name: srow.get("seller_name"),
+            customer_id: srow.get("customer_id"),
+            customer_name: srow.get("customer_name"),
+            customer_phone: srow.get("customer_phone"),
+            lines_subtotal_minor,
+            discount_minor,
+            total_minor,
+            cost_total_minor: Some(cost_total_minor),
+            profit_minor: Some(total_minor - cost_total_minor),
+            already_refunded_minor,
+            is_cancelled,
+            lines,
+            payments,
+        });
+    }
+
+    Ok(out)
 }

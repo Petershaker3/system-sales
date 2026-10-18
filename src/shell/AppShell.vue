@@ -378,7 +378,11 @@ async function switchTheme(): Promise<void> {
           @go="screen = $event"
           @shift-changed="refreshShiftState"
         />
-        <SalesScreen v-else-if="screen === 'sales'" />
+        <SalesScreen
+          v-else-if="screen === 'sales'"
+          :session="session"
+          @changed="refreshShiftState"
+        />
         <WalletsScreen
           v-else-if="screen === 'wallets'"
           :session="session"

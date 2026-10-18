@@ -106,3 +106,33 @@ export function fmtTime(d: Date = new Date()): string {
 export function fmtDate(d: Date = new Date()): string {
   return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'numeric', year: 'numeric' }).format(d);
 }
+
+/** «صنف»، «صنفين»، «3 أصناف»، «11 صنف». */
+export function itemsWord(n: number): string {
+  return countWord(n, 'صنف', 'صنفين', 'أصناف');
+}
+
+export function fmtMonth(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric' }).format(d);
+}
+
+export function monthName(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat(locale(), { month: 'long' }).format(d);
+}
+
+export function fmtDayDate(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' }).format(d);
+}
+
+export function fmtLong(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat(locale(), {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(d);
+}
+
+export function fmtDay(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat(locale(), { weekday: 'long' }).format(d);
+}

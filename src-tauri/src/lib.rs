@@ -111,6 +111,7 @@ pub fn run() {
             commands::sales::record_sale_return,
             commands::sales::record_sale_exchange,
             commands::sales::list_damaged_stock,
+            commands::sales::list_sales_history,
             commands::customer::create_customer,
             commands::customer::list_customers,
             commands::customer::get_customer,

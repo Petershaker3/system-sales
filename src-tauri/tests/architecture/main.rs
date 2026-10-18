@@ -2938,6 +2938,7 @@ fn partial_returns_and_damaged_stock_slice_preserves_layer_and_schema_invariants
         "commands::sales::record_sale_return",
         "commands::sales::record_sale_exchange",
         "commands::sales::list_damaged_stock",
+        "commands::sales::list_sales_history",
     ] {
         assert!(lib.contains(command), "lib.rs must register `{command}`");
     }
@@ -3032,6 +3033,39 @@ fn eight_settings_screens_slice_preserves_tab_and_printer_invariants() {
         "DevicesPrinterCard.vue must include «عندي طابعة إيصالات» toggle"
     );
 }
+
+const SALES_SCREEN_VUE: &str = include_str!("../../../src/screens/sales/SalesScreen.vue");
+const SALES_ANALYTICS_TS: &str = include_str!("../../../src/screens/sales/analytics.ts");
+const SHELL_NAV_TS: &str = include_str!("../../../src/shell/nav.ts");
+
+#[test]
+fn sales_history_screen_slice_preserves_layer_and_permission_invariants() {
+    for view in ["'inv'", "'day'", "'prod'", "'cat'"] {
+        assert!(
+            SALES_ANALYTICS_TS.contains(view),
+            "src/screens/sales/analytics.ts must declare sales view {view}"
+        );
+    }
+
+    for marker in [
+        "كل مبيعات المحل",
+        "مبيعاتك انت بس",
+        "ابعت الإيصال تاني واتساب",
+        "إلغاء الفاتورة",
+        "تصدير Excel",
+    ] {
+        assert!(
+            SALES_SCREEN_VUE.contains(marker),
+            "src/screens/sales/SalesScreen.vue must include `{marker}`"
+        );
+    }
+
+    assert!(
+        SHELL_NAV_TS.contains("id: 'sales', label: 'المبيعات', icon: 'receipt', ownerOnly: false"),
+        "src/shell/nav.ts must expose «المبيعات» to both owner and seller (`ownerOnly: false`)"
+    );
+}
+
 
 
 

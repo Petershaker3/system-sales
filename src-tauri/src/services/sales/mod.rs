@@ -2486,3 +2486,47 @@ pub async fn list_damaged_stock(
 
     Ok(rows)
 }
+
+/// List sales history for the Sales screen (`شاشة المبيعات`, Plan item 1.14, `ADR-029`).
+///
+/// - A manager (`Role::Manager`) sees all shop sales with full cost and profit.
+/// - A seller (`Role::Sales`) sees only their own sales (`sold_by = session.user_id`),
+///   and cost/profit fields are redacted unless `Permission::ViewCostAndProfit` is held.
+pub async fn list_sales_history(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    limit: Option<u32>,
+) -> Result<Vec<sales_repo::SaleHistoryRow>, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+    let is_manager = session.role() == crate::domain::identity::Role::Manager;
+    let can_see_cost = session.authorize(Permission::ViewCostAndProfit).is_ok() || is_manager;
+    let only_seller = if is_manager {
+        None
+    } else {
+        Some(session.user_id().as_str())
+    };
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let bounded = limit.unwrap_or(500).clamp(1, 2000);
+    let mut rows = sales_repo::list_sales_history(&mut conn, only_seller, bounded)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if !can_see_cost {
+        for r in &mut rows {
+            r.cost_total_minor = None;
+            r.profit_minor = None;
+            for l in &mut r.lines {
+                l.unit_cost_minor = None;
+                l.line_cost_minor = None;
+                l.line_profit_minor = None;
+            }
+        }
+    }
+
+    Ok(rows)
+}

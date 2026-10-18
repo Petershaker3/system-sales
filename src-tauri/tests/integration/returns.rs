@@ -394,3 +394,98 @@ async fn exchange_executes_return_and_replacement_sale_in_one_atomic_operation()
     assert_eq!(cable_pos.quantity, 10);
     assert_eq!(charger_pos.quantity, 9);
 }
+
+#[tokio::test]
+async fn sales_history_filters_seller_to_own_sales_without_cost_and_shows_all_to_manager() {
+    let (pool, tokens, manager_uid, seller_uid, cable_id, charger_id) =
+        setup_shop_for_returns().await;
+
+    // 1. Seller Youssef records a sale of 2 cables (400 EGP sale, 240 EGP cost, 160 EGP profit).
+    let seller_lines = [SaleLineWithUnitInput {
+        product_id: cable_id.clone(),
+        quantity: 2,
+        warranty_start: None,
+        warranty_end: None,
+        imei: None,
+    }];
+    let seller_sale = sales::record_sale_with_discounts(
+        &pool,
+        tokens.as_ref(),
+        &seller_lines,
+        Some(40_000),
+        None,
+        None,
+        0,
+        &[0],
+    )
+    .await
+    .expect("seller records cable sale");
+
+    // 2. Manager Peter logs in and records a sale of 1 charger (350 EGP sale, 220 EGP cost, 130 EGP profit).
+    auth::login(&pool, tokens.as_ref(), manager_uid, PASSWORD)
+        .await
+        .expect("login as manager");
+    let manager_lines = [SaleLineWithUnitInput {
+        product_id: charger_id.clone(),
+        quantity: 1,
+        warranty_start: None,
+        warranty_end: None,
+        imei: None,
+    }];
+    let manager_sale = sales::record_sale_with_discounts(
+        &pool,
+        tokens.as_ref(),
+        &manager_lines,
+        Some(35_000),
+        None,
+        None,
+        0,
+        &[0],
+    )
+    .await
+    .expect("manager records charger sale");
+
+    // 3. Manager sees both sales with full cost and profit.
+    let manager_history = sales::list_sales_history(&pool, tokens.as_ref(), None)
+        .await
+        .expect("manager list_sales_history");
+    assert_eq!(manager_history.len(), 2);
+
+    let m_seller_row = manager_history
+        .iter()
+        .find(|r| r.sale_id == seller_sale.sale_id)
+        .expect("seller sale in manager history");
+    assert_eq!(m_seller_row.seller_name, "Youssef");
+    assert_eq!(m_seller_row.total_minor, 40_000);
+    assert_eq!(m_seller_row.cost_total_minor, Some(24_000));
+    assert_eq!(m_seller_row.profit_minor, Some(16_000));
+    assert_eq!(m_seller_row.lines[0].line_cost_minor, Some(24_000));
+    assert_eq!(m_seller_row.lines[0].line_profit_minor, Some(16_000));
+
+    let m_manager_row = manager_history
+        .iter()
+        .find(|r| r.sale_id == manager_sale.sale_id)
+        .expect("manager sale in manager history");
+    assert_eq!(m_manager_row.seller_name, "Peter");
+    assert_eq!(m_manager_row.total_minor, 35_000);
+    assert_eq!(m_manager_row.cost_total_minor, Some(22_000));
+    assert_eq!(m_manager_row.profit_minor, Some(13_000));
+
+    // 4. Seller logs back in: sees ONLY their own sale, with cost and profit redacted (`None`).
+    auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD)
+        .await
+        .expect("login as seller");
+    let seller_history = sales::list_sales_history(&pool, tokens.as_ref(), None)
+        .await
+        .expect("seller list_sales_history");
+    assert_eq!(seller_history.len(), 1);
+    let s_row = &seller_history[0];
+    assert_eq!(s_row.sale_id, seller_sale.sale_id);
+    assert_eq!(s_row.sold_by, seller_uid.as_str());
+    assert_eq!(s_row.total_minor, 40_000);
+    assert_eq!(s_row.cost_total_minor, None);
+    assert_eq!(s_row.profit_minor, None);
+    assert_eq!(s_row.lines[0].unit_cost_minor, None);
+    assert_eq!(s_row.lines[0].line_cost_minor, None);
+    assert_eq!(s_row.lines[0].line_profit_minor, None);
+}

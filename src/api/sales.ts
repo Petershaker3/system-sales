@@ -392,3 +392,62 @@ export async function listDamagedStock(
     limit: limit ?? 100,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Plan item 1.14 — Sales history & analytics screen (`ADR-029`)
+// ---------------------------------------------------------------------------
+
+export interface SaleHistoryLine {
+  readonly lineId: string;
+  readonly lineNo: number;
+  readonly productId: string;
+  readonly productName: string;
+  readonly categoryId: string | null;
+  readonly categoryName: string | null;
+  readonly parentCategoryId: string | null;
+  readonly quantity: number;
+  readonly unitSellingPriceMinor: number;
+  readonly discountMinor: number;
+  readonly lineTotalMinor: number;
+  readonly unitCostMinor?: number;
+  readonly lineCostMinor?: number;
+  readonly lineProfitMinor?: number;
+  readonly warrantyStart: string | null;
+  readonly warrantyEnd: string | null;
+  readonly unitId: string | null;
+  readonly imei: string | null;
+}
+
+export interface SaleHistoryPayment {
+  readonly method: string;
+  readonly amountMinor: number;
+  readonly reference: string | null;
+}
+
+export interface SaleHistoryEntry {
+  readonly saleId: string;
+  readonly reference: string;
+  readonly occurredAt: number;
+  readonly soldBy: string;
+  readonly sellerName: string;
+  readonly customerId: string | null;
+  readonly customerName: string | null;
+  readonly customerPhone: string | null;
+  readonly linesSubtotalMinor: number;
+  readonly discountMinor: number;
+  readonly totalMinor: number;
+  readonly costTotalMinor?: number;
+  readonly profitMinor?: number;
+  readonly alreadyRefundedMinor: number;
+  readonly isCancelled: boolean;
+  readonly lines: readonly SaleHistoryLine[];
+  readonly payments: readonly SaleHistoryPayment[];
+}
+
+export async function listSalesHistory(
+  limit?: number,
+): Promise<readonly SaleHistoryEntry[]> {
+  return invoke<readonly SaleHistoryEntry[]>('list_sales_history', {
+    limit: limit ?? 500,
+  });
+}

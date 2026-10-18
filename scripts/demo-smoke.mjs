@@ -1798,6 +1798,132 @@ await sleep(150);
 await page.click('[data-settings-tab="all"]');
 await sleep(150);
 
+// --- Plan item 1.14: Sales history & analytics screen (`ADR-029`) -----------
+await clickText('.rail .nav-btn', 'المبيعات');
+await page.waitForSelector('[data-sales-screen]', { timeout: 3000 });
+await sleep(250);
+
+check(
+  'Owner lands on «المبيعات» seeing «كل مبيعات المحل» and all 4 KPI cards including profit',
+  (await text('[data-sales-subtitle]')) === 'كل مبيعات المحل' &&
+    (await count('[data-sales-kpi="sales"]')) === 1 &&
+    (await count('[data-sales-kpi="invoices"]')) === 1 &&
+    (await count('[data-sales-kpi="pcs"]')) === 1 &&
+    (await count('[data-sales-kpi="profit"]')) === 1 &&
+    (await count('[data-sales-seller]')) === 1
+);
+
+const ownerTodayInvoicesCount = await count('[data-sales-inv-row]');
+check(
+  'Owner sees all today sales recorded by both sellers in the invoices table',
+  ownerTodayInvoicesCount >= 2,
+  `invoices=${ownerTodayInvoicesCount}`
+);
+
+// Switch range to «آخر 7 أيام» and test «الأيام», «الأصناف», and «التصنيفات» views
+await page.click('[data-sales-range="week"]');
+await sleep(150);
+check(
+  'Selecting «آخر 7 أيام» enables the «الأيام» view tab',
+  (await count('[data-sales-view="day"]')) === 1
+);
+
+await page.click('[data-sales-view="day"]');
+await sleep(150);
+check(
+  '«الأيام» view lists 7 days with «أعلى يوم» badge on the top day',
+  (await count('[data-sales-day-row]')) === 7 &&
+    (await text('[data-sales-table="day"]')).includes('أعلى يوم')
+);
+
+await page.click('[data-sales-view="prod"]');
+await sleep(150);
+check(
+  '«الأصناف» view aggregates sold products with quantities, revenue, and profit',
+  (await count('[data-sales-prod-row]')) >= 2 &&
+    (await text('[data-sales-table="prod"]')).includes('الربح')
+);
+
+await page.click('[data-sales-view="cat"]');
+await sleep(150);
+check(
+  '«التصنيفات» view aggregates main and sub-categories with share percentage',
+  (await count('[data-sales-cat-row]')) >= 1 &&
+    (await text('[data-sales-table="cat"]')).includes('%')
+);
+
+// Return to «النهارده» and «الفواتير» view, test seller filter & clear filters
+await page.click('[data-sales-range="today"]');
+await sleep(100);
+await page.click('[data-sales-view="inv"]');
+await sleep(150);
+await page.select('[data-sales-seller]', 'u-youssef');
+await sleep(150);
+const youssefFilteredCount = await count('[data-sales-inv-row]');
+check(
+  'Filtering by seller «يوسف» shows only Youssef’s invoice(s) and reveals «مسح الفلاتر»',
+  youssefFilteredCount === 1 && (await count('[data-sales-clear-filters]')) === 1,
+  `youssefFilteredCount=${youssefFilteredCount}`
+);
+
+await page.click('[data-sales-clear-filters]');
+await sleep(150);
+check(
+  'Clicking «مسح الفلاتر» restores all invoices for the period',
+  (await count('[data-sales-inv-row]')) === ownerTodayInvoicesCount
+);
+
+// Open an invoice detail modal and resend its receipt on WhatsApp
+await page.click('[data-sales-inv-row]');
+await page.waitForSelector('[data-sales-detail-modal]', { timeout: 3000 });
+await sleep(150);
+check(
+  'Invoice detail modal displays lines, total, and profit for the owner',
+  (await count('[data-sales-detail-total]')) === 1 &&
+    (await count('[data-sales-detail-profit]')) === 1 &&
+    (await count('[data-sales-detail-cancel-open]')) === 1
+);
+if ((await count('[data-sales-detail-wa-phone]')) > 0) {
+  await page.type('[data-sales-detail-wa-phone]', '01001234567');
+  await sleep(100);
+}
+await page.click('[data-sales-detail-resend]');
+await sleep(200);
+check(
+  'Clicking «ابعت الإيصال تاني واتساب» in invoice detail modal sends the receipt and shows confirmation toast',
+  (await text('#toasts')).includes('اتبعت الإيصال تاني على واتساب')
+);
+await shot('50-sales-history-owner');
+await page.click('[data-sales-detail-close]');
+await sleep(150);
+
+// Switch to seller Youssef and verify seller-scoped Sales screen (own sales only, no cost/profit)
+await page.click('.user-chip');
+await page.waitForSelector('.sw-menu');
+await clickText('.sw-item', 'يوسف');
+await page.waitForSelector('.sw-menu.pin', { timeout: 3000 });
+await page.keyboard.type('2222');
+await page.keyboard.press('Enter');
+await sleep(400);
+
+check(
+  'Seller sees «المبيعات» on the rail, scoped to «مبيعاتك انت بس» without profit KPI or seller filter',
+  (await text('[data-sales-subtitle]')) === 'مبيعاتك انت بس' &&
+    (await count('[data-sales-kpi="profit"]')) === 0 &&
+    (await count('[data-sales-seller]')) === 0 &&
+    (await count('[data-sales-inv-row]')) === 1
+);
+await shot('51-sales-history-seller');
+
+// Switch back to owner Peter (PIN 4321) for the remaining checks
+await page.click('.user-chip');
+await page.waitForSelector('.sw-menu');
+await clickText('.sw-item', 'بيتر');
+await page.waitForSelector('.sw-menu.pin', { timeout: 3000 });
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await sleep(400);
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with

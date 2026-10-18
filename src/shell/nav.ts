@@ -19,7 +19,7 @@ export interface NavItem {
 
 export const NAV: readonly NavItem[] = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart', ownerOnly: false },
-  { id: 'sales', label: 'المبيعات', icon: 'receipt-text', ownerOnly: true },
+  { id: 'sales', label: 'المبيعات', icon: 'receipt-text', ownerOnly: false },
   { id: 'wallets', label: 'المحافظ', icon: 'wallet', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },

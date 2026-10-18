@@ -692,3 +692,127 @@ pub async fn list_damaged_stock(
         })
         .collect())
 }
+
+// ---------------------------------------------------------------------------
+// Plan item 1.14 — Sales history & analytics screen (`ADR-029`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleHistoryLineDto {
+    pub line_id: String,
+    pub line_no: i64,
+    pub product_id: String,
+    pub product_name: String,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub parent_category_id: Option<String>,
+    pub quantity: i64,
+    pub unit_selling_price_minor: i64,
+    pub discount_minor: i64,
+    pub line_total_minor: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_cost_minor: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_cost_minor: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_profit_minor: Option<i64>,
+    pub warranty_start: Option<String>,
+    pub warranty_end: Option<String>,
+    pub unit_id: Option<String>,
+    pub imei: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleHistoryPaymentDto {
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleHistoryEntryDto {
+    pub sale_id: String,
+    pub reference: String,
+    pub occurred_at: i64,
+    pub sold_by: String,
+    pub seller_name: String,
+    pub customer_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub lines_subtotal_minor: i64,
+    pub discount_minor: i64,
+    pub total_minor: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_total_minor: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profit_minor: Option<i64>,
+    pub already_refunded_minor: i64,
+    pub is_cancelled: bool,
+    pub lines: Vec<SaleHistoryLineDto>,
+    pub payments: Vec<SaleHistoryPaymentDto>,
+}
+
+/// List sales history for the Sales screen (`شاشة المبيعات`, `ADR-029`).
+#[tauri::command]
+pub async fn list_sales_history(
+    ctx: Ctx<'_>,
+    limit: Option<u32>,
+) -> Result<Vec<SaleHistoryEntryDto>, SalesCommandError> {
+    let rows = use_cases::list_sales_history(&ctx.pool, ctx.tokens.as_ref(), limit).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| SaleHistoryEntryDto {
+            sale_id: r.sale_id,
+            reference: r.reference,
+            occurred_at: r.occurred_at,
+            sold_by: r.sold_by,
+            seller_name: r.seller_name,
+            customer_id: r.customer_id,
+            customer_name: r.customer_name,
+            customer_phone: r.customer_phone,
+            lines_subtotal_minor: r.lines_subtotal_minor,
+            discount_minor: r.discount_minor,
+            total_minor: r.total_minor,
+            cost_total_minor: r.cost_total_minor,
+            profit_minor: r.profit_minor,
+            already_refunded_minor: r.already_refunded_minor,
+            is_cancelled: r.is_cancelled,
+            lines: r
+                .lines
+                .into_iter()
+                .map(|l| SaleHistoryLineDto {
+                    line_id: l.line_id,
+                    line_no: l.line_no,
+                    product_id: l.product_id,
+                    product_name: l.product_name,
+                    category_id: l.category_id,
+                    category_name: l.category_name,
+                    parent_category_id: l.parent_category_id,
+                    quantity: l.quantity,
+                    unit_selling_price_minor: l.unit_selling_price_minor,
+                    discount_minor: l.discount_minor,
+                    line_total_minor: l.line_total_minor,
+                    unit_cost_minor: l.unit_cost_minor,
+                    line_cost_minor: l.line_cost_minor,
+                    line_profit_minor: l.line_profit_minor,
+                    warranty_start: l.warranty_start,
+                    warranty_end: l.warranty_end,
+                    unit_id: l.unit_id,
+                    imei: l.imei,
+                })
+                .collect(),
+            payments: r
+                .payments
+                .into_iter()
+                .map(|p| SaleHistoryPaymentDto {
+                    method: p.method,
+                    amount_minor: p.amount_minor,
+                    reference: p.reference,
+                })
+                .collect(),
+        })
+        .collect())
+}
