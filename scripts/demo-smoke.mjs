@@ -2366,6 +2366,55 @@ check(
       (await text('#toasts')).includes('استبعاد 1 جهاز IMEI ناقص')
   );
 
+  // --- Phase 2 Item 2.5: Monthly Reports & Evaluation (ADR-035) ------------
+  await clickText('.rail .nav-btn', 'التقارير');
+  await page.waitForSelector('[data-reports-screen]', { timeout: 3000 });
+  await sleep(250);
+
+  check(
+    'Owner opens «التقارير» on the «النهارده» tab with 5 KPI cards, 7-day bars, and separate repair/software revenue',
+    (await count('[data-reports-today-kpi]')) === 5 &&
+      (await text('[data-reports-today-kpi="services"]')).includes('صيانة') &&
+      (await text('[data-reports-today-kpi="services"]')).includes('سوفت') &&
+      (await count('[data-reports-open-month]')) === 1
+  );
+  await shot('59-reports-today');
+
+  await page.click('[data-reports-open-month]');
+  await page.waitForSelector('[data-reports-evaluation]', { timeout: 3000 });
+  await sleep(250);
+
+  check(
+    'Switching to «الشهر» displays monthly KPIs, evaluation verdict & notes, daily bars, 12-month trend, and separate repair/software buckets',
+    (await count('[data-reports-kpi]')) === 5 &&
+      (await count('[data-reports-verdict]')) === 1 &&
+      (await count('.ev-li')) >= 3 &&
+      (await count('[data-reports-day-bar]')) >= 1 &&
+      (await count('[data-reports-month-row]')) >= 3 &&
+      (await text('[data-reports-repairs-summary]')).includes('فلوس الصيانة لوحدها') &&
+      (await text('[data-reports-repairs-summary]')).includes('فلوس السوفت وير لوحدها')
+  );
+  await shot('60-reports-month');
+
+  const curMonthTitle = await text('[data-reports-month-title]');
+  await page.click('[data-reports-shift="-1"]');
+  await sleep(200);
+  const prevMonthTitle = await text('[data-reports-month-title]');
+  check(
+    'Clicking previous month arrow shifts the monthly report to the prior month',
+    prevMonthTitle !== '' && prevMonthTitle !== curMonthTitle,
+    `${curMonthTitle} -> ${prevMonthTitle}`
+  );
+
+  await page.click('[data-reports-open-sales]');
+  await page.waitForSelector('[data-sales-screen]', { timeout: 3000 });
+  await sleep(200);
+  check(
+    'Clicking «فواتير الشهر» in Reports opens the Sales screen filtered to that month',
+    (await text('.topbar h1')) === 'المبيعات' &&
+      (await count('[data-sales-inv-row]')) >= 1
+  );
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with

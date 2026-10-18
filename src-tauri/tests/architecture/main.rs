@@ -3234,6 +3234,8 @@ const IMEI_CHECK_MODAL_VUE: &str =
 const LABELS_MODAL_VUE: &str = include_str!("../../../src/screens/store/LabelsModal.vue");
 const STOCK_COUNT_MODAL_VUE: &str =
     include_str!("../../../src/screens/store/StockCountModal.vue");
+const REPORTS_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/reports/ReportsScreen.vue");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3307,6 +3309,23 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
         assert!(
             STOCK_COUNT_MODAL_VUE.contains(marker),
             "StockCountModal.vue must include `{marker}`"
+        );
+    }
+
+    assert!(
+        SHELL_NAV_TS.contains("id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true"),
+        "src/shell/nav.ts must expose «التقارير» to the owner (`ownerOnly: true`)"
+    );
+
+    for marker in [
+        "الشهر كله ومقارنته وتقييمه",
+        "التقييم",
+        "فلوس الصيانة لوحدها",
+        "فلوس السوفت وير لوحدها",
+    ] {
+        assert!(
+            REPORTS_SCREEN_VUE.contains(marker),
+            "ReportsScreen.vue must include `{marker}`"
         );
     }
 }

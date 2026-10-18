@@ -10,6 +10,7 @@ import {
   byDay,
   byMonth,
   byProduct,
+  chgFormat,
   comparePeriod,
   dayStart,
   daysIn,
@@ -17,13 +18,19 @@ import {
   filterSalesRows,
   inRange,
   isoDay,
+  kShortMinor,
+  monthReport,
   monthStart,
   moreItemsLabel,
+  nMonthsLabel,
   parseIsoDay,
   paymentSummaryLabel,
+  paySplit,
   pct,
   prevPeriod,
+  todayReport,
   totalsOf,
+  yearAgo,
 } from './analytics.ts';
 
 function makeSale(overrides: Partial<SaleHistoryEntry> = {}): SaleHistoryEntry {
@@ -318,5 +325,130 @@ describe('Sales analytics (Plan 1.14 / ADR-029)', () => {
     assert.ok(parseIsoDay('2026-10-18'));
     assert.equal(parseIsoDay('2026-02-30'), null);
     assert.equal(isoDay(monthStart(new Date(2026, 9, 18))), '2026-10-01');
+  });
+
+  it('computes monthReport, evaluation verdict & notes, todayReport, and display helpers (Plan 2.5 / ADR-035)', () => {
+    const now = new Date(2026, 9, 19, 16, 0, 0, 0); // Oct 19, 2026 16:00
+
+    const augSale = makeSale({
+      saleId: 's-aug',
+      reference: 'INV-20260810-0001',
+      occurredAt: new Date(2026, 7, 10, 12, 0).getTime(),
+      totalMinor: 900_000,
+      costTotalMinor: 750_000,
+      profitMinor: 150_000,
+    });
+    const sepSale = makeSale({
+      saleId: 's-sep',
+      reference: 'INV-20260910-0001',
+      occurredAt: new Date(2026, 8, 10, 12, 0).getTime(),
+      totalMinor: 1_000_000,
+      costTotalMinor: 800_000,
+      profitMinor: 200_000,
+    });
+    const octNewPhone = makeSale({
+      saleId: 's-oct-1',
+      reference: 'INV-20261005-0001',
+      occurredAt: new Date(2026, 9, 5, 14, 0).getTime(),
+      soldBy: 'u-peter',
+      sellerName: 'بيتر',
+      totalMinor: 1_500_000,
+      costTotalMinor: 1_320_000,
+      profitMinor: 180_000,
+      lines: [
+        {
+          lineId: 'l-oct-1',
+          lineNo: 1,
+          productId: 'p-new',
+          productName: 'Samsung Galaxy A15 128GB',
+          categoryId: '01a14728-8400-7000-8000-000000000001',
+          categoryName: 'موبايلات جديدة',
+          parentCategoryId: null,
+          quantity: 1,
+          unitSellingPriceMinor: 1_500_000,
+          discountMinor: 0,
+          lineTotalMinor: 1_500_000,
+          unitCostMinor: 1_320_000,
+          lineCostMinor: 1_320_000,
+          lineProfitMinor: 180_000,
+          warrantyStart: null,
+          warrantyEnd: null,
+          unitId: 'u-new-1',
+          imei: '356938035643809',
+        },
+      ],
+      payments: [{ method: 'cash', amountMinor: 1_500_000, reference: null }],
+    });
+    const octUsedPhoneToday = makeSale({
+      saleId: 's-oct-2',
+      reference: 'INV-20261019-0001',
+      occurredAt: new Date(2026, 9, 19, 13, 0).getTime(),
+      soldBy: 'u-youssef',
+      sellerName: 'يوسف',
+      totalMinor: 850_000,
+      costTotalMinor: 720_000,
+      profitMinor: 130_000,
+      lines: [
+        {
+          lineId: 'l-oct-2',
+          lineNo: 1,
+          productId: 'p-used',
+          productName: 'iPhone 13 128GB',
+          categoryId: '01a14728-8400-7000-8000-000000000002',
+          categoryName: 'مستعمل',
+          parentCategoryId: null,
+          quantity: 1,
+          unitSellingPriceMinor: 850_000,
+          discountMinor: 0,
+          lineTotalMinor: 850_000,
+          unitCostMinor: 720_000,
+          lineCostMinor: 720_000,
+          lineProfitMinor: 130_000,
+          warrantyStart: null,
+          warrantyEnd: null,
+          unitId: 'u-used-1',
+          imei: '353912108456786',
+        },
+      ],
+      payments: [{ method: 'vf', amountMinor: 850_000, reference: null }],
+    });
+
+    const history = [augSale, sepSale, octNewPhone, octUsedPhoneToday];
+    const report = monthReport(history, new Date(2026, 9, 1), now);
+
+    assert.equal(report.live, true);
+    assert.equal(report.T.salesMinor, 2_350_000);
+    assert.equal(report.T.profitMinor, 310_000);
+    assert.equal(report.PT.salesMinor, 1_000_000);
+    assert.equal(report.phones.all, 2);
+    assert.equal(report.phones.fresh, 1);
+    assert.equal(report.phones.used, 1);
+    assert.equal(report.months.length, 3);
+    assert.equal(report.verdict.key, 'best');
+    assert.equal(report.verdict.tone, 'good');
+    assert.ok(report.projectionMinor !== null && report.projectionMinor > 0);
+    assert.ok(report.notes.some((n) => n.key === 'sales' && n.tone === 'good'));
+    assert.ok(report.notes.some((n) => n.key === 'top'));
+
+    const td = todayReport(history, now);
+    assert.equal(td.salesMinor, 850_000);
+    assert.equal(td.invoices, 1);
+    assert.equal(td.week.length, 7);
+    assert.equal(td.week[6]?.salesMinor, 850_000);
+
+    const ya = yearAgo(new Date(2024, 1, 1), new Date(2024, 1, 29), now);
+    assert.equal(isoDay(ya.to), '2023-02-28');
+
+    const split = paySplit({ كاش: 600, فودافون: 400 });
+    assert.equal(split.reduce((a, s) => a + s.v, 0), 100);
+
+    assert.equal(nMonthsLabel(7), '7 شهور');
+    assert.equal(nMonthsLabel(12), '12 شهر');
+    assert.equal(kShortMinor(237_000_000), '2.37 مليون');
+    assert.equal(kShortMinor(17_150_000), '171.5 ألف');
+    assert.deepEqual(chgFormat(null), { kind: 'new', text: 'جديد' });
+    assert.deepEqual(chgFormat(0), { kind: 'zero', text: '0%' });
+    assert.deepEqual(chgFormat(400), { kind: 'up', text: '×5' });
+    assert.deepEqual(chgFormat(-15), { kind: 'down', text: '15%' });
   });
 });

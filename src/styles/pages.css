@@ -260,6 +260,34 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .sv-cust svg.i { color: var(--muted); }
 .sv-meta { margin-top: 4px; font-size: .85rem; }
 
+/* ===== التقارير: الشهر والتقييم والأعمدة (docs/ui/MONTHS-REPORTS-RECEIVING.md, Plan 2.5 / ADR-035) ===== */
+.rep-more { margin-top: 10px; width: 100%; justify-content: center; }
+.rep-hint { font-size: .8rem; font-weight: 400; }
+.ch { display: inline-flex; align-items: center; gap: 3px; font-size: .86rem; font-variant-numeric: tabular-nums; }
+.ch svg.i { width: 14px; height: 14px; }
+.ev-verdict { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0 12px; border-bottom: 1px solid var(--border); }
+.ev-verdict > svg.i { width: 22px; height: 22px; flex: none; margin-top: 2px; color: var(--muted); }
+.ev-verdict.good > svg.i { color: var(--ok); }
+.ev-verdict.warn > svg.i { color: var(--warn); }
+.ev-verdict b { display: block; font-size: 1.05rem; }
+.ev-verdict small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.ev-li { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: .92rem; }
+.ev-li:last-child { border-bottom: 0; }
+.ev-li .tag { justify-self: start; }
+.bars.dense { gap: 3px; height: 190px; }
+.bars.months { height: 170px; margin-bottom: 12px; }
+.bars button.bar-col { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; border-radius: var(--r-xs); }
+.bars button.bar-col:hover .bar:not(.ghost):not(.today) { background: color-mix(in srgb, var(--accent-text) 52%, var(--surface)); }
+.bars button.bar-col:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.bar.ghost { background: transparent; border: 1px dashed var(--border-strong); border-bottom: 0; }
+.bar-stack { width: 100%; max-width: 46px; display: flex; flex-direction: column; }
+.bar-stack .bar { max-width: none; border-radius: 0; }
+.bar-stack .bar:first-child { border-radius: var(--r-xs) var(--r-xs) 0 0; }
+.page .card .sv-t td.ta-n { white-space: nowrap; }
+.card.narrow .sv-share { width: 54px; }
+.card.narrow .sv-t td { white-space: nowrap; }
+.stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
 /* ===== النواقص (في المخزن وشاشة البيع، Plan 1.15 / ADR-030) ===== */
 .inv-seg { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-m); }
 .inv-seg button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 0; border-radius: var(--r-s); background: transparent; color: var(--text-2); font: inherit; font-weight: 600; cursor: pointer; }

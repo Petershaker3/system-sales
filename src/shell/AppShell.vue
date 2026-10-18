@@ -34,6 +34,7 @@ import SalesScreen from '../screens/sales/SalesScreen.vue';
 import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
+import ReportsScreen from '../screens/reports/ReportsScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import ShiftModal from './ShiftModal.vue';
@@ -54,6 +55,19 @@ const demo = import.meta.env.VITE_DEMO === '1';
 const DEMO_PINS: Record<string, string> = demo ? { peter: '1111', youssef: '2222', marina: '3333' } : {};
 
 const screen = ref<ScreenId>('pos');
+const salesFocusTarget = ref<
+  { readonly kind: 'day'; readonly iso: string } | { readonly kind: 'month'; readonly key: string } | null
+>(null);
+
+function openSalesDayFromReports(iso: string): void {
+  salesFocusTarget.value = { kind: 'day', iso };
+  screen.value = 'sales';
+}
+
+function openSalesMonthFromReports(key: string): void {
+  salesFocusTarget.value = { kind: 'month', key };
+  screen.value = 'sales';
+}
 const items = computed(() => navFor(props.session.role));
 const dark = computed(() => {
   void appearance.theme;
@@ -382,6 +396,7 @@ async function switchTheme(): Promise<void> {
         <SalesScreen
           v-else-if="screen === 'sales'"
           :session="session"
+          :focus-target="salesFocusTarget"
           @changed="refreshShiftState"
         />
         <WalletsScreen
@@ -395,6 +410,12 @@ async function switchTheme(): Promise<void> {
           @changed="refreshShiftState"
         />
         <StoreScreen v-else-if="screen === 'store'" :session="session" />
+        <ReportsScreen
+          v-else-if="screen === 'reports'"
+          :session="session"
+          @open-sales-day="openSalesDayFromReports"
+          @open-sales-month="openSalesMonthFromReports"
+        />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>
 

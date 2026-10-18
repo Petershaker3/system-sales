@@ -257,7 +257,13 @@
   - **اتعمل (2026-10-19):**
     - الخدمة والأوامر (`services/inventory/stock.rs` و`commands/inventory.rs` و`lib.rs`): `list_all_units_in_stock` / `list_all_product_units` و`reconcile_stock_count` مع اختبارات التكامل والمعمارية.
     - الواجهة (`src/screens/store/stock-count.ts`, `stock-count.test.ts`, `StockCountModal.vue`, `StoreScreen.vue`)، وفحص المتصفح 213/213، و120 اختبار واجهة.
-- [ ] **2.5 التقارير الشهرية والتقييم والنسخة المطبوعة** (`docs/PLAN.md` §10 و§19، `ADR-016` #22–#24 و#34)
+- [x] **2.5 التقارير الشهرية والتقييم والنسخة المطبوعة** (`docs/PLAN.md` §14 و§19، `ADR-016` #10 و#23 و#34، `docs/ui/MONTHS-REPORTS-RECEIVING.md`)
+  - **البوابة:** بدون تعديل في قاعدة البيانات (تتحسب من الفواتير وسطورها والصيانة والمحافظ والورديات الموجودة).
+  - **القبول:** شاشة «التقارير» للمالك فقط (`ownerOnly: true`) بتبويبين «النهارده» و«الشهر»؛ اختيار أي شهر بالأسهم أو القائمة؛ مقارنة عادلة مع الشهر السابق ونفس الشهر السنة اللي فاتت (لحد نفس اليوم والساعة للشهر الحي)؛ المتوقع لآخر الشهر؛ التقييم الآلي (ترتيب الشهر في آخر 12 شهر بمتوسط اليوم + ملاحظات `كويس` / `خلي بالك` / `معلومة`)؛ يوم بيوم؛ التصنيفات والبيّاعين والأصناف وطرق الدفع بتغيّرهم؛ وفصل **فلوس الصيانة لوحدها** عن **فلوس السوفت وير لوحدها**؛ وجدول ورسم آخر 12 شهر؛ وتصدير Excel وطباعة.
+  - **التصميم:** [`ADR-035`](../docs/decisions/ADR-035-monthly-reports-and-evaluation.md).
+  - **اتعمل (2026-10-19):**
+    - طبقة الحسابات (`src/screens/sales/analytics.ts` و`analytics.test.ts`): `monthReport`, `todayReport`, `yearAgo`, `bySeller`, `byMethod`, `withChange`, `paySplit`, `kShortMinor`, `chgFormat`.
+    - الشاشة والتنقل (`src/screens/reports/ReportsScreen.vue`, `src/shell/nav.ts`, `src/shell/AppShell.vue`, `src/screens/sales/SalesScreen.vue`)، وفحص المتصفح 217/217، و121 اختبار واجهة.
 
 ## المراحل 3–4
 

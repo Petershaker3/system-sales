@@ -75,6 +75,7 @@ import {
 
 const props = defineProps<{
   session?: Session;
+  focusTarget?: { readonly kind: 'day'; readonly iso: string } | { readonly kind: 'month'; readonly key: string } | null;
 }>();
 
 const emit = defineEmits<{
@@ -575,7 +576,7 @@ async function loadAll(): Promise<void> {
       resolvedSession.value = await whoami();
     }
     const [salesData, catsData, usersData, logoData] = await Promise.all([
-      listSalesHistory(1000),
+      listSalesHistory(5000),
       listCategories().catch(() => [] as Category[]),
       listUsers().catch(() => [] as UserSummary[]),
       getShopLogo().catch(() => null),
@@ -599,7 +600,34 @@ watch(
   }
 );
 
+function applyFocusTarget(
+  target: { readonly kind: 'day'; readonly iso: string } | { readonly kind: 'month'; readonly key: string } | null | undefined,
+): void {
+  if (!target) return;
+  clearFilters();
+  state.view = 'inv';
+  if (target.kind === 'day') {
+    const parsed = parseIsoDay(target.iso);
+    if (parsed) setSingleDay(parsed);
+  } else if (target.kind === 'month') {
+    const m = /^(\d{4})-(\d{2})$/.exec(target.key);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      if (y && mo) setMonthRange(new Date(y, mo - 1, 1));
+    }
+  }
+}
+
+watch(
+  () => props.focusTarget,
+  (next) => {
+    applyFocusTarget(next);
+  }
+);
+
 onMounted(() => {
+  applyFocusTarget(props.focusTarget);
   void loadAll();
   window.addEventListener('keydown', onKeydown);
 });

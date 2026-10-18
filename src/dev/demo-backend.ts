@@ -411,6 +411,184 @@ interface DemoSale {
 
 const sales: DemoSale[] = [];
 
+function buildDemoHistoricalSales(): DemoSale[] {
+  const nowDt = new Date();
+  const y = nowDt.getFullYear();
+  const m = nowDt.getMonth();
+  const out: DemoSale[] = [];
+  let idx = 100;
+
+  const pChargerSam = products[0]!;
+  const pChargerIp = products[1]!;
+  const pCable = products[2]!;
+  const pJbl = products[5]!;
+  const pA15 = products[19]!;
+  const pA16 = products[20]!;
+
+  const addHist = (
+    dt: Date,
+    sellerId: string,
+    method: 'cash' | 'vf' | 'instapay' | 'card' | 'credit',
+    items: {
+      productId: string;
+      productName: string;
+      qty: number;
+      priceMinor: number;
+      costMinor: number;
+      imei: string | null;
+    }[],
+    discountMinor = 0,
+  ) => {
+    idx += 1;
+    const subtotal = items.reduce((a, it) => a + it.priceMinor * it.qty, 0);
+    const total = Math.max(0, subtotal - discountMinor);
+    const cost = items.reduce((a, it) => a + it.costMinor * it.qty, 0);
+    const ymd = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}${String(dt.getDate()).padStart(2, '0')}`;
+    out.push({
+      id: `hist-sale-${idx}`,
+      kind: 'sale',
+      reversesSaleId: null,
+      reference: `INV-${ymd}-${String(idx).padStart(4, '0')}`,
+      soldBy: sellerId,
+      linesSubtotalMinor: subtotal,
+      invoiceDiscountMinor: discountMinor,
+      totalMinor: total,
+      costTotalMinor: cost,
+      discountMinor,
+      customerId: null,
+      isCancelled: false,
+      occurredAt: dt.getTime(),
+      payments: [{ method, amountMinor: total, reference: null }],
+      lines: items.map((it, lIdx) => ({
+        id: `hist-line-${idx}-${lIdx + 1}`,
+        lineNo: lIdx + 1,
+        productId: it.productId,
+        productName: it.productName,
+        quantity: it.qty,
+        unitSellingPriceMinor: it.priceMinor,
+        discountMinor: 0,
+        lineTotalMinor: it.priceMinor * it.qty,
+        unitCostMinor: it.costMinor,
+        lineCostTotalMinor: it.costMinor * it.qty,
+        imei: it.imei,
+        unitId: null,
+        warrantyStart: null,
+        warrantyEnd: null,
+      })),
+    });
+  };
+
+  // Same month 1 year ago (for YoY comparison)
+  addHist(
+    new Date(y - 1, m, 3, 13, 0),
+    'u-peter',
+    'cash',
+    [
+      {
+        productId: pA15.id,
+        productName: pA15.name,
+        qty: 1,
+        priceMinor: 750_000,
+        costMinor: 640_000,
+        imei: '351000000000018',
+      },
+      {
+        productId: pChargerSam.id,
+        productName: pChargerSam.name,
+        qty: 2,
+        priceMinor: 35_000,
+        costMinor: 24_500,
+        imei: null,
+      },
+    ],
+  );
+
+  // Previous 5 months (m - 5 .. m - 1)
+  const monthFactors = [0.75, 0.82, 0.9, 0.88, 0.95];
+  for (let back = 5; back >= 1; back -= 1) {
+    const f = monthFactors[5 - back] ?? 0.9;
+    const phonePrice = Math.round(750_000 * f);
+    const phoneCost = Math.round(640_000 * f);
+    addHist(
+      new Date(y, m - back, 4, 12, 30),
+      'u-peter',
+      'cash',
+      [
+        {
+          productId: pA15.id,
+          productName: pA15.name,
+          qty: 1,
+          priceMinor: phonePrice,
+          costMinor: phoneCost,
+          imei: `3520000000000${back}1`,
+        },
+        {
+          productId: pChargerIp.id,
+          productName: pChargerIp.name,
+          qty: 2,
+          priceMinor: 45_000,
+          costMinor: 31_500,
+          imei: null,
+        },
+      ],
+    );
+    addHist(
+      new Date(y, m - back, 11, 17, 15),
+      'u-youssef',
+      'vf',
+      [
+        {
+          productId: pJbl.id,
+          productName: pJbl.name,
+          qty: 1,
+          priceMinor: 125_000,
+          costMinor: 87_500,
+          imei: null,
+        },
+        {
+          productId: pCable.id,
+          productName: pCable.name,
+          qty: 3,
+          priceMinor: 8_000,
+          costMinor: 5_600,
+          imei: null,
+        },
+      ],
+    );
+  }
+
+  // Early in the current month (strictly before the last 7 days so `today` and `week` are untouched)
+  if (nowDt.getDate() > 9) {
+    addHist(
+      new Date(y, m, 2, 14, 0),
+      'u-peter',
+      'cash',
+      [
+        {
+          productId: pA16.id,
+          productName: pA16.name,
+          qty: 1,
+          priceMinor: 925_000,
+          costMinor: 810_000,
+          imei: '353000000000019',
+        },
+        {
+          productId: pChargerSam.id,
+          productName: pChargerSam.name,
+          qty: 2,
+          priceMinor: 35_000,
+          costMinor: 24_500,
+          imei: null,
+        },
+      ],
+    );
+  }
+
+  return out;
+}
+
+const demoHistoricalSales: DemoSale[] = buildDemoHistoricalSales();
+
 interface DemoSaleReturn {
   id: string;
   originalSaleId: string;
@@ -2170,9 +2348,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const user = requireUser();
     const isManager = user.role === 'manager';
     const canSeeCost = isManager;
-    const limit = Math.min(2000, Math.max(1, numArg(args, 'limit') || 500));
+    const limit = Math.min(25_000, Math.max(1, numArg(args, 'limit') || 500));
 
-    const filtered = sales
+    const combined = [...demoHistoricalSales, ...sales];
+    const filtered = combined
       .filter(
         (s) =>
           s.kind === 'sale' &&
