@@ -429,7 +429,7 @@ pub async fn list_saved_backups_authorized(
     data_dir: &Path,
 ) -> Result<Vec<SavedBackupEntry>, BackupServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
-    session.authorize(Permission::Backup)?;
+    session.authorize(Permission::ManageCatalog)?;
     Ok(list_saved_backups(data_dir))
 }
 
@@ -440,7 +440,7 @@ pub async fn create_auto_backup_now_authorized(
     data_dir: &Path,
 ) -> Result<SavedBackupEntry, BackupServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
-    session.authorize(Permission::Backup)?;
+    session.authorize(Permission::ManageCatalog)?;
     let entry = create_auto_backup(pool, data_dir, BackupTriggerKind::Manual, None).await?;
     Ok(entry)
 }
@@ -452,7 +452,7 @@ pub async fn copy_latest_backup_to_usb_authorized(
     data_dir: &Path,
 ) -> Result<SavedBackupEntry, BackupServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
-    session.authorize(Permission::Backup)?;
+    session.authorize(Permission::ManageCatalog)?;
 
     let usb_dir = detect_usb_backup_dir(data_dir).ok_or(BackupError::UsbNotConnected)?;
 
@@ -479,7 +479,7 @@ pub async fn restore_saved_backup_authorized(
     backup_id: &str,
 ) -> Result<RestoreOutcome, BackupServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
-    session.authorize(Permission::Backup)?;
+    session.authorize(Permission::ManageCatalog)?;
     let now = Timestamp::now();
     let approval = session.require_sensitivity(Sensitivity::Sensitive, now)?;
 
