@@ -1469,8 +1469,9 @@ await page.click('[data-open-services]');
 await page.waitForSelector('[data-services-modal]', { timeout: 3000 });
 await sleep(150);
 check(
-  'Quick Services modal (F9) opens from POS with 4 tabs (محافظ · كروت شحن · فواتير · سوفت وير) and no customer phone input',
-  (await count('[data-svc-tab]')) === 4 &&
+  'Quick Services modal (F9) opens from POS with 3 tabs (محافظ · كروت شحن · فواتير — software moved under Maintenance per ADR-016 #35) and no customer phone input',
+  (await count('[data-svc-tab]')) === 3 &&
+    (await count('[data-svc-tab="software"]')) === 0 &&
     (await count('[data-svc-wallet]')) === 5 &&
     (await count('#svc-phone')) === 0
 );
@@ -1572,6 +1573,100 @@ check(
 await shot('44-wallets-settings');
 await page.click('[data-fee-mode="manual"]');
 await sleep(150);
+
+// --- Plan item 1.11 (ADR-026): Partial Returns, Damaged Stock, and Single-Operation Exchange ---
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('[data-open-returns]', { timeout: 3000 });
+await sleep(150);
+
+// Sell 3 units of a product via exact cash so we can test partial damaged return + intact exchange
+await clickText('.tiles .tile', 'كابل تايب سي 1 متر');
+await clickText('.tiles .tile', 'كابل تايب سي 1 متر');
+await clickText('.tiles .tile', 'كابل تايب سي 1 متر');
+await sleep(100);
+await page.click('#pos-exact-cash-btn');
+await sleep(250);
+
+// Open ReturnModal via F10 button (`[data-open-returns]`)
+await page.click('[data-open-returns]');
+await page.waitForSelector('[data-return-modal]', { timeout: 3000 });
+await sleep(200);
+check(
+  'Return / Exchange modal (F10) opens and displays the most recent invoice with line quantities',
+  (await count('[data-return-inspection]')) === 1 &&
+    (await count('[data-return-line-row="1"]')) === 1
+);
+
+// Increment return qty to 1 and mark as «تالف (مخزون تالف)»
+await page.click('[data-return-qty-inc="1"]');
+await page.click('[data-return-cond-damaged="1"]');
+await sleep(150);
+check(
+  'Selecting 1 damaged unit in ReturnModal previews refund total and damaged tag',
+  (await text('[data-return-summary-box]')).includes('تالف (مخزون تالف): 1 قطعة') &&
+    !(await text('[data-return-refund-total]')).startsWith('0'),
+  await text('[data-return-summary-box]')
+);
+await shot('45-pos-return-modal');
+
+// Submit return -> requires owner PIN approval (`4321`)
+await page.click('[data-return-submit]');
+await page.waitForSelector('.modal .approver', { timeout: 3000 });
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await page.waitForSelector('[data-return-modal]', { hidden: true, timeout: 3000 });
+await sleep(250);
+check(
+  'Partial damaged return completes after owner PIN approval and closes modal',
+  (await count('[data-return-modal]')) === 0
+);
+
+// Add a replacement product to the POS cart and open ReturnModal to execute a single-operation exchange
+await clickText('.tiles .tile', 'جراب شفاف');
+await sleep(100);
+await page.click('[data-open-returns]');
+await page.waitForSelector('[data-return-modal]', { timeout: 3000 });
+await sleep(200);
+
+// Select the partially returned invoice (which has 2 remaining units)
+const partialSaleBtn = await page.$('[data-return-recent-list] .chip');
+if (partialSaleBtn) await partialSaleBtn.click();
+await sleep(150);
+await page.click('[data-return-qty-inc="1"]');
+await page.click('[data-return-cond-intact="1"]');
+await sleep(150);
+check(
+  'When POS cart has replacement items, ReturnModal displays exchange net difference preview and exchange submit button',
+  (await count('[data-return-exchange-box]')) === 1 &&
+    (await count('[data-exchange-submit]')) === 1,
+  await text('[data-return-exchange-box]')
+);
+await shot('46-pos-exchange-modal');
+
+await page.click('[data-exchange-submit]');
+await page.waitForSelector('.modal .approver', { timeout: 3000 });
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await page.waitForSelector('[data-return-modal]', { hidden: true, timeout: 3000 });
+await sleep(250);
+check(
+  'Single-operation exchange completes with owner PIN approval and clears the POS cart',
+  (await count('[data-return-modal]')) === 0 &&
+    (await count('.cart .lines .empty')) === 1
+);
+
+// Navigate to «المخزن» and verify «مخزون تالف» card shows the damaged returned item at its original line cost
+await clickText('.rail .nav-btn', 'المخزن');
+await page.waitForSelector('[data-damaged-stock-card]', { timeout: 3000 });
+await sleep(250);
+check(
+  'Store screen («المخزن») displays «مخزون تالف» card with the damaged returned item and its cost',
+  (await text('[data-damaged-total-qty]')).includes('1') &&
+    (await count('[data-damaged-table] tbody tr')) === 1 &&
+    (await text('[data-damaged-table]')).includes('كابل تايب سي 1 متر'),
+  await text('[data-damaged-stock-card]')
+);
+await shot('47-store-damaged-stock');
 
 
 

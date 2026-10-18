@@ -2912,6 +2912,98 @@ fn wallet_domain_and_service_fee_settings_are_validated() {
     assert_eq!(totals.net_profit_minor, 47_500);
 }
 
+#[test]
+fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
+    use mobile_shop_system_lib::domain::sales::{
+        allocate_default_refund_payments, compute_partial_line_return,
+        compute_return_refund_minor, PaymentMethod, ReturnCondition, SaleError,
+        validate_return_reason,
+    };
+
+    assert_eq!(ReturnCondition::parse("intact").unwrap(), ReturnCondition::Intact);
+    assert_eq!(ReturnCondition::parse("damaged").unwrap(), ReturnCondition::Damaged);
+    assert_eq!(
+        ReturnCondition::parse("broken"),
+        Err(SaleError::ReturnConditionInvalid)
+    );
+    assert_eq!(validate_return_reason("  عيب صناعة  ").unwrap(), "عيب صناعة");
+    assert_eq!(validate_return_reason("   "), Err(SaleError::ReturnReasonRequired));
+
+    // Line of 3 units @ 100 EGP (10_000), line discount 1_000, line cost 18_000 (6_000/unit).
+    let r1 = compute_partial_line_return(
+        3,
+        10_000,
+        1_000,
+        Some(6_000),
+        18_000,
+        0,
+        0,
+        0,
+        1,
+    )
+    .expect("first partial return of 1 unit");
+    assert_eq!(r1.quantity, 1);
+    assert_eq!(r1.discount_minor, 333);
+    assert_eq!(r1.line_total_minor, 10_000 - 333);
+    assert_eq!(r1.line_cost_minor, 6_000);
+
+    // Returning the remaining 2 units takes the exact remainder so sum == original.
+    let r2 = compute_partial_line_return(
+        3,
+        10_000,
+        1_000,
+        Some(6_000),
+        18_000,
+        r1.quantity,
+        r1.discount_minor,
+        r1.line_cost_minor,
+        2,
+    )
+    .expect("second partial return of remaining 2 units");
+    assert_eq!(r1.discount_minor + r2.discount_minor, 1_000);
+    assert_eq!(r1.line_total_minor + r2.line_total_minor, 29_000);
+    assert_eq!(r1.line_cost_minor + r2.line_cost_minor, 18_000);
+
+    // Returning a 4th unit is refused.
+    assert_eq!(
+        compute_partial_line_return(
+            3,
+            10_000,
+            1_000,
+            Some(6_000),
+            18_000,
+            3,
+            1_000,
+            18_000,
+            1,
+        ),
+        Err(SaleError::ReturnQuantityExceedsRemaining)
+    );
+
+    // Invoice-level discount pro-rating + exact final remainder.
+    let (ref1, disc1) = compute_return_refund_minor(27_000, 30_000, 0, 0, 10_000);
+    assert_eq!(disc1, 1_000);
+    assert_eq!(ref1, 9_000);
+    let (ref2, disc2) = compute_return_refund_minor(27_000, 30_000, 10_000, ref1, 20_000);
+    assert_eq!(ref1 + ref2, 27_000);
+    assert_eq!(disc1 + disc2, 3_000);
+
+    // Default refund allocation across split payment methods.
+    let alloc = allocate_default_refund_payments(
+        &[
+            (PaymentMethod::Cash, 10_000, None),
+            (PaymentMethod::Vf, 17_000, Some("VF-1".to_owned())),
+        ],
+        PaymentMethod::Cash,
+        15_000,
+    );
+    assert_eq!(alloc.len(), 2);
+    assert_eq!(alloc[0].method, PaymentMethod::Cash);
+    assert_eq!(alloc[0].amount_minor, 10_000);
+    assert_eq!(alloc[1].method, PaymentMethod::Vf);
+    assert_eq!(alloc[1].amount_minor, 5_000);
+}
+
 
 
 

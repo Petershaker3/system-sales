@@ -21,7 +21,7 @@ import { listProductImages, type ProductImage } from '../../api/images';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
 import * as salesApi from '../../api/sales';
-import type { SaleOutcome } from '../../api/sales';
+import type { SaleExchangeOutcome, SaleLine, SaleOutcome, SaleReturnOutcome } from '../../api/sales';
 import { withOwnerApproval } from '../../shell/approval';
 import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/appearance';
 import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/format';
@@ -39,6 +39,7 @@ import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
+import ReturnModal from './ReturnModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
 import ServicesModal from './ServicesModal.vue';
 import VariantPickerModal from './VariantPickerModal.vue';
@@ -59,7 +60,7 @@ const state = reactive(cart.newCart());
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
-const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'services'>(null);
+const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'services' | 'returns'>(null);
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
@@ -237,6 +238,19 @@ function iconOf(p: PosProduct) {
 const invoice = computed(() => cart.current(state));
 const totals = computed(() => cart.totals(invoice.value));
 const discSummary = computed(() => cart.discountSummary(invoice.value));
+const cartSaleLines = computed<readonly SaleLine[]>(() => {
+  const now = new Date();
+  return invoice.value.lines.map((line) => {
+    const months = line.warrantyMonths ?? (line.serial ? 12 : 0);
+    return {
+      productId: line.productId,
+      quantity: line.quantity,
+      imei: line.imei ?? null,
+      discountMinor: line.discountMinor ?? 0,
+      ...warrantyDatesForMonths(months, now),
+    };
+  });
+});
 const discountNeedsOwnerBadge = computed(() =>
   cart.discountExceedsSellerLimit(
     discSummary.value.grossSubtotalMinor,
@@ -607,6 +621,17 @@ async function onPaid(outcome: SaleOutcome): Promise<void> {
   await load();
 }
 
+async function onReturned(_outcome: SaleReturnOutcome): Promise<void> {
+  emit('shift-changed');
+  await load();
+}
+
+async function onExchanged(_outcome: SaleExchangeOutcome): Promise<void> {
+  cart.closePaid(state);
+  emit('shift-changed');
+  await load();
+}
+
 async function onPriceChanged(): Promise<void> {
   await load();
   toast('سعر صنف اتغيّر من شوية. الفاتورة اتحدّثت بالسعر الجديد، راجع المطلوب وادفع تاني', 'info', 5000);
@@ -652,6 +677,10 @@ function onKey(event: KeyboardEvent): void {
   if (key === 'F8') return hold();
   if (key === 'F9') {
     modal.value = 'services';
+    return;
+  }
+  if (key === 'F10') {
+    modal.value = 'returns';
     return;
   }
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
@@ -726,6 +755,7 @@ const KEYS: readonly [string, string][] = [
   ['F4', 'العميل'],
   ['F8', 'انتظار'],
   ['F9', 'خدمات'],
+  ['F10', 'مرتجع / استبدال'],
   ['F12', 'دفع'],
   ['Del', 'حذف سطر'],
   ['+ / −', 'الكمية'],
@@ -812,6 +842,14 @@ const KEYS: readonly [string, string][] = [
             @click="modal = 'services'"
           >
             <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+          </button>
+          <button
+            type="button"
+            class="btn ghost"
+            data-open-returns
+            @click="modal = 'returns'"
+          >
+            <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
           </button>
         </div>
 
@@ -1189,6 +1227,17 @@ const KEYS: readonly [string, string][] = [
       v-if="modal === 'services'"
       @close="closeModal"
       @recorded="emit('shift-changed')"
+    />
+    <ReturnModal
+      v-if="modal === 'returns'"
+      :cart-lines="cartSaleLines"
+      :cart-invoice-discount-minor="discSummary.invoiceDiscountMinor"
+      :cart-total-minor="totals.totalMinor"
+      :cart-customer-id="selectedCustomer?.id ?? null"
+      :is-owner="isOwner"
+      @close="closeModal"
+      @returned="onReturned"
+      @exchanged="onExchanged"
     />
     <Modal v-if="modal === 'clear'" title="مسح الفاتورة؟" size="sm" @close="closeModal">
       <p>هتتشال كل السطور من الفاتورة الحالية. فواتير الانتظار مش هتتأثر.</p>

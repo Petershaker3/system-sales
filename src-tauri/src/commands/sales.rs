@@ -14,10 +14,13 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::domain::identity::Permission;
-use crate::domain::sales::{SalePaymentInput, WarrantyDate};
+use crate::domain::sales::{SalePaymentInput, SaleReturnLineInput, WarrantyDate};
 use crate::services::identity::{session as identity_session};
 use crate::services::identity::IdentityContext;
-use crate::services::sales::{self as use_cases, SaleLineWithUnitInput, SaleOutcome, SaleServiceError};
+use crate::services::sales::{
+    self as use_cases, ReturnableSaleInspection, SaleExchangeOutcome, SaleLineWithUnitInput,
+    SaleOutcome, SaleReturnOutcome, SaleServiceError,
+};
 
 type Ctx<'a> = State<'a, IdentityContext>;
 
@@ -240,4 +243,452 @@ pub async fn set_sale_customer_name(
 ) -> Result<(), SalesCommandError> {
     use_cases::set_sale_customer_name(&ctx.pool, ctx.tokens.as_ref(), &sale_id, &name).await?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Plan item 1.11 — Partial returns, exchanges, and damaged stock (`ADR-026`)
+// ---------------------------------------------------------------------------
+
+/// Input DTO for one line in a partial or full return (`ADR-026`).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleReturnLineInputDto {
+    pub sale_line_id: String,
+    pub quantity: i64,
+    pub condition: String,
+}
+
+impl From<SaleReturnLineInputDto> for SaleReturnLineInput {
+    fn from(dto: SaleReturnLineInputDto) -> Self {
+        Self {
+            sale_line_id: dto.sale_line_id,
+            quantity: dto.quantity,
+            condition: dto.condition,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleReturnOutcomePublicDto {
+    pub return_id: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub original_sale_id: String,
+    pub original_reference: String,
+    pub refund_minor: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleReturnOutcomeWithCostDto {
+    pub return_id: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub original_sale_id: String,
+    pub original_reference: String,
+    pub refund_minor: i64,
+    pub cost_returned_minor: i64,
+    pub damaged_cost_minor: i64,
+}
+
+impl From<SaleReturnOutcome> for SaleReturnOutcomePublicDto {
+    fn from(v: SaleReturnOutcome) -> Self {
+        Self {
+            return_id: v.return_id,
+            return_sale_id: v.return_sale_id,
+            return_reference: v.return_reference,
+            original_sale_id: v.original_sale_id,
+            original_reference: v.original_reference,
+            refund_minor: v.refund_minor,
+        }
+    }
+}
+
+impl From<SaleReturnOutcome> for SaleReturnOutcomeWithCostDto {
+    fn from(v: SaleReturnOutcome) -> Self {
+        Self {
+            return_id: v.return_id,
+            return_sale_id: v.return_sale_id,
+            return_reference: v.return_reference,
+            original_sale_id: v.original_sale_id,
+            original_reference: v.original_reference,
+            refund_minor: v.refund_minor,
+            cost_returned_minor: v.cost_returned_minor,
+            damaged_cost_minor: v.damaged_cost_minor,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleExchangeOutcomePublicDto {
+    pub return_outcome: SaleReturnOutcomePublicDto,
+    pub sale_outcome: SaleOutcomePublicDto,
+    pub net_difference_minor: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleExchangeOutcomeWithCostDto {
+    pub return_outcome: SaleReturnOutcomeWithCostDto,
+    pub sale_outcome: SaleOutcomeWithCostDto,
+    pub net_difference_minor: i64,
+}
+
+impl From<SaleExchangeOutcome> for SaleExchangeOutcomePublicDto {
+    fn from(v: SaleExchangeOutcome) -> Self {
+        Self {
+            return_outcome: SaleReturnOutcomePublicDto::from(v.return_outcome),
+            sale_outcome: SaleOutcomePublicDto::from(v.sale_outcome),
+            net_difference_minor: v.net_difference_minor,
+        }
+    }
+}
+
+impl From<SaleExchangeOutcome> for SaleExchangeOutcomeWithCostDto {
+    fn from(v: SaleExchangeOutcome) -> Self {
+        Self {
+            return_outcome: SaleReturnOutcomeWithCostDto::from(v.return_outcome),
+            sale_outcome: SaleOutcomeWithCostDto::from(v.sale_outcome),
+            net_difference_minor: v.net_difference_minor,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnableSaleLineDto {
+    pub line_id: String,
+    pub line_no: i64,
+    pub product_id: String,
+    pub product_name: String,
+    pub quantity: i64,
+    pub already_returned_qty: i64,
+    pub remaining_qty: i64,
+    pub unit_selling_price_minor: i64,
+    pub discount_minor: i64,
+    pub line_total_minor: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_cost_minor: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_cost_minor: Option<i64>,
+    pub warranty_start: Option<String>,
+    pub warranty_end: Option<String>,
+    pub unit_id: Option<String>,
+    pub imei: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnableSalePaymentDto {
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+    pub already_refunded_minor: i64,
+    pub remaining_minor: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleReturnSummaryDto {
+    pub id: String,
+    pub original_sale_id: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub exchange_sale_id: Option<String>,
+    pub exchange_reference: Option<String>,
+    pub refund_minor: i64,
+    pub reason: String,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnableSaleInspectionDto {
+    pub sale_id: String,
+    pub reference: String,
+    pub occurred_at: i64,
+    pub sold_by: String,
+    pub customer_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub total_minor: i64,
+    pub discount_minor: i64,
+    pub already_refunded_minor: i64,
+    pub remaining_refundable_minor: i64,
+    pub is_cancelled: bool,
+    pub lines: Vec<ReturnableSaleLineDto>,
+    pub payments: Vec<ReturnableSalePaymentDto>,
+    pub returns: Vec<SaleReturnSummaryDto>,
+}
+
+impl From<ReturnableSaleInspection> for ReturnableSaleInspectionDto {
+    fn from(v: ReturnableSaleInspection) -> Self {
+        Self {
+            sale_id: v.sale_id,
+            reference: v.reference,
+            occurred_at: v.occurred_at,
+            sold_by: v.sold_by,
+            customer_id: v.customer_id,
+            customer_name: v.customer_name,
+            customer_phone: v.customer_phone,
+            total_minor: v.total_minor,
+            discount_minor: v.discount_minor,
+            already_refunded_minor: v.already_refunded_minor,
+            remaining_refundable_minor: v.remaining_refundable_minor,
+            is_cancelled: v.is_cancelled,
+            lines: v
+                .lines
+                .into_iter()
+                .map(|l| ReturnableSaleLineDto {
+                    line_id: l.line_id,
+                    line_no: l.line_no,
+                    product_id: l.product_id,
+                    product_name: l.product_name,
+                    quantity: l.quantity,
+                    already_returned_qty: l.already_returned_qty,
+                    remaining_qty: l.remaining_qty,
+                    unit_selling_price_minor: l.unit_selling_price_minor,
+                    discount_minor: l.discount_minor,
+                    line_total_minor: l.line_total_minor,
+                    unit_cost_minor: l.unit_cost_minor,
+                    line_cost_minor: l.line_cost_minor,
+                    warranty_start: l.warranty_start,
+                    warranty_end: l.warranty_end,
+                    unit_id: l.unit_id,
+                    imei: l.imei,
+                })
+                .collect(),
+            payments: v
+                .payments
+                .into_iter()
+                .map(|p| ReturnableSalePaymentDto {
+                    method: p.method,
+                    amount_minor: p.amount_minor,
+                    reference: p.reference,
+                    already_refunded_minor: p.already_refunded_minor,
+                    remaining_minor: p.remaining_minor,
+                })
+                .collect(),
+            returns: v
+                .returns
+                .into_iter()
+                .map(|r| SaleReturnSummaryDto {
+                    id: r.id,
+                    original_sale_id: r.original_sale_id,
+                    return_sale_id: r.return_sale_id,
+                    return_reference: r.return_reference,
+                    exchange_sale_id: r.exchange_sale_id,
+                    exchange_reference: r.exchange_reference,
+                    refund_minor: r.refund_minor,
+                    reason: r.reason,
+                    occurred_at: r.occurred_at,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnableSaleSummaryDto {
+    pub sale_id: String,
+    pub reference: String,
+    pub occurred_at: i64,
+    pub customer_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub first_product_name: String,
+    pub line_count: i64,
+    pub total_minor: i64,
+    pub already_refunded_minor: i64,
+    pub is_cancelled: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DamagedStockRowDto {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub sale_id: String,
+    pub sale_reference: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub sale_line_id: String,
+    pub return_line_id: String,
+    pub unit_id: Option<String>,
+    pub imei: Option<String>,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub total_cost_minor: i64,
+    pub reason: String,
+    pub occurred_at: i64,
+}
+
+/// Inspect a sale document by id or reference for partial/full return or exchange (`ADR-026`).
+#[tauri::command]
+pub async fn inspect_sale_for_return(
+    ctx: Ctx<'_>,
+    sale_id_or_reference: String,
+) -> Result<ReturnableSaleInspectionDto, SalesCommandError> {
+    let info =
+        use_cases::inspect_sale_for_return(&ctx.pool, ctx.tokens.as_ref(), &sale_id_or_reference)
+            .await?;
+    Ok(ReturnableSaleInspectionDto::from(info))
+}
+
+/// List recent live sales matching an optional query for the return/exchange modal (`ADR-026`).
+#[tauri::command]
+pub async fn list_recent_sales_for_return(
+    ctx: Ctx<'_>,
+    query: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ReturnableSaleSummaryDto>, SalesCommandError> {
+    let rows = use_cases::list_recent_sales_for_return(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        query.as_deref(),
+        limit,
+    )
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ReturnableSaleSummaryDto {
+            sale_id: r.sale_id,
+            reference: r.reference,
+            occurred_at: r.occurred_at,
+            customer_id: r.customer_id,
+            customer_name: r.customer_name,
+            customer_phone: r.customer_phone,
+            first_product_name: r.first_product_name,
+            line_count: r.line_count,
+            total_minor: r.total_minor,
+            already_refunded_minor: r.already_refunded_minor,
+            is_cancelled: r.is_cancelled,
+        })
+        .collect())
+}
+
+/// Record a partial or full return of invoice lines (`ADR-026`).
+#[tauri::command]
+pub async fn record_sale_return(
+    ctx: Ctx<'_>,
+    original_sale_id: String,
+    return_lines: Vec<SaleReturnLineInputDto>,
+    reason: String,
+    refund_payments: Option<Vec<SalePaymentInputDto>>,
+) -> Result<serde_json::Value, SalesCommandError> {
+    let mapped_lines: Vec<SaleReturnLineInput> =
+        return_lines.into_iter().map(SaleReturnLineInput::from).collect();
+    let mapped_payments: Option<Vec<SalePaymentInput>> =
+        refund_payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
+
+    let outcome = use_cases::record_sale_return(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &original_sale_id,
+        &mapped_lines,
+        &reason,
+        mapped_payments.as_deref(),
+    )
+    .await?;
+
+    let session = identity_session::resolve(&ctx.pool, ctx.tokens.as_ref())
+        .await
+        .map_err(|_| SalesCommandError {
+            code: "IDENTITY_RESOLUTION_FAILED",
+        })?;
+    if session.authorize(Permission::ViewCostAndProfit).is_ok() {
+        Ok(serde_json::to_value(SaleReturnOutcomeWithCostDto::from(outcome)).expect("json"))
+    } else {
+        Ok(serde_json::to_value(SaleReturnOutcomePublicDto::from(outcome)).expect("json"))
+    }
+}
+
+/// Record an exchange (partial or full return + new replacement sale in one atomic operation, `ADR-026`).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn record_sale_exchange(
+    ctx: Ctx<'_>,
+    original_sale_id: String,
+    return_lines: Vec<SaleReturnLineInputDto>,
+    reason: String,
+    refund_payments: Option<Vec<SalePaymentInputDto>>,
+    new_lines: Vec<SaleLineInputDto>,
+    new_invoice_discount_minor: Option<i64>,
+    new_payments: Option<Vec<SalePaymentInputDto>>,
+    customer_id: Option<String>,
+) -> Result<serde_json::Value, SalesCommandError> {
+    let mapped_return_lines: Vec<SaleReturnLineInput> =
+        return_lines.into_iter().map(SaleReturnLineInput::from).collect();
+    let mapped_refund_payments: Option<Vec<SalePaymentInput>> =
+        refund_payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
+
+    let mut mapped_new_lines = Vec::with_capacity(new_lines.len());
+    let mut new_line_discounts_minor = Vec::with_capacity(new_lines.len());
+    for dto in new_lines {
+        let (input, discount_minor) = dto.into_input_and_discount()?;
+        mapped_new_lines.push(input);
+        new_line_discounts_minor.push(discount_minor);
+    }
+    let mapped_new_payments: Option<Vec<SalePaymentInput>> =
+        new_payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
+
+    let outcome = use_cases::record_sale_exchange(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &original_sale_id,
+        &mapped_return_lines,
+        &reason,
+        mapped_refund_payments.as_deref(),
+        &mapped_new_lines,
+        &new_line_discounts_minor,
+        new_invoice_discount_minor.unwrap_or(0),
+        mapped_new_payments.as_deref(),
+        customer_id.as_deref(),
+    )
+    .await?;
+
+    let session = identity_session::resolve(&ctx.pool, ctx.tokens.as_ref())
+        .await
+        .map_err(|_| SalesCommandError {
+            code: "IDENTITY_RESOLUTION_FAILED",
+        })?;
+    if session.authorize(Permission::ViewCostAndProfit).is_ok() {
+        Ok(serde_json::to_value(SaleExchangeOutcomeWithCostDto::from(outcome)).expect("json"))
+    } else {
+        Ok(serde_json::to_value(SaleExchangeOutcomePublicDto::from(outcome)).expect("json"))
+    }
+}
+
+/// List rows from `damaged_stock` («مخزون تالف», `ADR-026`).
+#[tauri::command]
+pub async fn list_damaged_stock(
+    ctx: Ctx<'_>,
+    limit: Option<u32>,
+) -> Result<Vec<DamagedStockRowDto>, SalesCommandError> {
+    let rows = use_cases::list_damaged_stock(&ctx.pool, ctx.tokens.as_ref(), limit).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| DamagedStockRowDto {
+            id: r.id,
+            product_id: r.product_id,
+            product_name: r.product_name,
+            sale_id: r.sale_id,
+            sale_reference: r.sale_reference,
+            return_sale_id: r.return_sale_id,
+            return_reference: r.return_reference,
+            sale_line_id: r.sale_line_id,
+            return_line_id: r.return_line_id,
+            unit_id: r.unit_id,
+            imei: r.imei,
+            quantity: r.quantity,
+            unit_cost_minor: r.unit_cost_minor,
+            total_cost_minor: r.total_cost_minor,
+            reason: r.reason,
+            occurred_at: r.occurred_at,
+        })
+        .collect())
 }

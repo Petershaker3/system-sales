@@ -127,6 +127,9 @@ pub const COST_LAYERS_COLLAPSED: &str = "cost_layers_collapsed";
 /// forbids secrets in `detail`.
 pub const SALE_RECORDED: &str = "sale_recorded";
 pub const SALE_CANCELLED: &str = "sale_cancelled";
+pub const SALE_RETURNED: &str = "sale_returned";
+pub const SALE_EXCHANGED: &str = "sale_exchanged";
+pub const DAMAGED_STOCK_RECORDED: &str = "damaged_stock_recorded";
 /// A customer link or name snapshot was attached to a sale (P4). Detail
 /// carries the sale and either the customer id or a snapshot marker — never
 /// contact data.

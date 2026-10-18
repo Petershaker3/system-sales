@@ -118,6 +118,12 @@ pub const SHIFTS_AND_EXPENSES: &str = include_str!("0023_shifts_and_expenses.sql
 /// (`wallet_ops`) for Plan item 1.10 (ADR-025).
 pub const WALLETS_AND_SERVICES: &str = include_str!("0024_wallets_and_services.sql");
 
+/// `0025`: partial line returns, exchanges, and damaged stock (`sale_returns`,
+/// `damaged_stock`, `sale_lines.reverses_line_id`, `sale_lines.return_condition`)
+/// for Plan item 1.11 (ADR-026).
+pub const PARTIAL_RETURNS_AND_DAMAGED_STOCK: &str =
+    include_str!("0025_partial_returns_and_damaged_stock.sql");
+
 
 
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * Quick services modal (`F9` — خدمات سريعة: محافظ · كروت شحن · فواتير · سوفت وير)
- * (Plan item 1.10, `ADR-025`, `PLAN.md` §9, §19, `docs/ui/mockup-v1/pos.js`).
+ * Quick services modal (`F9` — خدمات سريعة: محافظ · كروت شحن · فواتير)
+ * (Plan item 1.10, `ADR-025`, `ADR-016` #35, `PLAN.md` §9, §19, `docs/ui/mockup-v1/pos.js`).
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
@@ -18,8 +18,7 @@ import {
   drawerCashDeltaForCustomerOp,
   RECHARGE_CARD_VALUES,
   resolveServiceFeeMinor,
-   resolveWalletPeriodBounds,
-  SOFTWARE_PRESETS,
+  resolveWalletPeriodBounds,
   TELECOM_OPERATORS,
   walletBalanceAfterCustomerOp,
 } from '../wallets/wallets';
@@ -30,7 +29,7 @@ import type { IconName } from '../../ui/icons';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
 
-export type ServicesTab = 'wallet' | 'cards' | 'bills' | 'software';
+export type ServicesTab = 'wallet' | 'cards' | 'bills';
 
 const props = withDefaults(
   defineProps<{
@@ -80,11 +79,6 @@ const billAcctText = ref('');
 const billFeeText = ref('');
 const billFeeTouched = ref(false);
 const billFeeInput = ref<HTMLInputElement | null>(null);
-
-// --- Software tab state ---
-const swNameText = ref<string>(SOFTWARE_PRESETS[0].name);
-const swFeeText = ref<string>(SOFTWARE_PRESETS[0].feeEgp);
-const swNoteText = ref('');
 
 const isAutoFee = computed<boolean>(() => appearance.serviceFeeMode === 'auto');
 const feePctNum = computed<number>(() =>
@@ -420,50 +414,12 @@ async function submitBillOp(): Promise<void> {
     busy.value = false;
   }
 }
-
-function pickSoftwarePreset(preset: { name: string; feeEgp: string }): void {
-  swNameText.value = preset.name;
-  swFeeText.value = preset.feeEgp;
-}
-
-async function submitSoftwareOp(): Promise<void> {
-  if (busy.value) return;
-  const serviceName = swNameText.value.trim();
-  if (!serviceName) {
-    toast('اكتب نوع خدمة السوفت وير', 'err');
-    return;
-  }
-  const feeMinor = parseMoney(swFeeText.value);
-  if (feeMinor === null || feeMinor <= 0) {
-    toast('اكتب سعر خدمة السوفت وير (أكبر من 0)', 'err');
-    return;
-  }
-
-  busy.value = true;
-  try {
-    await recordServiceOp(
-      'software',
-      serviceName,
-      null,
-      0,
-      feeMinor,
-      swNoteText.value.trim() || null
-    );
-    toast(`اتسجّلت خدمة سوفت وير: ${serviceName} (${money(feeMinor)})`, 'ok');
-    emit('recorded');
-    emit('close');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  } finally {
-    busy.value = false;
-  }
-}
 </script>
 
 <template>
   <Modal
     title="خدمات سريعة"
-    sub="محافظ · كروت شحن · دفع فواتير · سوفت وير"
+    sub="محافظ · كروت شحن · دفع فواتير"
     size="wide"
     @close="emit('close')"
   >
@@ -495,15 +451,6 @@ async function submitSoftwareOp(): Promise<void> {
           @click="tab = 'bills'"
         >
           فواتير
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ on: tab === 'software' }"
-          data-svc-tab="software"
-          @click="tab = 'software'"
-        >
-          سوفت وير
         </button>
       </div>
 
@@ -878,71 +825,6 @@ async function submitSoftwareOp(): Promise<void> {
           </div>
         </form>
       </div>
-
-      <!-- TAB 4: SOFTWARE -->
-      <div v-else-if="tab === 'software'" data-svc-software-panel>
-        <form @submit.prevent="submitSoftwareOp">
-          <div class="field" style="margin-bottom: 10px">
-            <span class="lbl">اختار خدمة سريعة أو اكتبها</span>
-            <div class="chips">
-              <button
-                v-for="preset in SOFTWARE_PRESETS"
-                :key="preset.name"
-                type="button"
-                class="chip"
-                :class="{ on: swNameText === preset.name }"
-                :data-svc-sw-preset="preset.name"
-                @click="pickSoftwarePreset(preset)"
-              >
-                {{ preset.name }} ({{ preset.feeEgp }} ج.م)
-              </button>
-            </div>
-          </div>
-
-          <div class="g3">
-            <div class="field">
-              <label class="lbl" for="sw-name">نوع خدمة السوفت وير</label>
-              <input
-                id="sw-name"
-                v-model="swNameText"
-                class="in"
-                placeholder="فورمات وتحديث"
-                data-svc-sw-name
-              />
-            </div>
-            <div class="field">
-              <label class="lbl" for="sw-fee">سعر الخدمة (ج.م)</label>
-              <input
-                id="sw-fee"
-                v-model="swFeeText"
-                class="in lg"
-                :class="{ mono: swFeeText !== '' }"
-                :dir="swFeeText ? 'ltr' : 'rtl'"
-                inputmode="decimal"
-                placeholder="100"
-                data-svc-sw-fee
-              />
-            </div>
-            <div class="field">
-              <label class="lbl" for="sw-note">ملاحظة (اختياري)</label>
-              <input
-                id="sw-note"
-                v-model="swNoteText"
-                class="in"
-                placeholder="موديل الجهاز أو ملاحظة"
-                data-svc-sw-note
-              />
-            </div>
-          </div>
-
-          <div class="due-box" style="margin-top: 12px">
-            <small>تحصّل من العميل كاش (إيراد خدمة صافي)</small>
-            <b class="num" data-svc-sw-total>
-              {{ money(parseMoney(swFeeText) ?? 0) }}
-            </b>
-          </div>
-        </form>
-      </div>
     </div>
 
     <template #foot>
@@ -981,17 +863,6 @@ async function submitSoftwareOp(): Promise<void> {
       >
         <Icon name="check" />
         <span>سجّل الدفع</span>
-      </button>
-      <button
-        v-else-if="tab === 'software'"
-        type="button"
-        class="btn primary lg"
-        :disabled="busy"
-        data-svc-sw-submit
-        @click="submitSoftwareOp"
-      >
-        <Icon name="check" />
-        <span>سجّل الخدمة</span>
       </button>
     </template>
   </Modal>

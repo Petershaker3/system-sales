@@ -822,6 +822,10 @@ mod shifts;
 // (`wallet_ops`), and shift drawer reconciliation integration.
 mod wallets;
 
+// Plan item 1.11 (ADR-026): partial line returns at original cost, damaged stock
+// bucket (`damaged_stock`), and exchanges (`record_sale_exchange`).
+mod returns;
+
 
 
 

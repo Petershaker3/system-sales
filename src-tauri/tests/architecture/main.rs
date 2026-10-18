@@ -2888,4 +2888,60 @@ fn wallet_slice_preserves_layer_and_schema_invariants() {
     }
 }
 
+const PARTIAL_RETURNS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0025_partial_returns_and_damaged_stock.sql");
+const SALES_COMMANDS: &str = include_str!("../../src/commands/sales.rs");
+
+#[test]
+fn partial_returns_and_damaged_stock_slice_preserves_layer_and_schema_invariants() {
+    let sql = sql_only(PARTIAL_RETURNS_MIGRATION);
+    for required in [
+        "add column reverses_line_id text null references sale_lines (id) on delete restrict",
+        "add column return_condition text null check (return_condition is null or return_condition in ('intact', 'damaged'))",
+        "create table sale_returns (",
+        "create trigger sale_returns_no_update",
+        "create trigger sale_returns_no_delete",
+        "create table damaged_stock (",
+        "create trigger damaged_stock_no_update",
+        "create trigger damaged_stock_no_delete",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0025_partial_returns_and_damaged_stock.sql must contain `{required}`"
+        );
+    }
+
+    let commands = code_only(SALES_COMMANDS);
+    let params = command_parameters(&commands);
+    for forbidden in [
+        "token",
+        "user_id",
+        "userid",
+        "role",
+        "created_by",
+        "updated_by",
+        "actor",
+        "assurance",
+        "session",
+        "sensitivity",
+    ] {
+        assert!(
+            !params.iter().any(|p| p == forbidden),
+            "commands/sales.rs must not accept `{forbidden}`; found {params:?}"
+        );
+    }
+
+    let lib = code_only(LIB);
+    for command in [
+        "commands::sales::inspect_sale_for_return",
+        "commands::sales::list_recent_sales_for_return",
+        "commands::sales::record_sale_return",
+        "commands::sales::record_sale_exchange",
+        "commands::sales::list_damaged_stock",
+    ] {
+        assert!(lib.contains(command), "lib.rs must register `{command}`");
+    }
+}
+
+
 

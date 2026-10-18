@@ -76,6 +76,16 @@ pub enum SaleError {
     CreditRequiresCustomer,
     /// A line or invoice discount is negative or exceeds the gross amount (`ADR-021`).
     DiscountInvalid,
+    /// A return request carries no return lines (`ADR-026`).
+    ReturnEmpty,
+    /// A return request names a `sale_line_id` that does not belong to the sale (`ADR-026`).
+    ReturnLineNotFound,
+    /// A return request asks to return more units than remain on the line (`ADR-026`).
+    ReturnQuantityExceedsRemaining,
+    /// A return line's condition is neither `'intact'` nor `'damaged'` (`ADR-026`).
+    ReturnConditionInvalid,
+    /// A return request has an empty or overly long reason (`ADR-026`).
+    ReturnReasonRequired,
 }
 
 impl SaleError {
@@ -106,6 +116,11 @@ impl SaleError {
             SaleError::InstallmentProviderRequired => "SALE_INSTALLMENT_PROVIDER_REQUIRED",
             SaleError::CreditRequiresCustomer => "SALE_CREDIT_REQUIRES_CUSTOMER",
             SaleError::DiscountInvalid => "SALE_DISCOUNT_INVALID",
+            SaleError::ReturnEmpty => "SALE_RETURN_EMPTY",
+            SaleError::ReturnLineNotFound => "SALE_RETURN_LINE_NOT_FOUND",
+            SaleError::ReturnQuantityExceedsRemaining => "SALE_RETURN_QUANTITY_EXCEEDS_REMAINING",
+            SaleError::ReturnConditionInvalid => "SALE_RETURN_CONDITION_INVALID",
+            SaleError::ReturnReasonRequired => "SALE_RETURN_REASON_REQUIRED",
         }
     }
 }
@@ -172,6 +187,21 @@ impl fmt::Display for SaleError {
             }
             SaleError::DiscountInvalid => {
                 write!(f, "discount must be non-negative and not exceed the subtotal")
+            }
+            SaleError::ReturnEmpty => {
+                write!(f, "a return must carry at least one returned line")
+            }
+            SaleError::ReturnLineNotFound => {
+                write!(f, "the returned line does not belong to this sale")
+            }
+            SaleError::ReturnQuantityExceedsRemaining => {
+                write!(f, "the returned quantity exceeds what remains on the sale line")
+            }
+            SaleError::ReturnConditionInvalid => {
+                write!(f, "the return condition must be intact or damaged")
+            }
+            SaleError::ReturnReasonRequired => {
+                write!(f, "a non-empty return reason up to 200 characters is required")
             }
         }
     }
@@ -478,4 +508,215 @@ fn days_in_month(year: u32, month: u32) -> u32 {
         2 => 28,
         _ => 0,
     }
+}
+
+/// Condition of a returned item (`ADR-026`, `PLAN.md` §10):
+/// - `Intact`: returns to sellable stock (`stock_levels` + `stock_movements`) at original line cost.
+/// - `Damaged`: goes to `damaged_stock` («مخزون تالف») at original line cost and never returns to sellable stock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReturnCondition {
+    Intact,
+    Damaged,
+}
+
+impl ReturnCondition {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ReturnCondition::Intact => "intact",
+            ReturnCondition::Damaged => "damaged",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        match raw.trim() {
+            "intact" => Ok(ReturnCondition::Intact),
+            "damaged" => Ok(ReturnCondition::Damaged),
+            _ => Err(SaleError::ReturnConditionInvalid),
+        }
+    }
+}
+
+/// Caller input for one line in a partial or full return (`ADR-026`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleReturnLineInput {
+    pub sale_line_id: String,
+    pub quantity: i64,
+    pub condition: String,
+}
+
+/// Computed amounts for returning `quantity` units from an original `sale_line` (`ADR-026` §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialLineReturnCalc {
+    pub quantity: i64,
+    pub unit_selling_price_minor: i64,
+    pub discount_minor: i64,
+    pub line_total_minor: i64,
+    pub unit_cost_minor: i64,
+    pub line_cost_minor: i64,
+}
+
+/// Maximum characters allowed in a return reason (`0025_partial_returns_and_damaged_stock.sql`).
+pub const MAX_RETURN_REASON_LEN: usize = 200;
+
+/// Validate and trim a return reason (`1..=200` characters).
+pub fn validate_return_reason(raw: &str) -> Result<String, SaleError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_RETURN_REASON_LEN {
+        return Err(SaleError::ReturnReasonRequired);
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Compute the exact price, line discount, net line total, and original cost snapshot
+/// for returning `return_qty` units of an original `sale_line` (`ADR-026` §3, `D7`).
+///
+/// When `return_qty == remaining_qty`, the returned discount and cost take the exact
+/// remaining unreturned balances so multiple partial returns always sum to 100% of
+/// the original line's cost and net total with zero rounding drift.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_partial_line_return(
+    orig_quantity: i64,
+    unit_selling_price_minor: i64,
+    orig_discount_minor: i64,
+    orig_unit_cost_minor: Option<i64>,
+    orig_line_cost_minor: i64,
+    already_returned_qty: i64,
+    already_returned_discount_minor: i64,
+    already_returned_cost_minor: i64,
+    return_qty: i64,
+) -> Result<PartialLineReturnCalc, SaleError> {
+    if orig_quantity <= 0 || return_qty <= 0 {
+        return Err(SaleError::InvalidQuantity);
+    }
+    let remaining_qty = orig_quantity.saturating_sub(already_returned_qty);
+    if remaining_qty <= 0 || return_qty > remaining_qty {
+        return Err(SaleError::ReturnQuantityExceedsRemaining);
+    }
+
+    let remaining_discount = orig_discount_minor
+        .saturating_sub(already_returned_discount_minor)
+        .max(0);
+    let discount_minor = if return_qty == remaining_qty {
+        remaining_discount
+    } else {
+        let prorated = ((i128::from(orig_discount_minor) * i128::from(return_qty))
+            / i128::from(orig_quantity)) as i64;
+        prorated.min(remaining_discount).max(0)
+    };
+
+    let gross_minor = return_qty
+        .checked_mul(unit_selling_price_minor)
+        .ok_or(SaleError::InvalidQuantity)?;
+    let line_total_minor = gross_minor
+        .checked_sub(discount_minor)
+        .ok_or(SaleError::DiscountInvalid)?;
+
+    let remaining_cost = orig_line_cost_minor
+        .saturating_sub(already_returned_cost_minor)
+        .max(0);
+    let line_cost_minor = if return_qty == remaining_qty {
+        remaining_cost
+    } else {
+        let prorated = ((i128::from(orig_line_cost_minor) * i128::from(return_qty))
+            / i128::from(orig_quantity)) as i64;
+        prorated.min(remaining_cost).max(0)
+    };
+
+    let unit_cost_minor = match orig_unit_cost_minor {
+        Some(uc) if uc >= 0 => uc,
+        _ => line_cost_minor / return_qty,
+    };
+
+    Ok(PartialLineReturnCalc {
+        quantity: return_qty,
+        unit_selling_price_minor,
+        discount_minor,
+        line_total_minor,
+        unit_cost_minor,
+        line_cost_minor,
+    })
+}
+
+/// Compute `(refund_minor, prorated_invoice_discount_minor)` for a return batch (`ADR-026` §3).
+pub fn compute_return_refund_minor(
+    orig_sale_total_minor: i64,
+    orig_lines_net_subtotal_minor: i64,
+    already_returned_lines_net_minor: i64,
+    already_refunded_total_minor: i64,
+    this_return_lines_net_minor: i64,
+) -> (i64, i64) {
+    let remaining_lines_net = orig_lines_net_subtotal_minor
+        .saturating_sub(already_returned_lines_net_minor)
+        .max(0);
+    let orig_invoice_discount = orig_lines_net_subtotal_minor
+        .saturating_sub(orig_sale_total_minor)
+        .max(0);
+
+    if this_return_lines_net_minor >= remaining_lines_net {
+        let refund_minor = orig_sale_total_minor
+            .saturating_sub(already_refunded_total_minor)
+            .max(0);
+        let inv_disc_share = this_return_lines_net_minor
+            .saturating_sub(refund_minor)
+            .max(0);
+        (refund_minor, inv_disc_share)
+    } else {
+        let inv_disc_share = if orig_lines_net_subtotal_minor > 0 {
+            ((i128::from(orig_invoice_discount) * i128::from(this_return_lines_net_minor))
+                / i128::from(orig_lines_net_subtotal_minor)) as i64
+        } else {
+            0
+        };
+        let refund_minor = this_return_lines_net_minor
+            .saturating_sub(inv_disc_share)
+            .max(0);
+        (refund_minor, inv_disc_share)
+    }
+}
+
+/// Allocate `refund_minor` across the original sale's payment methods by default (`PLAN.md` §10).
+pub fn allocate_default_refund_payments(
+    remaining_by_method: &[(PaymentMethod, i64, Option<String>)],
+    fallback_method: PaymentMethod,
+    refund_minor: i64,
+) -> Vec<ValidatedSalePayment> {
+    if refund_minor <= 0 {
+        return vec![ValidatedSalePayment {
+            method: fallback_method,
+            amount_minor: 0,
+            reference: None,
+        }];
+    }
+
+    let mut out: Vec<ValidatedSalePayment> = Vec::new();
+    let mut left = refund_minor;
+
+    for (method, avail, reference) in remaining_by_method {
+        if left <= 0 {
+            break;
+        }
+        let take = left.min((*avail).max(0));
+        if take > 0 {
+            out.push(ValidatedSalePayment {
+                method: *method,
+                amount_minor: take,
+                reference: reference.clone(),
+            });
+            left -= take;
+        }
+    }
+
+    if left > 0 {
+        if let Some(first) = out.first_mut() {
+            first.amount_minor += left;
+        } else {
+            out.push(ValidatedSalePayment {
+                method: fallback_method,
+                amount_minor: left,
+                reference: None,
+            });
+        }
+    }
+
+    out
 }

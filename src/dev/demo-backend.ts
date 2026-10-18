@@ -363,22 +363,87 @@ interface DemoCustomerLedgerEntry {
   occurredAt: number;
 }
 const customerLedger: DemoCustomerLedgerEntry[] = [];
-const sales: {
+interface DemoSaleLine {
   id: string;
+  lineNo: number;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitSellingPriceMinor: number;
+  discountMinor: number;
+  lineTotalMinor: number;
+  unitCostMinor: number;
+  lineCostTotalMinor: number;
+  imei: string | null;
+  unitId: string | null;
+  warrantyStart: string | null;
+  warrantyEnd: string | null;
+}
+
+interface DemoSale {
+  id: string;
+  kind: 'sale' | 'reversal';
+  reversesSaleId: string | null;
   reference: string;
+  linesSubtotalMinor: number;
+  invoiceDiscountMinor: number;
   totalMinor: number;
   costTotalMinor: number;
   discountMinor: number;
   customerId: string | null;
+  isCancelled: boolean;
   occurredAt: number;
   payments: { method: string; amountMinor: number; reference: string | null }[];
+  lines: DemoSaleLine[];
+}
+
+const sales: DemoSale[] = [];
+
+interface DemoSaleReturn {
+  id: string;
+  originalSaleId: string;
+  reversalSaleId: string;
+  returnReference: string;
+  exchangeSaleId: string | null;
+  exchangeReference: string | null;
+  refundMinor: number;
+  costReversedMinor: number;
+  damagedCostMinor: number;
+  reason: string;
+  actorId: string;
+  approvedBy: string | null;
+  occurredAt: number;
   lines: {
-    productId: string;
+    saleLineId: string;
     quantity: number;
-    warrantyStart: string | null;
-    warrantyEnd: string | null;
+    condition: 'intact' | 'damaged';
+    refundMinor: number;
+    unitCostMinor: number;
+    lineCostTotalMinor: number;
   }[];
-}[] = [];
+}
+const demoSaleReturns: DemoSaleReturn[] = [];
+
+interface DemoDamagedStockItem {
+  id: string;
+  saleReturnId: string;
+  returnReference: string;
+  originalSaleId: string;
+  saleReference: string;
+  saleLineId: string;
+  productId: string;
+  productName: string;
+  unitId: string | null;
+  imei: string | null;
+  quantity: number;
+  unitCostMinor: number;
+  totalCostMinor: number;
+  reason: string;
+  actorId: string;
+  approvedBy: string | null;
+  occurredAt: number;
+}
+const demoDamagedStock: DemoDamagedStockItem[] = [];
 
 interface DemoShift {
   id: string;
@@ -594,9 +659,10 @@ function demoComputeWalletBalanceMinor(w: DemoWallet): number {
   }
   if (w.payMethod) {
     for (const s of sales) {
+      const sign = s.kind === 'reversal' ? -1 : 1;
       for (const p of s.payments) {
         if (p.method === w.payMethod) {
-          bal += p.amountMinor;
+          bal += sign * p.amountMinor;
         }
       }
     }
@@ -648,9 +714,10 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
   if (w.payMethod) {
     for (const s of sales) {
       if (s.occurredAt < fromMs || s.occurredAt > toMs) continue;
+      const sign = s.kind === 'reversal' ? -1 : 1;
       for (const p of s.payments) {
         if (p.method === w.payMethod) {
-          salesInMinor += p.amountMinor;
+          salesInMinor += sign * p.amountMinor;
         }
       }
     }
@@ -721,15 +788,16 @@ function buildDemoShiftSummary(shift: DemoShift) {
   let salesTotalMinor = 0;
   let salesCostMinor = 0;
   for (const s of shiftSales) {
-    salesTotalMinor += s.totalMinor;
-    salesCostMinor += s.costTotalMinor;
+    const sign = s.kind === 'reversal' ? -1 : 1;
+    salesTotalMinor += sign * s.totalMinor;
+    salesCostMinor += sign * s.costTotalMinor;
     for (const p of s.payments) {
-      if (p.method === 'cash') cashSalesMinor += p.amountMinor;
-      else if (p.method === 'vf') vfSalesMinor += p.amountMinor;
-      else if (p.method === 'instapay') instapaySalesMinor += p.amountMinor;
-      else if (p.method === 'card') cardSalesMinor += p.amountMinor;
-      else if (p.method === 'install') installSalesMinor += p.amountMinor;
-      else if (p.method === 'credit') creditSalesMinor += p.amountMinor;
+      if (p.method === 'cash') cashSalesMinor += sign * p.amountMinor;
+      else if (p.method === 'vf') vfSalesMinor += sign * p.amountMinor;
+      else if (p.method === 'instapay') instapaySalesMinor += sign * p.amountMinor;
+      else if (p.method === 'card') cardSalesMinor += sign * p.amountMinor;
+      else if (p.method === 'install') installSalesMinor += sign * p.amountMinor;
+      else if (p.method === 'credit') creditSalesMinor += sign * p.amountMinor;
     }
   }
   const customerCashInMinor = customerLedger
@@ -1247,7 +1315,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (paySum !== total) fail('SALE_PAYMENT_TOTAL_MISMATCH');
 
     let cost = 0;
-    for (const line of lines) {
+    const saleLines: DemoSaleLine[] = [];
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx]!;
       const x = findProduct(line.productId);
       const rawImei = typeof line.imei === 'string' && line.imei.trim() !== '' ? demoNormalizeImei(line.imei) : null;
       const inStockUnits = productUnits
@@ -1257,20 +1327,24 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const unregQty = Math.max(0, x.onHand - inStockUnits.length);
       const unregCost = Math.max(0, x.totalCostMinor - unitsCost);
 
+      let lineCostTotal = 0;
+      let linkedUnitId: string | null = null;
       if (rawImei !== null) {
         const existing = productUnits.find((u) => u.imei === rawImei || u.imei2 === rawImei);
         if (existing) {
           if (existing.productId !== x.id || existing.status !== 'in_stock') fail('IMEI_UNIT_NOT_AVAILABLE');
           existing.status = 'sold';
+          linkedUnitId = existing.id;
           const removed = Math.min(x.totalCostMinor, existing.unitCostMinor);
           x.totalCostMinor -= removed;
           x.onHand -= 1;
           x.soldRecently += 1;
           cost += removed;
+          lineCostTotal = removed;
         } else {
           if (unregQty < 1) fail('IMEI_NO_UNREGISTERED_STOCK');
           const removed = Math.ceil(unregCost / Math.max(1, unregQty));
-          productUnits.push({
+          const createdUnit: DemoUnit = {
             id: newId('u'),
             productId: x.id,
             imei: rawImei,
@@ -1279,11 +1353,14 @@ const handlers: Record<string, (args: Args) => unknown> = {
             unitCostMinor: removed,
             status: 'sold',
             createdAt: now(),
-          });
+          };
+          productUnits.push(createdUnit);
+          linkedUnitId = createdUnit.id;
           x.totalCostMinor -= removed;
           x.onHand -= 1;
           x.soldRecently += 1;
           cost += removed;
+          lineCostTotal = removed;
         }
       } else {
         if (line.quantity <= unregQty) {
@@ -1292,6 +1369,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
           x.onHand -= line.quantity;
           x.soldRecently += line.quantity;
           cost += removed;
+          lineCostTotal = removed;
         } else {
           const overflow = line.quantity - unregQty;
           const retired = inStockUnits.slice(0, overflow);
@@ -1305,23 +1383,44 @@ const handlers: Record<string, (args: Args) => unknown> = {
           x.onHand -= line.quantity;
           x.soldRecently += line.quantity;
           cost += removed;
+          lineCostTotal = removed;
         }
       }
+      const unitPrice = x.salePriceMinor ?? 0;
+      const lineDisc = typeof line.discountMinor === 'number' ? line.discountMinor : 0;
+      const lineTotal = unitPrice * line.quantity - lineDisc;
+      const unitCostSnap = Math.floor((lineCostTotal + line.quantity / 2) / line.quantity);
+      saleLines.push({
+        id: newId('sl'),
+        lineNo: idx + 1,
+        productId: x.id,
+        productName: x.name,
+        quantity: line.quantity,
+        unitSellingPriceMinor: unitPrice,
+        discountMinor: lineDisc,
+        lineTotalMinor: lineTotal,
+        unitCostMinor: unitCostSnap,
+        lineCostTotalMinor: lineCostTotal,
+        imei: rawImei,
+        unitId: linkedUnitId,
+        warrantyStart: typeof line.warrantyStart === 'string' && line.warrantyStart !== '' ? line.warrantyStart : null,
+        warrantyEnd: typeof line.warrantyEnd === 'string' && line.warrantyEnd !== '' ? line.warrantyEnd : null,
+      });
     }
-    const reference = `${settings.invoicePrefix}-${today()}-${String(sales.length + 1).padStart(4, '0')}`;
-    const saleLines = lines.map((l) => ({
-      productId: l.productId,
-      quantity: l.quantity,
-      warrantyStart: typeof l.warrantyStart === 'string' && l.warrantyStart !== '' ? l.warrantyStart : null,
-      warrantyEnd: typeof l.warrantyEnd === 'string' && l.warrantyEnd !== '' ? l.warrantyEnd : null,
-    }));
-    const sale = {
+    const origSalesCount = sales.filter((s) => s.kind === 'sale').length;
+    const reference = `${settings.invoicePrefix}-${today()}-${String(origSalesCount + 1).padStart(4, '0')}`;
+    const sale: DemoSale = {
       id: newId('s'),
+      kind: 'sale',
+      reversesSaleId: null,
       reference,
+      linesSubtotalMinor: linesNetSubtotal,
+      invoiceDiscountMinor: invoiceDisc,
       totalMinor: total,
       costTotalMinor: cost,
       discountMinor: totalDiscount,
       customerId: linkedCustomer ? linkedCustomer.id : null,
+      isCancelled: false,
       occurredAt: now(),
       payments: cleanPayments,
       lines: saleLines,
@@ -1348,6 +1447,533 @@ const handlers: Record<string, (args: Args) => unknown> = {
   set_sale_customer_name: (args) => {
     requireUser();
     if (!sales.some((s) => s.id === str(args, 'saleId'))) fail('SALE_NOT_FOUND');
+  },
+  inspect_sale_for_return: (args) => {
+    const user = requireUser();
+    const canViewCost = user.role === 'manager';
+    const query = str(args, 'saleIdOrReference').trim();
+    const orig =
+      sales.find(
+        (s) =>
+          s.kind === 'sale' &&
+          (s.id === query || s.reference.toLowerCase() === query.toLowerCase())
+      ) ?? fail('SALE_NOT_FOUND');
+
+    const prevReturns = demoSaleReturns.filter((r) => r.originalSaleId === orig.id);
+    const alreadyRefundedMinor = orig.isCancelled
+      ? orig.totalMinor
+      : prevReturns.reduce((sum, r) => sum + r.refundMinor, 0);
+    const remainingRefundableMinor = Math.max(0, orig.totalMinor - alreadyRefundedMinor);
+
+    const cust = orig.customerId
+      ? (customers.find((c) => c.id === orig.customerId) ?? null)
+      : null;
+
+    const lineViews = orig.lines.map((l) => {
+      let alreadyReturnedQty = 0;
+      if (orig.isCancelled) {
+        alreadyReturnedQty = l.quantity;
+      } else {
+        for (const r of prevReturns) {
+          for (const rl of r.lines) {
+            if (rl.saleLineId === l.id) alreadyReturnedQty += rl.quantity;
+          }
+        }
+      }
+      const remainingQty = Math.max(0, l.quantity - alreadyReturnedQty);
+      return {
+        lineId: l.id,
+        lineNo: l.lineNo,
+        productId: l.productId,
+        productName: l.productName,
+        quantity: l.quantity,
+        alreadyReturnedQty,
+        remainingQty,
+        unitSellingPriceMinor: l.unitSellingPriceMinor,
+        discountMinor: l.discountMinor,
+        lineTotalMinor: l.lineTotalMinor,
+        ...(canViewCost
+          ? {
+              unitCostMinor: l.unitCostMinor,
+              lineCostTotalMinor: l.lineCostTotalMinor,
+            }
+          : {}),
+        imei: l.imei,
+        unitId: l.unitId,
+        warrantyStart: l.warrantyStart,
+        warrantyEnd: l.warrantyEnd,
+      };
+    });
+
+    return {
+      saleId: orig.id,
+      reference: orig.reference,
+      occurredAt: orig.occurredAt,
+      soldBy: 'u-peter',
+      customerId: orig.customerId,
+      customerName: cust ? cust.name : null,
+      customerPhone: cust ? cust.contact : null,
+      linesSubtotalMinor: orig.linesSubtotalMinor,
+      invoiceDiscountMinor: orig.invoiceDiscountMinor,
+      discountMinor: orig.discountMinor,
+      totalMinor: orig.totalMinor,
+      alreadyRefundedMinor,
+      remainingRefundableMinor,
+      isCancelled: orig.isCancelled,
+      lines: lineViews,
+      payments: orig.payments.map((p) => ({
+        ...p,
+        alreadyRefundedMinor: 0,
+        remainingMinor: p.amountMinor,
+      })),
+      returns: prevReturns.map((r) => ({
+        id: r.id,
+        originalSaleId: r.originalSaleId,
+        returnSaleId: r.reversalSaleId,
+        reversalSaleId: r.reversalSaleId,
+        returnReference: r.returnReference,
+        exchangeSaleId: r.exchangeSaleId,
+        exchangeReference: r.exchangeReference,
+        refundMinor: r.refundMinor,
+        ...(canViewCost
+          ? {
+              costReversedMinor: r.costReversedMinor,
+              damagedCostMinor: r.damagedCostMinor,
+            }
+          : {}),
+        reason: r.reason,
+        actorId: r.actorId,
+        approvedBy: r.approvedBy,
+        occurredAt: r.occurredAt,
+      })),
+    };
+  },
+  list_recent_sales_for_return: (args) => {
+    requireUser();
+    const q = str(args, 'query').trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, numArg(args, 'limit') || 20));
+    const origSales = sales
+      .filter((s) => s.kind === 'sale')
+      .sort((a, b) => b.occurredAt - a.occurredAt);
+    const out = [];
+    for (const s of origSales) {
+      const cust = s.customerId
+        ? (customers.find((c) => c.id === s.customerId) ?? null)
+        : null;
+      const firstProductName = s.lines[0]?.productName ?? 'فاتورة';
+      if (q) {
+        const hitRef = s.reference.toLowerCase().includes(q);
+        const hitCust = (cust?.name ?? '').toLowerCase().includes(q);
+        const hitProd = s.lines.some(
+          (l) =>
+            l.productName.toLowerCase().includes(q) ||
+            (l.imei ?? '').toLowerCase().includes(q)
+        );
+        if (!hitRef && !hitCust && !hitProd) continue;
+      }
+      const prevReturns = demoSaleReturns.filter((r) => r.originalSaleId === s.id);
+      const alreadyRefundedMinor = s.isCancelled
+        ? s.totalMinor
+        : prevReturns.reduce((sum, r) => sum + r.refundMinor, 0);
+      out.push({
+        saleId: s.id,
+        reference: s.reference,
+        occurredAt: s.occurredAt,
+        customerId: s.customerId,
+        customerName: cust ? cust.name : null,
+        totalMinor: s.totalMinor,
+        alreadyRefundedMinor,
+        isCancelled: s.isCancelled,
+        lineCount: s.lines.length,
+        firstProductName,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  },
+  record_sale_return: (args) => {
+    const user = requireUser();
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    approvedOnce = false;
+
+    const saleId = (str(args, 'originalSaleId') || str(args, 'saleId')).trim();
+    const orig =
+      sales.find((s) => s.id === saleId && s.kind === 'sale') ?? fail('SALE_NOT_FOUND');
+    if (orig.isCancelled) fail('SALE_ALREADY_CANCELLED');
+
+    const reason = str(args, 'reason').trim();
+    if (!reason || reason.length > 240) fail('SALE_RETURN_REASON_REQUIRED');
+
+    const rawLines = Array.isArray(args?.['returnLines'])
+      ? (args['returnLines'] as {
+          saleLineId: string;
+          quantity: number;
+          condition: string;
+        }[])
+      : Array.isArray(args?.['lines'])
+        ? (args['lines'] as {
+            saleLineId: string;
+            quantity: number;
+            condition: string;
+          }[])
+        : [];
+    if (rawLines.length === 0) fail('SALE_RETURN_EMPTY');
+
+    const prevReturns = demoSaleReturns.filter((r) => r.originalSaleId === orig.id);
+    const alreadyRefundedMinor = prevReturns.reduce((sum, r) => sum + r.refundMinor, 0);
+    const remainingInvoiceRefundable = Math.max(0, orig.totalMinor - alreadyRefundedMinor);
+
+    const seenLineIds = new Set<string>();
+    const plans: {
+      origLine: DemoSaleLine;
+      returnQty: number;
+      condition: 'intact' | 'damaged';
+      discountShareMinor: number;
+      lineTotalMinor: number;
+      unitCostMinor: number;
+      lineCostTotalMinor: number;
+    }[] = [];
+
+    for (const rl of rawLines) {
+      if (seenLineIds.has(rl.saleLineId)) fail('SALE_RETURN_DUPLICATE_LINE');
+      seenLineIds.add(rl.saleLineId);
+      if (rl.condition !== 'intact' && rl.condition !== 'damaged') {
+        fail('SALE_RETURN_CONDITION_INVALID');
+      }
+      if (!Number.isInteger(rl.quantity) || rl.quantity <= 0) {
+        fail('SALE_RETURN_QUANTITY_EXCEEDS_REMAINING');
+      }
+      const origLine =
+        orig.lines.find((l) => l.id === rl.saleLineId) ?? fail('SALE_RETURN_LINE_NOT_FOUND');
+      let alreadyReturnedQty = 0;
+      for (const r of prevReturns) {
+        for (const rLine of r.lines) {
+          if (rLine.saleLineId === origLine.id) alreadyReturnedQty += rLine.quantity;
+        }
+      }
+      const remainingQty = Math.max(0, origLine.quantity - alreadyReturnedQty);
+      if (rl.quantity > remainingQty) fail('SALE_RETURN_QUANTITY_EXCEEDS_REMAINING');
+
+      const grossReturnMinor = rl.quantity * origLine.unitSellingPriceMinor;
+      const discountShareMinor =
+        rl.quantity === origLine.quantity
+          ? origLine.discountMinor
+          : Math.round((origLine.discountMinor * rl.quantity) / origLine.quantity);
+      const lineTotalMinor = Math.max(0, grossReturnMinor - discountShareMinor);
+      const lineCostTotalMinor =
+        rl.quantity === origLine.quantity
+          ? origLine.lineCostTotalMinor
+          : Math.round((origLine.lineCostTotalMinor * rl.quantity) / origLine.quantity);
+      const unitCostMinor = Math.floor(
+        (lineCostTotalMinor + rl.quantity / 2) / rl.quantity
+      );
+
+      plans.push({
+        origLine,
+        returnQty: rl.quantity,
+        condition: rl.condition === 'damaged' ? 'damaged' : 'intact',
+        discountShareMinor,
+        lineTotalMinor,
+        unitCostMinor,
+        lineCostTotalMinor,
+      });
+    }
+
+    const linesNetReturnMinor = plans.reduce((sum, p) => sum + p.lineTotalMinor, 0);
+    let refundMinor = linesNetReturnMinor;
+    if (orig.invoiceDiscountMinor > 0 && orig.linesSubtotalMinor > 0) {
+      const invDiscShare = Math.round(
+        (orig.invoiceDiscountMinor * linesNetReturnMinor) / orig.linesSubtotalMinor
+      );
+      refundMinor = Math.max(0, linesNetReturnMinor - invDiscShare);
+    }
+    refundMinor = Math.min(refundMinor, remainingInvoiceRefundable);
+
+    // Allocate refund payments
+    const rawRefundPayments = Array.isArray(args?.['refundPayments'])
+      ? (args['refundPayments'] as {
+          method: string;
+          amountMinor: number;
+          reference?: string | null;
+        }[])
+      : null;
+
+    let cleanRefundPayments: {
+      method: string;
+      amountMinor: number;
+      reference: string | null;
+    }[] = [];
+    if (rawRefundPayments && rawRefundPayments.length > 0) {
+      let sum = 0;
+      for (const p of rawRefundPayments) {
+        sum += p.amountMinor;
+        cleanRefundPayments.push({
+          method: p.method,
+          amountMinor: p.amountMinor,
+          reference: p.reference ?? null,
+        });
+      }
+      if (sum !== refundMinor) fail('SALE_PAYMENT_TOTAL_MISMATCH');
+    } else if (refundMinor > 0) {
+      let remaining = refundMinor;
+      for (const p of orig.payments) {
+        if (remaining <= 0) break;
+        const take = Math.min(remaining, p.amountMinor);
+        if (take > 0) {
+          cleanRefundPayments.push({
+            method: p.method,
+            amountMinor: take,
+            reference: p.reference,
+          });
+          remaining -= take;
+        }
+      }
+      if (remaining > 0) {
+        cleanRefundPayments.push({
+          method: 'cash',
+          amountMinor: remaining,
+          reference: null,
+        });
+      }
+    } else {
+      cleanRefundPayments = [{ method: 'cash', amountMinor: 0, reference: null }];
+    }
+
+    const occurredAt = now();
+    const returnReference = `${orig.reference}-RET-${prevReturns.length + 1}`;
+    let costReversedMinor = 0;
+    let damagedCostMinor = 0;
+    const reversalLines: DemoSaleLine[] = [];
+
+    for (let idx = 0; idx < plans.length; idx++) {
+      const plan = plans[idx]!;
+      const prod = findProduct(plan.origLine.productId);
+      if (plan.condition === 'intact') {
+        prod.onHand += plan.returnQty;
+        prod.totalCostMinor += plan.lineCostTotalMinor;
+        if (plan.origLine.unitId) {
+          const u = productUnits.find((x) => x.id === plan.origLine.unitId);
+          if (u) u.status = 'in_stock';
+        }
+        costReversedMinor += plan.lineCostTotalMinor;
+      } else {
+        damagedCostMinor += plan.lineCostTotalMinor;
+        if (plan.origLine.unitId) {
+          const u = productUnits.find((x) => x.id === plan.origLine.unitId);
+          if (u) u.status = 'retired';
+        }
+      }
+      reversalLines.push({
+        id: newId('sl'),
+        lineNo: idx + 1,
+        productId: plan.origLine.productId,
+        productName: plan.origLine.productName,
+        quantity: plan.returnQty,
+        unitSellingPriceMinor: plan.origLine.unitSellingPriceMinor,
+        discountMinor: plan.discountShareMinor,
+        lineTotalMinor: plan.lineTotalMinor,
+        unitCostMinor: plan.unitCostMinor,
+        lineCostTotalMinor:
+          plan.condition === 'intact' ? plan.lineCostTotalMinor : 0,
+        imei: plan.origLine.imei,
+        unitId: plan.origLine.unitId,
+        warrantyStart: plan.origLine.warrantyStart,
+        warrantyEnd: plan.origLine.warrantyEnd,
+      });
+    }
+
+    const reversalSale: DemoSale = {
+      id: newId('s'),
+      kind: 'reversal',
+      reversesSaleId: orig.id,
+      reference: returnReference,
+      linesSubtotalMinor: linesNetReturnMinor,
+      invoiceDiscountMinor: Math.max(0, linesNetReturnMinor - refundMinor),
+      totalMinor: refundMinor,
+      costTotalMinor: costReversedMinor,
+      discountMinor: 0,
+      customerId: orig.customerId,
+      isCancelled: false,
+      occurredAt,
+      payments: cleanRefundPayments,
+      lines: reversalLines,
+    };
+    sales.push(reversalSale);
+
+    // If credit was refunded on a customer, reduce customer balance
+    const creditRefund = cleanRefundPayments
+      .filter((p) => p.method === 'credit')
+      .reduce((sum, p) => sum + p.amountMinor, 0);
+    if (creditRefund > 0 && orig.customerId) {
+      const cust = customers.find((c) => c.id === orig.customerId);
+      if (cust) {
+        cust.balanceMinor -= creditRefund;
+        customerLedger.unshift({
+          id: newId('cl'),
+          customerId: cust.id,
+          kind: 'sale_reversal',
+          amountMinor: -creditRefund,
+          method: 'credit',
+          saleId: reversalSale.id,
+          note: `مرتجع فاتورة ${orig.reference}: ${reason}`,
+          occurredAt,
+        });
+      }
+    }
+
+    const returnId = newId('ret');
+    demoSaleReturns.push({
+      id: returnId,
+      originalSaleId: orig.id,
+      reversalSaleId: reversalSale.id,
+      returnReference,
+      exchangeSaleId: null,
+      exchangeReference: null,
+      refundMinor,
+      costReversedMinor,
+      damagedCostMinor,
+      reason,
+      actorId: user.id,
+      approvedBy: 'u-peter',
+      occurredAt,
+      lines: plans.map((p) => ({
+        saleLineId: p.origLine.id,
+        quantity: p.returnQty,
+        condition: p.condition,
+        refundMinor: p.lineTotalMinor,
+        unitCostMinor: p.unitCostMinor,
+        lineCostTotalMinor: p.lineCostTotalMinor,
+      })),
+    });
+
+    for (const plan of plans) {
+      if (plan.condition === 'damaged') {
+        demoDamagedStock.unshift({
+          id: newId('dmg'),
+          saleReturnId: returnId,
+          returnReference,
+          originalSaleId: orig.id,
+          saleReference: orig.reference,
+          saleLineId: plan.origLine.id,
+          productId: plan.origLine.productId,
+          productName: plan.origLine.productName,
+          unitId: plan.origLine.unitId,
+          imei: plan.origLine.imei,
+          quantity: plan.returnQty,
+          unitCostMinor: plan.unitCostMinor,
+          totalCostMinor: plan.lineCostTotalMinor,
+          reason,
+          actorId: user.id,
+          approvedBy: 'u-peter',
+          occurredAt,
+        });
+      }
+    }
+
+    // Check if all lines are now returned
+    const allReturned = orig.lines.every((l) => {
+      let retQty = 0;
+      for (const r of demoSaleReturns.filter((x) => x.originalSaleId === orig.id)) {
+        for (const rl of r.lines) {
+          if (rl.saleLineId === l.id) retQty += rl.quantity;
+        }
+      }
+      return retQty >= l.quantity;
+    });
+    if (allReturned) {
+      orig.isCancelled = true;
+    }
+
+    const canViewCost = user.role === 'manager';
+    return {
+      returnId,
+      reversalSaleId: reversalSale.id,
+      returnReference,
+      originalSaleId: orig.id,
+      refundMinor,
+      ...(canViewCost
+        ? {
+            costReversedMinor,
+            damagedCostMinor,
+          }
+        : {}),
+      exchangeSaleId: null,
+    };
+  },
+  record_sale_exchange: (args) => {
+    requireUser();
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    // Keep approvedOnce = true for the inner record_sale_return call, and also allow any discount in the new sale
+    const returnOutcome = handlers['record_sale_return']!({
+      saleId: args?.['originalSaleId'],
+      lines: args?.['returnLines'],
+      reason: args?.['reason'],
+      refundPayments: args?.['refundPayments'],
+    }) as {
+      returnId: string;
+      reversalSaleId: string;
+      returnReference: string;
+      originalSaleId: string;
+      refundMinor: number;
+      costReversedMinor?: number;
+      damagedCostMinor?: number;
+      exchangeSaleId: string | null;
+    };
+
+    approvedOnce = true;
+    const saleOutcome = handlers['record_sale']!({
+      lines: args?.['newLines'],
+      invoiceDiscountMinor: args?.['newInvoiceDiscountMinor'] ?? 0,
+      payments: args?.['newPayments'],
+      customerId: args?.['customerId'],
+    }) as {
+      saleId: string;
+      reference: string;
+      totalMinor: number;
+      costTotalMinor?: number;
+    };
+    approvedOnce = false;
+
+    const retRow = demoSaleReturns.find((r) => r.id === returnOutcome.returnId);
+    if (retRow) {
+      retRow.exchangeSaleId = saleOutcome.saleId;
+      retRow.exchangeReference = saleOutcome.reference;
+    }
+    returnOutcome.exchangeSaleId = saleOutcome.saleId;
+
+    return {
+      returnOutcome,
+      saleOutcome,
+      netDifferenceMinor: saleOutcome.totalMinor - returnOutcome.refundMinor,
+    };
+  },
+  list_damaged_stock: (args) => {
+    const user = requireUser();
+    const canViewCost = user.role === 'manager';
+    const limit = Math.min(200, Math.max(1, numArg(args, 'limit') || 100));
+    return demoDamagedStock.slice(0, limit).map((d) => ({
+      id: d.id,
+      saleReturnId: d.saleReturnId,
+      returnReference: d.returnReference,
+      originalSaleId: d.originalSaleId,
+      saleReference: d.saleReference,
+      saleLineId: d.saleLineId,
+      productId: d.productId,
+      productName: d.productName,
+      unitId: d.unitId,
+      imei: d.imei,
+      quantity: d.quantity,
+      ...(canViewCost
+        ? {
+            unitCostMinor: d.unitCostMinor,
+            totalCostMinor: d.totalCostMinor,
+          }
+        : {}),
+      reason: d.reason,
+      actorId: d.actorId,
+      approvedBy: d.approvedBy,
+      occurredAt: d.occurredAt,
+    }));
   },
 
   // the store panels

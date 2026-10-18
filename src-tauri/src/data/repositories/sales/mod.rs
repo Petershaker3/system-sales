@@ -506,3 +506,491 @@ pub async fn net_paid_by_method(
         .map(|row| (row.get("method"), row.get("net_minor")))
         .collect())
 }
+
+// ---------------------------------------------------------------------------
+// Partial returns, exchanges, and damaged stock (`0025`, Plan item 1.11, ADR-026)
+// ---------------------------------------------------------------------------
+
+/// Cumulative return progress for one original `sale_line`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LineReturnProgress {
+    pub returned_qty: i64,
+    pub returned_discount_minor: i64,
+    pub returned_total_minor: i64,
+    pub returned_cost_minor: i64,
+}
+
+/// One row of `sale_returns` (`0025_partial_returns_and_damaged_stock.sql`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleReturnRecord {
+    pub id: String,
+    pub original_sale_id: String,
+    pub return_sale_id: String,
+    pub exchange_sale_id: Option<String>,
+    pub refund_minor: i64,
+    pub cost_returned_minor: i64,
+    pub damaged_cost_minor: i64,
+    pub reason: String,
+    pub actor_id: String,
+    pub approved_by: String,
+    pub occurred_at: i64,
+}
+
+/// Enriched `sale_returns` row with human-facing invoice references.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleReturnSummaryRow {
+    pub id: String,
+    pub original_sale_id: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub exchange_sale_id: Option<String>,
+    pub exchange_reference: Option<String>,
+    pub refund_minor: i64,
+    pub cost_returned_minor: i64,
+    pub damaged_cost_minor: i64,
+    pub reason: String,
+    pub occurred_at: i64,
+}
+
+/// One row of `damaged_stock` (`0025_partial_returns_and_damaged_stock.sql`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DamagedStockRecord {
+    pub id: String,
+    pub product_id: String,
+    pub sale_id: String,
+    pub return_sale_id: String,
+    pub sale_line_id: String,
+    pub return_line_id: String,
+    pub unit_id: Option<String>,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub total_cost_minor: i64,
+    pub reason: String,
+    pub actor_id: String,
+    pub approved_by: String,
+    pub occurred_at: i64,
+}
+
+/// Enriched `damaged_stock` row for display in Store (`المخزن ← مخزون تالف`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DamagedStockViewRow {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub sale_id: String,
+    pub sale_reference: String,
+    pub return_sale_id: String,
+    pub return_reference: String,
+    pub sale_line_id: String,
+    pub return_line_id: String,
+    pub unit_id: Option<String>,
+    pub imei: Option<String>,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub total_cost_minor: i64,
+    pub reason: String,
+    pub occurred_at: i64,
+}
+
+/// Summary row for picking an invoice to return/exchange in POS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReturnableSaleSummaryRow {
+    pub sale_id: String,
+    pub reference: String,
+    pub occurred_at: i64,
+    pub customer_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub first_product_name: String,
+    pub line_count: i64,
+    pub total_minor: i64,
+    pub already_refunded_minor: i64,
+    pub is_cancelled: bool,
+}
+
+/// Insert a `sale_lines` row on a reversal/return sale with `reverses_line_id` and `return_condition`.
+pub async fn insert_return_sale_line(
+    conn: &mut SqliteConnection,
+    line: &SaleLineRecord,
+    reverses_line_id: &str,
+    return_condition: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO sale_lines
+             (id, sale_id, line_no, product_id, product_name, disposition,
+              quantity, unit_selling_price_minor, discount_minor, line_total_minor,
+              unit_cost_minor, line_cost_minor, department_id, cost_method,
+              warranty_start, warranty_end, unit_id, reverses_line_id, return_condition)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+    )
+    .bind(&line.id)
+    .bind(&line.sale_id)
+    .bind(line.line_no)
+    .bind(&line.product_id)
+    .bind(&line.product_name)
+    .bind(&line.disposition)
+    .bind(line.quantity)
+    .bind(line.unit_selling_price_minor)
+    .bind(line.discount_minor)
+    .bind(line.line_total_minor)
+    .bind(line.unit_cost_minor)
+    .bind(line.line_cost_minor)
+    .bind(line.department_id.as_deref())
+    .bind(&line.cost_method)
+    .bind(line.warranty_start.as_deref())
+    .bind(line.warranty_end.as_deref())
+    .bind(line.unit_id.as_deref())
+    .bind(reverses_line_id)
+    .bind(return_condition)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// Cumulative returned quantities and amounts for one original `sale_line`.
+pub async fn line_return_progress(
+    conn: &mut SqliteConnection,
+    original_line_id: &str,
+) -> Result<LineReturnProgress, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT COALESCE(SUM(quantity), 0) AS returned_qty,
+                COALESCE(SUM(discount_minor), 0) AS returned_discount_minor,
+                COALESCE(SUM(line_total_minor), 0) AS returned_total_minor,
+                COALESCE(SUM(line_cost_minor), 0) AS returned_cost_minor
+         FROM sale_lines
+         WHERE reverses_line_id = ?1",
+    )
+    .bind(original_line_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    Ok(LineReturnProgress {
+        returned_qty: row.get("returned_qty"),
+        returned_discount_minor: row.get("returned_discount_minor"),
+        returned_total_minor: row.get("returned_total_minor"),
+        returned_cost_minor: row.get("returned_cost_minor"),
+    })
+}
+
+/// Whether `original_sale_id` has any recorded partial/full return in `sale_returns`.
+pub async fn has_any_sale_return(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sale_returns WHERE original_sale_id = ?1",
+    )
+    .bind(original_sale_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(count > 0)
+}
+
+/// Total `refund_minor` already refunded across all `sale_returns` for `original_sale_id`.
+pub async fn sum_refunded_for_sale(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT COALESCE(SUM(refund_minor), 0) FROM sale_returns WHERE original_sale_id = ?1",
+    )
+    .bind(original_sale_id)
+    .fetch_one(&mut *conn)
+    .await
+}
+
+/// Sum of already-refunded payment amounts per method for `original_sale_id`.
+pub async fn refunded_by_method_for_sale(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT sp.method AS method,
+                COALESCE(SUM(sp.amount_minor), 0) AS refunded_minor
+         FROM sale_payments sp
+         JOIN sales s ON s.id = sp.sale_id
+         WHERE s.kind = 'reversal' AND s.reverses_sale_id = ?1
+         GROUP BY sp.method",
+    )
+    .bind(original_sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.get("method"), row.get("refunded_minor")))
+        .collect())
+}
+
+/// Insert a `sale_returns` row.
+pub async fn insert_sale_return(
+    conn: &mut SqliteConnection,
+    record: &SaleReturnRecord,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO sale_returns
+             (id, original_sale_id, return_sale_id, exchange_sale_id,
+              refund_minor, cost_returned_minor, damaged_cost_minor,
+              reason, actor_id, approved_by, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )
+    .bind(&record.id)
+    .bind(&record.original_sale_id)
+    .bind(&record.return_sale_id)
+    .bind(record.exchange_sale_id.as_deref())
+    .bind(record.refund_minor)
+    .bind(record.cost_returned_minor)
+    .bind(record.damaged_cost_minor)
+    .bind(&record.reason)
+    .bind(&record.actor_id)
+    .bind(&record.approved_by)
+    .bind(record.occurred_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// List recorded `sale_returns` for `original_sale_id`, oldest first.
+pub async fn list_sale_returns_for_sale(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<Vec<SaleReturnSummaryRow>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT sr.id, sr.original_sale_id, sr.return_sale_id, rs.reference AS return_reference,
+                sr.exchange_sale_id, es.reference AS exchange_reference,
+                sr.refund_minor, sr.cost_returned_minor, sr.damaged_cost_minor,
+                sr.reason, sr.occurred_at
+         FROM sale_returns sr
+         JOIN sales rs ON rs.id = sr.return_sale_id
+         LEFT JOIN sales es ON es.id = sr.exchange_sale_id
+         WHERE sr.original_sale_id = ?1
+         ORDER BY sr.occurred_at ASC, sr.id ASC",
+    )
+    .bind(original_sale_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| SaleReturnSummaryRow {
+            id: row.get("id"),
+            original_sale_id: row.get("original_sale_id"),
+            return_sale_id: row.get("return_sale_id"),
+            return_reference: row.get("return_reference"),
+            exchange_sale_id: row.get("exchange_sale_id"),
+            exchange_reference: row.get("exchange_reference"),
+            refund_minor: row.get("refund_minor"),
+            cost_returned_minor: row.get("cost_returned_minor"),
+            damaged_cost_minor: row.get("damaged_cost_minor"),
+            reason: row.get("reason"),
+            occurred_at: row.get("occurred_at"),
+        })
+        .collect())
+}
+
+/// Insert a `damaged_stock` row.
+pub async fn insert_damaged_stock(
+    conn: &mut SqliteConnection,
+    record: &DamagedStockRecord,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO damaged_stock
+             (id, product_id, sale_id, return_sale_id, sale_line_id, return_line_id,
+              unit_id, quantity, unit_cost_minor, total_cost_minor,
+              reason, actor_id, approved_by, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+    )
+    .bind(&record.id)
+    .bind(&record.product_id)
+    .bind(&record.sale_id)
+    .bind(&record.return_sale_id)
+    .bind(&record.sale_line_id)
+    .bind(&record.return_line_id)
+    .bind(record.unit_id.as_deref())
+    .bind(record.quantity)
+    .bind(record.unit_cost_minor)
+    .bind(record.total_cost_minor)
+    .bind(&record.reason)
+    .bind(&record.actor_id)
+    .bind(&record.approved_by)
+    .bind(record.occurred_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// List rows from `damaged_stock` newest first.
+pub async fn list_damaged_stock(
+    conn: &mut SqliteConnection,
+    limit: u32,
+) -> Result<Vec<DamagedStockViewRow>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT d.id, d.product_id, p.name AS product_name,
+                d.sale_id, s.reference AS sale_reference,
+                d.return_sale_id, rs.reference AS return_reference,
+                d.sale_line_id, d.return_line_id,
+                d.unit_id, u.imei AS imei,
+                d.quantity, d.unit_cost_minor, d.total_cost_minor,
+                d.reason, d.occurred_at
+         FROM damaged_stock d
+         JOIN products p ON p.id = d.product_id
+         JOIN sales s ON s.id = d.sale_id
+         JOIN sales rs ON rs.id = d.return_sale_id
+         LEFT JOIN units u ON u.id = d.unit_id
+         ORDER BY d.occurred_at DESC, d.id DESC
+         LIMIT ?1",
+    )
+    .bind(i64::from(limit))
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| DamagedStockViewRow {
+            id: row.get("id"),
+            product_id: row.get("product_id"),
+            product_name: row.get("product_name"),
+            sale_id: row.get("sale_id"),
+            sale_reference: row.get("sale_reference"),
+            return_sale_id: row.get("return_sale_id"),
+            return_reference: row.get("return_reference"),
+            sale_line_id: row.get("sale_line_id"),
+            return_line_id: row.get("return_line_id"),
+            unit_id: row.get("unit_id"),
+            imei: row.get("imei"),
+            quantity: row.get("quantity"),
+            unit_cost_minor: row.get("unit_cost_minor"),
+            total_cost_minor: row.get("total_cost_minor"),
+            reason: row.get("reason"),
+            occurred_at: row.get("occurred_at"),
+        })
+        .collect())
+}
+
+/// Find a live `sale` document by exact `id`, exact `reference`, or trailing reference digits.
+pub async fn find_sale_by_id_or_reference(
+    conn: &mut SqliteConnection,
+    id_or_ref: &str,
+) -> Result<Option<SaleRecord>, sqlx::Error> {
+    let trimmed = id_or_ref.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let row = sqlx::query(
+        "SELECT id, reference, occurred_at, sold_by, kind, reverses_sale_id,
+                total_minor, cost_total_minor, discount_minor, approved_by
+         FROM sales
+         WHERE kind = 'sale'
+           AND (id = ?1 OR lower(reference) = lower(?1) OR reference LIKE '%' || ?1)
+         ORDER BY CASE WHEN id = ?1 OR lower(reference) = lower(?1) THEN 0 ELSE 1 END ASC,
+                  occurred_at DESC
+         LIMIT 1",
+    )
+    .bind(trimmed)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    Ok(row.map(|row| SaleRecord {
+        id: row.get("id"),
+        reference: row.get("reference"),
+        occurred_at: row.get("occurred_at"),
+        sold_by: row.get("sold_by"),
+        kind: row.get("kind"),
+        reverses_sale_id: row.get("reverses_sale_id"),
+        total_minor: row.get("total_minor"),
+        cost_total_minor: row.get("cost_total_minor"),
+        discount_minor: row.get("discount_minor"),
+        approved_by: row.get("approved_by"),
+    }))
+}
+
+/// Read customer info (`customer_id`, `customer_name`, `customer_phone`) for a sale.
+pub async fn sale_customer_info(
+    conn: &mut SqliteConnection,
+    sale_id: &str,
+) -> Result<(Option<String>, Option<String>, Option<String>), sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT s.customer_id,
+                COALESCE(c.name, s.customer_name_snapshot) AS customer_name,
+                c.contact AS customer_phone
+         FROM sales s
+         LEFT JOIN customers c ON c.id = s.customer_id
+         WHERE s.id = ?1",
+    )
+    .bind(sale_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    match row {
+        Some(r) => Ok((
+            r.get("customer_id"),
+            r.get("customer_name"),
+            r.get("customer_phone"),
+        )),
+        None => Ok((None, None, None)),
+    }
+}
+
+/// List recent live `sale` documents matching an optional search query (by reference,
+/// customer name/phone, product name, or IMEI) for the POS return/exchange modal.
+pub async fn list_recent_sales_for_return(
+    conn: &mut SqliteConnection,
+    query: Option<&str>,
+    limit: u32,
+) -> Result<Vec<ReturnableSaleSummaryRow>, sqlx::Error> {
+    let clean_q = query.map(str::trim).unwrap_or("");
+    let rows = sqlx::query(
+        "SELECT s.id AS sale_id,
+                s.reference AS reference,
+                s.occurred_at AS occurred_at,
+                s.customer_id AS customer_id,
+                COALESCE(c.name, s.customer_name_snapshot) AS customer_name,
+                c.contact AS customer_phone,
+                COALESCE((SELECT sl.product_name FROM sale_lines sl WHERE sl.sale_id = s.id ORDER BY sl.line_no LIMIT 1), '') AS first_product_name,
+                (SELECT COUNT(*) FROM sale_lines sl WHERE sl.sale_id = s.id) AS line_count,
+                s.total_minor AS total_minor,
+                COALESCE((SELECT SUM(sr.refund_minor) FROM sale_returns sr WHERE sr.original_sale_id = s.id), 0) AS already_refunded_minor,
+                CASE WHEN EXISTS (SELECT 1 FROM sale_reversals rev WHERE rev.original_sale_id = s.id) THEN 1 ELSE 0 END AS is_cancelled
+         FROM sales s
+         LEFT JOIN customers c ON c.id = s.customer_id
+         WHERE s.kind = 'sale'
+           AND (
+               ?1 = ''
+               OR lower(s.reference) LIKE '%' || lower(?1) || '%'
+               OR lower(COALESCE(c.name, s.customer_name_snapshot, '')) LIKE '%' || lower(?1) || '%'
+               OR COALESCE(c.contact, '') LIKE '%' || ?1 || '%'
+               OR EXISTS (
+                   SELECT 1 FROM sale_lines sl
+                   LEFT JOIN units u ON u.id = sl.unit_id
+                   WHERE sl.sale_id = s.id
+                     AND (lower(sl.product_name) LIKE '%' || lower(?1) || '%' OR COALESCE(u.imei, '') LIKE '%' || ?1 || '%')
+               )
+           )
+         ORDER BY s.occurred_at DESC, s.id DESC
+         LIMIT ?2",
+    )
+    .bind(clean_q)
+    .bind(i64::from(limit))
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let is_cancelled_raw: i64 = row.get("is_cancelled");
+            ReturnableSaleSummaryRow {
+                sale_id: row.get("sale_id"),
+                reference: row.get("reference"),
+                occurred_at: row.get("occurred_at"),
+                customer_id: row.get("customer_id"),
+                customer_name: row.get("customer_name"),
+                customer_phone: row.get("customer_phone"),
+                first_product_name: row.get("first_product_name"),
+                line_count: row.get("line_count"),
+                total_minor: row.get("total_minor"),
+                already_refunded_minor: row.get("already_refunded_minor"),
+                is_cancelled: is_cancelled_raw != 0,
+            }
+        })
+        .collect())
+}

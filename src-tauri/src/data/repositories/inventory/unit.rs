@@ -217,6 +217,73 @@ pub async fn restore_units_for_sale_line(
     Ok(done.rows_affected())
 }
 
+/// Restore up to `max_count` units sold or auto-retired by `sale_line_id` back to `in_stock`
+/// when an intact partial or full return is recorded (`ADR-026`).
+pub async fn restore_units_for_sale_line_partial(
+    conn: &mut SqliteConnection,
+    sale_line_id: &str,
+    max_count: i64,
+) -> Result<u64, sqlx::Error> {
+    if max_count <= 0 {
+        return Ok(0);
+    }
+    let done = sqlx::query(
+        "UPDATE units
+         SET status = 'in_stock', sale_line_id = NULL, retired_reason = NULL
+         WHERE id IN (
+             SELECT id FROM units
+             WHERE sale_line_id = ?1
+             ORDER BY CASE WHEN status = 'sold' THEN 0 ELSE 1 END ASC, created_at DESC, id DESC
+             LIMIT ?2
+         )",
+    )
+    .bind(sale_line_id)
+    .bind(max_count)
+    .execute(&mut *conn)
+    .await?;
+    Ok(done.rows_affected())
+}
+
+/// Mark up to `max_count` units sold by `sale_line_id` as `retired` when returned
+/// as damaged (`ADR-026`), so a damaged IMEI device never returns to `in_stock`.
+pub async fn retire_units_for_damaged_return(
+    conn: &mut SqliteConnection,
+    sale_line_id: &str,
+    max_count: i64,
+    reason: &str,
+) -> Result<u64, sqlx::Error> {
+    if max_count <= 0 {
+        return Ok(0);
+    }
+    let done = sqlx::query(
+        "UPDATE units
+         SET status = 'retired', retired_reason = ?3
+         WHERE id IN (
+             SELECT id FROM units
+             WHERE sale_line_id = ?1 AND status = 'sold'
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?2
+         )",
+    )
+    .bind(sale_line_id)
+    .bind(max_count)
+    .bind(reason)
+    .execute(&mut *conn)
+    .await?;
+    Ok(done.rows_affected())
+}
+
+/// Look up the primary IMEI for a `units.id`, if present.
+pub async fn find_imei_by_unit_id(
+    conn: &mut SqliteConnection,
+    unit_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT imei FROM units WHERE id = ?1")
+        .bind(unit_id)
+        .fetch_optional(&mut *conn)
+        .await
+}
+
 fn row_to_unit(row: sqlx::sqlite::SqliteRow) -> UnitRecord {
     UnitRecord {
         id: row.get("id"),

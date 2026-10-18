@@ -160,6 +160,11 @@ export const ErrorCode = {
   SALE_INSTALLMENT_PROVIDER_REQUIRED: 'SALE_INSTALLMENT_PROVIDER_REQUIRED',
   SALE_CREDIT_REQUIRES_CUSTOMER: 'SALE_CREDIT_REQUIRES_CUSTOMER',
   SALE_DISCOUNT_INVALID: 'SALE_DISCOUNT_INVALID',
+  SALE_RETURN_EMPTY: 'SALE_RETURN_EMPTY',
+  SALE_RETURN_LINE_NOT_FOUND: 'SALE_RETURN_LINE_NOT_FOUND',
+  SALE_RETURN_QUANTITY_EXCEEDS_REMAINING: 'SALE_RETURN_QUANTITY_EXCEEDS_REMAINING',
+  SALE_RETURN_CONDITION_INVALID: 'SALE_RETURN_CONDITION_INVALID',
+  SALE_RETURN_REASON_REQUIRED: 'SALE_RETURN_REASON_REQUIRED',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -452,6 +457,16 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'البيع الآجل لازم يتربط بعميل متسجّل.',
   [ErrorCode.SALE_DISCOUNT_INVALID]:
     'قيمة الخصم غير صالحة أو أكبر من إجمالي الصنف أو الفاتورة.',
+  [ErrorCode.SALE_RETURN_EMPTY]:
+    'اختار صنف واحد على الأقل للمرتجع.',
+  [ErrorCode.SALE_RETURN_LINE_NOT_FOUND]:
+    'سطر الفاتورة المطلوب إرجاعه مش موجود في الفاتورة دي.',
+  [ErrorCode.SALE_RETURN_QUANTITY_EXCEEDS_REMAINING]:
+    'الكمية المرتجعة أكبر من الكمية المتبقية في سطر الفاتورة.',
+  [ErrorCode.SALE_RETURN_CONDITION_INVALID]:
+    'حالة الصنف المرتجع غير صحيحة — اختار سليم أو تالف.',
+  [ErrorCode.SALE_RETURN_REASON_REQUIRED]:
+    'اكتب سبب المرتجع قبل الحفظ.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:

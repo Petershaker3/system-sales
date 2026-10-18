@@ -172,3 +172,223 @@ export async function setSaleCustomerName(
 ): Promise<void> {
   return invoke<void>('set_sale_customer_name', { saleId, name });
 }
+
+// ---------------------------------------------------------------------------
+// Plan item 1.11 — Partial returns, exchanges, and damaged stock (`ADR-026`)
+// ---------------------------------------------------------------------------
+
+export type ReturnCondition = 'intact' | 'damaged';
+
+export interface SaleReturnLineInput {
+  readonly saleLineId: string;
+  readonly quantity: number;
+  readonly condition: ReturnCondition;
+}
+
+export interface SaleReturnOutcome {
+  readonly returnId: string;
+  readonly returnSaleId: string;
+  readonly returnReference: string;
+  readonly originalSaleId: string;
+  readonly originalReference: string;
+  readonly refundMinor: number;
+  readonly costReturnedMinor?: number;
+  readonly damagedCostMinor?: number;
+}
+
+export interface SaleExchangeOutcome {
+  readonly returnOutcome: SaleReturnOutcome;
+  readonly saleOutcome: SaleOutcome;
+  readonly netDifferenceMinor: number;
+}
+
+export interface ReturnableSaleLine {
+  readonly lineId: string;
+  readonly lineNo: number;
+  readonly productId: string;
+  readonly productName: string;
+  readonly quantity: number;
+  readonly alreadyReturnedQty: number;
+  readonly remainingQty: number;
+  readonly unitSellingPriceMinor: number;
+  readonly discountMinor: number;
+  readonly lineTotalMinor: number;
+  readonly unitCostMinor?: number;
+  readonly lineCostMinor?: number;
+  readonly warrantyStart: string | null;
+  readonly warrantyEnd: string | null;
+  readonly unitId: string | null;
+  readonly imei: string | null;
+}
+
+export interface ReturnableSalePayment {
+  readonly method: string;
+  readonly amountMinor: number;
+  readonly reference: string | null;
+  readonly alreadyRefundedMinor: number;
+  readonly remainingMinor: number;
+}
+
+export interface SaleReturnSummary {
+  readonly id: string;
+  readonly originalSaleId: string;
+  readonly returnSaleId: string;
+  readonly returnReference: string;
+  readonly exchangeSaleId: string | null;
+  readonly exchangeReference: string | null;
+  readonly refundMinor: number;
+  readonly reason: string;
+  readonly occurredAt: number;
+}
+
+export interface ReturnableSaleInspection {
+  readonly saleId: string;
+  readonly reference: string;
+  readonly occurredAt: number;
+  readonly soldBy: string;
+  readonly customerId: string | null;
+  readonly customerName: string | null;
+  readonly customerPhone: string | null;
+  readonly totalMinor: number;
+  readonly discountMinor: number;
+  readonly alreadyRefundedMinor: number;
+  readonly remainingRefundableMinor: number;
+  readonly isCancelled: boolean;
+  readonly lines: readonly ReturnableSaleLine[];
+  readonly payments: readonly ReturnableSalePayment[];
+  readonly returns: readonly SaleReturnSummary[];
+}
+
+export interface ReturnableSaleSummary {
+  readonly saleId: string;
+  readonly reference: string;
+  readonly occurredAt: number;
+  readonly customerId: string | null;
+  readonly customerName: string | null;
+  readonly customerPhone: string | null;
+  readonly firstProductName: string;
+  readonly lineCount: number;
+  readonly totalMinor: number;
+  readonly alreadyRefundedMinor: number;
+  readonly isCancelled: boolean;
+}
+
+export interface DamagedStockRow {
+  readonly id: string;
+  readonly productId: string;
+  readonly productName: string;
+  readonly saleId: string;
+  readonly saleReference: string;
+  readonly returnSaleId: string;
+  readonly returnReference: string;
+  readonly saleLineId: string;
+  readonly returnLineId: string;
+  readonly unitId: string | null;
+  readonly imei: string | null;
+  readonly quantity: number;
+  readonly unitCostMinor: number;
+  readonly totalCostMinor: number;
+  readonly reason: string;
+  readonly occurredAt: number;
+}
+
+export async function inspectSaleForReturn(
+  saleIdOrReference: string,
+): Promise<ReturnableSaleInspection> {
+  return invoke<ReturnableSaleInspection>('inspect_sale_for_return', {
+    saleIdOrReference,
+  });
+}
+
+export async function listRecentSalesForReturn(
+  query?: string | null,
+  limit?: number,
+): Promise<readonly ReturnableSaleSummary[]> {
+  return invoke<readonly ReturnableSaleSummary[]>(
+    'list_recent_sales_for_return',
+    {
+      query: query ?? null,
+      limit: limit ?? 25,
+    },
+  );
+}
+
+export async function recordSaleReturn(
+  originalSaleId: string,
+  returnLines: readonly SaleReturnLineInput[],
+  reason: string,
+  refundPayments?: readonly SalePaymentInput[] | null,
+): Promise<SaleReturnOutcome> {
+  return invoke<SaleReturnOutcome>('record_sale_return', {
+    originalSaleId,
+    returnLines: returnLines.map((l) => ({
+      saleLineId: l.saleLineId,
+      quantity: l.quantity,
+      condition: l.condition,
+    })),
+    reason,
+    refundPayments:
+      refundPayments && refundPayments.length > 0
+        ? refundPayments.map((p) => ({
+            method: p.method,
+            amountMinor: p.amountMinor,
+            reference: p.reference ?? null,
+          }))
+        : null,
+  });
+}
+
+export async function recordSaleExchange(
+  originalSaleId: string,
+  returnLines: readonly SaleReturnLineInput[],
+  reason: string,
+  newLines: readonly SaleLine[],
+  newInvoiceDiscountMinor?: number,
+  refundPayments?: readonly SalePaymentInput[] | null,
+  newPayments?: readonly SalePaymentInput[] | null,
+  customerId?: string | null,
+): Promise<SaleExchangeOutcome> {
+  return invoke<SaleExchangeOutcome>('record_sale_exchange', {
+    originalSaleId,
+    returnLines: returnLines.map((l) => ({
+      saleLineId: l.saleLineId,
+      quantity: l.quantity,
+      condition: l.condition,
+    })),
+    reason,
+    refundPayments:
+      refundPayments && refundPayments.length > 0
+        ? refundPayments.map((p) => ({
+            method: p.method,
+            amountMinor: p.amountMinor,
+            reference: p.reference ?? null,
+          }))
+        : null,
+    newLines: newLines.map((line) => ({
+      productId: line.productId,
+      quantity: line.quantity,
+      warrantyStart: line.warrantyStart ?? null,
+      warrantyEnd: line.warrantyEnd ?? null,
+      imei: line.imei ?? null,
+      discountMinor: line.discountMinor ?? 0,
+    })),
+    newInvoiceDiscountMinor: newInvoiceDiscountMinor ?? 0,
+    newPayments:
+      newPayments && newPayments.length > 0
+        ? newPayments.map((p) => ({
+            method: p.method,
+            amountMinor: p.amountMinor,
+            reference: p.reference ?? null,
+          }))
+        : null,
+    customerId: customerId ?? null,
+  });
+}
+
+export async function listDamagedStock(
+  limit?: number,
+): Promise<readonly DamagedStockRow[]> {
+  return invoke<readonly DamagedStockRow[]>('list_damaged_stock', {
+    limit: limit ?? 100,
+  });
+}
