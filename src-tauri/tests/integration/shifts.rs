@@ -140,14 +140,13 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
             warranty_start: None,
             warranty_end: None,
             imei: None,
-            color: None,
         }],
-        &[SalePaymentInput {
+        Some(40_000),
+        Some(&[SalePaymentInput {
             method: "cash".to_owned(),
             amount_minor: 40_000,
             reference: None,
-        }],
-        None,
+        }]),
         None,
     )
     .await
@@ -158,7 +157,10 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
     let cust = customer_service::create(
         &pool,
         tokens.as_ref(),
-        NewCustomer::new("أحمد سمير", Some("01012345678")).expect("customer"),
+        NewCustomer {
+            name: "أحمد سمير".to_owned(),
+            contact: Some("01012345678".to_owned()),
+        },
     )
     .await
     .expect("create customer");
@@ -172,9 +174,9 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
             warranty_start: None,
             warranty_end: None,
             imei: None,
-            color: None,
         }],
-        &[
+        Some(60_000),
+        Some(&[
             SalePaymentInput {
                 method: "vf".to_owned(),
                 amount_minor: 20_000,
@@ -185,9 +187,8 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
                 amount_minor: 40_000,
                 reference: None,
             },
-        ],
-        Some(cust.id.as_str()),
-        None,
+        ]),
+        Some(&cust.id),
     )
     .await
     .expect("split vf + credit sale");
@@ -196,8 +197,12 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
     customer_service::record_payment(
         &pool,
         tokens.as_ref(),
-        NewCustomerPayment::new(cust.id.as_str(), 15_000, "cash", Some("دفعة كاش"))
-            .expect("valid payment"),
+        NewCustomerPayment {
+            customer_id: cust.id.clone(),
+            amount_minor: 15_000,
+            method: "cash".to_owned(),
+            note: Some("دفعة كاش".to_owned()),
+        },
     )
     .await
     .expect("record customer cash payment");
