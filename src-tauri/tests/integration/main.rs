@@ -826,6 +826,11 @@ mod wallets;
 // bucket (`damaged_stock`), and exchanges (`record_sale_exchange`).
 mod returns;
 
+// Plan item 1.15 (ADR-030): manual and system-suggested shortages (`shortages`),
+// duplicate merging, creator-or-owner deletion rule, and auto-resolution on stock receipt.
+mod shortages;
+
+
 
 
 

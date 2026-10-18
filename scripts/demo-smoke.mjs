@@ -1915,7 +1915,33 @@ check(
 );
 await shot('51-sales-history-seller');
 
-// Switch back to owner Peter (PIN 4321) for the remaining checks
+// --- Plan item 1.15: Shortages («النواقص», ADR-030) ------------------------
+// 1. Seller Youssef adds a free-text item and an out-of-stock product from POS search without leaving the invoice
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('#q', { timeout: 3000 });
+await page.focus('#q');
+await page.type('#q', 'جراب جالاكسي S25 الترا');
+await page.waitForSelector('[data-pos-shortage-free]', { timeout: 3000 });
+await page.click('[data-pos-shortage-free]');
+await sleep(200);
+check(
+  'POS search with no results offers «لو العميل طالبه: ضيف ... للنواقص» and adds it without leaving POS',
+  (await text('#toasts')).includes('اتسجّل «جراب جالاكسي S25 الترا» في النواقص') &&
+    (await page.$eval('#q', (el) => el.value)) === ''
+);
+
+await page.focus('#q');
+await page.type('#q', 'فلاشة 32 جيجا');
+await page.waitForSelector('[data-pos-shortage-prod]', { timeout: 3000 });
+await page.click('[data-pos-shortage-prod]');
+await sleep(200);
+check(
+  'POS search for an out-of-stock product offers «ضيف للنواقص» with suggested quantity (10 pieces)',
+  (await text('#toasts')).includes('اتضاف «فلاشة 32 جيجا» للنواقص (10 قطع)') &&
+    (await page.$eval('#q', (el) => el.value)) === ''
+);
+
+// Switch back to owner Peter (PIN 4321) for the Store Shortages tab and remaining checks
 await page.click('.user-chip');
 await page.waitForSelector('.sw-menu');
 await clickText('.sw-item', 'بيتر');
@@ -1923,6 +1949,127 @@ await page.waitForSelector('.sw-menu.pin', { timeout: 3000 });
 await page.keyboard.type('4321');
 await page.keyboard.press('Enter');
 await sleep(400);
+
+// 2. Navigate to «المخزن» and verify the two tabs («الأصناف» and «النواقص (عددها)»)
+await clickText('.rail .nav-btn', 'المخزن');
+await page.waitForSelector('[data-store-tabs]', { timeout: 3000 });
+await sleep(200);
+check(
+  'Store screen shows «الأصناف» and «النواقص (4)» tabs',
+  (await count('[data-store-tab="items"]')) === 1 &&
+    (await count('[data-store-tab="shortages"]')) === 1 &&
+    (await text('[data-store-shortages-badge]')) === '4'
+);
+
+await page.click('[data-store-tab="shortages"]');
+await page.waitForSelector('[data-shortages-panel]', { timeout: 3000 });
+await sleep(200);
+check(
+  'Shortages tab displays seeded shortages and items added by seller from POS',
+  (await count('[data-sh-row]')) === 4 &&
+    (await text('[data-sh-list]')).includes('شاحن لاسلكي ماج سيف') &&
+    (await text('[data-sh-list]')).includes('جراب جالاكسي S25 الترا') &&
+    (await text('[data-sh-list]')).includes('فلاشة 32 جيجا') &&
+    (await text('[data-sh-list]')).includes('كريم مصطفى')
+);
+
+// 3. Manual add with waiting customer & duplicate merge
+await page.type('[data-sh-name-input]', 'شاحن 65 وات تايب سي');
+await page.$eval('[data-sh-qty-input]', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.type('[data-sh-qty-input]', '3');
+await page.type('[data-sh-cust-input]', 'أحمد سمير 01234567890');
+await page.type('[data-sh-note-input]', 'لون أبيض أصلي');
+await page.click('[data-sh-add-submit]');
+await sleep(200);
+check(
+  'Manual shortage add records item, quantity, waiting customer name & phone, and note',
+  (await count('[data-sh-row]')) === 5 &&
+    (await text('[data-sh-list]')).includes('شاحن 65 وات تايب سي') &&
+    (await text('[data-sh-list]')).includes('أحمد سمير') &&
+    (await text('[data-sh-list]')).includes('01234567890')
+);
+
+// Adding the same item again increments its required quantity instead of creating a duplicate
+await page.type('[data-sh-name-input]', 'شاحن 65 وات تايب سي');
+await page.$eval('[data-sh-qty-input]', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.type('[data-sh-qty-input]', '2');
+await page.click('[data-sh-add-submit]');
+await sleep(200);
+check(
+  'Adding an existing shortage again increments its quantity to 5 pieces',
+  (await count('[data-sh-row]')) === 5 &&
+    (await text('#toasts')).includes('زوّدنا الكمية المطلوبة لـ 5 قطع')
+);
+
+// 4. Add a system-suggested low-stock item from «مقترح من المخزن»
+const sugBefore = await count('[data-sh-suggest-row]');
+await page.click('[data-sh-add-suggested]');
+await sleep(200);
+check(
+  'Clicking «ضيفه للنواقص» in «مقترح من المخزن» moves the low-stock product into the active shortages list',
+  sugBefore > 0 &&
+    (await count('[data-sh-suggest-row]')) === sugBefore - 1 &&
+    (await count('[data-sh-row]')) === 6
+);
+
+// 5. Toggle status «اتطلب» (`ordered`) and filter by status
+await page.click('[data-sh-row] [data-sh-status-toggle="ordered"]');
+await sleep(200);
+await page.click('[data-sh-filter="ordered"]');
+await sleep(150);
+check(
+  'Marking a shortage as «اتطلب» updates its status and filters under «اتطلب»',
+  (await count('[data-sh-row]')) === 2 &&
+    (await text('#toasts')).includes('اتعلّم')
+);
+await page.click('[data-sh-filter="all"]');
+await sleep(150);
+
+// 6. Click «وصل» on the item with waiting customer («شاحن لاسلكي ماج سيف»)
+await page.click('[data-sh-row="sh-demo-1"] [data-sh-resolve]');
+await sleep(200);
+check(
+  'Clicking «وصل» resolves the shortage and alerts about the waiting customer («كريم مصطفى: 01011122233»)',
+  (await count('[data-sh-row="sh-demo-1"]')) === 0 &&
+    (await text('#toasts')).includes('«شاحن لاسلكي ماج سيف» وصل، وكريم مصطفى مستنيه: 01011122233')
+);
+await shot('52-store-shortages');
+
+// 7. Receiving stock in «الأصناف» auto-resolves the matching shortage («فلاشة 32 جيجا»)
+await page.click('[data-store-tab="items"]');
+await page.waitForSelector('#stock-product', { timeout: 3000 });
+await page.evaluate(() => {
+  const sel = document.querySelector('#stock-product');
+  if (!sel) return;
+  const opt = [...sel.options].find((o) => o.textContent?.includes('فلاشة 32 جيجا'));
+  if (opt) {
+    sel.value = opt.value;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+if ((await count('.stock .gate button')) > 0) {
+  await clickText('.stock .gate button', 'عرض المخزن');
+  await page.waitForSelector('.stock .overlay form.modal input[type=password]', { timeout: 3000 });
+  await page.type('.stock .overlay form.modal input[type=password]', '1234');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.stock .position', { timeout: 3000 });
+}
+const flashReceiveInputs = await page.$$('.stock .position form.form input');
+await flashReceiveInputs[0].type('10');
+await flashReceiveInputs[1].type('12000');
+await clickText('.stock .position form.form button', 'استلام');
+await sleep(250);
+check(
+  'Receiving stock for «فلاشة 32 جيجا» automatically removes it from shortages and updates the badge count',
+  (await text('#toasts')).includes('«فلاشة 32 جيجا» وصل واتشال من النواقص') &&
+    (await text('[data-store-shortages-badge]')) === '4'
+);
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen

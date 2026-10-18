@@ -1055,6 +1055,142 @@ function today(): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// --- shortages (Plan item 1.15, ADR-030) -----------------------------------
+
+interface DemoShortage {
+  id: string;
+  productId: string | null;
+  name: string;
+  qty: number;
+  note: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  status: 'open' | 'ordered';
+  createdBy: string;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+const airpodsProd = products.find((p) => p.name.includes('ايربودز برو'));
+
+const demoShortages: DemoShortage[] = [
+  {
+    id: 'sh-demo-1',
+    productId: null,
+    name: 'شاحن لاسلكي ماج سيف',
+    qty: 2,
+    note: 'العميل سأل عليه ومش عندنا في المحل',
+    customerName: 'كريم مصطفى',
+    customerPhone: '01011122233',
+    status: 'open',
+    createdBy: 'u-youssef',
+    createdAt: Date.now() - 2 * 3600_000,
+    resolvedAt: null,
+  },
+  ...(airpodsProd
+    ? [
+        {
+          id: 'sh-demo-2',
+          productId: airpodsProd.id,
+          name: airpodsProd.name,
+          qty: 3,
+          note: 'باقي قطعتين، مطلوب كرتونة صغيرة',
+          customerName: null,
+          customerPhone: null,
+          status: 'ordered' as const,
+          createdBy: 'u-peter',
+          createdAt: Date.now() - 5 * 3600_000,
+          resolvedAt: null,
+        },
+      ]
+    : []),
+];
+
+function normShortageName(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .split(/\s+/)
+    .join(' ');
+}
+
+function demoMinQty(p: DemoProduct): number {
+  const catObj = p.categoryId ? categories.find((c) => c.id === p.categoryId) : undefined;
+  if (catObj?.kind === 'used') return 1;
+  const isSerial =
+    p.disposition === 'serialized' ||
+    p.tracking === 'serial_optional' ||
+    p.tracking === 'serial_required' ||
+    p.brandId !== null ||
+    catObj?.kind === 'phone';
+  if (isSerial) return 2;
+  return 5;
+}
+
+function shortageDto(sh: DemoShortage) {
+  const prod = sh.productId ? products.find((p) => p.id === sh.productId) : undefined;
+  const creator = users.find((u) => u.id === sh.createdBy);
+  return {
+    id: sh.id,
+    productId: sh.productId,
+    name: sh.name,
+    qty: sh.qty,
+    note: sh.note,
+    customerName: sh.customerName,
+    customerPhone: sh.customerPhone,
+    status: sh.status,
+    createdBy: sh.createdBy,
+    createdByName: creator?.displayName ?? 'المالك',
+    createdAt: sh.createdAt,
+    resolvedAt: sh.resolvedAt,
+    onHand: prod ? prod.onHand : null,
+    minQty: prod ? demoMinQty(prod) : null,
+  };
+}
+
+function buildDemoShortagesOverview() {
+  const active = demoShortages
+    .filter((sh) => sh.resolvedAt === null)
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
+      return b.createdAt - a.createdAt;
+    })
+    .map(shortageDto);
+
+  const inShortageProdIds = new Set(
+    demoShortages
+      .filter((sh) => sh.resolvedAt === null && sh.productId !== null)
+      .map((sh) => sh.productId!)
+  );
+
+  const suggestions = products
+    .filter((p) => {
+      if (p.status !== 'active') return false;
+      if (inShortageProdIds.has(p.id)) return false;
+      const min = demoMinQty(p);
+      return p.onHand <= min;
+    })
+    .sort((a, b) => a.onHand - b.onHand || a.name.localeCompare(b.name))
+    .map((p) => {
+      const catObj = p.categoryId ? categories.find((c) => c.id === p.categoryId) : undefined;
+      const minQty = demoMinQty(p);
+      return {
+        productId: p.id,
+        name: p.name,
+        categoryId: p.categoryId,
+        categoryName: catObj?.name ?? null,
+        onHand: p.onHand,
+        minQty,
+        suggestedQty: Math.max(1, minQty * 2 - p.onHand),
+      };
+    });
+
+  return { items: active, suggestions };
+}
+
 const handlers: Record<string, (args: Args) => unknown> = {
   // identity
   bootstrap_status: () => ({ needsSetup: false }),
@@ -2526,6 +2662,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
     }
     x.onHand += quantity;
     x.totalCostMinor += quantity * unitCost;
+    const resolvedAt = now();
+    for (const sh of demoShortages) {
+      if (sh.productId === x.id && sh.resolvedAt === null) {
+        sh.resolvedAt = resolvedAt;
+      }
+    }
     return { productId: x.id, quantity: x.onHand, costMinor: 0 };
   },
   receive_opening_stock: (args) => {
@@ -3263,6 +3405,120 @@ const handlers: Record<string, (args: Args) => unknown> = {
       }
     }
     return null;
+  },
+
+  // shortages list (Plan item 1.15, ADR-030)
+  shortages_overview: () => {
+    requireUser();
+    return buildDemoShortagesOverview();
+  },
+  add_shortage: (args) => {
+    const u = requireUser();
+    const rawPid = typeof args?.['productId'] === 'string' ? args['productId'].trim() : '';
+    const product = rawPid ? (products.find((p) => p.id === rawPid) ?? fail('PRODUCT_NOT_FOUND')) : null;
+    const rawName = typeof args?.['name'] === 'string' ? args['name'].trim() : '';
+    const name = rawName || (product?.name ?? '');
+    if (!name) fail('SHORTAGE_NAME_REQUIRED');
+    const qty = typeof args?.['qty'] === 'number' ? Math.trunc(args['qty']) : 0;
+    if (qty <= 0) fail('SHORTAGE_INVALID_QUANTITY');
+    const note = typeof args?.['note'] === 'string' ? args['note'].trim() : '';
+    const custName =
+      typeof args?.['customerName'] === 'string' && args['customerName'].trim() !== ''
+        ? args['customerName'].trim()
+        : null;
+    const custPhone =
+      typeof args?.['customerPhone'] === 'string' && args['customerPhone'].trim() !== ''
+        ? args['customerPhone'].trim()
+        : null;
+
+    const existing = demoShortages.find((sh) => {
+      if (sh.resolvedAt !== null) return false;
+      if (product) return sh.productId === product.id;
+      return sh.productId === null && normShortageName(sh.name) === normShortageName(name);
+    });
+    if (existing) {
+      existing.qty += qty;
+      if (note) existing.note = note;
+      if (custName) existing.customerName = custName;
+      if (custPhone) existing.customerPhone = custPhone;
+      return {
+        entry: shortageDto(existing),
+        merged: true,
+      };
+    }
+
+    const created: DemoShortage = {
+      id: newId('sh'),
+      productId: product?.id ?? null,
+      name,
+      qty,
+      note,
+      customerName: custName,
+      customerPhone: custPhone,
+      status: 'open',
+      createdBy: u.id,
+      createdAt: now(),
+      resolvedAt: null,
+    };
+    demoShortages.unshift(created);
+    return {
+      entry: shortageDto(created),
+      merged: false,
+    };
+  },
+  set_shortage_status: (args) => {
+    requireUser();
+    const id = str(args, 'shortageId').trim();
+    const status = str(args, 'status').trim();
+    if (status !== 'open' && status !== 'ordered') fail('SHORTAGE_INVALID_STATUS');
+    const sh =
+      demoShortages.find((x) => x.id === id && x.resolvedAt === null) ?? fail('SHORTAGE_NOT_FOUND');
+    sh.status = status as 'open' | 'ordered';
+    return shortageDto(sh);
+  },
+  resolve_shortage: (args) => {
+    requireUser();
+    const id = str(args, 'shortageId').trim();
+    const sh =
+      demoShortages.find((x) => x.id === id && x.resolvedAt === null) ?? fail('SHORTAGE_NOT_FOUND');
+    sh.resolvedAt = now();
+    return shortageDto(sh);
+  },
+  delete_shortage: (args) => {
+    const u = requireUser();
+    const id = str(args, 'shortageId').trim();
+    const idx = demoShortages.findIndex((x) => x.id === id);
+    if (idx < 0) fail('SHORTAGE_NOT_FOUND');
+    const sh = demoShortages[idx]!;
+    if (u.role !== 'manager' && sh.createdBy !== u.id) {
+      fail('SHORTAGE_DELETE_FORBIDDEN');
+    }
+    const dto = shortageDto(sh);
+    demoShortages.splice(idx, 1);
+    return dto;
+  },
+  add_all_suggested_shortages: () => {
+    const u = requireUser();
+    const ov = buildDemoShortagesOverview();
+    const added = [];
+    for (const s of ov.suggestions) {
+      const created: DemoShortage = {
+        id: newId('sh'),
+        productId: s.productId,
+        name: s.name,
+        qty: s.suggestedQty,
+        note: '',
+        customerName: null,
+        customerPhone: null,
+        status: 'open',
+        createdBy: u.id,
+        createdAt: now(),
+        resolvedAt: null,
+      };
+      demoShortages.unshift(created);
+      added.push(shortageDto(created));
+    }
+    return added;
   },
 };
 

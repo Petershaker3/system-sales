@@ -22,6 +22,7 @@ import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
 import * as salesApi from '../../api/sales';
 import type { SaleExchangeOutcome, SaleLine, SaleOutcome, SaleReturnOutcome } from '../../api/sales';
+import { addShortage } from '../../api/shortages';
 import { withOwnerApproval } from '../../shell/approval';
 import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/appearance';
 import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/format';
@@ -29,6 +30,7 @@ import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/f
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
+import { defaultMinQty, suggestedQty } from '../store/shortages';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
 import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
@@ -741,6 +743,55 @@ function onQueryInput(): void {
   highlighted.value = 0;
 }
 
+async function addQueryToShortages(): Promise<void> {
+  const q = query.value.trim();
+  if (!q) return;
+  try {
+    const outcome = await addShortage({
+      name: q,
+      qty: 1,
+      note: 'العميل سأل عليه وقت البيع',
+    });
+    if (outcome.merged) {
+      toast(
+        `«${outcome.entry.name}» موجود في النواقص، زوّدنا الكمية لـ ${pcsWord(outcome.entry.qty)}`,
+        'ok'
+      );
+    } else {
+      toast(`اتسجّل «${outcome.entry.name}» في النواقص`, 'ok');
+    }
+    query.value = '';
+    focusSearch();
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function addProductToShortages(p: PosProduct): Promise<void> {
+  try {
+    const cat = p.categoryId ? tree.value.byId.get(p.categoryId) : undefined;
+    const minQty = defaultMinQty(isSerialProduct(p), cat?.kind ?? null);
+    const qty = suggestedQty(p.onHand, minQty);
+    const outcome = await addShortage({
+      productId: p.id,
+      name: p.name,
+      qty,
+    });
+    if (outcome.merged) {
+      toast(
+        `«${outcome.entry.name}» موجود في النواقص، زوّدنا الكمية لـ ${pcsWord(outcome.entry.qty)}`,
+        'ok'
+      );
+    } else {
+      toast(`اتضاف «${outcome.entry.name}» للنواقص (${pcsWord(outcome.entry.qty)})`, 'ok');
+    }
+    query.value = '';
+    focusSearch();
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKey);
   await load();
@@ -786,7 +837,19 @@ const KEYS: readonly [string, string][] = [
             </label>
             <div v-if="query.trim() !== ''" class="results">
               <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
-                <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
+                <div>
+                  <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
+                </div>
+                <div style="margin-top: 8px; display: flex; justify-content: center; gap: 8px">
+                  <button
+                    type="button"
+                    class="btn sm"
+                    data-pos-shortage-free
+                    @mousedown.prevent.stop="addQueryToShortages"
+                  >
+                    <Icon name="clipboard-list" /> لو العميل طالبه: ضيف «{{ query.trim() }}» للنواقص
+                  </button>
+                </div>
               </div>
               <div
                 v-for="u in unitMatches"
@@ -830,6 +893,16 @@ const KEYS: readonly [string, string][] = [
                     <span v-if="p.barcode"><bdi dir="ltr" class="mono">{{ p.barcode }}</bdi></span>
                   </div>
                 </div>
+                <button
+                  v-if="freeOf(p) <= 0"
+                  type="button"
+                  class="btn sm result-sh-btn"
+                  :data-pos-shortage-prod="p.id"
+                  title="سجّله في النواقص عشان يظهر وقت الشراء"
+                  @mousedown.prevent.stop="addProductToShortages(p)"
+                >
+                  <Icon name="clipboard-list" /> ضيف للنواقص
+                </button>
                 <div class="p num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</div>
                 <span v-if="at === highlighted" class="enter"><kbd>Enter</kbd></span>
               </div>

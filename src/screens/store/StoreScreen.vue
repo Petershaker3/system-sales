@@ -1,13 +1,15 @@
 <script setup lang="ts">
-// «المخزن» (owner decision ADR-016 #26). For now it hosts the panels that
-// already work — products (with their category, ADR-018 §1) and stock
-// receiving — in the new frame, and «صنف جديد» (ADR-018 §2 and §3). The
-// categories and the phone companies are managed from the settings, as in the
-// mockup. The full store screen of the mockup (variants, IMEI receiving,
-// shortages) arrives with the next steps of plan item 1.2 and with 1.4 and 1.15.
+// «المخزن» (owner decision ADR-016 #26, Plan item 1.15, ADR-030).
+// Hosts two tabs:
+// - «الأصناف»: products, stock receiving (with IMEIs and moving-average cost),
+//   and damaged stock from returns.
+// - «النواقص (عددها)»: manual & suggested shortages list with status tracking
+//   («ناقص» / «اتطلب» / «وصل») and waiting customer alerts.
 import { computed, onMounted, ref, watch } from 'vue';
 
+import type { Session } from '../../api/identity';
 import { type DamagedStockRow, listDamagedStock } from '../../api/sales';
+import { shortagesOverview } from '../../api/shortages';
 import CatalogPanel from '../../components/CatalogPanel.vue';
 import StockPanel from '../../components/StockPanel.vue';
 import { fmtDate, fmtTime, money, num } from '../../ui/format';
@@ -16,7 +18,14 @@ import { toast } from '../../ui/toast';
 import NewItemKindModal from './NewItemKindModal.vue';
 import NewItemModal from './NewItemModal.vue';
 import NewPhoneModal from './NewPhoneModal.vue';
+import ShortagesPanel from './ShortagesPanel.vue';
 
+defineProps<{
+  session?: Session | null;
+}>();
+
+const activeTab = ref<'items' | 'shortages'>('items');
+const shortagesCount = ref(0);
 /** The kind chooser behind «صنف جديد»; the form it names opens next. */
 const kind = ref(false);
 const newPhone = ref(false);
@@ -48,8 +57,21 @@ async function loadDamaged(): Promise<void> {
   }
 }
 
-onMounted(loadDamaged);
-watch(reload, loadDamaged);
+async function loadShortagesBadge(): Promise<void> {
+  try {
+    const ov = await shortagesOverview();
+    shortagesCount.value = ov.items.length;
+  } catch {
+    // Non-blocking
+  }
+}
+
+async function loadStoreMeta(): Promise<void> {
+  await Promise.all([loadDamaged(), loadShortagesBadge()]);
+}
+
+onMounted(loadStoreMeta);
+watch(reload, loadStoreMeta);
 
 function pick(kindPicked: 'phone' | 'item'): void {
   kind.value = false;
@@ -73,8 +95,38 @@ function registered(name: string): void {
       <span class="sp"></span>
       <button type="button" class="btn primary" @click="kind = true"><Icon name="package-plus" /> صنف جديد</button>
     </div>
-    <div class="note"><Icon name="info" /><span>الاستلام بالـ IMEI شغّال من «استلام توريد»، وتنبيهات النواقص جاية في المرحلة 1.15.</span></div>
 
+    <div class="inv-seg" role="tablist" aria-label="تبويبات المخزن" data-store-tabs style="align-self: flex-start">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'items'"
+        :class="{ active: activeTab === 'items' }"
+        data-store-tab="items"
+        @click="activeTab = 'items'"
+      >
+        <Icon name="boxes" /> الأصناف
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'shortages'"
+        :class="{ active: activeTab === 'shortages' }"
+        data-store-tab="shortages"
+        @click="activeTab = 'shortages'"
+      >
+        <Icon name="clipboard-list" /> النواقص
+        <span
+          v-if="shortagesCount > 0"
+          class="inv-badge num"
+          data-store-shortages-badge
+        >
+          {{ num(shortagesCount) }}
+        </span>
+      </button>
+    </div>
+
+    <template v-if="activeTab === 'items'">
     <section
       class="card"
       style="margin-bottom: 16px; padding: 16px"
@@ -174,8 +226,17 @@ function registered(name: string): void {
 
     <div class="legacy-grid">
       <section class="card legacy-panel"><CatalogPanel :key="`c${reload}`" /></section>
-      <section class="card legacy-panel"><StockPanel :key="`s${reload}`" @new-item="kind = true" /></section>
+      <section class="card legacy-panel">
+        <StockPanel :key="`s${reload}`" @new-item="kind = true" @received="loadShortagesBadge" />
+      </section>
     </div>
+    </template>
+
+    <ShortagesPanel
+      v-else
+      :session="session ?? null"
+      @changed="shortagesCount = $event"
+    />
 
     <NewItemKindModal v-if="kind" @close="kind = false" @pick="pick" />
     <NewPhoneModal v-if="newPhone" @close="newPhone = false" @created="registered" />

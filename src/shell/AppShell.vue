@@ -388,7 +388,7 @@ async function switchTheme(): Promise<void> {
           :session="session"
           @changed="refreshShiftState"
         />
-        <StoreScreen v-else-if="screen === 'store'" />
+        <StoreScreen v-else-if="screen === 'store'" :session="session" />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>
 

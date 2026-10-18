@@ -233,7 +233,16 @@ export const ErrorCode = {
   WALLET_OP_NOTE_INVALID: 'WALLET_OP_NOTE_INVALID',
   WALLET_OP_NOT_FOUND: 'WALLET_OP_NOT_FOUND',
   WALLET_OP_ALREADY_VOIDED: 'WALLET_OP_ALREADY_VOIDED',
-  WALLET_VOID_REASON_REQUIRED: 'WALLET_VOID_REASON_REQUIRED'
+  WALLET_VOID_REASON_REQUIRED: 'WALLET_VOID_REASON_REQUIRED',
+
+  // النواقص (البند 1.15، ADR-030)
+  SHORTAGE_NAME_REQUIRED: 'SHORTAGE_NAME_REQUIRED',
+  SHORTAGE_QTY_INVALID: 'SHORTAGE_QTY_INVALID',
+  SHORTAGE_NOTE_TOO_LONG: 'SHORTAGE_NOTE_TOO_LONG',
+  SHORTAGE_CUSTOMER_INVALID: 'SHORTAGE_CUSTOMER_INVALID',
+  SHORTAGE_STATUS_INVALID: 'SHORTAGE_STATUS_INVALID',
+  SHORTAGE_NOT_FOUND: 'SHORTAGE_NOT_FOUND',
+  SHORTAGE_DELETE_FORBIDDEN: 'SHORTAGE_DELETE_FORBIDDEN'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -590,7 +599,23 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.WALLET_OP_ALREADY_VOIDED]:
     'العملية دي اتلغت قبل كده بالفعل.',
   [ErrorCode.WALLET_VOID_REASON_REQUIRED]:
-    'اكتب سبب إلغاء العملية الأول.'
+    'اكتب سبب إلغاء العملية الأول.',
+
+  // النواقص (البند 1.15، ADR-030)
+  [ErrorCode.SHORTAGE_NAME_REQUIRED]:
+    'اكتب اسم الصنف أو اختاره من المخزن.',
+  [ErrorCode.SHORTAGE_QTY_INVALID]:
+    'الكمية لازم تبقى رقم 1 أو أكتر.',
+  [ErrorCode.SHORTAGE_NOTE_TOO_LONG]:
+    'الملاحظة طويلة زيادة عن اللزوم.',
+  [ErrorCode.SHORTAGE_CUSTOMER_INVALID]:
+    'بيانات العميل المستني غير صحيحة.',
+  [ErrorCode.SHORTAGE_STATUS_INVALID]:
+    'حالة الناقص غير صحيحة.',
+  [ErrorCode.SHORTAGE_NOT_FOUND]:
+    'الناقص ده مش موجود في القايمة.',
+  [ErrorCode.SHORTAGE_DELETE_FORBIDDEN]:
+    'اللي ضاف الناقص أو المالك بس اللي يقدر يمسحه.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

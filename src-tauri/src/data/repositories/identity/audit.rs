@@ -153,6 +153,13 @@ pub const WALLET_CHANGED: &str = "wallet_changed";
 pub const WALLET_OP_RECORDED: &str = "wallet_op_recorded";
 pub const WALLET_OP_VOIDED: &str = "wallet_op_voided";
 
+/// Shortages list (`النواقص`, Plan item 1.15, ADR-030).
+pub const SHORTAGE_ADDED: &str = "shortage_added";
+pub const SHORTAGE_UPDATED: &str = "shortage_updated";
+pub const SHORTAGE_RESOLVED: &str = "shortage_resolved";
+pub const SHORTAGE_DELETED: &str = "shortage_deleted";
+
+
 /// Settings, and the retired Pattern.
 ///
 /// The Pattern was replaced by the owner's PIN approval (ADR-017 §3) and nothing

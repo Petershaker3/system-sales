@@ -124,6 +124,11 @@ pub const WALLETS_AND_SERVICES: &str = include_str!("0024_wallets_and_services.s
 pub const PARTIAL_RETURNS_AND_DAMAGED_STOCK: &str =
     include_str!("0025_partial_returns_and_damaged_stock.sql");
 
+/// `0026`: manual and system-suggested shortages list (`shortages`)
+/// for Plan item 1.15 (ADR-030).
+pub const SHORTAGES: &str = include_str!("0026_shortages.sql");
+
+
 
 
 

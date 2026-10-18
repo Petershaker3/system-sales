@@ -3066,6 +3066,93 @@ fn sales_history_screen_slice_preserves_layer_and_permission_invariants() {
     );
 }
 
+const SHORTAGES_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0026_shortages.sql");
+const SHORTAGE_DOMAIN: &str = include_str!("../../src/domain/shortage.rs");
+const SHORTAGE_SERVICE: &str = include_str!("../../src/services/shortage.rs");
+const SHORTAGE_COMMANDS: &str = include_str!("../../src/commands/shortage.rs");
+const SHORTAGES_PANEL_VUE: &str =
+    include_str!("../../../src/screens/store/ShortagesPanel.vue");
+const STORE_SCREEN_VUE: &str = include_str!("../../../src/screens/store/StoreScreen.vue");
+
+#[test]
+fn shortages_slice_preserves_layer_and_schema_invariants() {
+    let sql = sql_only(SHORTAGES_MIGRATION);
+    for required in [
+        "create table shortages",
+        "check (qty > 0)",
+        "check (status in ('open', 'ordered'))",
+        ") strict",
+        "create index idx_shortages_active",
+        "create index idx_shortages_product",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0026_shortages.sql must contain `{required}`"
+        );
+    }
+
+    let domain = code_only(SHORTAGE_DOMAIN);
+    for forbidden in ["sqlx", "tauri", "SqlitePool"] {
+        assert!(
+            !domain.contains(forbidden),
+            "domain/shortage.rs must not reference `{forbidden}`"
+        );
+    }
+
+    let service = code_only(SHORTAGE_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden),
+            "services/shortage.rs must not write raw SQL (`{forbidden}`)"
+        );
+    }
+
+    let cmds = code_only(SHORTAGE_COMMANDS);
+    for forbidden in ["sqlx::", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !cmds.contains(forbidden),
+            "commands/shortage.rs must not touch SQL (`{forbidden}`)"
+        );
+    }
+    assert!(
+        !command_parameters(SHORTAGE_COMMANDS).iter().any(|p| {
+            let lower = p.to_lowercase();
+            ["token", "user_id", "userid", "role", "created_by", "actor", "session"]
+                .iter()
+                .any(|f| lower.contains(f))
+        }),
+        "shortage commands must never accept identity/session parameters from the caller"
+    );
+
+    assert!(
+        code_only(COSTING_SERVICE).contains("resolve_shortages_for_product"),
+        "services/inventory/stock.rs must auto-resolve shortages on stock receipt"
+    );
+
+    for marker in [
+        "إضافة للنواقص",
+        "قايمة النواقص",
+        "مقترح من المخزن",
+        "ضيف الكل",
+        "اتطلب",
+        "وصل",
+    ] {
+        assert!(
+            SHORTAGES_PANEL_VUE.contains(marker),
+            "ShortagesPanel.vue must include `{marker}`"
+        );
+    }
+
+    for marker in ["الأصناف", "النواقص"] {
+        assert!(
+            STORE_SCREEN_VUE.contains(marker),
+            "StoreScreen.vue must include tab `{marker}`"
+        );
+    }
+}
+
+
 
 
 

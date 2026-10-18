@@ -29,6 +29,7 @@ pub mod organisation;
 pub mod sales;
 pub mod settings;
 pub mod shift;
+pub mod shortage;
 pub mod supplier;
 pub mod unit;
 pub mod wallet;

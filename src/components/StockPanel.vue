@@ -36,12 +36,15 @@ import type { ProductUnit, StockPosition } from '../api/inventory';
 import * as lifecycle from '../api/lifecycle';
 import * as posApi from '../api/pos';
 import type { PosProduct } from '../api/pos';
+import { shortagesOverview } from '../api/shortages';
 import { imeiLuhn, normalizeImeiDigits } from '../screens/pos/imei';
+import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
 import { appearance } from '../ui/appearance';
 import Icon from '../ui/Icon.vue';
+import { toast } from '../ui/toast';
 
-const emit = defineEmits<{ 'new-item': [] }>();
+const emit = defineEmits<{ 'new-item': []; received: [productId: string] }>();
 
 // --- product picker --------------------------------------------------------
 
@@ -254,18 +257,22 @@ async function submitReceive(): Promise<void> {
   busy.value = true;
   notice.value = '';
   try {
+    const productId = selectedProductId.value;
+    const preShortages = await shortagesOverview()
+      .then((ov) => ov.items.filter((sh) => sh.productId === productId))
+      .catch(() => []);
     const imeis = selectedIsSerial.value ? [...receiveImeis.value] : [];
     let outcome;
     if (receiptMode.value === 'opening') {
       const approved = await withOwnerApproval(
-        () => inventory.receiveOpeningStock(selectedProductId.value, quantity, unitCost, imeis),
+        () => inventory.receiveOpeningStock(productId, quantity, unitCost, imeis),
         'تسجيل بضاعة أول المدة'
       );
       if (approved.status === 'cancelled') return;
       outcome = approved.value;
     } else {
       outcome = await inventory.receiveStock(
-        selectedProductId.value,
+        productId,
         quantity,
         unitCost,
         receiveSupplier.value.trim(),
@@ -273,6 +280,10 @@ async function submitReceive(): Promise<void> {
       );
     }
     notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
+    for (const sh of preShortages) {
+      toast(formatArrivedToast(sh), 'ok');
+    }
+    emit('received', productId);
     receiveQuantity.value = '';
     receiveUnitCost.value = '';
     // The supplier is cleared with the rest of the delivery: the next delivery is

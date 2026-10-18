@@ -49,6 +49,7 @@ use crate::data::repositories::inventory::stock as repo;
 use crate::data::repositories::inventory::unit::{self as unit_repo, UnitRecord};
 use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
 use crate::data::repositories::settings::app_settings as settings_repo;
+use crate::data::repositories::shortage as shortage_repo;
 use crate::domain::costing::fifo::{FifoLayer, FifoPosition};
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
@@ -865,6 +866,12 @@ pub async fn receive_with_units(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // Plan item 1.15 (`ADR-030`): receiving stock for a product automatically
+    // resolves any active shortage for that product inside the same transaction.
+    shortage_repo::resolve_shortages_for_product(&mut tx, product_id, now.as_millis())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
 
     tx.commit()
         .await
