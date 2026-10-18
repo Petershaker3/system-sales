@@ -24,7 +24,7 @@ import * as salesApi from '../../api/sales';
 import type { SaleOutcome } from '../../api/sales';
 import { withOwnerApproval } from '../../shell/approval';
 import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/appearance';
-import { countWord, kindsWord, money, num, pcsWord } from '../../ui/format';
+import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/format';
 
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
@@ -42,6 +42,8 @@ import QtyModal from './QtyModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
 import VariantPickerModal from './VariantPickerModal.vue';
 import { collapseFamilies, familyPriceSummary, type PosTileEntry } from './variants';
+import { defaultWarrantyMonthsForKind, warrantyDatesForMonths } from './warranty';
+import WarrantyModal from './WarrantyModal.vue';
 
 
 const props = defineProps<{ session: Session }>();
@@ -56,7 +58,7 @@ const state = reactive(cart.newCart());
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
-const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount'>(null);
+const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty'>(null);
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
@@ -133,12 +135,16 @@ const sellable = computed<PosProduct[]>(() =>
 const notYetSellable = computed(() => (catalogue.value?.products.length ?? 0) - sellable.value.length);
 
 function asSellable(p: PosProduct): SellableProduct {
+  const categoryKind =
+    (p.categoryId === null ? undefined : tree.value.byId.get(p.categoryId)?.kind) ??
+    (isSerialProduct(p) ? 'phone' : 'item');
   return {
     id: p.id,
     name: p.name,
     priceMinor: p.salePriceMinor,
     onHand: p.onHand,
     serial: isSerialProduct(p),
+    defaultWarrantyMonths: defaultWarrantyMonthsForKind(categoryKind, appearance),
   };
 }
 
@@ -520,6 +526,31 @@ function onApplyInvoiceDiscount(discountMinor: number): void {
   void nextTick(focusSearch);
 }
 
+function openWarranty(lineIndex?: number): void {
+  if (empty.value) return;
+  if (typeof lineIndex === 'number' && lineIndex >= 0 && lineIndex < invoice.value.lines.length) {
+    state.selected = lineIndex;
+  } else if (state.selected < 0 && invoice.value.lines.length > 0) {
+    state.selected = invoice.value.lines.length - 1;
+  }
+  if (!invoice.value.lines[state.selected]) return;
+  modal.value = 'warranty';
+}
+
+function onApplyLineWarranty(warrantyMonths: number): void {
+  const at = state.selected;
+  modal.value = null;
+  if (cart.setLineWarranty(state, at, warrantyMonths)) {
+    toast(
+      warrantyMonths > 0
+        ? `اتظبط ضمان الصنف على ${monthsTxt(warrantyMonths)}`
+        : 'اتشال الضمان من الصنف',
+      'info'
+    );
+  }
+  void nextTick(focusSearch);
+}
+
 async function payExactCash(): Promise<void> {
   if (empty.value || exactCashBusy.value) return;
   if (appearance.imeiMode === 'required') {
@@ -533,15 +564,20 @@ async function payExactCash(): Promise<void> {
   exactCashBusy.value = true;
   try {
     const netTotal = totals.value.totalMinor;
+    const saleTimestamp = new Date();
     const approvalOutcome = await withOwnerApproval(
       () =>
         salesApi.recordSale(
-          invoice.value.lines.map((line) => ({
-            productId: line.productId,
-            quantity: line.quantity,
-            imei: line.imei ?? null,
-            discountMinor: line.discountMinor ?? 0,
-          })),
+          invoice.value.lines.map((line) => {
+            const months = line.warrantyMonths ?? (line.serial ? 12 : 0);
+            return {
+              productId: line.productId,
+              quantity: line.quantity,
+              imei: line.imei ?? null,
+              discountMinor: line.discountMinor ?? 0,
+              ...warrantyDatesForMonths(months, saleTimestamp),
+            };
+          }),
           netTotal,
           [{ method: 'cash', amountMinor: netTotal, reference: null }],
           selectedCustomer.value?.id ?? null,
@@ -952,7 +988,7 @@ const KEYS: readonly [string, string][] = [
           >
             <div class="lm">
               <div class="ln"><bdi dir="rtl">{{ line.name }}</bdi></div>
-              <div v-if="line.serial || cart.lineDiscountMinor(line) > 0" class="ls">
+              <div v-if="line.serial || cart.lineDiscountMinor(line) > 0 || (line.warrantyMonths ?? 0) > 0" class="ls">
                 <button
                   v-if="line.serial"
                   type="button"
@@ -963,6 +999,16 @@ const KEYS: readonly [string, string][] = [
                   <Icon name="scan-barcode" />
                   <bdi v-if="line.imei" dir="ltr" class="mono">IMEI …{{ line.imei.slice(-4) }}</bdi>
                   <template v-else>سجّل IMEI</template>
+                </button>
+                <button
+                  v-if="(line.warrantyMonths ?? 0) > 0"
+                  type="button"
+                  class="line-warranty-btn"
+                  title="تعديل مدة الضمان"
+                  @click.stop="openWarranty(at)"
+                >
+                  <Icon name="shield-check" />
+                  ضمان {{ monthsTxt(line.warrantyMonths ?? 0) }}
                 </button>
                 <button
                   v-if="cart.lineDiscountMinor(line) > 0"
@@ -987,6 +1033,15 @@ const KEYS: readonly [string, string][] = [
                   <span class="num" title="تغيير الكمية (F2)" @click.stop="openQty(at)">{{ num(line.quantity) }}</span>
                   <button type="button" title="قلّل (−)" @click.stop="bump(at, -1)"><Icon name="minus" /></button>
                 </div>
+                <button
+                  type="button"
+                  class="icon-btn sm"
+                  :data-line-warranty="at"
+                  title="مدة الضمان"
+                  @click.stop="openWarranty(at)"
+                >
+                  <Icon name="shield" />
+                </button>
                 <button
                   type="button"
                   class="icon-btn sm"
@@ -1108,6 +1163,13 @@ const KEYS: readonly [string, string][] = [
       @close="closeModal"
       @apply="applyQuantity"
     />
+    <WarrantyModal
+      v-if="modal === 'warranty' && invoice.lines[state.selected]"
+      :name="invoice.lines[state.selected]?.name ?? ''"
+      :warranty-months="invoice.lines[state.selected]?.warrantyMonths ?? 0"
+      @close="closeModal"
+      @apply="onApplyLineWarranty"
+    />
     <Modal v-if="modal === 'clear'" title="مسح الفاتورة؟" size="sm" @close="closeModal">
       <p>هتتشال كل السطور من الفاتورة الحالية. فواتير الانتظار مش هتتأثر.</p>
       <template #foot>
@@ -1156,6 +1218,7 @@ const KEYS: readonly [string, string][] = [
   margin-inline-start: 2px;
 }
 .line-imei-btn,
+.line-warranty-btn,
 .line-disc-btn {
   display: inline-flex;
   align-items: center;
@@ -1170,7 +1233,8 @@ const KEYS: readonly [string, string][] = [
   color: var(--muted);
   cursor: pointer;
 }
-.line-imei-btn.linked {
+.line-imei-btn.linked,
+.line-warranty-btn {
   border-style: solid;
   border-color: var(--accent);
   background: var(--accent-weak);

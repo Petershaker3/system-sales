@@ -93,6 +93,21 @@ export const DEFAULT_WA_TEMPLATE =
 export const DEFAULT_RECEIPT_MODE: ReceiptModeChoice = 'wa';
 export const DEFAULT_PRINTER_ENABLED: PrinterEnabledChoice = 'off';
 export const DEFAULT_RECEIPT_PAPER: ReceiptPaperChoice = '80';
+export const DEFAULT_WARRANTY_NEW = '12';
+export const DEFAULT_WARRANTY_USED = '1';
+export const DEFAULT_WARRANTY_ITEM = '0';
+
+export function normalizeWarrantyMonths(
+  raw: unknown,
+  fallback: string = DEFAULT_WARRANTY_NEW
+): string {
+  if (typeof raw !== 'string' && typeof raw !== 'number') return fallback;
+  const trimmed = String(raw).trim();
+  if (!/^\d{1,2}$/.test(trimmed)) return fallback;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 0 || n > 60) return fallback;
+  return String(n);
+}
 
 export function normalizeDiscountLimitPct(raw: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_DISCOUNT_LIMIT_PCT;
@@ -156,6 +171,9 @@ export interface Appearance {
   receiptMode: ReceiptModeChoice;
   printerEnabled: PrinterEnabledChoice;
   receiptPaper: ReceiptPaperChoice;
+  warrantyNew: string;
+  warrantyUsed: string;
+  warrantyItem: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -177,6 +195,9 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   receiptMode: DEFAULT_RECEIPT_MODE,
   printerEnabled: DEFAULT_PRINTER_ENABLED,
   receiptPaper: DEFAULT_RECEIPT_PAPER,
+  warrantyNew: DEFAULT_WARRANTY_NEW,
+  warrantyUsed: DEFAULT_WARRANTY_USED,
+  warrantyItem: DEFAULT_WARRANTY_ITEM,
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -229,6 +250,9 @@ export function normalizeAppearance(raw: unknown): Appearance {
     receiptMode: oneOf(r['receiptMode'], ['wa', 'none', 'print', 'both'] as const, DEFAULT_RECEIPT_MODE),
     printerEnabled: oneOf(r['printerEnabled'], ['on', 'off'] as const, DEFAULT_PRINTER_ENABLED),
     receiptPaper: oneOf(r['receiptPaper'], ['80', '58'] as const, DEFAULT_RECEIPT_PAPER),
+    warrantyNew: normalizeWarrantyMonths(r['warrantyNew'], DEFAULT_WARRANTY_NEW),
+    warrantyUsed: normalizeWarrantyMonths(r['warrantyUsed'], DEFAULT_WARRANTY_USED),
+    warrantyItem: normalizeWarrantyMonths(r['warrantyItem'], DEFAULT_WARRANTY_ITEM),
   };
 }
 
@@ -334,6 +358,9 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   receiptMode: 'ui.receipt_mode',
   printerEnabled: 'ui.printer_enabled',
   receiptPaper: 'ui.receipt_paper',
+  warrantyNew: 'ui.warranty_new',
+  warrantyUsed: 'ui.warranty_used',
+  warrantyItem: 'ui.warranty_item',
 };
 
 /**

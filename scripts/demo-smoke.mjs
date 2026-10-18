@@ -1272,6 +1272,102 @@ check(
 await page.click('#finish-sale-btn');
 await sleep(150);
 
+// --- Plan item 1.8: Default warranty periods & line warranty (ADR-023) ------
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('#set-warrantyUsed', { timeout: 3000 });
+await sleep(150);
+const initialWarranties = await page.evaluate(() => ({
+  wNew: document.querySelector('#set-warrantyNew')?.value,
+  wUsed: document.querySelector('#set-warrantyUsed')?.value,
+  wItem: document.querySelector('#set-warrantyItem')?.value,
+}));
+check(
+  'Settings «الضمان الافتراضي» shows default warranty periods: new phone = 12, used phone = 1, item = 0',
+  initialWarranties.wNew === '12' &&
+    initialWarranties.wUsed === '1' &&
+    initialWarranties.wItem === '0',
+  JSON.stringify(initialWarranties)
+);
+
+await page.$eval('#set-warrantyUsed', (el) => {
+  el.scrollIntoView({ block: 'center' });
+  el.value = '3';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await sleep(200);
+check(
+  'Owner updates used phone default warranty («موبايل مستعمل») in Settings to 3 months',
+  (await page.$eval('#set-warrantyUsed', (el) => el.value)) === '3' &&
+    (await text('#toasts')).includes('موبايل مستعمل')
+);
+await shot('36-settings-warranty-defaults');
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(150);
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(100);
+await clickText('.tile', 'Redmi 14C 128GB');
+await sleep(100);
+await clickText('.tile', 'كابل تايب سي 1 متر');
+await sleep(100);
+check(
+  'Adding a phone automatically assigns its 12-month default warranty badge while an accessory starts with no warranty badge',
+  (await count('.line-warranty-btn')) === 1 &&
+    (await text('.line-warranty-btn')).includes('ضمان 12 شهر')
+);
+
+// Open WarrantyModal on the accessory line (index 1) and assign 3 months warranty
+await page.click('[data-line-warranty="1"]');
+await page.waitForSelector('#warranty-months-in', { timeout: 3000 });
+await sleep(100);
+await clickText('.quick-warranty-chips .chip', '3 شهور');
+await sleep(100);
+check(
+  'WarrantyModal quick chip sets the line warranty to 3 months and previews start/end YYYY-MM-DD dates',
+  (await page.$eval('#warranty-months-in', (el) => el.value)) === '3' &&
+    (await text('.warranty-preview-box')).includes('ضمان 3 شهور')
+);
+await shot('37-pos-warranty-modal');
+await page.keyboard.press('Enter');
+await sleep(150);
+const lineWarrantyTexts = await page.$$eval('.line-warranty-btn', (els) =>
+  els.map((e) => (e.textContent ?? '').trim())
+);
+check(
+  'Both lines now display their warranty badges on the invoice',
+  lineWarrantyTexts.length === 2 &&
+    lineWarrantyTexts.some((t) => t.includes('12 شهر')) &&
+    lineWarrantyTexts.some((t) => t.includes('3 شهور')),
+  lineWarrantyTexts.join(' | ')
+);
+
+await page.keyboard.press('F12');
+await page.waitForSelector('#confirm-pay-btn');
+await sleep(100);
+await page.click('#confirm-pay-btn');
+await page.waitForSelector('.done-wrap', { timeout: 3000 });
+await sleep(200);
+const lastDemoSale = await page.evaluate(() => window.__lastDemoSale);
+const receiptTextAfterWarranty = await text('.done-wrap [data-receipt-preview]');
+check(
+  'Completing the sale persists YYYY-MM-DD warrantyStart/warrantyEnd on sale lines and prints warranty lines on the receipt',
+  Boolean(lastDemoSale) &&
+    Array.isArray(lastDemoSale.lines) &&
+    lastDemoSale.lines.length === 2 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(lastDemoSale.lines[0].warrantyStart ?? '') &&
+    /^\d{4}-\d{2}-\d{2}$/.test(lastDemoSale.lines[0].warrantyEnd ?? '') &&
+    /^\d{4}-\d{2}-\d{2}$/.test(lastDemoSale.lines[1].warrantyStart ?? '') &&
+    /^\d{4}-\d{2}-\d{2}$/.test(lastDemoSale.lines[1].warrantyEnd ?? '') &&
+    receiptTextAfterWarranty.includes('ضمان 12 شهر لحد') &&
+    receiptTextAfterWarranty.includes('ضمان 3 شهور لحد'),
+  JSON.stringify(lastDemoSale?.lines)
+);
+await shot('38-pos-receipt-warranty-lines');
+await page.click('#finish-sale-btn');
+await sleep(150);
+
 
 
 

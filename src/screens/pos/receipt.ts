@@ -139,13 +139,21 @@ export function addMonthsDate(base: Date, months: number): Date {
  * the invoice lines, falling back to 12 months from the sale date.
  */
 export function warrantyLabelForReceipt(receipt: ReceiptData): string {
+  let maxMonths = 0;
+  let explicitEnd = '';
   for (const line of receipt.lines) {
-    if (line.warrantyEnd && line.warrantyEnd.trim() !== '') {
-      return line.warrantyEnd.trim();
+    if (line.warrantyMonths && line.warrantyMonths > maxMonths) {
+      maxMonths = line.warrantyMonths;
     }
-    if (line.warrantyMonths && line.warrantyMonths > 0) {
-      return fmtDate(addMonthsDate(receipt.occurredAt, line.warrantyMonths));
+    if (!explicitEnd && line.warrantyEnd && line.warrantyEnd.trim() !== '') {
+      explicitEnd = line.warrantyEnd.trim();
     }
+  }
+  if (maxMonths > 0) {
+    return fmtDate(addMonthsDate(receipt.occurredAt, maxMonths));
+  }
+  if (explicitEnd !== '') {
+    return explicitEnd;
   }
   return fmtDate(addMonthsDate(receipt.occurredAt, 12));
 }
@@ -330,15 +338,15 @@ export async function renderReceiptCanvas(
     if (line.imei) {
       drawRow(`  IMEI: ${line.imei}`, '', false, true);
     }
-    if (line.warrantyEnd) {
-      drawRow(`  ضمان لحد ${line.warrantyEnd}`, '', false, true);
-    } else if (line.warrantyMonths && line.warrantyMonths > 0) {
+    if (line.warrantyMonths && line.warrantyMonths > 0) {
       drawRow(
         `  ضمان ${monthsTxt(line.warrantyMonths)} لحد ${fmtDate(addMonthsDate(receipt.occurredAt, line.warrantyMonths))}`,
         '',
         false,
         true
       );
+    } else if (line.warrantyEnd) {
+      drawRow(`  ضمان لحد ${line.warrantyEnd}`, '', false, true);
     }
   }
 

@@ -61,6 +61,9 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.receipt_mode, "wa");
     assert_eq!(read.printer_enabled, "off");
     assert_eq!(read.receipt_paper, "80");
+    assert_eq!(read.warranty_new, "12");
+    assert_eq!(read.warranty_used, "1");
+    assert_eq!(read.warranty_item, "0");
 }
 
 #[tokio::test]
@@ -129,7 +132,25 @@ async fn the_owner_updates_shop_and_receipt_settings_while_sellers_are_refused()
             .expect("owner sets receipt mode to both");
     assert_eq!(after_mode.receipt_mode, "both");
 
-    // Seller cannot update shop or receipt settings.
+    let after_w_new =
+        appearance::update(&pool, tokens.as_ref(), "ui.warranty_new", "24")
+            .await
+            .expect("owner sets new phone warranty months");
+    assert_eq!(after_w_new.warranty_new, "24");
+
+    let after_w_used =
+        appearance::update(&pool, tokens.as_ref(), "ui.warranty_used", "3")
+            .await
+            .expect("owner sets used phone warranty months");
+    assert_eq!(after_w_used.warranty_used, "3");
+
+    let after_w_item =
+        appearance::update(&pool, tokens.as_ref(), "ui.warranty_item", "6")
+            .await
+            .expect("owner sets accessory warranty months");
+    assert_eq!(after_w_item.warranty_item, "6");
+
+    // Seller cannot update shop, receipt, or warranty settings.
     session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
         .await
         .expect("reauthenticate");
@@ -146,6 +167,9 @@ async fn the_owner_updates_shop_and_receipt_settings_while_sellers_are_refused()
         ("ui.wa_template", "قالب"),
         ("ui.receipt_mode", "none"),
         ("ui.printer_enabled", "off"),
+        ("ui.warranty_new", "6"),
+        ("ui.warranty_used", "0"),
+        ("ui.warranty_item", "1"),
     ] {
         let refused = appearance::update(&pool, tokens.as_ref(), k, v).await;
         assert_eq!(refused.err().map(|e| e.code()), Some("PERMISSION_DENIED"));

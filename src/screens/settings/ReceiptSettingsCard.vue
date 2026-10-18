@@ -6,11 +6,12 @@ import { computed, ref, watch } from 'vue';
 import { describeError } from '../../api/errors';
 import {
   appearance,
+  normalizeWarrantyMonths,
   type ReceiptModeChoice,
   type ReceiptPaperChoice,
   setAppearance,
 } from '../../ui/appearance';
-import { num } from '../../ui/format';
+import { num, parseCount } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import {
@@ -20,10 +21,14 @@ import {
   receiptModeOptions,
   warrantyLabelForReceipt,
 } from '../pos/receipt';
+import { warrantyDatesForMonths } from '../pos/warranty';
 import ReceiptPreview from '../pos/ReceiptPreview.vue';
 
 const footerDraft = ref(appearance.receiptFooter);
 const waTemplateDraft = ref(appearance.waTemplate);
+const warrantyNewDraft = ref(appearance.warrantyNew);
+const warrantyUsedDraft = ref(appearance.warrantyUsed);
+const warrantyItemDraft = ref(appearance.warrantyItem);
 
 watch(
   () => appearance.receiptFooter,
@@ -37,6 +42,24 @@ watch(
     waTemplateDraft.value = v;
   }
 );
+watch(
+  () => appearance.warrantyNew,
+  (v) => {
+    warrantyNewDraft.value = v;
+  }
+);
+watch(
+  () => appearance.warrantyUsed,
+  (v) => {
+    warrantyUsedDraft.value = v;
+  }
+);
+watch(
+  () => appearance.warrantyItem,
+  (v) => {
+    warrantyItemDraft.value = v;
+  }
+);
 
 const modeOptions = computed(() =>
   receiptModeOptions(appearance.printerEnabled)
@@ -46,39 +69,46 @@ const activeMode = computed(() =>
   effectiveReceiptSetting(appearance.receiptMode, appearance.printerEnabled)
 );
 
-const sampleReceipt = computed<ReceiptData>(() => ({
-  reference: '20261018-0001',
-  occurredAt: new Date(2026, 9, 18, 14, 30),
-  sellerName: 'بيتر',
-  customerName: 'أحمد سمير',
-  lines: [
-    {
-      name: 'Samsung Galaxy A16 128GB',
-      quantity: 1,
-      unitPriceMinor: 925_000,
-      discountMinor: 0,
-      lineTotalMinor: 925_000,
-      imei: '352867150000004',
-      warrantyMonths: 12,
-      warrantyEnd: null,
-    },
-    {
-      name: 'جراب سيليكون شفاف',
-      quantity: 2,
-      unitPriceMinor: 12_000,
-      discountMinor: 0,
-      lineTotalMinor: 24_000,
-      imei: null,
-      warrantyMonths: 0,
-      warrantyEnd: null,
-    },
-  ],
-  grossSubtotalMinor: 949_000,
-  discountMinor: 0,
-  totalMinor: 949_000,
-  payments: [{ method: 'cash', amountMinor: 949_000, reference: null }],
-  changeMinor: 1_000,
-}));
+const sampleReceipt = computed<ReceiptData>(() => {
+  const newMonths = Number(normalizeWarrantyMonths(appearance.warrantyNew, '12'));
+  const itemMonths = Number(normalizeWarrantyMonths(appearance.warrantyItem, '0'));
+  const occurred = new Date(2026, 9, 18, 14, 30);
+  const newDates = warrantyDatesForMonths(newMonths, occurred);
+  const itemDates = warrantyDatesForMonths(itemMonths, occurred);
+  return {
+    reference: '20261018-0001',
+    occurredAt: occurred,
+    sellerName: 'بيتر',
+    customerName: 'أحمد سمير',
+    lines: [
+      {
+        name: 'Samsung Galaxy A16 128GB',
+        quantity: 1,
+        unitPriceMinor: 925_000,
+        discountMinor: 0,
+        lineTotalMinor: 925_000,
+        imei: '352867150000004',
+        warrantyMonths: newMonths,
+        warrantyEnd: newDates.warrantyEnd ?? null,
+      },
+      {
+        name: 'جراب سيليكون شفاف',
+        quantity: 2,
+        unitPriceMinor: 12_000,
+        discountMinor: 0,
+        lineTotalMinor: 24_000,
+        imei: null,
+        warrantyMonths: itemMonths,
+        warrantyEnd: itemDates.warrantyEnd ?? null,
+      },
+    ],
+    grossSubtotalMinor: 949_000,
+    discountMinor: 0,
+    totalMinor: 949_000,
+    payments: [{ method: 'cash', amountMinor: 949_000, reference: null }],
+    changeMinor: 1_000,
+  };
+});
 
 const sampleWaPreview = computed(() =>
   formatWhatsAppMessage(waTemplateDraft.value || appearance.waTemplate, {
@@ -161,6 +191,34 @@ async function saveWaTemplate(): Promise<void> {
     toast(describeError(err), 'err');
   }
 }
+
+async function saveWarranty(
+  field: 'warrantyNew' | 'warrantyUsed' | 'warrantyItem',
+  label: string
+): Promise<void> {
+  const draftRef =
+    field === 'warrantyNew'
+      ? warrantyNewDraft
+      : field === 'warrantyUsed'
+        ? warrantyUsedDraft
+        : warrantyItemDraft;
+  const raw = draftRef.value.trim();
+  const parsed = raw === '' ? 0 : parseCount(raw);
+  if (parsed === null || parsed < 0 || parsed > 60) {
+    toast('مدة الضمان لازم تكون رقم من 0 لحد 60 شهر', 'err');
+    draftRef.value = appearance[field];
+    return;
+  }
+  const normalized = String(parsed);
+  draftRef.value = normalized;
+  if (normalized === appearance[field]) return;
+  try {
+    await setAppearance({ [field]: normalized });
+    toast(`اتحفظ الضمان الافتراضي (${label})`, 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
 </script>
 
 <template>
@@ -222,6 +280,43 @@ async function saveWaTemplate(): Promise<void> {
           <Icon name="message-circle" />
           <span>مثال الرسالة: «{{ sampleWaPreview }}»</span>
         </div>
+
+        <h4 class="sub-head">الضمان الافتراضي</h4>
+        <div class="row wrap warranty-defaults-row">
+          <div class="field" style="flex: 1; min-width: 135px">
+            <label for="set-warrantyNew">موبايل جديد (بالشهور)</label>
+            <input
+              id="set-warrantyNew"
+              v-model="warrantyNewDraft"
+              class="num"
+              inputmode="numeric"
+              @change="saveWarranty('warrantyNew', 'موبايل جديد')"
+            />
+          </div>
+          <div class="field" style="flex: 1; min-width: 135px">
+            <label for="set-warrantyUsed">موبايل مستعمل (بالشهور)</label>
+            <input
+              id="set-warrantyUsed"
+              v-model="warrantyUsedDraft"
+              class="num"
+              inputmode="numeric"
+              @change="saveWarranty('warrantyUsed', 'موبايل مستعمل')"
+            />
+          </div>
+          <div class="field" style="flex: 1; min-width: 135px">
+            <label for="set-warrantyItem">إكسسوار وقطع (بالشهور)</label>
+            <input
+              id="set-warrantyItem"
+              v-model="warrantyItemDraft"
+              class="num"
+              inputmode="numeric"
+              @change="saveWarranty('warrantyItem', 'إكسسوار وقطع')"
+            />
+          </div>
+        </div>
+        <span class="hint">
+          بينزل تلقائي على سطر البيع حسب قسم الصنف، وتقدر تعدّله في الفاتورة لأي سطر (0 = بدون ضمان)
+        </span>
 
         <div class="s-row">
           <div class="t">

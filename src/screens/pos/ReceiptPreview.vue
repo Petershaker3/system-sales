@@ -57,11 +57,11 @@ defineProps<{
       <div v-if="line.imei" class="s">
         IMEI: <bdi dir="ltr">{{ line.imei }}</bdi>
       </div>
-      <div v-if="line.warrantyEnd" class="s">
-        ضمان لحد {{ line.warrantyEnd }}
-      </div>
-      <div v-else-if="line.warrantyMonths && line.warrantyMonths > 0" class="s">
+      <div v-if="line.warrantyMonths && line.warrantyMonths > 0" class="s">
         ضمان {{ monthsTxt(line.warrantyMonths) }} لحد {{ fmtDate(addMonthsDate(sale.occurredAt, line.warrantyMonths)) }}
+      </div>
+      <div v-else-if="line.warrantyEnd" class="s">
+        ضمان لحد {{ line.warrantyEnd }}
       </div>
     </div>
     <hr />

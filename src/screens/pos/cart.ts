@@ -16,6 +16,7 @@ export interface SellableProduct {
   readonly priceMinor: number | null;
   readonly onHand: number;
   readonly serial?: boolean;
+  readonly defaultWarrantyMonths?: number;
 }
 
 export interface CartLine {
@@ -29,6 +30,8 @@ export interface CartLine {
   discountMinor?: number;
   readonly serial?: boolean;
   imei?: string | null;
+  /** Warranty duration in months (`0..60`, `ADR-023`). */
+  warrantyMonths?: number;
 }
 
 export interface Invoice {
@@ -127,6 +130,12 @@ export function addProduct(
   }
 
   const inv = current(state);
+  const defaultWarranty =
+    typeof product.defaultWarrantyMonths === 'number'
+      ? Math.max(0, Math.min(60, Math.floor(product.defaultWarrantyMonths)))
+      : product.serial
+        ? 12
+        : 0;
   if (product.serial) {
     for (let k = 0; k < quantity; k++) {
       inv.lines.push({
@@ -137,6 +146,7 @@ export function addProduct(
         quantity: 1,
         serial: true,
         imei: k === 0 ? imei : null,
+        warrantyMonths: defaultWarranty,
       });
     }
     state.selected = inv.lines.length - 1;
@@ -155,10 +165,27 @@ export function addProduct(
       name: product.name,
       unitPriceMinor: product.priceMinor,
       quantity,
+      warrantyMonths: defaultWarranty,
     });
     state.selected = inv.lines.length - 1;
   }
   return { ok: true };
+}
+
+/** Set or clear warranty months (`0..60`) on a line in the active invoice (`ADR-023`). */
+export function setLineWarranty(
+  state: CartState,
+  lineIndex: number,
+  warrantyMonths: number
+): boolean {
+  const inv = current(state);
+  const line = inv.lines[lineIndex];
+  if (!line) return false;
+  if (!Number.isInteger(warrantyMonths) || warrantyMonths < 0 || warrantyMonths > 60) {
+    return false;
+  }
+  line.warrantyMonths = warrantyMonths;
+  return true;
 }
 
 /** Attach or clear an IMEI on a phone line in the active invoice. */

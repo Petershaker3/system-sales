@@ -78,6 +78,9 @@ pub async fn update(
         AppearanceKey::ReceiptMode => validated.receipt_mode,
         AppearanceKey::PrinterEnabled => validated.printer_enabled,
         AppearanceKey::ReceiptPaper => validated.receipt_paper,
+        AppearanceKey::WarrantyNew => validated.warranty_new,
+        AppearanceKey::WarrantyUsed => validated.warranty_used,
+        AppearanceKey::WarrantyItem => validated.warranty_item,
     };
     let now = Timestamp::now();
 

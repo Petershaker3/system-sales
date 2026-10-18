@@ -102,6 +102,9 @@ pub struct AppearanceDto {
     pub receipt_mode: String,
     pub printer_enabled: String,
     pub receipt_paper: String,
+    pub warranty_new: String,
+    pub warranty_used: String,
+    pub warranty_item: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -125,6 +128,9 @@ impl From<Appearance> for AppearanceDto {
             receipt_mode: a.receipt_mode,
             printer_enabled: a.printer_enabled,
             receipt_paper: a.receipt_paper,
+            warranty_new: a.warranty_new,
+            warranty_used: a.warranty_used,
+            warranty_item: a.warranty_item,
         }
     }
 }

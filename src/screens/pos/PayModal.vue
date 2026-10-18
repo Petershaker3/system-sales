@@ -46,6 +46,7 @@ import {
   warrantyLabelForReceipt,
 } from './receipt';
 import ReceiptPreview from './ReceiptPreview.vue';
+import { warrantyDatesForMonths } from './warranty';
 
 const props = defineProps<{
   lines: readonly CartLine[];
@@ -433,15 +434,20 @@ async function pay(): Promise<void> {
 
   busy.value = true;
   try {
+    const saleTimestamp = new Date();
     const approvalOutcome = await withOwnerApproval(
       () =>
         salesApi.recordSale(
-          props.lines.map((line) => ({
-            productId: line.productId,
-            quantity: line.quantity,
-            imei: line.imei ?? null,
-            discountMinor: line.discountMinor ?? 0,
-          })),
+          props.lines.map((line) => {
+            const months = line.warrantyMonths ?? (line.serial ? 12 : 0);
+            return {
+              productId: line.productId,
+              quantity: line.quantity,
+              imei: line.imei ?? null,
+              discountMinor: line.discountMinor ?? 0,
+              ...warrantyDatesForMonths(months, saleTimestamp),
+            };
+          }),
           props.totalMinor,
           finalPayments,
           props.selectedCustomer?.id ?? null,
@@ -471,21 +477,25 @@ async function pay(): Promise<void> {
     const grossSubtotal = props.grossSubtotalMinor ?? props.totalMinor;
     const receiptData: ReceiptData = {
       reference: outcome.reference,
-      occurredAt: new Date(),
+      occurredAt: saleTimestamp,
       sellerName: props.sellerName || 'بيتر',
       customerName:
         props.selectedCustomer?.name ?? (customerName.value.trim() || null),
-      lines: props.lines.map((line) => ({
-        name: line.name,
-        quantity: line.quantity,
-        unitPriceMinor: line.unitPriceMinor,
-        discountMinor: line.discountMinor ?? 0,
-        lineTotalMinor:
-          line.quantity * line.unitPriceMinor - (line.discountMinor ?? 0),
-        imei: line.imei ?? null,
-        warrantyMonths: line.serial ? 12 : 0,
-        warrantyEnd: null,
-      })),
+      lines: props.lines.map((line) => {
+        const months = line.warrantyMonths ?? (line.serial ? 12 : 0);
+        const dates = warrantyDatesForMonths(months, saleTimestamp);
+        return {
+          name: line.name,
+          quantity: line.quantity,
+          unitPriceMinor: line.unitPriceMinor,
+          discountMinor: line.discountMinor ?? 0,
+          lineTotalMinor:
+            line.quantity * line.unitPriceMinor - (line.discountMinor ?? 0),
+          imei: line.imei ?? null,
+          warrantyMonths: months,
+          warrantyEnd: dates.warrantyEnd ?? null,
+        };
+      }),
       grossSubtotalMinor: grossSubtotal,
       discountMinor: Math.max(0, grossSubtotal - props.totalMinor),
       totalMinor: props.totalMinor,

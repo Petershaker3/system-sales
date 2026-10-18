@@ -35,10 +35,13 @@ pub enum AppearanceKey {
     ReceiptMode,
     PrinterEnabled,
     ReceiptPaper,
+    WarrantyNew,
+    WarrantyUsed,
+    WarrantyItem,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 18] = [
+    pub const ALL: [AppearanceKey; 21] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -57,6 +60,9 @@ impl AppearanceKey {
         AppearanceKey::ReceiptMode,
         AppearanceKey::PrinterEnabled,
         AppearanceKey::ReceiptPaper,
+        AppearanceKey::WarrantyNew,
+        AppearanceKey::WarrantyUsed,
+        AppearanceKey::WarrantyItem,
     ];
 
     /// The stored key.
@@ -80,6 +86,9 @@ impl AppearanceKey {
             AppearanceKey::ReceiptMode => "ui.receipt_mode",
             AppearanceKey::PrinterEnabled => "ui.printer_enabled",
             AppearanceKey::ReceiptPaper => "ui.receipt_paper",
+            AppearanceKey::WarrantyNew => "ui.warranty_new",
+            AppearanceKey::WarrantyUsed => "ui.warranty_used",
+            AppearanceKey::WarrantyItem => "ui.warranty_item",
         }
     }
 
@@ -97,7 +106,7 @@ impl AppearanceKey {
     }
 
     /// Whether the owner may toggle this choice under [`Permission::ManageCatalog`]
-    /// alongside category, brand, payment, discount, shop, and receipt cards.
+    /// alongside category, brand, payment, discount, shop, receipt, and warranty cards.
     pub fn is_catalog_choice(self) -> bool {
         matches!(
             self,
@@ -113,6 +122,9 @@ impl AppearanceKey {
                 | AppearanceKey::ReceiptMode
                 | AppearanceKey::PrinterEnabled
                 | AppearanceKey::ReceiptPaper
+                | AppearanceKey::WarrantyNew
+                | AppearanceKey::WarrantyUsed
+                | AppearanceKey::WarrantyItem
         )
     }
 }
@@ -168,6 +180,11 @@ pub const DEFAULT_RECEIPT_MODE: &str = "wa";
 pub const DEFAULT_PRINTER_ENABLED: &str = "off";
 pub const DEFAULT_RECEIPT_PAPER: &str = "80";
 
+/// Default warranty months (`ADR-023`, `PLAN.md` §16, §19).
+pub const DEFAULT_WARRANTY_NEW: &str = "12";
+pub const DEFAULT_WARRANTY_USED: &str = "1";
+pub const DEFAULT_WARRANTY_ITEM: &str = "0";
+
 /// Parse and canonicalize a discount limit percentage (`0..=100`).
 pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
     let trimmed = raw.trim();
@@ -179,6 +196,19 @@ pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
         return None;
     }
     Some((pct, pct.to_string()))
+}
+
+/// Parse and canonicalize default warranty months (`0..=60`).
+pub fn parse_warranty_months(raw: &str) -> Option<(u8, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let months: u8 = trimmed.parse().ok()?;
+    if months > 60 {
+        return None;
+    }
+    Some((months, months.to_string()))
 }
 
 fn validate_single_line_text(
@@ -249,14 +279,18 @@ pub struct Appearance {
     pub receipt_mode: String,
     pub printer_enabled: String,
     pub receipt_paper: String,
+    pub warranty_new: String,
+    pub warranty_used: String,
+    pub warranty_item: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
     /// look's own font, normal size, Latin digits, product images on, IMEI
     /// mode optional, all payment methods enabled, 5% seller discount limit,
-    /// and the shop/receipt profile defaults
-    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2).
+    /// shop/receipt profile defaults, and default warranty periods (12 months
+    /// new phone, 1 month used phone, 0 months accessory)
+    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2, ADR-023).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -277,6 +311,9 @@ impl Default for Appearance {
             receipt_mode: DEFAULT_RECEIPT_MODE.to_owned(),
             printer_enabled: DEFAULT_PRINTER_ENABLED.to_owned(),
             receipt_paper: DEFAULT_RECEIPT_PAPER.to_owned(),
+            warranty_new: DEFAULT_WARRANTY_NEW.to_owned(),
+            warranty_used: DEFAULT_WARRANTY_USED.to_owned(),
+            warranty_item: DEFAULT_WARRANTY_ITEM.to_owned(),
         }
     }
 }
@@ -369,6 +406,23 @@ impl Appearance {
                 self.wa_template = clean;
                 return Ok(());
             }
+            AppearanceKey::WarrantyNew
+            | AppearanceKey::WarrantyUsed
+            | AppearanceKey::WarrantyItem => {
+                let (_months, canonical) = parse_warranty_months(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "warranty months must be an integer between 0 and 60",
+                    }
+                })?;
+                match parsed {
+                    AppearanceKey::WarrantyNew => self.warranty_new = canonical,
+                    AppearanceKey::WarrantyUsed => self.warranty_used = canonical,
+                    AppearanceKey::WarrantyItem => self.warranty_item = canonical,
+                    _ => unreachable!(),
+                }
+                return Ok(());
+            }
             _ => {}
         }
 
@@ -390,7 +444,10 @@ impl Appearance {
             | AppearanceKey::ShopPhone
             | AppearanceKey::ShopAddress
             | AppearanceKey::ReceiptFooter
-            | AppearanceKey::WaTemplate => unreachable!(),
+            | AppearanceKey::WaTemplate
+            | AppearanceKey::WarrantyNew
+            | AppearanceKey::WarrantyUsed
+            | AppearanceKey::WarrantyItem => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -417,7 +474,10 @@ impl Appearance {
             | AppearanceKey::ShopPhone
             | AppearanceKey::ShopAddress
             | AppearanceKey::ReceiptFooter
-            | AppearanceKey::WaTemplate => unreachable!(),
+            | AppearanceKey::WaTemplate
+            | AppearanceKey::WarrantyNew
+            | AppearanceKey::WarrantyUsed
+            | AppearanceKey::WarrantyItem => unreachable!(),
         }
         Ok(())
     }
@@ -451,6 +511,9 @@ mod tests {
         assert_eq!(a.receipt_mode, "wa");
         assert_eq!(a.printer_enabled, "off");
         assert_eq!(a.receipt_paper, "80");
+        assert_eq!(a.warranty_new, "12");
+        assert_eq!(a.warranty_used, "1");
+        assert_eq!(a.warranty_item, "0");
     }
 
     #[test]
@@ -495,6 +558,12 @@ mod tests {
         );
         assert_eq!(
             a.set("ui.receipt_paper", "72").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+        assert!(a.set("ui.warranty_used", "3").is_ok());
+        assert_eq!(a.warranty_used, "3");
+        assert_eq!(
+            a.set("ui.warranty_used", "61").map_err(|e| e.code()),
             Err("SETTING_VALUE_INVALID")
         );
     }

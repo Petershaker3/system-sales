@@ -23,6 +23,7 @@ import {
   setInvoiceDiscount,
   setLineDiscount,
   setLineImei,
+  setLineWarranty,
   setQuantity,
   switchTo,
   takenImeis,
@@ -229,5 +230,27 @@ test('computeDiscountMinor and discountExceedsSellerLimit match exact percentage
   assert.equal(openNewInvoice(cart), true, 'non-empty invoice is held and a new one opens');
   assert.equal(cart.invoices.length, 2);
 });
+
+test('cart lines inherit defaultWarrantyMonths and setLineWarranty updates 0..60 months', () => {
+  const cart = newCart();
+  const usedPhone = {
+    id: 'u1',
+    name: 'iPhone 13 مستعمل',
+    priceMinor: 2_500_000,
+    onHand: 1,
+    serial: true,
+    defaultWarrantyMonths: 3,
+  };
+  addProduct(cart, usedPhone, 1);
+  addProduct(cart, charger, 1);
+  assert.equal(current(cart).lines[0]?.warrantyMonths, 3);
+  assert.equal(current(cart).lines[1]?.warrantyMonths, 0);
+
+  assert.equal(setLineWarranty(cart, 1, 6), true);
+  assert.equal(current(cart).lines[1]?.warrantyMonths, 6);
+  assert.equal(setLineWarranty(cart, 1, 61), false);
+  assert.equal(setLineWarranty(cart, 1, -1), false);
+});
+
 
 

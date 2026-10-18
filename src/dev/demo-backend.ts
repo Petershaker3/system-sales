@@ -285,6 +285,9 @@ const appearance = {
   receiptMode: 'wa',
   printerEnabled: 'off',
   receiptPaper: '80',
+  warrantyNew: '12',
+  warrantyUsed: '1',
+  warrantyItem: '0',
 };
 let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
@@ -362,6 +365,12 @@ const sales: {
   discountMinor: number;
   customerId: string | null;
   payments: { method: string; amountMinor: number; reference: string | null }[];
+  lines: {
+    productId: string;
+    quantity: number;
+    warrantyStart: string | null;
+    warrantyEnd: string | null;
+  }[];
 }[] = [];
 const settings = {
   defaultCostMethod: 'moving_average',
@@ -570,6 +579,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.receipt_mode': 'receiptMode',
       'ui.printer_enabled': 'printerEnabled',
       'ui.receipt_paper': 'receiptPaper',
+      'ui.warranty_new': 'warrantyNew',
+      'ui.warranty_used': 'warrantyUsed',
+      'ui.warranty_item': 'warrantyItem',
     };
     const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
@@ -585,7 +597,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       key === 'waTemplate' ||
       key === 'receiptMode' ||
       key === 'printerEnabled' ||
-      key === 'receiptPaper'
+      key === 'receiptPaper' ||
+      key === 'warrantyNew' ||
+      key === 'warrantyUsed' ||
+      key === 'warrantyItem'
     )
       requireManager(false);
     else requireManager(true);
@@ -595,6 +610,15 @@ const handlers: Record<string, (args: Args) => unknown> = {
       if (!/^\d{1,3}$/.test(val)) fail('SETTING_VALUE_INVALID');
       const n = Number(val);
       if (!Number.isInteger(n) || n < 0 || n > 100) fail('SETTING_VALUE_INVALID');
+      appearance[key] = String(n);
+    } else if (
+      key === 'warrantyNew' ||
+      key === 'warrantyUsed' ||
+      key === 'warrantyItem'
+    ) {
+      if (!/^\d{1,2}$/.test(val)) fail('SETTING_VALUE_INVALID');
+      const n = Number(val);
+      if (!Number.isInteger(n) || n < 0 || n > 60) fail('SETTING_VALUE_INVALID');
       appearance[key] = String(n);
     } else if (
       key === 'shopName' ||
@@ -676,6 +700,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
             quantity: number;
             imei?: string | null;
             discountMinor?: number | null;
+            warrantyStart?: string | null;
+            warrantyEnd?: string | null;
           }[]
         | undefined) ?? [];
     if (lines.length === 0) fail('SALE_EMPTY');
@@ -830,6 +856,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
       }
     }
     const reference = `${settings.invoicePrefix}-${today()}-${String(sales.length + 1).padStart(4, '0')}`;
+    const saleLines = lines.map((l) => ({
+      productId: l.productId,
+      quantity: l.quantity,
+      warrantyStart: typeof l.warrantyStart === 'string' && l.warrantyStart !== '' ? l.warrantyStart : null,
+      warrantyEnd: typeof l.warrantyEnd === 'string' && l.warrantyEnd !== '' ? l.warrantyEnd : null,
+    }));
     const sale = {
       id: newId('s'),
       reference,
@@ -837,8 +869,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
       discountMinor: totalDiscount,
       customerId: linkedCustomer ? linkedCustomer.id : null,
       payments: cleanPayments,
+      lines: saleLines,
     };
     sales.push(sale);
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __lastDemoSale?: typeof sale }).__lastDemoSale = sale;
+    }
     if (linkedCustomer && creditSum > 0) {
       linkedCustomer.balanceMinor += creditSum;
       customerLedger.unshift({
