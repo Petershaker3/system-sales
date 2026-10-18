@@ -16,7 +16,6 @@ use crate::data::repositories::inventory::stock as stock_repo;
 use crate::data::repositories::inventory::unit::{self as unit_repo, ImeiRepairMatch, UnitRecord};
 use crate::data::repositories::organisation::department as category_repo;
 use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
-use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::data::repositories::shift as shift_repo;
 use crate::data::repositories::shortage as shortage_repo;
 use crate::domain::catalog::{
@@ -450,7 +449,8 @@ pub async fn create_used_phone(
             let reason_str = format!("شراء جهاز مستعمل: {}", product.name.as_str());
             let truncated: String = reason_str.chars().take(120).collect();
             let reason = CashMovementReason::new(truncated)?;
-            let amount = Piastres::new_minor(input.cost_minor)?;
+            let amount =
+                Piastres::new_minor(input.cost_minor).map_err(|_| CostError::NegativeTotal)?;
             shift_repo::insert_cash_movement(
                 &mut tx,
                 &CashMovementRecord {
@@ -554,11 +554,7 @@ pub async fn check_imei(
 ) -> Result<ImeiCheckResult, BrandServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     let mut conn = pool.acquire().await.map_err(storage)?;
-    let appearance = settings_repo::load_appearance(&mut conn)
-        .await
-        .map_err(storage)?;
-    let can_view_cost =
-        session.role().allows(Permission::ViewCostAndProfit) || appearance.seller_can_view_cost;
+    let can_view_cost = session.role().allows(Permission::ViewCostAndProfit);
 
     let normalized = normalize_imei_digits(raw_imei);
     let digits_only = !normalized.is_empty() && normalized.bytes().all(|b| b.is_ascii_digit());
