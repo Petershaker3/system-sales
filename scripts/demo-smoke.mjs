@@ -1734,6 +1734,70 @@ check(
   (await count('.modal .approver')) === 0
 );
 
+// --- Plan item 1.13: Eight Settings screens & Devices/Printer tab (ADR-028) --
+const settingsTabLabels = await page.$$eval(
+  '[data-settings-nav] button[data-settings-tab]',
+  (els) => els.map((e) => (e.textContent ?? '').trim()),
+);
+check(
+  'Settings sidebar lists all 8 approved settings tabs in exact order',
+  settingsTabLabels.join('، ') ===
+    'المحل، الشكل، الأصناف والبيع، المستخدمين والصلاحيات، المحافظ والدفع، الإيصال والضمان، النسخ الاحتياطي، الأجهزة والطابعة',
+  settingsTabLabels.join('، ')
+);
+
+await page.click('[data-settings-tab="devices"]');
+await sleep(150);
+const devicesVisible = await page.$eval(
+  '[data-settings-panel="devices"]',
+  (el) => getComputedStyle(el).display !== 'none',
+);
+const shopHidden = await page.$eval(
+  '[data-settings-panel="shop"]',
+  (el) => getComputedStyle(el).display === 'none',
+);
+check(
+  'clicking «الأجهزة والطابعة» filters settings to the Devices & Printer tab',
+  devicesVisible && shopHidden
+);
+
+const initialPrinterCard = await text('[data-devices-printer-card]');
+check(
+  'Devices & Printer tab defaults to «مفيش طابعة دلوقتي» and «واتساب بس»',
+  initialPrinterCard.includes('مفيش طابعة دلوقتي') &&
+    initialPrinterCard.includes('واتساب بس') &&
+    initialPrinterCard.includes('عندي طابعة إيصالات'),
+  initialPrinterCard
+);
+
+await page.click('[data-devices-printer-toggle]');
+await sleep(200);
+const enabledPrinterCard = await text('[data-devices-printer-card]');
+check(
+  'enabling «عندي طابعة إيصالات» reveals XP-80 (USB) ready badge, paper sizes, and test print button',
+  enabledPrinterCard.includes('XP-80 (USB)') &&
+    enabledPrinterCard.includes('جاهزة') &&
+    enabledPrinterCard.includes('صفحة تجربة') &&
+    enabledPrinterCard.includes('مقاس الورق'),
+  enabledPrinterCard
+);
+
+await page.click('[data-devices-paper="58"]');
+await sleep(150);
+const paper58PrinterCard = await text('[data-devices-printer-card]');
+check(
+  'choosing 58mm paper in «الأجهزة والطابعة» updates the printer status description',
+  paper58PrinterCard.includes('58 مم'),
+  paper58PrinterCard
+);
+await shot('49-settings-eight-tabs-devices-printer');
+
+// Restore printerEnabled to off and switch back to all settings sections
+await page.click('[data-devices-printer-toggle]');
+await sleep(150);
+await page.click('[data-settings-tab="all"]');
+await sleep(150);
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with

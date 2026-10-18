@@ -1,17 +1,33 @@
 <script setup lang="ts">
-// «الإعدادات» — the owner's. The look comes first (the two looks, light/dark,
-// the shop colour, the font, the size, the digits), then the categories of the
-// sales screen (ADR-018 §1) and the phone companies (§2), then the recovery
-// code (ADR-017 §4); then the
-// device settings, the users and the backup panels that already work. The eight
-// settings screens of the mockup are plan item 1.13.
+// «الإعدادات» — 8 tabs matching the approved mockup (`docs/ui/mockup-v1/views/settings.js`,
+// `docs/PLAN.md` §16, §19; `ADR-028`):
+//   1. `shop`    — المحل
+//   2. `look`    — الشكل
+//   3. `catalog` — الأصناف والبيع
+//   4. `users`   — المستخدمين والصلاحيات
+//   5. `pay`     — المحافظ والدفع
+//   6. `receipt` — الإيصال والضمان
+//   7. `backup`  — النسخ الاحتياطي
+//   8. `devices` — الأجهزة والطابعة
+import { ref } from 'vue';
+
 import BackupPanel from '../../components/BackupPanel.vue';
 import SettingsPanel from '../../components/SettingsPanel.vue';
 import UserManagement from '../../components/UserManagement.vue';
+import { describeError } from '../../api/errors';
+import {
+  appearance,
+  DEFAULT_APPEARANCE,
+  setAppearance,
+  type Appearance,
+} from '../../ui/appearance';
+import Icon from '../../ui/Icon.vue';
+import { toast } from '../../ui/toast';
 import AppearanceCard from './AppearanceCard.vue';
 import BackupPolicyCard from './BackupPolicyCard.vue';
 import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
+import DevicesPrinterCard from './DevicesPrinterCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
@@ -19,32 +35,173 @@ import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
 import ShopProfileCard from './ShopProfileCard.vue';
+import {
+  isTabSectionVisible,
+  selectSettingsTab,
+  SETTINGS_TABS,
+  type SettingsTabId,
+  type SettingsViewTab,
+} from './tabs';
 import WalletsSettingsCard from './WalletsSettingsCard.vue';
+
+const activeTab = ref<SettingsViewTab>('all');
+
+function onPickTab(tab: SettingsViewTab): void {
+  activeTab.value = selectSettingsTab(activeTab.value, tab);
+}
+
+function showSection(tab: SettingsTabId): boolean {
+  return isTabSectionVisible(activeTab.value, tab);
+}
+
+async function onResetSettings(): Promise<void> {
+  const catalogDefaults: Partial<Appearance> = {
+    theme: DEFAULT_APPEARANCE.theme,
+    images: DEFAULT_APPEARANCE.images,
+    imeiMode: DEFAULT_APPEARANCE.imeiMode,
+    payMethods: DEFAULT_APPEARANCE.payMethods,
+    discountLimitPct: DEFAULT_APPEARANCE.discountLimitPct,
+    shopName: DEFAULT_APPEARANCE.shopName,
+    shopPhone: DEFAULT_APPEARANCE.shopPhone,
+    shopAddress: DEFAULT_APPEARANCE.shopAddress,
+    receiptFooter: DEFAULT_APPEARANCE.receiptFooter,
+    waTemplate: DEFAULT_APPEARANCE.waTemplate,
+    receiptMode: DEFAULT_APPEARANCE.receiptMode,
+    printerEnabled: DEFAULT_APPEARANCE.printerEnabled,
+    receiptPaper: DEFAULT_APPEARANCE.receiptPaper,
+    warrantyNew: DEFAULT_APPEARANCE.warrantyNew,
+    warrantyUsed: DEFAULT_APPEARANCE.warrantyUsed,
+    warrantyItem: DEFAULT_APPEARANCE.warrantyItem,
+    sellerCanCloseShift: DEFAULT_APPEARANCE.sellerCanCloseShift,
+    serviceFeeMode: DEFAULT_APPEARANCE.serviceFeeMode,
+    serviceFeePct: DEFAULT_APPEARANCE.serviceFeePct,
+    serviceFeeMin: DEFAULT_APPEARANCE.serviceFeeMin,
+    billFee: DEFAULT_APPEARANCE.billFee,
+    backupOnShift: DEFAULT_APPEARANCE.backupOnShift,
+    backupEvery2h: DEFAULT_APPEARANCE.backupEvery2h,
+    backupUsbAuto: DEFAULT_APPEARANCE.backupUsbAuto,
+    backupVerify: DEFAULT_APPEARANCE.backupVerify,
+  };
+  try {
+    await setAppearance(catalogDefaults);
+    const lookChanged =
+      appearance.look !== DEFAULT_APPEARANCE.look ||
+      appearance.accent !== DEFAULT_APPEARANCE.accent ||
+      appearance.font !== DEFAULT_APPEARANCE.font ||
+      appearance.scale !== DEFAULT_APPEARANCE.scale ||
+      appearance.digits !== DEFAULT_APPEARANCE.digits;
+    if (lookChanged) {
+      try {
+        await setAppearance({
+          look: DEFAULT_APPEARANCE.look,
+          accent: DEFAULT_APPEARANCE.accent,
+          font: DEFAULT_APPEARANCE.font,
+          scale: DEFAULT_APPEARANCE.scale,
+          digits: DEFAULT_APPEARANCE.digits,
+        });
+      } catch {
+        // Look keys require a fresh password if not already re-authenticated;
+        // catalog & theme defaults have already been restored.
+      }
+    }
+    toast('رجعت الإعدادات الأصلية', 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
 </script>
 
 <template>
   <div class="page">
     <div class="page-h">
       <h2>الإعدادات</h2>
-      <span class="sub">بيانات المحل، والشكل، والإيصال والواتساب، والتصنيفات، والمستخدمين والنسخ الاحتياطي.</span>
+      <span class="sub">كل تغيير بيتحفظ لوحده</span>
     </div>
-    <ShopProfileCard />
-    <AppearanceCard />
-    <ReceiptSettingsCard />
-    <ProductImagesCard />
-    <ImeiModeCard />
-    <PaymentMethodsCard />
-    <WalletsSettingsCard />
-    <DiscountLimitCard />
-    <CategoriesCard />
-    <BrandsCard />
-    <BackupPolicyCard />
 
-    <RecoveryCodeCard />
-    <div class="legacy-grid">
-      <section class="card legacy-panel"><SettingsPanel /></section>
-      <section class="card legacy-panel"><UserManagement /></section>
-      <section class="card legacy-panel"><BackupPanel /></section>
+    <div class="settings" data-settings-layout>
+      <nav class="s-nav" aria-label="أقسام الإعدادات" data-settings-nav>
+        <button
+          v-for="tab in SETTINGS_TABS"
+          :key="tab.id"
+          type="button"
+          :class="{ on: activeTab === tab.id }"
+          :data-settings-tab="tab.id"
+          @click="onPickTab(tab.id)"
+        >
+          <Icon :name="tab.icon" />
+          <span>{{ tab.label }}</span>
+        </button>
+
+        <button
+          v-if="activeTab !== 'all'"
+          type="button"
+          data-settings-tab="all"
+          @click="onPickTab('all')"
+        >
+          <Icon name="layout-grid" />
+          <span>كل الإعدادات</span>
+        </button>
+
+        <button
+          type="button"
+          style="margin-top: 10px"
+          data-reset-settings-btn
+          @click="onResetSettings"
+        >
+          <Icon name="rotate-ccw" />
+          <span>رجّع الإعدادات الأصلية</span>
+        </button>
+      </nav>
+
+      <div class="s-sec" data-settings-sec>
+        <!-- 1. المحل -->
+        <div v-show="showSection('shop')" class="s-sec" data-settings-panel="shop">
+          <ShopProfileCard />
+        </div>
+
+        <!-- 2. الشكل -->
+        <div v-show="showSection('look')" class="s-sec" data-settings-panel="look">
+          <AppearanceCard />
+        </div>
+
+        <!-- 3. الأصناف والبيع -->
+        <div v-show="showSection('catalog')" class="s-sec" data-settings-panel="catalog">
+          <ImeiModeCard />
+          <ProductImagesCard />
+          <CategoriesCard />
+          <BrandsCard />
+        </div>
+
+        <!-- 4. المستخدمين والصلاحيات -->
+        <div v-show="showSection('users')" class="s-sec" data-settings-panel="users">
+          <DiscountLimitCard />
+          <RecoveryCodeCard />
+          <section class="card legacy-panel"><UserManagement /></section>
+        </div>
+
+        <!-- 5. المحافظ والدفع -->
+        <div v-show="showSection('pay')" class="s-sec" data-settings-panel="pay">
+          <WalletsSettingsCard />
+          <PaymentMethodsCard />
+        </div>
+
+        <!-- 6. الإيصال والضمان -->
+        <div v-show="showSection('receipt')" class="s-sec" data-settings-panel="receipt">
+          <ReceiptSettingsCard />
+          <section class="card legacy-panel"><SettingsPanel /></section>
+        </div>
+
+        <!-- 7. النسخ الاحتياطي -->
+        <div v-show="showSection('backup')" class="s-sec" data-settings-panel="backup">
+          <BackupPolicyCard />
+          <section class="card legacy-panel"><BackupPanel /></section>
+        </div>
+
+        <!-- 8. الأجهزة والطابعة -->
+        <div v-show="showSection('devices')" class="s-sec" data-settings-panel="devices">
+          <DevicesPrinterCard />
+        </div>
+      </div>
     </div>
   </div>
 </template>

@@ -2999,6 +2999,41 @@ fn automatic_backup_policy_slice_preserves_layer_invariants() {
     }
 }
 
+const SETTINGS_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/settings/SettingsScreen.vue");
+const SETTINGS_TABS_TS: &str = include_str!("../../../src/screens/settings/tabs.ts");
+const DEVICES_PRINTER_CARD_VUE: &str =
+    include_str!("../../../src/screens/settings/DevicesPrinterCard.vue");
+
+#[test]
+fn eight_settings_screens_slice_preserves_tab_and_printer_invariants() {
+    for tab in [
+        "'shop'",
+        "'look'",
+        "'catalog'",
+        "'users'",
+        "'pay'",
+        "'receipt'",
+        "'backup'",
+        "'devices'",
+    ] {
+        assert!(
+            SETTINGS_TABS_TS.contains(tab),
+            "src/screens/settings/tabs.ts must declare settings tab {tab}"
+        );
+        assert!(
+            SETTINGS_SCREEN_VUE.contains(tab),
+            "src/screens/settings/SettingsScreen.vue must wire settings section {tab}"
+        );
+    }
+
+    assert!(
+        DEVICES_PRINTER_CARD_VUE.contains("عندي طابعة إيصالات"),
+        "DevicesPrinterCard.vue must include «عندي طابعة إيصالات» toggle"
+    );
+}
+
+
 
 
 
