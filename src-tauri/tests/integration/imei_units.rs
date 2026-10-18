@@ -676,9 +676,6 @@ async fn required_imei_mode_enforces_imei_on_phone_receiving_and_selling() {
 #[tokio::test]
 async fn used_phone_registration_opening_stock_and_imei_check_work_end_to_end() {
     let shop = shop().await;
-    pin::set_own_pin(&shop.pool, shop.tokens.as_ref(), PASSWORD, OWNER_PIN)
-        .await
-        .expect("set owner PIN");
 
     let samsung = DEFAULT_BRANDS
         .iter()
