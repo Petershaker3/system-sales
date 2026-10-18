@@ -19,7 +19,7 @@
 //! routine one. The frontend chooses *which* use case to invoke; the service
 //! decides what that use case costs.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::domain::identity::Sensitivity;
@@ -230,3 +230,79 @@ pub async fn get_position(
         effective_cost_minor: view.effective_cost_minor().map_err(InventoryCommandError::from)?,
     })
 }
+
+/// List all registered `in_stock` device units across all active products (`ADR-034`, Plan item 2.4).
+#[tauri::command]
+pub async fn list_all_product_units(
+    ctx: Ctx<'_>,
+) -> Result<Vec<ProductUnitDto>, InventoryCommandError> {
+    let units = use_cases::list_all_units_in_stock(&ctx.pool, ctx.tokens.as_ref()).await?;
+    Ok(units
+        .into_iter()
+        .map(|u| ProductUnitDto {
+            id: u.id,
+            product_id: u.product_id,
+            imei: u.imei,
+            imei2: u.imei2,
+            color: u.color,
+            unit_cost_minor: u.unit_cost_minor,
+            condition_grade: u.condition_grade,
+            battery_health_pct: u.battery_health_pct,
+            accessories: u.accessories,
+            intake_note: u.intake_note,
+            seller_name: u.seller_name,
+            seller_phone: u.seller_phone,
+            seller_national_id: u.seller_national_id,
+            created_at: u.created_at,
+        })
+        .collect())
+}
+
+/// One product's physical count input during a Stock Count reconciliation (`ADR-034`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountItemInputDto {
+    pub product_id: String,
+    pub counted_quantity: i64,
+    pub missing_unit_ids: Option<Vec<String>>,
+    pub unit_cost_minor: Option<i64>,
+}
+
+/// What a Stock Count reconciliation changed (`ADR-034`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountReconcileOutcomeDto {
+    pub adjusted_products: usize,
+    pub retired_units: usize,
+    pub net_quantity_delta: i64,
+    pub net_cost_delta_minor: i64,
+}
+
+/// Reconcile physical stock count discrepancies and missing IMEI units (`ADR-034`, Plan item 2.4).
+///
+/// `Sensitive`: requires `Permission::ManageInventory` and spends one Owner PIN approval.
+#[tauri::command]
+pub async fn reconcile_stock_count(
+    ctx: Ctx<'_>,
+    reason: String,
+    items: Vec<StockCountItemInputDto>,
+) -> Result<StockCountReconcileOutcomeDto, InventoryCommandError> {
+    let inputs: Vec<use_cases::StockCountItemInput> = items
+        .into_iter()
+        .map(|item| use_cases::StockCountItemInput {
+            product_id: item.product_id,
+            counted_quantity: item.counted_quantity,
+            missing_unit_ids: item.missing_unit_ids.unwrap_or_default(),
+            unit_cost_minor: item.unit_cost_minor,
+        })
+        .collect();
+    let outcome =
+        use_cases::reconcile_stock_count(&ctx.pool, ctx.tokens.as_ref(), &reason, &inputs).await?;
+    Ok(StockCountReconcileOutcomeDto {
+        adjusted_products: outcome.adjusted_products,
+        retired_units: outcome.retired_units,
+        net_quantity_delta: outcome.net_quantity_delta,
+        net_cost_delta_minor: outcome.net_cost_delta_minor,
+    })
+}
+

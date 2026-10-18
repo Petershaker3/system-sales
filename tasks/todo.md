@@ -250,7 +250,13 @@
   - **اتعمل (2026-10-19):**
     - الدومين (`domain/catalog/shop_code.rs`): `encode_ean13_bars` (95 موديول GS1) و`LabelDimensionsMm` و`format_tspl_barcode_label` مع اختبارات الوحدة والمعمارية.
     - الواجهة (`src/screens/store/labels.ts`, `labels.test.ts`, `LabelsModal.vue`, `StoreScreen.vue`, `CatalogPanel.vue`)، وفحص المتصفح 209/209، و117 اختبار واجهة.
-- [ ] **2.4 الجرد بالمسح (Stock Count)** (`docs/PLAN.md` §14، `ADR-016` #18)
+- [x] **2.4 الجرد بالمسح (Stock Count)** (`docs/PLAN.md` §11 و§19، `ADR-016` #18)
+  - **البوابة:** بدون تعديل في قاعدة البيانات (يستخدم `stock_levels` و`stock_movements` بنوع `adjustment` و`units` الموجودة).
+  - **القبول:** جلسة جرد بالمسح من «المخزن ← جرد بالمسح» (لكل المخزن أو أجهزة الـ `IMEI` أو الأصناف بالعدد)؛ مسح الـ `IMEI` (15 رقم أو آخر 4 أرقام مميزة) أو باركود الصنف؛ كشف الـ `IMEI` الناقص فوراً باسم الجهاز والفئة والبطارية والتكلفة؛ ومنع تكرار مسح نفس الجهاز مرتين؛ واعتماد تسوية الجرد مع السبب بـ **PIN صاحب المحل** (`Sensitivity::Sensitive`) مع استبعاد الجهاز الناقص بتكلفته الفعلية (`unit.unit_cost_minor`) وتسجيل قيد `adjustment` في `stock_movements`.
+  - **التصميم:** [`ADR-034`](../docs/decisions/ADR-034-stock-count-and-missing-imei.md).
+  - **اتعمل (2026-10-19):**
+    - الخدمة والأوامر (`services/inventory/stock.rs` و`commands/inventory.rs` و`lib.rs`): `list_all_units_in_stock` / `list_all_product_units` و`reconcile_stock_count` مع اختبارات التكامل والمعمارية.
+    - الواجهة (`src/screens/store/stock-count.ts`, `stock-count.test.ts`, `StockCountModal.vue`, `StoreScreen.vue`)، وفحص المتصفح 213/213، و120 اختبار واجهة.
 - [ ] **2.5 التقارير الشهرية والتقييم والنسخة المطبوعة** (`docs/PLAN.md` §10 و§19، `ADR-016` #22–#24 و#34)
 
 ## المراحل 3–4

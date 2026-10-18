@@ -21,6 +21,7 @@ import NewPhoneModal from './NewPhoneModal.vue';
 import NewUsedPhoneModal from './NewUsedPhoneModal.vue';
 import ImeiCheckModal from './ImeiCheckModal.vue';
 import LabelsModal from './LabelsModal.vue';
+import StockCountModal from './StockCountModal.vue';
 import ShortagesPanel from './ShortagesPanel.vue';
 import type { RegisteredUsedPhone } from '../../api/brands';
 
@@ -38,6 +39,7 @@ const newUsedMode = ref<'catalog' | 'opening'>('catalog');
 const newItem = ref(false);
 const showImeiCheck = ref(false);
 const showLabels = ref(false);
+const showStockCount = ref(false);
 const labelsInitialProductId = ref<string | null>(null);
 const labelsInitialUnitId = ref<string | null>(null);
 /** Bumped after an item is registered, so the panels read the catalogue again. */
@@ -130,6 +132,14 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
         "
       >
         <Icon name="recycle" /> شراء مستعمل من عميل
+      </button>
+      <button
+        type="button"
+        class="btn"
+        data-open-stock-count
+        @click="showStockCount = true"
+      >
+        <Icon name="scan-line" /> جرد بالمسح
       </button>
       <button
         type="button"
@@ -314,6 +324,11 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       :initial-unit-id="labelsInitialUnitId"
       @close="showLabels = false"
       @barcode-generated="reload += 1"
+    />
+    <StockCountModal
+      v-if="showStockCount"
+      @close="showStockCount = false"
+      @reconciled="reload += 1"
     />
   </div>
 </template>

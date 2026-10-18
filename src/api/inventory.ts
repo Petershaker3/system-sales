@@ -109,6 +109,46 @@ export async function listProductUnits(productId: string): Promise<ProductUnit[]
   return invoke<ProductUnit[]>('list_product_units', { productId });
 }
 
+/** List all registered `in_stock` device units across all active products (`ADR-034`, Plan item 2.4). */
+export async function listAllProductUnits(): Promise<ProductUnit[]> {
+  return invoke<ProductUnit[]>('list_all_product_units');
+}
+
+/** One product's physical count input during a Stock Count reconciliation (`ADR-034`). */
+export interface StockCountItemInput {
+  readonly productId: string;
+  readonly countedQuantity: number;
+  readonly missingUnitIds?: readonly string[];
+  readonly unitCostMinor?: number | null;
+}
+
+/** Summary of what a Stock Count reconciliation changed (`ADR-034`). */
+export interface StockCountReconcileOutcome {
+  readonly adjustedProducts: number;
+  readonly retiredUnits: number;
+  readonly netQuantityDelta: number;
+  readonly netCostDeltaMinor: number;
+}
+
+/**
+ * Reconcile physical stock count discrepancies and missing IMEI units (`ADR-034`, Plan item 2.4).
+ * Sensitive: requires `Permission::ManageInventory` and spends one Owner PIN approval.
+ */
+export async function reconcileStockCount(
+  reason: string,
+  items: readonly StockCountItemInput[]
+): Promise<StockCountReconcileOutcome> {
+  return invoke<StockCountReconcileOutcome>('reconcile_stock_count', {
+    reason,
+    items: items.map((item) => ({
+      productId: item.productId,
+      countedQuantity: item.countedQuantity,
+      missingUnitIds: item.missingUnitIds ? [...item.missingUnitIds] : [],
+      unitCostMinor: item.unitCostMinor ?? null,
+    })),
+  });
+}
+
 /**
  * Remove stock and report what it cost at the moving average.
  * Refused whole when there is not enough on hand (`COST_INSUFFICIENT_STOCK`) —

@@ -2321,6 +2321,51 @@ check(
   await page.waitForSelector('[data-labels-modal]', { hidden: true, timeout: 3000 });
   await sleep(150);
 
+  // --- Phase 2 Item 2.4: Stock Count by Scan & Missing IMEI Detection (ADR-034)
+  await page.click('[data-open-stock-count]');
+  await page.waitForSelector('[data-stock-count-modal]', { timeout: 3000 });
+  await sleep(250);
+
+  check(
+    'StockCountModal opens and flags all 3 registered in-stock IMEI units until scanned',
+    (await text('[data-sc-kpi-missing-units]')).includes('3 جهاز')
+  );
+
+  await page.type('[data-sc-scan-input]', '356938035643809');
+  await page.keyboard.press('Enter');
+  await sleep(150);
+  await page.type('[data-sc-scan-input]', '352099001761481');
+  await page.keyboard.press('Enter');
+  await sleep(150);
+  check(
+    'Scanning 2 IMEIs updates scanned count to 2 / 3 and isolates the 1 missing IMEI',
+    (await text('[data-sc-kpi-scanned-units]')).includes('2 / 3') &&
+      (await text('[data-sc-kpi-missing-units]')).includes('1 جهاز') &&
+      (await text('[data-sc-scan-feedback]')).includes('اتمسح الموبايل ✓')
+  );
+
+  await page.click('[data-sc-tab="missing_imeis"]');
+  await sleep(150);
+  check(
+    '«IMEI ناقص» tab pinpoints the exact missing device (Galaxy A24 · IMEI 864219042345679)',
+    (await count('[data-sc-missing-unit]')) === 1 &&
+      (await text('[data-sc-missing-list]')).includes('864219042345679') &&
+      (await text('[data-sc-missing-list]')).includes('Samsung Galaxy A24 128GB مستعمل فئة B')
+  );
+  await shot('58-stock-count-modal');
+
+  await page.click('[data-sc-submit]');
+  await page.waitForSelector('.modal .approver', { timeout: 3000 });
+  await page.keyboard.type('4321');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('[data-stock-count-modal]', { hidden: true, timeout: 3000 });
+  await sleep(250);
+  check(
+    'Approving Stock Count reconciliation with Owner PIN retires the missing IMEI and updates stock',
+    (await text('#toasts')).includes('اتسجّلت تسوية الجرد') &&
+      (await text('#toasts')).includes('استبعاد 1 جهاز IMEI ناقص')
+  );
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with

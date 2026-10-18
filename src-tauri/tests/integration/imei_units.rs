@@ -838,3 +838,93 @@ async fn used_phone_registration_opening_stock_and_imei_check_work_end_to_end() 
     assert_eq!(matched.unit_cost_minor, Some(950_000));
 }
 
+#[tokio::test]
+async fn stock_count_reconciliation_requires_owner_approval_and_retires_missing_imei_at_exact_cost() {
+    let shop = shop().await;
+    let phone_id = create_phone_product(&shop, "Galaxy A35", 1_350_000).await;
+
+    // Receive IMEI_1 at 1,000,000 and IMEI_2 at 1,150,000 -> total cost 2,150,000.
+    inventory::receive_with_units(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        &phone_id,
+        1,
+        1_000_000,
+        ReceiptKind::Supplier,
+        Sensitivity::Routine,
+        None,
+        &[IMEI_1.to_string()],
+    )
+    .await
+    .expect("receive IMEI_1");
+    inventory::receive_with_units(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        &phone_id,
+        1,
+        1_150_000,
+        ReceiptKind::Supplier,
+        Sensitivity::Routine,
+        None,
+        &[IMEI_2.to_string()],
+    )
+    .await
+    .expect("receive IMEI_2");
+
+    let all_units = inventory::list_all_units_in_stock(&shop.pool, shop.tokens.as_ref())
+        .await
+        .expect("list all in_stock units");
+    assert_eq!(all_units.len(), 2);
+    let unit2 = all_units.iter().find(|u| u.imei == IMEI_2).expect("IMEI_2 unit");
+
+    let items = vec![inventory::StockCountItemInput {
+        product_id: phone_id.clone(),
+        counted_quantity: 1,
+        missing_unit_ids: vec![unit2.id.clone()],
+        unit_cost_minor: None,
+    }];
+
+    // Without Owner PIN approval, reconciliation is refused with OWNER_APPROVAL_REQUIRED.
+    let without_approval = inventory::reconcile_stock_count(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        "جرد دوري للمخزن",
+        &items,
+    )
+    .await;
+    assert_eq!(
+        without_approval.err().map(|e| e.code()),
+        Some("OWNER_APPROVAL_REQUIRED")
+    );
+
+    owner_approves(&shop).await;
+
+    let outcome = inventory::reconcile_stock_count(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        "جرد دوري للمخزن",
+        &items,
+    )
+    .await
+    .expect("reconcile stock count");
+    assert_eq!(outcome.adjusted_products, 1);
+    assert_eq!(outcome.retired_units, 1);
+    assert_eq!(outcome.net_quantity_delta, -1);
+    assert_eq!(outcome.net_cost_delta_minor, -1_150_000);
+
+    // Remaining position has quantity 1 and exact cost 1,000,000 (IMEI_1).
+    let pos = inventory::position(&shop.pool, shop.tokens.as_ref(), &phone_id)
+        .await
+        .expect("position after stock count");
+    assert_eq!(pos.quantity, 1);
+    assert_eq!(pos.total_cost_minor, Some(1_000_000));
+
+    let remaining_units =
+        inventory::list_units_in_stock(&shop.pool, shop.tokens.as_ref(), &phone_id)
+            .await
+            .expect("remaining units");
+    assert_eq!(remaining_units.len(), 1);
+    assert_eq!(remaining_units[0].imei, IMEI_1);
+}
+
+

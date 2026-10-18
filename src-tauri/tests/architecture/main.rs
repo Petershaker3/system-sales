@@ -3232,6 +3232,8 @@ const NEW_USED_PHONE_MODAL_VUE: &str =
 const IMEI_CHECK_MODAL_VUE: &str =
     include_str!("../../../src/screens/store/ImeiCheckModal.vue");
 const LABELS_MODAL_VUE: &str = include_str!("../../../src/screens/store/LabelsModal.vue");
+const STOCK_COUNT_MODAL_VUE: &str =
+    include_str!("../../../src/screens/store/StockCountModal.vue");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3261,6 +3263,7 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
 
     for marker in [
         "شراء مستعمل من عميل",
+        "جرد بالمسح",
         "طباعة ملصقات",
         "فحص الـ IMEI",
     ] {
@@ -3293,6 +3296,17 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
         assert!(
             LABELS_MODAL_VUE.contains(marker),
             "LabelsModal.vue must include `{marker}`"
+        );
+    }
+
+    for marker in [
+        "الجرد بالمسح وكشف الـ IMEI الناقص",
+        "IMEI ناقص",
+        "اعتمد تسوية الجرد",
+    ] {
+        assert!(
+            STOCK_COUNT_MODAL_VUE.contains(marker),
+            "StockCountModal.vue must include `{marker}`"
         );
     }
 }

@@ -1079,3 +1079,335 @@ pub async fn list_units_in_stock(
     Ok(units)
 }
 
+/// Read all `in_stock` units across all active products (`ADR-034`, Plan item 2.4).
+///
+/// Requires `Permission::ManageInventory`. Cost and seller fields are redacted
+/// unless the operator also holds `Permission::ViewCostAndProfit`.
+pub async fn list_all_units_in_stock(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+) -> Result<Vec<UnitRecord>, StockServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageInventory)?;
+    let can_view_cost = session.authorize(Permission::ViewCostAndProfit).is_ok();
+
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let mut units = unit_repo::list_all_in_stock_for_active_products(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    if !can_view_cost {
+        for u in &mut units {
+            u.unit_cost_minor = 0;
+            u.seller_name = None;
+            u.seller_phone = None;
+            u.seller_national_id = None;
+        }
+    }
+    Ok(units)
+}
+
+/// One product's physical count input during a Stock Count reconciliation (`ADR-034`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StockCountItemInput {
+    pub product_id: String,
+    pub counted_quantity: i64,
+    /// Specific `in_stock` unit IDs confirmed missing during the IMEI scan count.
+    pub missing_unit_ids: Vec<String>,
+    /// Optional fallback unit cost in piastres when a surplus is found on a 0-stock item.
+    pub unit_cost_minor: Option<i64>,
+}
+
+/// Summary of what a Stock Count reconciliation changed (`ADR-034`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StockCountReconcileOutcome {
+    pub adjusted_products: usize,
+    pub retired_units: usize,
+    pub net_quantity_delta: i64,
+    pub net_cost_delta_minor: i64,
+}
+
+/// Reconcile physical stock count discrepancies and missing IMEI units (`ADR-034`, Plan item 2.4).
+///
+/// `Sensitive`: requires `Permission::ManageInventory` and spends one Owner PIN
+/// approval inside the transaction (`PLAN.md` §11: «الرصيد الافتتاحي والتسويات: بـPIN المالك، مع سبب»).
+pub async fn reconcile_stock_count(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    reason: &str,
+    items: &[StockCountItemInput],
+) -> Result<StockCountReconcileOutcome, StockServiceError> {
+    let (session, approval) = authorize(pool, tokens, Sensitivity::Sensitive).await?;
+    let now = Timestamp::now();
+    let actor = session.user_id();
+
+    let clean_reason = {
+        let trimmed = reason.trim();
+        if trimmed.is_empty() {
+            "تسوية جرد بالمسح"
+        } else {
+            trimmed
+        }
+    };
+    let retired_note = format!("جرد: {clean_reason}");
+
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
+
+    let mut adjusted_products = 0usize;
+    let mut retired_units_total = 0usize;
+    let mut net_quantity_delta = 0i64;
+    let mut net_cost_delta_minor = 0i64;
+
+    for item in items {
+        if item.counted_quantity < 0 {
+            return Err(StockError::Cost(CostError::NegativeQuantity).into());
+        }
+        ensure_product(&mut tx, &item.product_id).await?;
+        collapse_legacy_in_tx(&mut tx, &actor, &item.product_id, now).await?;
+        let position = load_position(&mut tx, &item.product_id).await?;
+        let current = average_position(&item.product_id, position.as_ref())?;
+        let in_stock_units = unit_repo::list_in_stock_for_product(&mut tx, &item.product_id)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+        // Identify explicitly missing IMEI units that belong to this product and are in_stock.
+        let explicit_missing: Vec<&UnitRecord> = in_stock_units
+            .iter()
+            .filter(|u| item.missing_unit_ids.iter().any(|mid| mid == &u.id))
+            .collect();
+        let explicit_missing_count = explicit_missing.len() as i64;
+
+        // If explicit missing units are specified, the counted quantity cannot exceed
+        // `current.on_hand - explicit_missing_count`.
+        let effective_counted = if explicit_missing_count > 0 {
+            item.counted_quantity
+                .min((current.on_hand - explicit_missing_count).max(0))
+        } else {
+            item.counted_quantity
+        };
+
+        let qty_delta = effective_counted - current.on_hand;
+        if qty_delta == 0 && explicit_missing.is_empty() {
+            continue;
+        }
+
+        if qty_delta < 0 {
+            let remove_qty = -qty_delta;
+            // Validate overall stock sufficiency.
+            let _ = current.remove(remove_qty)?;
+
+            // Retire explicitly missing IMEI units first.
+            let mut explicit_cost: i64 = 0;
+            for u in &explicit_missing {
+                unit_repo::mark_retired_manual(&mut tx, &u.id, &retired_note)
+                    .await
+                    .map_err(|_| DomainError::StorageUnavailable)?;
+                explicit_cost = explicit_cost
+                    .checked_add(u.unit_cost_minor)
+                    .ok_or(CostError::Overflow)?;
+                retired_units_total += 1;
+            }
+
+            // Remaining units still in stock after explicit retirements:
+            let remaining_units: Vec<&UnitRecord> = in_stock_units
+                .iter()
+                .filter(|u| !item.missing_unit_ids.iter().any(|mid| mid == &u.id))
+                .collect();
+            let remaining_reg_count = remaining_units.len() as i64;
+            let remaining_reg_cost: i64 = remaining_units.iter().map(|u| u.unit_cost_minor).sum();
+
+            let on_hand_after_explicit = current.on_hand - explicit_missing_count;
+            let total_cost_after_explicit = (current.total_cost_minor - explicit_cost).max(0);
+            let rem_remove = remove_qty - explicit_missing_count;
+
+            let mut extra_cost_removed: i64 = 0;
+            if rem_remove > 0 {
+                if remaining_units.is_empty() {
+                    let pos = AveragePosition::new(total_cost_after_explicit, on_hand_after_explicit)?;
+                    let rem = pos.remove(rem_remove)?;
+                    extra_cost_removed = rem.cost_removed_minor;
+                } else {
+                    let unreg_qty = (on_hand_after_explicit - remaining_reg_count).max(0);
+                    let unreg_cost = (total_cost_after_explicit - remaining_reg_cost).max(0);
+                    if rem_remove <= unreg_qty {
+                        let unreg_pos = AveragePosition::new(unreg_cost, unreg_qty)?;
+                        let rem = unreg_pos.remove(rem_remove)?;
+                        extra_cost_removed = rem.cost_removed_minor;
+                    } else {
+                        let overflow = (rem_remove - unreg_qty) as usize;
+                        let overflow_slice = &remaining_units[..overflow];
+                        let overflow_cost: i64 =
+                            overflow_slice.iter().map(|u| u.unit_cost_minor).sum();
+                        for u in overflow_slice {
+                            unit_repo::mark_retired_manual(&mut tx, &u.id, &retired_note)
+                                .await
+                                .map_err(|_| DomainError::StorageUnavailable)?;
+                            retired_units_total += 1;
+                        }
+                        extra_cost_removed = unreg_cost
+                            .checked_add(overflow_cost)
+                            .ok_or(CostError::Overflow)?;
+                    }
+                }
+            }
+
+            let total_cost_removed = explicit_cost
+                .checked_add(extra_cost_removed)
+                .ok_or(CostError::Overflow)?
+                .min(current.total_cost_minor);
+            let final_total_cost = (current.total_cost_minor - total_cost_removed).max(0);
+            let quoted_unit_cost = AveragePosition::new(total_cost_removed, remove_qty)?
+                .unit_cost_minor()
+                .unwrap_or(0);
+
+            repo::upsert_position(
+                &mut tx,
+                &repo::StockPosition {
+                    product_id: item.product_id.clone(),
+                    quantity: effective_counted,
+                    total_cost_minor: Some(final_total_cost),
+                },
+                &actor,
+                now.as_millis(),
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            sales_repo::insert_movement(
+                &mut tx,
+                &MovementRecord {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    product_id: item.product_id.clone(),
+                    kind: "adjustment".to_owned(),
+                    quantity_delta: -remove_qty,
+                    unit_cost_minor: quoted_unit_cost,
+                    cost_delta_minor: -total_cost_removed,
+                    occurred_at: now.as_millis(),
+                    actor_id: actor.as_str().to_owned(),
+                    sale_id: None,
+                    sale_line_id: None,
+                    fifo_layer_id: None,
+                    fifo_received_at: None,
+                    reverses_movement_id: None,
+                    supplier_name: None,
+                    receipt_kind: None,
+                },
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            audit::append(
+                &mut tx,
+                actor.clone(),
+                audit::event::STOCK_REMOVED,
+                now,
+                Some(format!(
+                    r#"{{"product":"{}","quantity":{},"cost_minor":{},"method":"{}","on_hand":{},"reason":"{}"{}}}"#,
+                    item.product_id,
+                    remove_qty,
+                    total_cost_removed,
+                    QUANTITY_COST_METHOD,
+                    effective_counted,
+                    clean_reason.replace('"', "\\\""),
+                    approved_by
+                        .as_ref()
+                        .map_or(String::new(), |id| format!(r#","approved_by":"{id}""#))
+                )),
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            adjusted_products += 1;
+            net_quantity_delta -= remove_qty;
+            net_cost_delta_minor -= total_cost_removed;
+        } else if qty_delta > 0 {
+            let add_qty = qty_delta;
+            let unit_cost = current
+                .unit_cost_minor()
+                .unwrap_or_else(|| item.unit_cost_minor.unwrap_or(0).max(0));
+            let updated = current.receive(add_qty, unit_cost)?;
+            let cost_added = updated
+                .total_cost_minor
+                .checked_sub(current.total_cost_minor)
+                .ok_or(CostError::Overflow)?;
+
+            repo::upsert_position(
+                &mut tx,
+                &repo::StockPosition {
+                    product_id: item.product_id.clone(),
+                    quantity: updated.on_hand,
+                    total_cost_minor: Some(updated.total_cost_minor),
+                },
+                &actor,
+                now.as_millis(),
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            sales_repo::insert_movement(
+                &mut tx,
+                &MovementRecord {
+                    id: uuid::Uuid::now_v7().to_string(),
+                    product_id: item.product_id.clone(),
+                    kind: "adjustment".to_owned(),
+                    quantity_delta: add_qty,
+                    unit_cost_minor: unit_cost,
+                    cost_delta_minor: cost_added,
+                    occurred_at: now.as_millis(),
+                    actor_id: actor.as_str().to_owned(),
+                    sale_id: None,
+                    sale_line_id: None,
+                    fifo_layer_id: None,
+                    fifo_received_at: None,
+                    reverses_movement_id: None,
+                    supplier_name: None,
+                    receipt_kind: None,
+                },
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            shortage_repo::resolve_shortages_for_product(&mut tx, &item.product_id, now.as_millis())
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?;
+
+            audit::append(
+                &mut tx,
+                actor.clone(),
+                audit::event::STOCK_RECEIVED,
+                now,
+                Some(format!(
+                    r#"{{"product":"{}","quantity":{},"unit_cost_minor":{},"method":"{}","on_hand":{},"supplier":null,"reason":"{}"{}}}"#,
+                    item.product_id,
+                    add_qty,
+                    unit_cost,
+                    QUANTITY_COST_METHOD,
+                    updated.on_hand,
+                    clean_reason.replace('"', "\\\""),
+                    approved_by
+                        .as_ref()
+                        .map_or(String::new(), |id| format!(r#","approved_by":"{id}""#))
+                )),
+            )
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+
+            adjusted_products += 1;
+            net_quantity_delta += add_qty;
+            net_cost_delta_minor += cost_added;
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(StockCountReconcileOutcome {
+        adjusted_products,
+        retired_units: retired_units_total,
+        net_quantity_delta,
+        net_cost_delta_minor,
+    })
+}
+
+

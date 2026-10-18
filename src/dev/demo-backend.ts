@@ -3103,6 +3103,120 @@ const handlers: Record<string, (args: Args) => unknown> = {
         status: u.status,
       }));
   },
+  list_all_product_units: () => {
+    requireManager();
+    const activeIds = new Set(products.filter((p) => p.status === 'active').map((p) => p.id));
+    return productUnits
+      .filter((u) => u.status === 'in_stock' && activeIds.has(u.productId))
+      .map((u) => ({
+        id: u.id,
+        productId: u.productId,
+        imei: u.imei,
+        imei2: u.imei2,
+        color: u.color,
+        unitCostMinor: u.unitCostMinor,
+        conditionGrade: u.conditionGrade ?? null,
+        batteryHealthPct: u.batteryHealthPct ?? null,
+        accessories: u.accessories ?? null,
+        intakeNote: u.intakeNote ?? null,
+        sellerName: u.sellerName ?? null,
+        sellerPhone: u.sellerPhone ?? null,
+        sellerNationalId: u.sellerNationalId ?? null,
+        createdAt: u.createdAt,
+        status: u.status,
+      }));
+  },
+  reconcile_stock_count: (args) => {
+    requireManager();
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    approvedOnce = false;
+    const rawItems = Array.isArray(args?.['items']) ? (args['items'] as Record<string, unknown>[]) : [];
+    let adjustedProducts = 0;
+    let retiredUnits = 0;
+    let netQuantityDelta = 0;
+    let netCostDeltaMinor = 0;
+
+    for (const raw of rawItems) {
+      const pid = typeof raw['productId'] === 'string' ? raw['productId'] : '';
+      const x = findProduct(pid);
+      const counted = Math.max(0, Math.round(Number(raw['countedQuantity'] ?? x.onHand)));
+      const missingIds = Array.isArray(raw['missingUnitIds'])
+        ? (raw['missingUnitIds'] as string[])
+        : [];
+
+      const inStockForProduct = productUnits.filter(
+        (u) => u.productId === x.id && u.status === 'in_stock'
+      );
+      const explicitMissing = inStockForProduct.filter((u) => missingIds.includes(u.id));
+      const effectiveCounted =
+        explicitMissing.length > 0
+          ? Math.min(counted, Math.max(0, x.onHand - explicitMissing.length))
+          : counted;
+      const qtyDelta = effectiveCounted - x.onHand;
+      if (qtyDelta === 0 && explicitMissing.length === 0) continue;
+
+      if (qtyDelta < 0) {
+        const removeQty = -qtyDelta;
+        let explicitCost = 0;
+        for (const u of explicitMissing) {
+          u.status = 'retired';
+          explicitCost += u.unitCostMinor;
+          retiredUnits += 1;
+        }
+        const remRemove = removeQty - explicitMissing.length;
+        let extraCost = 0;
+        if (remRemove > 0) {
+          const onHandAfter = Math.max(1, x.onHand - explicitMissing.length);
+          const costAfter = Math.max(0, x.totalCostMinor - explicitCost);
+          extraCost = Math.ceil((costAfter * remRemove) / onHandAfter);
+          const remainingInStock = productUnits.filter(
+            (u) => u.productId === x.id && u.status === 'in_stock'
+          );
+          const unregQty = Math.max(0, x.onHand - explicitMissing.length - remainingInStock.length);
+          if (remRemove > unregQty) {
+            const overflow = remRemove - unregQty;
+            for (const u of remainingInStock.slice(0, overflow)) {
+              u.status = 'retired';
+              retiredUnits += 1;
+            }
+          }
+        }
+        const totalRemovedCost = Math.min(x.totalCostMinor, explicitCost + extraCost);
+        x.onHand = effectiveCounted;
+        x.totalCostMinor = Math.max(0, x.totalCostMinor - totalRemovedCost);
+        adjustedProducts += 1;
+        netQuantityDelta -= removeQty;
+        netCostDeltaMinor -= totalRemovedCost;
+      } else if (qtyDelta > 0) {
+        const addQty = qtyDelta;
+        const fallbackCost =
+          typeof raw['unitCostMinor'] === 'number' && raw['unitCostMinor'] > 0
+            ? Math.round(raw['unitCostMinor'])
+            : 0;
+        const unitCost =
+          x.onHand > 0 ? Math.ceil(x.totalCostMinor / x.onHand) : fallbackCost;
+        const costAdded = addQty * unitCost;
+        x.onHand = effectiveCounted;
+        x.totalCostMinor += costAdded;
+        const resolvedAt = now();
+        for (const sh of demoShortages) {
+          if (sh.productId === x.id && sh.resolvedAt === null) {
+            sh.resolvedAt = resolvedAt;
+          }
+        }
+        adjustedProducts += 1;
+        netQuantityDelta += addQty;
+        netCostDeltaMinor += costAdded;
+      }
+    }
+
+    return {
+      adjustedProducts,
+      retiredUnits,
+      netQuantityDelta,
+      netCostDeltaMinor,
+    };
+  },
   remove_stock: (args) => {
     requireManager();
     const x = findProduct(str(args, 'productId'));
