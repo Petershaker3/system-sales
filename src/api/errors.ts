@@ -207,7 +207,26 @@ export const ErrorCode = {
   EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
   CASH_MOVEMENT_KIND_INVALID: 'CASH_MOVEMENT_KIND_INVALID',
   CASH_MOVEMENT_AMOUNT_INVALID: 'CASH_MOVEMENT_AMOUNT_INVALID',
-  CASH_MOVEMENT_REASON_INVALID: 'CASH_MOVEMENT_REASON_INVALID'
+  CASH_MOVEMENT_REASON_INVALID: 'CASH_MOVEMENT_REASON_INVALID',
+
+  // المحافظ ودفتر الخدمات (البند 1.10، ADR-025)
+  WALLET_NOT_FOUND: 'WALLET_NOT_FOUND',
+  WALLET_NAME_INVALID: 'WALLET_NAME_INVALID',
+  WALLET_NAME_DUPLICATE: 'WALLET_NAME_DUPLICATE',
+  WALLET_NUMBER_INVALID: 'WALLET_NUMBER_INVALID',
+  WALLET_COLOR_INVALID: 'WALLET_COLOR_INVALID',
+  WALLET_LIMIT_INVALID: 'WALLET_LIMIT_INVALID',
+  WALLET_PAY_METHOD_INVALID: 'WALLET_PAY_METHOD_INVALID',
+  WALLET_DELETE_FORBIDDEN: 'WALLET_DELETE_FORBIDDEN',
+  WALLET_INSUFFICIENT_BALANCE: 'WALLET_INSUFFICIENT_BALANCE',
+  WALLET_OP_KIND_INVALID: 'WALLET_OP_KIND_INVALID',
+  WALLET_OP_AMOUNT_INVALID: 'WALLET_OP_AMOUNT_INVALID',
+  WALLET_OP_FEE_INVALID: 'WALLET_OP_FEE_INVALID',
+  WALLET_OP_FEE_EXCEEDS_AMOUNT: 'WALLET_OP_FEE_EXCEEDS_AMOUNT',
+  WALLET_OP_NOTE_INVALID: 'WALLET_OP_NOTE_INVALID',
+  WALLET_OP_NOT_FOUND: 'WALLET_OP_NOT_FOUND',
+  WALLET_OP_ALREADY_VOIDED: 'WALLET_OP_ALREADY_VOIDED',
+  WALLET_VOID_REASON_REQUIRED: 'WALLET_VOID_REASON_REQUIRED'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -514,7 +533,43 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CASH_MOVEMENT_AMOUNT_INVALID]:
     'مبلغ حركة الدرج لازم يكون أكبر من صفر.',
   [ErrorCode.CASH_MOVEMENT_REASON_INVALID]:
-    'اكتب سبب حركة الدرج الأول.'
+    'اكتب سبب حركة الدرج الأول.',
+
+  // المحافظ ودفتر الخدمات (البند 1.10، ADR-025)
+  [ErrorCode.WALLET_NOT_FOUND]:
+    'المحفظة دي مش موجودة دلوقتي.',
+  [ErrorCode.WALLET_NAME_INVALID]:
+    'اسم المحفظة لازم يكون مكتوب ومايزيدش عن 80 حرف.',
+  [ErrorCode.WALLET_NAME_DUPLICATE]:
+    'فيه محفظة بالاسم ده بالفعل.',
+  [ErrorCode.WALLET_NUMBER_INVALID]:
+    'رقم المحفظة طويل زيادة عن اللزوم.',
+  [ErrorCode.WALLET_COLOR_INVALID]:
+    'لون المحفظة غير صالح.',
+  [ErrorCode.WALLET_LIMIT_INVALID]:
+    'رصيد أو حد المحفظة لازم يكون صفر أو أكبر.',
+  [ErrorCode.WALLET_PAY_METHOD_INVALID]:
+    'طريقة دفع البيع للمحفظة غير صالحة.',
+  [ErrorCode.WALLET_DELETE_FORBIDDEN]:
+    'المحفظة دي مينفعش تتمسح لأنها افتراضية أو عليها عمليات متسجّلة. اخفيها بدل ما تمسحها.',
+  [ErrorCode.WALLET_INSUFFICIENT_BALANCE]:
+    'رصيد المحفظة مش كفاية للعملية دي. اشحن المحفظة الأول أو اختار محفظة تانية.',
+  [ErrorCode.WALLET_OP_KIND_INVALID]:
+    'نوع عملية المحفظة أو الخدمة غير معروف.',
+  [ErrorCode.WALLET_OP_AMOUNT_INVALID]:
+    'اكتب مبلغ العملية بشكل صحيح (أكبر من صفر).',
+  [ErrorCode.WALLET_OP_FEE_INVALID]:
+    'اكتب العمولة أو الرسوم، ولو مفيش اكتب 0.',
+  [ErrorCode.WALLET_OP_FEE_EXCEEDS_AMOUNT]:
+    'عمولة السحب مينفعش تكون أكبر من مبلغ السحب.',
+  [ErrorCode.WALLET_OP_NOTE_INVALID]:
+    'الملاحظة أو السبب طويل زيادة عن اللزوم.',
+  [ErrorCode.WALLET_OP_NOT_FOUND]:
+    'العملية دي مش موجودة.',
+  [ErrorCode.WALLET_OP_ALREADY_VOIDED]:
+    'العملية دي اتلغت قبل كده بالفعل.',
+  [ErrorCode.WALLET_VOID_REASON_REQUIRED]:
+    'اكتب سبب إلغاء العملية الأول.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

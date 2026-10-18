@@ -31,4 +31,6 @@ pub mod settings;
 pub mod shift;
 pub mod supplier;
 pub mod unit;
+pub mod wallet;
+
 

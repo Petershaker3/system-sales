@@ -2839,6 +2839,80 @@ fn shift_domain_and_seller_close_setting_are_validated() {
     assert_eq!(totals.net_profit_minor, 66_000);
 }
 
+#[test]
+fn wallet_domain_and_service_fee_settings_are_validated() {
+    use mobile_shop_system_lib::domain::settings::{Appearance, AppearanceKey};
+    use mobile_shop_system_lib::domain::shift::ShiftTotals;
+    use mobile_shop_system_lib::domain::wallet::{
+        compute_auto_wallet_fee_minor, validate_wallet_color, WalletAlertState, WalletName,
+        WalletOpKind, WalletPayMethod, WalletVia,
+    };
+
+    let mut a = Appearance::default();
+    assert_eq!(a.service_fee_mode, "manual");
+    assert_eq!(a.service_fee_pct, "1");
+    assert_eq!(a.service_fee_min, "5");
+    assert_eq!(a.bill_fee, "5");
+    assert!(AppearanceKey::ServiceFeeMode.is_catalog_choice());
+    assert!(AppearanceKey::ServiceFeePct.is_catalog_choice());
+    assert!(AppearanceKey::ServiceFeeMin.is_catalog_choice());
+    assert!(AppearanceKey::BillFee.is_catalog_choice());
+    assert!(a.set("ui.service_fee_mode", "auto").is_ok());
+    assert_eq!(a.service_fee_mode, "auto");
+    assert!(a.set("ui.service_fee_mode", "invalid").is_err());
+    assert!(a.set("ui.service_fee_pct", "2").is_ok());
+    assert!(a.set("ui.service_fee_min", "10").is_ok());
+    assert!(a.set("ui.bill_fee", "7").is_ok());
+
+    assert_eq!(
+        WalletName::new("  فودافون كاش  ").unwrap().as_str(),
+        "فودافون كاش"
+    );
+    assert!(WalletName::new("   ").is_err());
+    assert_eq!(validate_wallet_color("#E60000").unwrap(), "#e60000");
+    assert!(validate_wallet_color("red").is_err());
+    assert_eq!(
+        WalletPayMethod::parse_optional(Some("vf")).unwrap(),
+        Some(WalletPayMethod::Vf)
+    );
+    assert_eq!(WalletVia::parse("drawer").unwrap(), WalletVia::Drawer);
+    assert!(WalletOpKind::Deposit.is_customer_service());
+    assert!(!WalletOpKind::Move.is_customer_service());
+    assert_eq!(compute_auto_wallet_fee_minor(100_000, 1, 500), 1_000);
+    assert_eq!(compute_auto_wallet_fee_minor(20_000, 1, 500), 500);
+    assert_eq!(
+        WalletAlertState::compute(250_000, 300_000, 9_000_000),
+        WalletAlertState::Low
+    );
+
+    let totals = ShiftTotals::compute_with_services(
+        100_000, // opening: 1,000 EGP
+        150_000, // cash sales: 1,500 EGP
+        0,
+        0,
+        0,
+        0,
+        0,
+        150_000,
+        100_000,
+        2,
+        0,
+        3,       // 3 services
+        2_500,   // 25 EGP service fees
+        101_000, // 1,010 EGP services cash in
+        49_000,  // 490 EGP services cash out
+        -20_000, // 200 EGP wallet topup from drawer
+        0,
+        0,
+        5_000, // 50 EGP expenses
+    );
+    // Expected cash = 1000 + 1500 + 1010 - 490 - 200 - 50 = 2,770 EGP (277_000 minor)
+    assert_eq!(totals.expected_cash_minor, 277_000);
+    // Gross profit = 500 EGP; net = 500 + 25 - 50 = 475 EGP (47_500 minor)
+    assert_eq!(totals.net_profit_minor, 47_500);
+}
+
+
 
 
 

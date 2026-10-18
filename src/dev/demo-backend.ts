@@ -289,6 +289,10 @@ const appearance = {
   warrantyUsed: '1',
   warrantyItem: '0',
   sellerCanCloseShift: 'off',
+  serviceFeeMode: 'manual',
+  serviceFeePct: '1',
+  serviceFeeMin: '5',
+  billFee: '5',
 };
 let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
@@ -430,6 +434,280 @@ const shifts: DemoShift[] = [
 const expenses: DemoExpense[] = [];
 const cashMovements: DemoCashMovement[] = [];
 
+interface DemoWallet {
+  id: string;
+  name: string;
+  number: string;
+  color: string;
+  openingBalanceMinor: number;
+  minAlertMinor: number;
+  maxLimitMinor: number;
+  dailyLimitMinor: number;
+  payMethod: 'vf' | 'instapay' | null;
+  sort: number;
+  hidden: boolean;
+  isCustom: boolean;
+  createdAt: number;
+}
+
+interface DemoWalletOp {
+  id: string;
+  walletId: string | null;
+  toWalletId: string | null;
+  kind:
+    | 'deposit'
+    | 'withdraw'
+    | 'topup'
+    | 'unload'
+    | 'move'
+    | 'adjust'
+    | 'bill'
+    | 'card'
+    | 'software';
+  via: 'drawer' | 'out' | null;
+  serviceType: string | null;
+  reference: string | null;
+  amountMinor: number;
+  feeMinor: number;
+  note: string | null;
+  createdBy: string;
+  createdAt: number;
+  voidedBy: string | null;
+  voidedAt: number | null;
+  voidReason: string | null;
+}
+
+const demoWallets: DemoWallet[] = [
+  {
+    id: 'vf',
+    name: 'فودافون كاش',
+    number: '01001234567',
+    color: '#e60000',
+    openingBalanceMinor: 1_500_000,
+    minAlertMinor: 300_000,
+    maxLimitMinor: 9_000_000,
+    dailyLimitMinor: 6_000_000,
+    payMethod: 'vf',
+    sort: 1,
+    hidden: false,
+    isCustom: false,
+    createdAt: 1,
+  },
+  {
+    id: 'et',
+    name: 'اتصالات كاش',
+    number: '01112345678',
+    color: '#5cb85c',
+    openingBalanceMinor: 500_000,
+    minAlertMinor: 250_000,
+    maxLimitMinor: 9_000_000,
+    dailyLimitMinor: 6_000_000,
+    payMethod: null,
+    sort: 2,
+    hidden: false,
+    isCustom: false,
+    createdAt: 1,
+  },
+  {
+    id: 'or',
+    name: 'أورنج كاش',
+    number: '01223456789',
+    color: '#ff7900',
+    openingBalanceMinor: 600_000,
+    minAlertMinor: 200_000,
+    maxLimitMinor: 9_000_000,
+    dailyLimitMinor: 6_000_000,
+    payMethod: null,
+    sort: 3,
+    hidden: false,
+    isCustom: false,
+    createdAt: 1,
+  },
+  {
+    id: 'we',
+    name: 'وي باي',
+    number: '01554567890',
+    color: '#6b2fb5',
+    openingBalanceMinor: 250_000,
+    minAlertMinor: 150_000,
+    maxLimitMinor: 9_000_000,
+    dailyLimitMinor: 6_000_000,
+    payMethod: null,
+    sort: 4,
+    hidden: false,
+    isCustom: false,
+    createdAt: 1,
+  },
+  {
+    id: 'ip',
+    name: 'إنستاباي',
+    number: 'alnoor@instapay',
+    color: '#6b3fa0',
+    openingBalanceMinor: 2_000_000,
+    minAlertMinor: 0,
+    maxLimitMinor: 0,
+    dailyLimitMinor: 12_000_000,
+    payMethod: 'instapay',
+    sort: 5,
+    hidden: false,
+    isCustom: false,
+    createdAt: 1,
+  },
+];
+
+const demoWalletOps: DemoWalletOp[] = [];
+
+function demoOpDrawerDelta(op: DemoWalletOp): number {
+  if (op.voidedAt !== null) return 0;
+  switch (op.kind) {
+    case 'deposit':
+    case 'bill':
+    case 'card':
+      return op.amountMinor + op.feeMinor;
+    case 'software':
+      return op.feeMinor;
+    case 'withdraw':
+      return -(op.amountMinor - op.feeMinor);
+    case 'topup':
+      return op.via === 'drawer' ? -op.amountMinor : 0;
+    case 'unload':
+      return op.via === 'drawer' ? op.amountMinor : 0;
+    default:
+      return 0;
+  }
+}
+
+function demoComputeWalletBalanceMinor(w: DemoWallet): number {
+  let bal = w.openingBalanceMinor;
+  for (const op of demoWalletOps) {
+    if (op.voidedAt !== null) continue;
+    if (op.walletId === w.id) {
+      if (op.kind === 'deposit' || op.kind === 'unload' || op.kind === 'move') {
+        bal -= op.amountMinor;
+      } else if (op.kind === 'withdraw' || op.kind === 'topup' || op.kind === 'adjust') {
+        bal += op.amountMinor;
+      }
+    }
+    if (op.toWalletId === w.id && op.kind === 'move') {
+      bal += op.amountMinor;
+    }
+  }
+  if (w.payMethod) {
+    for (const s of sales) {
+      for (const p of s.payments) {
+        if (p.method === w.payMethod) {
+          bal += p.amountMinor;
+        }
+      }
+    }
+  }
+  return bal;
+}
+
+function demoWalletState(
+  balanceMinor: number,
+  minAlertMinor: number,
+  maxLimitMinor: number
+): 'ok' | 'low' | 'near' | 'over' | 'neg' {
+  if (balanceMinor < 0) return 'neg';
+  if (maxLimitMinor > 0 && balanceMinor > maxLimitMinor) return 'over';
+  if (maxLimitMinor > 0 && balanceMinor >= Math.floor((maxLimitMinor * 9) / 10)) {
+    return 'near';
+  }
+  if (minAlertMinor > 0 && balanceMinor < minAlertMinor) return 'low';
+  return 'ok';
+}
+
+function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
+  let opsCount = 0;
+  let depCount = 0;
+  let depMinor = 0;
+  let witCount = 0;
+  let witMinor = 0;
+  let feesMinor = 0;
+  let usedMinor = 0;
+  for (const op of demoWalletOps) {
+    if (op.voidedAt !== null) continue;
+    if (op.walletId !== w.id) continue;
+    if (op.createdAt < fromMs || op.createdAt > toMs) continue;
+    if (op.kind === 'deposit') {
+      opsCount += 1;
+      depCount += 1;
+      depMinor += op.amountMinor;
+      feesMinor += op.feeMinor;
+      usedMinor += op.amountMinor;
+    } else if (op.kind === 'withdraw') {
+      opsCount += 1;
+      witCount += 1;
+      witMinor += op.amountMinor;
+      feesMinor += op.feeMinor;
+      usedMinor += op.amountMinor;
+    }
+  }
+  let salesInMinor = 0;
+  if (w.payMethod) {
+    for (const s of sales) {
+      if (s.occurredAt < fromMs || s.occurredAt > toMs) continue;
+      for (const p of s.payments) {
+        if (p.method === w.payMethod) {
+          salesInMinor += p.amountMinor;
+        }
+      }
+    }
+  }
+  return {
+    walletId: w.id,
+    opsCount,
+    depCount,
+    depMinor,
+    witCount,
+    witMinor,
+    feesMinor,
+    usedMinor,
+    salesInMinor,
+  };
+}
+
+function demoServicesWindowTotals(fromMs: number, toMs: number) {
+  let servicesCount = 0;
+  let servicesFeeMinor = 0;
+  let servicesCashInMinor = 0;
+  let servicesCashOutMinor = 0;
+  let walletDrawerNetMinor = 0;
+  for (const op of demoWalletOps) {
+    if (op.voidedAt !== null) continue;
+    if (op.createdAt < fromMs || op.createdAt > toMs) continue;
+    if (
+      op.kind === 'deposit' ||
+      op.kind === 'bill' ||
+      op.kind === 'card'
+    ) {
+      servicesCount += 1;
+      servicesFeeMinor += op.feeMinor;
+      servicesCashInMinor += op.amountMinor + op.feeMinor;
+    } else if (op.kind === 'software') {
+      servicesCount += 1;
+      servicesFeeMinor += op.feeMinor;
+      servicesCashInMinor += op.feeMinor;
+    } else if (op.kind === 'withdraw') {
+      servicesCount += 1;
+      servicesFeeMinor += op.feeMinor;
+      servicesCashOutMinor += op.amountMinor - op.feeMinor;
+    } else if (op.kind === 'topup' && op.via === 'drawer') {
+      walletDrawerNetMinor -= op.amountMinor;
+    } else if (op.kind === 'unload' && op.via === 'drawer') {
+      walletDrawerNetMinor += op.amountMinor;
+    }
+  }
+  return {
+    servicesCount,
+    servicesFeeMinor,
+    servicesCashInMinor,
+    servicesCashOutMinor,
+    walletDrawerNetMinor,
+  };
+}
+
 function buildDemoShiftSummary(shift: DemoShift) {
   const fromMs = shift.openedAt;
   const toMs = shift.closedAt ?? Number.MAX_SAFE_INTEGER;
@@ -464,6 +742,8 @@ function buildDemoShiftSummary(shift: DemoShift) {
     )
     .reduce((sum, e) => sum + Math.abs(e.amountMinor), 0);
 
+  const svc = demoServicesWindowTotals(fromMs, toMs);
+
   const shiftExpenses = expenses
     .filter((e) => e.shiftId === shift.id)
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -483,11 +763,14 @@ function buildDemoShiftSummary(shift: DemoShift) {
     shift.openingCashMinor +
     cashSalesMinor +
     customerCashInMinor +
+    svc.servicesCashInMinor -
+    svc.servicesCashOutMinor +
+    svc.walletDrawerNetMinor +
     cashInMinor -
     expensesMinor -
     ownerDrawMinor;
   const grossProfitMinor = salesTotalMinor - salesCostMinor;
-  const netProfitMinor = grossProfitMinor - expensesMinor;
+  const netProfitMinor = grossProfitMinor + svc.servicesFeeMinor - expensesMinor;
 
   return {
     shift: { ...shift },
@@ -503,6 +786,11 @@ function buildDemoShiftSummary(shift: DemoShift) {
       salesCostMinor,
       salesCount: shiftSales.length,
       customerCashInMinor,
+      servicesCount: svc.servicesCount,
+      servicesFeeMinor: svc.servicesFeeMinor,
+      servicesCashInMinor: svc.servicesCashInMinor,
+      servicesCashOutMinor: svc.servicesCashOutMinor,
+      walletDrawerNetMinor: svc.walletDrawerNetMinor,
       cashInMinor,
       ownerDrawMinor,
       expensesMinor,
@@ -725,6 +1013,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.warranty_used': 'warrantyUsed',
       'ui.warranty_item': 'warrantyItem',
       'ui.seller_can_close_shift': 'sellerCanCloseShift',
+      'ui.service_fee_mode': 'serviceFeeMode',
+      'ui.service_fee_pct': 'serviceFeePct',
+      'ui.service_fee_min': 'serviceFeeMin',
+      'ui.bill_fee': 'billFee',
     };
     const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
@@ -744,7 +1036,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
       key === 'warrantyNew' ||
       key === 'warrantyUsed' ||
       key === 'warrantyItem' ||
-      key === 'sellerCanCloseShift'
+      key === 'sellerCanCloseShift' ||
+      key === 'serviceFeeMode' ||
+      key === 'serviceFeePct' ||
+      key === 'serviceFeeMin' ||
+      key === 'billFee'
     )
       requireManager(false);
     else requireManager(true);
@@ -763,6 +1059,19 @@ const handlers: Record<string, (args: Args) => unknown> = {
       if (!/^\d{1,2}$/.test(val)) fail('SETTING_VALUE_INVALID');
       const n = Number(val);
       if (!Number.isInteger(n) || n < 0 || n > 60) fail('SETTING_VALUE_INVALID');
+      appearance[key] = String(n);
+    } else if (key === 'serviceFeeMode') {
+      const lower = val.toLowerCase();
+      if (!['manual', 'auto'].includes(lower)) fail('SETTING_VALUE_INVALID');
+      appearance[key] = lower;
+    } else if (
+      key === 'serviceFeePct' ||
+      key === 'serviceFeeMin' ||
+      key === 'billFee'
+    ) {
+      if (!/^\d{1,4}$/.test(val)) fail('SETTING_VALUE_INVALID');
+      const n = Number(val);
+      if (!Number.isInteger(n) || n < 0) fail('SETTING_VALUE_INVALID');
       appearance[key] = String(n);
     } else if (
       key === 'shopName' ||
@@ -1697,6 +2006,296 @@ const handlers: Record<string, (args: Args) => unknown> = {
     open.closeNote = closeNote;
     open.closedBy = user.id;
     return buildDemoShiftSummary(open);
+  },
+
+  // shop wallets and services ledger (Plan item 1.10, ADR-025)
+  wallets_overview: (args) => {
+    requireUser();
+    const todayFromMs = Math.max(0, numArg(args, 'todayFromMs'));
+    const periodFromMs = Math.max(0, numArg(args, 'periodFromMs'));
+    const periodToMs = Math.max(0, numArg(args, 'periodToMs'));
+    const walletId = str(args, 'walletId').trim() || null;
+    const limit = Math.min(500, Math.max(1, numArg(args, 'limit') || 100));
+
+    const sortedWallets = [...demoWallets].sort(
+      (a, b) => a.sort - b.sort || a.createdAt - b.createdAt
+    );
+    const wallets = sortedWallets.map((w) => {
+      const balanceMinor = demoComputeWalletBalanceMinor(w);
+      return {
+        wallet: { ...w },
+        balanceMinor,
+        state: demoWalletState(balanceMinor, w.minAlertMinor, w.maxLimitMinor),
+        today: demoWalletPeriodStats(w, todayFromMs, Number.MAX_SAFE_INTEGER),
+        period: demoWalletPeriodStats(w, periodFromMs, periodToMs),
+      };
+    });
+
+    const ops = demoWalletOps
+      .filter((op) => {
+        if (op.createdAt < periodFromMs || op.createdAt > periodToMs) return false;
+        if (walletId && op.walletId !== walletId && op.toWalletId !== walletId) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit)
+      .map((op) => ({
+        ...op,
+        drawerDeltaMinor: demoOpDrawerDelta(op),
+      }));
+
+    return {
+      wallets,
+      ops,
+      servicesWindow: demoServicesWindowTotals(periodFromMs, periodToMs),
+    };
+  },
+  record_wallet_op: (args) => {
+    const user = requireUser();
+    const walletId = str(args, 'walletId').trim();
+    const kind = str(args, 'kind').trim();
+    if (kind !== 'deposit' && kind !== 'withdraw') fail('WALLET_OP_KIND_INVALID');
+    const typedKind: 'deposit' | 'withdraw' = kind === 'deposit' ? 'deposit' : 'withdraw';
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('WALLET_OP_AMOUNT_INVALID');
+    const feeMinor = numArg(args, 'feeMinor');
+    if (feeMinor < 0) fail('WALLET_OP_FEE_INVALID');
+    if (typedKind === 'withdraw' && feeMinor > amountMinor) {
+      fail('WALLET_OP_FEE_EXCEEDS_AMOUNT');
+    }
+    const w = demoWallets.find((x) => x.id === walletId) ?? fail('WALLET_NOT_FOUND');
+    if (typedKind === 'deposit') {
+      const bal = demoComputeWalletBalanceMinor(w);
+      if (amountMinor > bal) fail('WALLET_INSUFFICIENT_BALANCE');
+    }
+    const op: DemoWalletOp = {
+      id: newId('wop'),
+      walletId: w.id,
+      toWalletId: null,
+      kind: typedKind,
+      via: null,
+      serviceType: null,
+      reference: null,
+      amountMinor,
+      feeMinor,
+      note: str(args, 'note').trim() || null,
+      createdBy: user.id,
+      createdAt: now(),
+      voidedBy: null,
+      voidedAt: null,
+      voidReason: null,
+    };
+    demoWalletOps.push(op);
+    return { ...op, drawerDeltaMinor: demoOpDrawerDelta(op) };
+  },
+  record_service_op: (args) => {
+    const user = requireUser();
+    const kind = str(args, 'kind').trim();
+    if (kind !== 'bill' && kind !== 'card' && kind !== 'software') {
+      fail('WALLET_OP_KIND_INVALID');
+    }
+    const typedKind: 'bill' | 'card' | 'software' =
+      kind === 'bill' ? 'bill' : kind === 'card' ? 'card' : 'software';
+    const serviceType = str(args, 'serviceType').trim();
+    if (!serviceType) fail('WALLET_OP_KIND_INVALID');
+    const reference = str(args, 'reference').trim() || null;
+    const rawAmountMinor = numArg(args, 'amountMinor');
+    const feeMinor = numArg(args, 'feeMinor');
+    if (typedKind === 'software') {
+      if (!(feeMinor > 0)) fail('WALLET_OP_AMOUNT_INVALID');
+    } else {
+      if (!(rawAmountMinor > 0)) fail('WALLET_OP_AMOUNT_INVALID');
+      if (feeMinor < 0) fail('WALLET_OP_FEE_INVALID');
+    }
+    const op: DemoWalletOp = {
+      id: newId('wop'),
+      walletId: null,
+      toWalletId: null,
+      kind: typedKind,
+      via: null,
+      serviceType,
+      reference,
+      amountMinor: typedKind === 'software' ? 0 : rawAmountMinor,
+      feeMinor,
+      note: str(args, 'note').trim() || null,
+      createdBy: user.id,
+      createdAt: now(),
+      voidedBy: null,
+      voidedAt: null,
+      voidReason: null,
+    };
+    demoWalletOps.push(op);
+    return { ...op, drawerDeltaMinor: demoOpDrawerDelta(op) };
+  },
+  record_wallet_movement: (args) => {
+    const user = requireManager();
+    const kind = str(args, 'kind').trim();
+    if (kind !== 'topup' && kind !== 'unload' && kind !== 'move') {
+      fail('WALLET_OP_KIND_INVALID');
+    }
+    const typedKind: 'topup' | 'unload' | 'move' =
+      kind === 'topup' ? 'topup' : kind === 'unload' ? 'unload' : 'move';
+    const walletId = str(args, 'walletId').trim();
+    const w = demoWallets.find((x) => x.id === walletId) ?? fail('WALLET_NOT_FOUND');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('WALLET_OP_AMOUNT_INVALID');
+
+    let toWalletId: string | null = null;
+    let via: 'drawer' | 'out' | null = null;
+    if (typedKind === 'move') {
+      const targetId = str(args, 'toWalletId').trim();
+      const target =
+        demoWallets.find((x) => x.id === targetId) ?? fail('WALLET_NOT_FOUND');
+      if (target.id === w.id) fail('WALLET_OP_KIND_INVALID');
+      if (amountMinor > demoComputeWalletBalanceMinor(w)) {
+        fail('WALLET_INSUFFICIENT_BALANCE');
+      }
+      toWalletId = target.id;
+    } else {
+      const v = str(args, 'via').trim();
+      if (v !== 'drawer' && v !== 'out') fail('WALLET_OP_VIA_INVALID');
+      via = v === 'drawer' ? 'drawer' : 'out';
+      if (typedKind === 'unload' && amountMinor > demoComputeWalletBalanceMinor(w)) {
+        fail('WALLET_INSUFFICIENT_BALANCE');
+      }
+    }
+
+    const op: DemoWalletOp = {
+      id: newId('wop'),
+      walletId: w.id,
+      toWalletId,
+      kind: typedKind,
+      via,
+      serviceType: null,
+      reference: null,
+      amountMinor,
+      feeMinor: 0,
+      note: str(args, 'note').trim() || null,
+      createdBy: user.id,
+      createdAt: now(),
+      voidedBy: null,
+      voidedAt: null,
+      voidReason: null,
+    };
+    demoWalletOps.push(op);
+    return { ...op, drawerDeltaMinor: demoOpDrawerDelta(op) };
+  },
+  reconcile_wallet: (args) => {
+    const user = requireManager();
+    const walletId = str(args, 'walletId').trim();
+    const w = demoWallets.find((x) => x.id === walletId) ?? fail('WALLET_NOT_FOUND');
+    const realBalanceMinor = numArg(args, 'realBalanceMinor');
+    if (realBalanceMinor < 0) fail('WALLET_OP_AMOUNT_INVALID');
+    const expected = demoComputeWalletBalanceMinor(w);
+    const diffMinor = realBalanceMinor - expected;
+    if (diffMinor === 0) return null;
+    const reason = str(args, 'reason').trim();
+    if (!reason) fail('WALLET_VOID_REASON_REQUIRED');
+    const extra = str(args, 'note').trim();
+    const op: DemoWalletOp = {
+      id: newId('wop'),
+      walletId: w.id,
+      toWalletId: null,
+      kind: 'adjust',
+      via: null,
+      serviceType: null,
+      reference: null,
+      amountMinor: diffMinor,
+      feeMinor: 0,
+      note: extra ? `جرد: ${reason}، ${extra}` : `جرد: ${reason}`,
+      createdBy: user.id,
+      createdAt: now(),
+      voidedBy: null,
+      voidedAt: null,
+      voidReason: null,
+    };
+    demoWalletOps.push(op);
+    return { ...op, drawerDeltaMinor: 0 };
+  },
+  void_wallet_op: (args) => {
+    const user = requireManager();
+    const opId = str(args, 'opId').trim();
+    const reason = str(args, 'reason').trim();
+    if (!reason) fail('WALLET_VOID_REASON_REQUIRED');
+    const op = demoWalletOps.find((x) => x.id === opId) ?? fail('WALLET_OP_NOT_FOUND');
+    if (op.voidedAt !== null) fail('WALLET_OP_ALREADY_VOIDED');
+    op.voidedBy = user.id;
+    op.voidedAt = Math.max(now(), op.createdAt);
+    op.voidReason = reason;
+    return { ...op, drawerDeltaMinor: 0 };
+  },
+  create_wallet: (args) => {
+    requireManager();
+    const name = str(args, 'name').trim();
+    if (!name) fail('WALLET_NAME_EMPTY');
+    if (demoWallets.some((w) => w.name === name)) fail('WALLET_NAME_DUPLICATE');
+    const color = str(args, 'color').trim().toLowerCase() || '#0d7377';
+    const number = str(args, 'number').trim();
+    const maxSort = demoWallets.reduce((m, w) => Math.max(m, w.sort), 0);
+    const wallet: DemoWallet = {
+      id: newId('wal'),
+      name,
+      number,
+      color,
+      openingBalanceMinor: 0,
+      minAlertMinor: 0,
+      maxLimitMinor: 0,
+      dailyLimitMinor: 0,
+      payMethod: null,
+      sort: maxSort + 1,
+      hidden: false,
+      isCustom: true,
+      createdAt: now(),
+    };
+    demoWallets.push(wallet);
+    return { ...wallet };
+  },
+  update_wallet: (args) => {
+    requireManager();
+    const walletId = str(args, 'walletId').trim();
+    const w = demoWallets.find((x) => x.id === walletId) ?? fail('WALLET_NOT_FOUND');
+    const name = str(args, 'name').trim();
+    if (!name) fail('WALLET_NAME_EMPTY');
+    if (demoWallets.some((x) => x.id !== w.id && x.name === name)) {
+      fail('WALLET_NAME_DUPLICATE');
+    }
+    const rawPay = str(args, 'payMethod').trim();
+    const payMethod =
+      rawPay === 'vf' || rawPay === 'instapay' ? rawPay : null;
+    if (payMethod) {
+      for (const other of demoWallets) {
+        if (other.id !== w.id && other.payMethod === payMethod) {
+          other.payMethod = null;
+        }
+      }
+    }
+    w.name = name;
+    w.number = str(args, 'number').trim();
+    w.color = str(args, 'color').trim().toLowerCase() || w.color;
+    w.openingBalanceMinor = Math.max(0, numArg(args, 'openingBalanceMinor'));
+    w.minAlertMinor = Math.max(0, numArg(args, 'minAlertMinor'));
+    w.maxLimitMinor = Math.max(0, numArg(args, 'maxLimitMinor'));
+    w.dailyLimitMinor = Math.max(0, numArg(args, 'dailyLimitMinor'));
+    w.payMethod = payMethod;
+    w.sort = numArg(args, 'sort');
+    w.hidden = Boolean(args?.['hidden']);
+    return { ...w };
+  },
+  delete_wallet: (args) => {
+    requireManager();
+    const walletId = str(args, 'walletId').trim();
+    const idx = demoWallets.findIndex((x) => x.id === walletId);
+    if (idx < 0) fail('WALLET_NOT_FOUND');
+    const w = demoWallets[idx] ?? fail('WALLET_NOT_FOUND');
+    if (
+      !w.isCustom ||
+      demoWalletOps.some((op) => op.walletId === w.id || op.toWalletId === w.id)
+    ) {
+      fail('WALLET_DELETE_FORBIDDEN');
+    }
+    demoWallets.splice(idx, 1);
   },
 
   // settings panels

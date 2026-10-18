@@ -114,6 +114,11 @@ pub const SALE_DISCOUNTS: &str = include_str!("0022_sale_discounts.sql");
 /// (`cash_movements`) for Plan item 1.9 (ADR-024).
 pub const SHIFTS_AND_EXPENSES: &str = include_str!("0023_shifts_and_expenses.sql");
 
+/// `0024`: shop wallets (`wallets`) and wallet/service operations ledger
+/// (`wallet_ops`) for Plan item 1.10 (ADR-025).
+pub const WALLETS_AND_SERVICES: &str = include_str!("0024_wallets_and_services.sql");
+
+
 
 
 

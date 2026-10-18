@@ -18,6 +18,7 @@ import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
 import ShopProfileCard from './ShopProfileCard.vue';
+import WalletsSettingsCard from './WalletsSettingsCard.vue';
 </script>
 
 <template>
@@ -32,6 +33,7 @@ import ShopProfileCard from './ShopProfileCard.vue';
     <ProductImagesCard />
     <ImeiModeCard />
     <PaymentMethodsCard />
+    <WalletsSettingsCard />
     <DiscountLimitCard />
     <CategoriesCard />
     <BrandsCard />

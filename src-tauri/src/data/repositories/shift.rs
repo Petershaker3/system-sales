@@ -309,7 +309,47 @@ pub async fn compute_shift_totals(
     let cash_in_minor: i64 = mov_row.try_get("cash_in_minor")?;
     let owner_draw_minor: i64 = mov_row.try_get("owner_draw_minor")?;
 
-    Ok(ShiftTotals::compute(
+    let svc_row = sqlx::query(
+        "SELECT
+            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN 1 ELSE 0 END), 0) AS services_count,
+            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN fee_minor ELSE 0 END), 0) AS services_fee_minor,
+            COALESCE(SUM(
+                CASE
+                    WHEN kind IN ('deposit', 'bill', 'card') THEN amount_minor + fee_minor
+                    WHEN kind = 'software' THEN fee_minor
+                    ELSE 0
+                END
+            ), 0) AS services_cash_in_minor,
+            COALESCE(SUM(
+                CASE
+                    WHEN kind = 'withdraw' THEN amount_minor - fee_minor
+                    ELSE 0
+                END
+            ), 0) AS services_cash_out_minor,
+            COALESCE(SUM(
+                CASE
+                    WHEN kind = 'topup' AND via = 'drawer' THEN -amount_minor
+                    WHEN kind = 'unload' AND via = 'drawer' THEN amount_minor
+                    ELSE 0
+                END
+            ), 0) AS wallet_drawer_net_minor
+         FROM wallet_ops
+         WHERE voided_at IS NULL
+           AND created_at >= ?1
+           AND created_at <= ?2",
+    )
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let services_count_raw: i64 = svc_row.try_get("services_count")?;
+    let services_fee_minor: i64 = svc_row.try_get("services_fee_minor")?;
+    let services_cash_in_minor: i64 = svc_row.try_get("services_cash_in_minor")?;
+    let services_cash_out_minor: i64 = svc_row.try_get("services_cash_out_minor")?;
+    let wallet_drawer_net_minor: i64 = svc_row.try_get("wallet_drawer_net_minor")?;
+
+    Ok(ShiftTotals::compute_with_services(
         shift.opening_cash.as_minor(),
         cash_sales_minor,
         vf_sales_minor,
@@ -321,6 +361,11 @@ pub async fn compute_shift_totals(
         sales_cost_minor,
         sales_count,
         customer_cash_in_minor,
+        services_count_raw.max(0) as u64,
+        services_fee_minor,
+        services_cash_in_minor,
+        services_cash_out_minor,
+        wallet_drawer_net_minor,
         cash_in_minor,
         owner_draw_minor,
         expenses_minor,

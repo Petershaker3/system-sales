@@ -164,3 +164,47 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .vr b { font-size: .92rem; line-height: 1.3; }
 .vr small { font-size: .78rem; }
 
+/* ===== المحافظ (دفتر أرصدة المحل وحركاتها — Plan 1.10 / ADR-025) ===== */
+.wl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.wl-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: var(--r-l);
+  border: 1px solid var(--border); background: var(--surface); text-align: start; cursor: pointer;
+}
+.wl-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.wl-card.on { border-color: var(--accent-text); outline: 1.5px solid var(--accent-text); outline-offset: -1px; }
+.wl-card.low, .wl-card.near { border-color: var(--warn); }
+.wl-card.over, .wl-card.neg { border-color: var(--danger); }
+.wl-head { display: flex; align-items: center; gap: 8px; }
+.wl-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.wl-head b { font-size: .95rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wl-bal { font-size: 1.45rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; }
+.wl-meter { height: 5px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.wl-meter i { display: block; height: 100%; border-radius: 99px; }
+.wl-num { font-size: .78rem; }
+.wl-stats { display: flex; justify-content: space-between; gap: 8px; font-size: .78rem; color: var(--muted); padding-top: 4px; border-top: 1px solid var(--border); }
+.wl-summary tbody tr { cursor: pointer; }
+.wl-summary tbody tr.on td { background: var(--accent-weak); }
+.wl-summary tfoot td { border-top: 1.5px solid var(--border-strong); background: var(--surface-2); }
+.wl-log tr.void td { opacity: .55; }
+.wl-log tr.void td:not(:last-child) { text-decoration: line-through; }
+.wl-kind { display: flex; align-items: center; gap: 8px; }
+.wl-kind svg.i { color: var(--muted); flex: none; }
+.wl-kind b { display: block; font-size: .88rem; line-height: 1.2; }
+.wl-kind small { display: block; font-size: .76rem; }
+.wl-pay-to {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--r-m);
+  background: var(--accent-weak); color: var(--accent-text); font-size: .9rem;
+}
+.wl-pay-to b { font-size: 1.05rem; letter-spacing: .02em; }
+.wm-wallets { display: grid; gap: 10px; }
+.wm-wal { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface-2); }
+.wm-wal.off { opacity: .55; }
+.wm-wal-top { display: flex; align-items: center; gap: 8px; }
+.wm-wal-name { flex: 1; height: 36px; min-width: 120px; border: 1px solid var(--border-strong); border-radius: var(--r-s); padding: 0 10px; background: var(--surface); font-weight: 700; color: var(--text); font: inherit; }
+.wm-wal-name:focus { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
+.wm-wal-bal { font-size: .86rem; color: var(--text-2); padding: 0 6px; white-space: nowrap; }
+.wm-wal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.wm-wal-grid .lbl { font-size: .78rem; }
+.wm-wal-grid .in { height: 38px; }
+
+

@@ -78,6 +78,18 @@ export function formatShiftWhatsAppReport(
   if (t.customerCashInMinor > 0) {
     lines.push(`+ تحصيل آجل كاش: ${egp(t.customerCashInMinor)}`);
   }
+  if (t.servicesCashInMinor > 0) {
+    lines.push(`+ خدمات ومحافظ داخل الدرج: ${egp(t.servicesCashInMinor)}`);
+  }
+  if (t.servicesCashOutMinor > 0) {
+    lines.push(`− سحب محافظ خارج من الدرج: ${egp(t.servicesCashOutMinor)}`);
+  }
+  if (t.walletDrawerNetMinor !== 0) {
+    const sign = t.walletDrawerNetMinor > 0 ? '+' : '−';
+    lines.push(
+      `${sign} شحن وتفريغ المحافظ من الدرج: ${egp(Math.abs(t.walletDrawerNetMinor))}`
+    );
+  }
   if (t.cashInMinor > 0) {
     lines.push(`+ إيداع فكة بالدرج: ${egp(t.cashInMinor)}`);
   }
@@ -100,6 +112,9 @@ export function formatShiftWhatsAppReport(
   }
 
   lines.push(`إجمالي المبيعات (${t.salesCount} فاتورة): ${egp(t.salesTotalMinor)}`);
+  if (t.servicesCount > 0 || t.servicesFeeMinor > 0) {
+    lines.push(`عمولات الخدمات (${t.servicesCount} عملية): ${egp(t.servicesFeeMinor)}`);
+  }
   lines.push(`صافي الربح بعد المصروفات: ${egp(t.netProfitMinor)}`);
 
   const cleanNote = closeNote?.trim();

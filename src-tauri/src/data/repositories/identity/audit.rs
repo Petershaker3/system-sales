@@ -145,6 +145,11 @@ pub const EXPENSE_RECORDED: &str = "expense_recorded";
 pub const CASH_MOVEMENT_RECORDED: &str = "cash_movement_recorded";
 pub const SHIFT_CLOSED: &str = "shift_closed";
 
+/// Wallets and services ledger (Plan item 1.10, ADR-025).
+pub const WALLET_CHANGED: &str = "wallet_changed";
+pub const WALLET_OP_RECORDED: &str = "wallet_op_recorded";
+pub const WALLET_OP_VOIDED: &str = "wallet_op_voided";
+
 /// Settings, and the retired Pattern.
 ///
 /// The Pattern was replaced by the owner's PIN approval (ADR-017 §3) and nothing

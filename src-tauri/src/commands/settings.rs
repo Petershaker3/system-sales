@@ -106,6 +106,10 @@ pub struct AppearanceDto {
     pub warranty_used: String,
     pub warranty_item: String,
     pub seller_can_close_shift: String,
+    pub service_fee_mode: String,
+    pub service_fee_pct: String,
+    pub service_fee_min: String,
+    pub bill_fee: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -133,6 +137,10 @@ impl From<Appearance> for AppearanceDto {
             warranty_used: a.warranty_used,
             warranty_item: a.warranty_item,
             seller_can_close_shift: a.seller_can_close_shift,
+            service_fee_mode: a.service_fee_mode,
+            service_fee_pct: a.service_fee_pct,
+            service_fee_min: a.service_fee_min,
+            bill_fee: a.bill_fee,
         }
     }
 }

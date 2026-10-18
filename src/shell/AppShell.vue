@@ -30,6 +30,7 @@ import PinPad from '../ui/PinPad.vue';
 import { toast } from '../ui/toast';
 import PosScreen from '../screens/pos/PosScreen.vue';
 import SalesScreen from '../screens/sales/SalesScreen.vue';
+import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
@@ -366,8 +367,18 @@ async function switchTheme(): Promise<void> {
       </header>
 
       <div class="content">
-        <PosScreen v-if="screen === 'pos'" :session="session" @go="screen = $event" />
+        <PosScreen
+          v-if="screen === 'pos'"
+          :session="session"
+          @go="screen = $event"
+          @shift-changed="refreshShiftState"
+        />
         <SalesScreen v-else-if="screen === 'sales'" />
+        <WalletsScreen
+          v-else-if="screen === 'wallets'"
+          :session="session"
+          @changed="refreshShiftState"
+        />
         <StoreScreen v-else-if="screen === 'store'" />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>

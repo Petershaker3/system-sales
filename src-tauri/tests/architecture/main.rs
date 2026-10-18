@@ -2814,3 +2814,78 @@ fn shift_slice_preserves_layer_and_schema_invariants() {
     }
 }
 
+const WALLETS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0024_wallets_and_services.sql");
+const WALLET_DOMAIN: &str = include_str!("../../src/domain/wallet.rs");
+const WALLET_SERVICE: &str = include_str!("../../src/services/wallet.rs");
+const WALLET_COMMANDS: &str = include_str!("../../src/commands/wallet.rs");
+
+#[test]
+fn wallet_slice_preserves_layer_and_schema_invariants() {
+    let sql = sql_only(WALLETS_MIGRATION);
+    for required in [
+        "create table wallets",
+        "create unique index idx_wallets_pay_method on wallets(pay_method) where pay_method is not null",
+        "create table wallet_ops",
+        "create trigger wallets_no_delete_default_or_used",
+        "create trigger wallet_ops_no_delete",
+        "create trigger wallet_ops_only_void_transition",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0024_wallets_and_services.sql must contain `{required}`"
+        );
+    }
+
+    let domain = code_only(WALLET_DOMAIN);
+    for forbidden in ["tauri", "sqlx", "SqlitePool", "keyring"] {
+        assert!(
+            !domain.contains(forbidden),
+            "domain/wallet.rs must not reference `{forbidden}`"
+        );
+    }
+
+    let service = code_only(WALLET_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden),
+            "services/wallet.rs must delegate SQL to repositories (`{forbidden}`)"
+        );
+    }
+
+    let commands = code_only(WALLET_COMMANDS);
+    let params = command_parameters(&commands);
+    for forbidden in [
+        "token",
+        "user_id",
+        "userid",
+        "role",
+        "created_by",
+        "updated_by",
+        "actor",
+        "assurance",
+        "session",
+    ] {
+        assert!(
+            !params.iter().any(|p| p == forbidden),
+            "commands/wallet.rs must not accept `{forbidden}`; found {params:?}"
+        );
+    }
+
+    let lib = code_only(LIB);
+    for command in [
+        "commands::wallet::wallets_overview",
+        "commands::wallet::record_wallet_op",
+        "commands::wallet::record_service_op",
+        "commands::wallet::record_wallet_movement",
+        "commands::wallet::reconcile_wallet",
+        "commands::wallet::void_wallet_op",
+        "commands::wallet::create_wallet",
+        "commands::wallet::update_wallet",
+        "commands::wallet::delete_wallet",
+    ] {
+        assert!(lib.contains(command), "lib.rs must register `{command}`");
+    }
+}
+
+

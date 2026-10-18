@@ -82,6 +82,10 @@ pub async fn update(
         AppearanceKey::WarrantyUsed => validated.warranty_used,
         AppearanceKey::WarrantyItem => validated.warranty_item,
         AppearanceKey::SellerCanCloseShift => validated.seller_can_close_shift,
+        AppearanceKey::ServiceFeeMode => validated.service_fee_mode,
+        AppearanceKey::ServiceFeePct => validated.service_fee_pct,
+        AppearanceKey::ServiceFeeMin => validated.service_fee_min,
+        AppearanceKey::BillFee => validated.bill_fee,
     };
     let now = Timestamp::now();
 

@@ -275,7 +275,7 @@ pub struct CashMovementRecord {
     pub created_at: Timestamp,
 }
 
-/// Computed financial and drawer summary for a shift (`ADR-024`, `PLAN.md` §12).
+/// Computed financial and drawer summary for a shift (`ADR-024`, `ADR-025`, `PLAN.md` §12).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShiftTotals {
     pub opening_cash_minor: i64,
@@ -289,6 +289,11 @@ pub struct ShiftTotals {
     pub sales_cost_minor: i64,
     pub sales_count: u64,
     pub customer_cash_in_minor: i64,
+    pub services_count: u64,
+    pub services_fee_minor: i64,
+    pub services_cash_in_minor: i64,
+    pub services_cash_out_minor: i64,
+    pub wallet_drawer_net_minor: i64,
     pub cash_in_minor: i64,
     pub owner_draw_minor: i64,
     pub expenses_minor: i64,
@@ -316,14 +321,63 @@ impl ShiftTotals {
         owner_draw_minor: i64,
         expenses_minor: i64,
     ) -> Self {
+        Self::compute_with_services(
+            opening_cash_minor,
+            cash_sales_minor,
+            vf_sales_minor,
+            instapay_sales_minor,
+            card_sales_minor,
+            install_sales_minor,
+            credit_sales_minor,
+            sales_total_minor,
+            sales_cost_minor,
+            sales_count,
+            customer_cash_in_minor,
+            0,
+            0,
+            0,
+            0,
+            0,
+            cash_in_minor,
+            owner_draw_minor,
+            expenses_minor,
+        )
+    }
+
+    /// Compute expected cash in drawer and gross/net profit including service and wallet-drawer figures.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_with_services(
+        opening_cash_minor: i64,
+        cash_sales_minor: i64,
+        vf_sales_minor: i64,
+        instapay_sales_minor: i64,
+        card_sales_minor: i64,
+        install_sales_minor: i64,
+        credit_sales_minor: i64,
+        sales_total_minor: i64,
+        sales_cost_minor: i64,
+        sales_count: u64,
+        customer_cash_in_minor: i64,
+        services_count: u64,
+        services_fee_minor: i64,
+        services_cash_in_minor: i64,
+        services_cash_out_minor: i64,
+        wallet_drawer_net_minor: i64,
+        cash_in_minor: i64,
+        owner_draw_minor: i64,
+        expenses_minor: i64,
+    ) -> Self {
         let expected_cash_minor = opening_cash_minor
             + cash_sales_minor
             + customer_cash_in_minor
+            + services_cash_in_minor
+            - services_cash_out_minor
+            + wallet_drawer_net_minor
             + cash_in_minor
             - expenses_minor
             - owner_draw_minor;
         let gross_profit_minor = sales_total_minor - sales_cost_minor;
-        let net_profit_minor = gross_profit_minor - expenses_minor;
+        let net_profit_minor = gross_profit_minor + services_fee_minor - expenses_minor;
         Self {
             opening_cash_minor,
             cash_sales_minor,
@@ -336,6 +390,11 @@ impl ShiftTotals {
             sales_cost_minor,
             sales_count,
             customer_cash_in_minor,
+            services_count,
+            services_fee_minor,
+            services_cash_in_minor,
+            services_cash_out_minor,
+            wallet_drawer_net_minor,
             cash_in_minor,
             owner_draw_minor,
             expenses_minor,

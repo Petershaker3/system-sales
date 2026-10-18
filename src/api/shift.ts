@@ -35,6 +35,11 @@ export interface ShiftTotals {
   readonly salesCostMinor: number;
   readonly salesCount: number;
   readonly customerCashInMinor: number;
+  readonly servicesCount: number;
+  readonly servicesFeeMinor: number;
+  readonly servicesCashInMinor: number;
+  readonly servicesCashOutMinor: number;
+  readonly walletDrawerNetMinor: number;
   readonly cashInMinor: number;
   readonly ownerDrawMinor: number;
   readonly expensesMinor: number;

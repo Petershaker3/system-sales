@@ -1462,6 +1462,118 @@ check(
   (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة')
 );
 
+// --- Plan item 1.10 (ADR-025): Quick Services (F9), Wallets screen, and Wallets/Commission settings ---
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('[data-open-services]', { timeout: 3000 });
+await page.click('[data-open-services]');
+await page.waitForSelector('[data-services-modal]', { timeout: 3000 });
+await sleep(150);
+check(
+  'Quick Services modal (F9) opens from POS with 4 tabs (محافظ · كروت شحن · فواتير · سوفت وير) and no customer phone input',
+  (await count('[data-svc-tab]')) === 4 &&
+    (await count('[data-svc-wallet]')) === 5 &&
+    (await count('#svc-phone')) === 0
+);
+
+// In manual commission mode (default), submitting a deposit without typing commission blocks and focuses #svc-fee
+await page.type('[data-svc-amt]', '1000');
+await page.click('[data-svc-wallet-submit]');
+await sleep(150);
+const feeFocused = await page.evaluate(() => document.activeElement?.getAttribute('id') === 'svc-fee');
+check(
+  'In manual fee mode, forgetting the commission blocks submission and focuses #svc-fee',
+  feeFocused && (await count('[data-services-modal]')) === 1
+);
+
+// Type 10 EGP commission and verify live wallet balance & drawer cash preview
+await page.type('[data-svc-fee]', '10');
+await sleep(100);
+check(
+  'Services modal previews wallet balance after deposit and cash collected (amount + fee)',
+  (await text('[data-svc-cash-delta]')).includes('1,010'),
+  await text('[data-svc-cash-delta]')
+);
+await shot('42-services-f9-modal');
+
+await page.click('[data-svc-wallet-submit]');
+await page.waitForSelector('[data-services-modal]', { hidden: true, timeout: 3000 });
+await sleep(200);
+
+// Open F9 again to record an internet bill (200 EGP + 5 EGP fee)
+await page.click('[data-open-services]');
+await page.waitForSelector('[data-services-modal]', { timeout: 3000 });
+await page.click('[data-svc-tab="bills"]');
+await page.waitForSelector('[data-svc-bills-panel]', { timeout: 3000 });
+await page.type('[data-svc-bill-amt]', '200');
+await page.type('[data-svc-bill-acct]', '0223456789');
+await page.type('[data-svc-bill-fee]', '5');
+await page.click('[data-svc-bill-submit]');
+await page.waitForSelector('[data-services-modal]', { hidden: true, timeout: 3000 });
+await sleep(200);
+
+// Navigate to «المحافظ» screen
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wallets-screen]', { timeout: 3000 });
+await sleep(200);
+check(
+  'Wallets screen displays the 5 shop wallet cards, period summary table, and operations log',
+  (await count('[data-wal-card]')) === 5 &&
+    (await count('[data-wal-summary-row]')) === 5 &&
+    (await count('[data-wal-op-row]')) >= 2
+);
+
+// Owner tops up Etisalat Cash (`et`) by 300 EGP from the drawer
+await page.click('[data-wal-open-move]');
+await page.waitForSelector('[data-wallet-move-modal]', { timeout: 3000 });
+await page.click('[data-wm-wal="et"]');
+await page.type('[data-wm-amt]', '300');
+await page.click('[data-wm-submit]');
+await page.waitForSelector('[data-wallet-move-modal]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'Owner wallet top-up increases Etisalat Cash balance from 5,000 to 5,300 EGP',
+  (await text('[data-wal-balance="et"]')).includes('5,300'),
+  await text('[data-wal-balance="et"]')
+);
+
+// Owner voids the last operation with a reason and verifies it remains struck through in the log
+const firstVoidBtn = await page.$('[data-wal-void-op]');
+await firstVoidBtn.click();
+await page.waitForSelector('[data-wallet-void-modal]', { timeout: 3000 });
+await page.type('[data-void-reason]', 'اتكتبت للتجربة');
+await page.click('[data-void-submit]');
+await page.waitForSelector('[data-wallet-void-modal]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'Voided wallet operation remains visible struck-through in the log with its reason',
+  (await count('.wl-log tr.void')) === 1 &&
+    (await text('[data-wal-op-void-tag]')).includes('اتلغت: اتكتبت للتجربة')
+);
+await shot('43-wallets-screen');
+
+// Navigate to «الإعدادات» and verify «محافظ المحل» & «عمولات الخدمات» cards
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
+await sleep(150);
+check(
+  'Settings displays «محافظ المحل» and «عمولات الخدمات» cards',
+  (await count('[data-card="shop-wallets"]')) === 1 &&
+    (await count('[data-card="service-fees"]')) === 1 &&
+    (await count('[data-wal-settings-row]')) === 5
+);
+await page.click('[data-fee-mode="auto"]');
+await sleep(150);
+check(
+  'Switching service fee mode to «محسوبة تلقائي» reveals percentage, min fee, and bill fee inputs',
+  (await count('[data-set-fee-pct]')) === 1 &&
+    (await count('[data-set-fee-min]')) === 1 &&
+    (await count('[data-set-bill-fee]')) === 1
+);
+await shot('44-wallets-settings');
+await page.click('[data-fee-mode="manual"]');
+await sleep(150);
+
+
 
 
 

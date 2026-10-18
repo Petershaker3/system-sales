@@ -7,7 +7,7 @@
 import type { Role } from '../api/identity';
 import type { IconName } from '../ui/icons';
 
-export type ScreenId = 'pos' | 'sales' | 'store' | 'settings';
+export type ScreenId = 'pos' | 'sales' | 'wallets' | 'store' | 'settings';
 
 export interface NavItem {
   readonly id: ScreenId;
@@ -20,6 +20,7 @@ export interface NavItem {
 export const NAV: readonly NavItem[] = [
   { id: 'pos', label: 'البيع', icon: 'shopping-cart', ownerOnly: false },
   { id: 'sales', label: 'المبيعات', icon: 'receipt-text', ownerOnly: true },
+  { id: 'wallets', label: 'المحافظ', icon: 'wallet', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },
 ];
@@ -27,6 +28,7 @@ export const NAV: readonly NavItem[] = [
 export const TITLES: Record<ScreenId, string> = {
   pos: 'البيع',
   sales: 'المبيعات',
+  wallets: 'المحافظ',
   store: 'المخزن',
   settings: 'الإعدادات',
 };

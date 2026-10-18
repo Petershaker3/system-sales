@@ -333,6 +333,25 @@ async function submitCloseShift(): Promise<void> {
                   + {{ money(shiftState.openShift.totals.customerCashInMinor) }}
                 </td>
               </tr>
+              <tr v-if="shiftState.openShift.totals.servicesCashInMinor > 0">
+                <td>+ خدمات ومحافظ داخل الدرج</td>
+                <td class="num" style="text-align: end" data-shift-services-in>
+                  + {{ money(shiftState.openShift.totals.servicesCashInMinor) }}
+                </td>
+              </tr>
+              <tr v-if="shiftState.openShift.totals.servicesCashOutMinor > 0">
+                <td>− سحب محافظ خارج من الدرج</td>
+                <td class="num" style="text-align: end" data-shift-services-out>
+                  − {{ money(shiftState.openShift.totals.servicesCashOutMinor) }}
+                </td>
+              </tr>
+              <tr v-if="shiftState.openShift.totals.walletDrawerNetMinor !== 0">
+                <td>شحن وتفريغ المحافظ من الدرج</td>
+                <td class="num" style="text-align: end" data-shift-wallet-drawer>
+                  {{ shiftState.openShift.totals.walletDrawerNetMinor > 0 ? '+ ' : '− '
+                  }}{{ money(Math.abs(shiftState.openShift.totals.walletDrawerNetMinor)) }}
+                </td>
+              </tr>
               <tr v-if="shiftState.openShift.totals.cashInMinor > 0">
                 <td>+ إيداع فكة بالدرج</td>
                 <td class="num" style="text-align: end" data-shift-cash-in>

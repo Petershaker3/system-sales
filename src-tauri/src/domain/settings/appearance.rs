@@ -39,10 +39,14 @@ pub enum AppearanceKey {
     WarrantyUsed,
     WarrantyItem,
     SellerCanCloseShift,
+    ServiceFeeMode,
+    ServiceFeePct,
+    ServiceFeeMin,
+    BillFee,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 22] = [
+    pub const ALL: [AppearanceKey; 26] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -65,6 +69,10 @@ impl AppearanceKey {
         AppearanceKey::WarrantyUsed,
         AppearanceKey::WarrantyItem,
         AppearanceKey::SellerCanCloseShift,
+        AppearanceKey::ServiceFeeMode,
+        AppearanceKey::ServiceFeePct,
+        AppearanceKey::ServiceFeeMin,
+        AppearanceKey::BillFee,
     ];
 
     /// The stored key.
@@ -92,6 +100,10 @@ impl AppearanceKey {
             AppearanceKey::WarrantyUsed => "ui.warranty_used",
             AppearanceKey::WarrantyItem => "ui.warranty_item",
             AppearanceKey::SellerCanCloseShift => "ui.seller_can_close_shift",
+            AppearanceKey::ServiceFeeMode => "ui.service_fee_mode",
+            AppearanceKey::ServiceFeePct => "ui.service_fee_pct",
+            AppearanceKey::ServiceFeeMin => "ui.service_fee_min",
+            AppearanceKey::BillFee => "ui.bill_fee",
         }
     }
 
@@ -129,6 +141,10 @@ impl AppearanceKey {
                 | AppearanceKey::WarrantyUsed
                 | AppearanceKey::WarrantyItem
                 | AppearanceKey::SellerCanCloseShift
+                | AppearanceKey::ServiceFeeMode
+                | AppearanceKey::ServiceFeePct
+                | AppearanceKey::ServiceFeeMin
+                | AppearanceKey::BillFee
         )
     }
 }
@@ -191,6 +207,25 @@ pub const DEFAULT_WARRANTY_ITEM: &str = "0";
 
 /// Default seller shift-closing permission (`ADR-024`, `docs/ui/mockup-v1/pos.js`).
 pub const DEFAULT_SELLER_CAN_CLOSE_SHIFT: &str = "off";
+
+/// Default service commission settings (`ADR-025`, `PLAN.md` §9, §16).
+pub const DEFAULT_SERVICE_FEE_MODE: &str = "manual";
+pub const DEFAULT_SERVICE_FEE_PCT: &str = "1";
+pub const DEFAULT_SERVICE_FEE_MIN: &str = "5";
+pub const DEFAULT_BILL_FEE: &str = "5";
+
+/// Parse and canonicalize a whole-EGP service fee (`0..=10000`).
+pub fn parse_service_fee_egp(raw: &str) -> Option<(u16, String)> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let egp: u16 = trimmed.parse().ok()?;
+    if egp > 10_000 {
+        return None;
+    }
+    Some((egp, egp.to_string()))
+}
 
 /// Parse and canonicalize a discount limit percentage (`0..=100`).
 pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
@@ -290,15 +325,20 @@ pub struct Appearance {
     pub warranty_used: String,
     pub warranty_item: String,
     pub seller_can_close_shift: String,
+    pub service_fee_mode: String,
+    pub service_fee_pct: String,
+    pub service_fee_min: String,
+    pub bill_fee: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
     /// look's own font, normal size, Latin digits, product images on, IMEI
     /// mode optional, all payment methods enabled, 5% seller discount limit,
-    /// shop/receipt profile defaults, and default warranty periods (12 months
-    /// new phone, 1 month used phone, 0 months accessory)
-    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2, ADR-023).
+    /// shop/receipt profile defaults, default warranty periods (12 months
+    /// new phone, 1 month used phone, 0 months accessory), and manual service
+    /// commission mode
+    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2, ADR-023, ADR-024, ADR-025).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -323,6 +363,10 @@ impl Default for Appearance {
             warranty_used: DEFAULT_WARRANTY_USED.to_owned(),
             warranty_item: DEFAULT_WARRANTY_ITEM.to_owned(),
             seller_can_close_shift: DEFAULT_SELLER_CAN_CLOSE_SHIFT.to_owned(),
+            service_fee_mode: DEFAULT_SERVICE_FEE_MODE.to_owned(),
+            service_fee_pct: DEFAULT_SERVICE_FEE_PCT.to_owned(),
+            service_fee_min: DEFAULT_SERVICE_FEE_MIN.to_owned(),
+            bill_fee: DEFAULT_BILL_FEE.to_owned(),
         }
     }
 }
@@ -432,6 +476,30 @@ impl Appearance {
                 }
                 return Ok(());
             }
+            AppearanceKey::ServiceFeePct => {
+                let (_pct, canonical) = parse_discount_limit_pct(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "service fee percentage must be an integer between 0 and 100",
+                    }
+                })?;
+                self.service_fee_pct = canonical;
+                return Ok(());
+            }
+            AppearanceKey::ServiceFeeMin | AppearanceKey::BillFee => {
+                let (_egp, canonical) = parse_service_fee_egp(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "service fee must be an integer between 0 and 10000 EGP",
+                    }
+                })?;
+                match parsed {
+                    AppearanceKey::ServiceFeeMin => self.service_fee_min = canonical,
+                    AppearanceKey::BillFee => self.bill_fee = canonical,
+                    _ => unreachable!(),
+                }
+                return Ok(());
+            }
             _ => {}
         }
 
@@ -448,6 +516,7 @@ impl Appearance {
             AppearanceKey::PrinterEnabled => matches!(value, "on" | "off"),
             AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
             AppearanceKey::SellerCanCloseShift => matches!(value, "on" | "off"),
+            AppearanceKey::ServiceFeeMode => matches!(value, "manual" | "auto"),
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName
@@ -457,7 +526,10 @@ impl Appearance {
             | AppearanceKey::WaTemplate
             | AppearanceKey::WarrantyNew
             | AppearanceKey::WarrantyUsed
-            | AppearanceKey::WarrantyItem => unreachable!(),
+            | AppearanceKey::WarrantyItem
+            | AppearanceKey::ServiceFeePct
+            | AppearanceKey::ServiceFeeMin
+            | AppearanceKey::BillFee => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -479,6 +551,7 @@ impl Appearance {
             AppearanceKey::PrinterEnabled => self.printer_enabled = value,
             AppearanceKey::ReceiptPaper => self.receipt_paper = value,
             AppearanceKey::SellerCanCloseShift => self.seller_can_close_shift = value,
+            AppearanceKey::ServiceFeeMode => self.service_fee_mode = value,
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName
@@ -488,7 +561,10 @@ impl Appearance {
             | AppearanceKey::WaTemplate
             | AppearanceKey::WarrantyNew
             | AppearanceKey::WarrantyUsed
-            | AppearanceKey::WarrantyItem => unreachable!(),
+            | AppearanceKey::WarrantyItem
+            | AppearanceKey::ServiceFeePct
+            | AppearanceKey::ServiceFeeMin
+            | AppearanceKey::BillFee => unreachable!(),
         }
         Ok(())
     }

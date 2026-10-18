@@ -818,6 +818,11 @@ mod discounts;
 // cash movements (`cash_movements`), and seller shift-closing permission.
 mod shifts;
 
+// Plan item 1.10 (ADR-025): shop wallets (`wallets`), wallet & services ledger
+// (`wallet_ops`), and shift drawer reconciliation integration.
+mod wallets;
+
+
 
 
 

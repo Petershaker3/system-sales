@@ -25,6 +25,7 @@ export type ReceiptModeChoice = 'wa' | 'none' | 'print' | 'both';
 export type PrinterEnabledChoice = 'on' | 'off';
 export type ReceiptPaperChoice = '80' | '58';
 export type SellerCanCloseShiftChoice = 'on' | 'off';
+export type ServiceFeeModeChoice = 'manual' | 'auto';
 
 export interface PayMethodMeta {
   readonly id: PayMethodId;
@@ -98,6 +99,22 @@ export const DEFAULT_WARRANTY_NEW = '12';
 export const DEFAULT_WARRANTY_USED = '1';
 export const DEFAULT_WARRANTY_ITEM = '0';
 export const DEFAULT_SELLER_CAN_CLOSE_SHIFT: SellerCanCloseShiftChoice = 'off';
+export const DEFAULT_SERVICE_FEE_MODE: ServiceFeeModeChoice = 'manual';
+export const DEFAULT_SERVICE_FEE_PCT = '1';
+export const DEFAULT_SERVICE_FEE_MIN = '5';
+export const DEFAULT_BILL_FEE = '5';
+
+export function normalizeServiceFeeEgp(
+  raw: unknown,
+  fallback: string = DEFAULT_SERVICE_FEE_MIN
+): string {
+  if (typeof raw !== 'string' && typeof raw !== 'number') return fallback;
+  const trimmed = String(raw).trim();
+  if (!/^\d{1,5}$/.test(trimmed)) return fallback;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < 0 || n > 10000) return fallback;
+  return String(n);
+}
 
 export function normalizeWarrantyMonths(
   raw: unknown,
@@ -177,6 +194,10 @@ export interface Appearance {
   warrantyUsed: string;
   warrantyItem: string;
   sellerCanCloseShift: SellerCanCloseShiftChoice;
+  serviceFeeMode: ServiceFeeModeChoice;
+  serviceFeePct: string;
+  serviceFeeMin: string;
+  billFee: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -202,6 +223,10 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   warrantyUsed: DEFAULT_WARRANTY_USED,
   warrantyItem: DEFAULT_WARRANTY_ITEM,
   sellerCanCloseShift: DEFAULT_SELLER_CAN_CLOSE_SHIFT,
+  serviceFeeMode: DEFAULT_SERVICE_FEE_MODE,
+  serviceFeePct: DEFAULT_SERVICE_FEE_PCT,
+  serviceFeeMin: DEFAULT_SERVICE_FEE_MIN,
+  billFee: DEFAULT_BILL_FEE,
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -262,6 +287,21 @@ export function normalizeAppearance(raw: unknown): Appearance {
       ['on', 'off'] as const,
       DEFAULT_SELLER_CAN_CLOSE_SHIFT
     ),
+    serviceFeeMode: oneOf(
+      r['serviceFeeMode'],
+      ['manual', 'auto'] as const,
+      DEFAULT_SERVICE_FEE_MODE
+    ),
+    serviceFeePct: normalizeDiscountLimitPct(
+      typeof r['serviceFeePct'] === 'string'
+        ? r['serviceFeePct']
+        : DEFAULT_SERVICE_FEE_PCT
+    ),
+    serviceFeeMin: normalizeServiceFeeEgp(
+      r['serviceFeeMin'],
+      DEFAULT_SERVICE_FEE_MIN
+    ),
+    billFee: normalizeServiceFeeEgp(r['billFee'], DEFAULT_BILL_FEE),
   };
 }
 
@@ -371,7 +411,13 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   warrantyUsed: 'ui.warranty_used',
   warrantyItem: 'ui.warranty_item',
   sellerCanCloseShift: 'ui.seller_can_close_shift',
+  serviceFeeMode: 'ui.service_fee_mode',
+  serviceFeePct: 'ui.service_fee_pct',
+  serviceFeeMin: 'ui.service_fee_min',
+  billFee: 'ui.bill_fee',
 };
+
+export type ServiceFeeMode = ServiceFeeModeChoice;
 
 /**
  * Change part of the appearance: repaint at once, then store it. When the store

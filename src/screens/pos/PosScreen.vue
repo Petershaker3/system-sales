@@ -40,6 +40,7 @@ import ImeiPickerModal from './ImeiPickerModal.vue';
 import PayModal from './PayModal.vue';
 import QtyModal from './QtyModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
+import ServicesModal from './ServicesModal.vue';
 import VariantPickerModal from './VariantPickerModal.vue';
 import { collapseFamilies, familyPriceSummary, type PosTileEntry } from './variants';
 import { defaultWarrantyMonthsForKind, warrantyDatesForMonths } from './warranty';
@@ -47,7 +48,7 @@ import WarrantyModal from './WarrantyModal.vue';
 
 
 const props = defineProps<{ session: Session }>();
-const emit = defineEmits<{ go: [screen: 'store'] }>();
+const emit = defineEmits<{ go: [screen: 'store']; 'shift-changed': [] }>();
 
 const catalogue = ref<PosCatalog | null>(null);
 const productImages = ref<ProductImage[]>([]);
@@ -58,7 +59,7 @@ const state = reactive(cart.newCart());
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
-const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty'>(null);
+const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'services'>(null);
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
@@ -602,6 +603,7 @@ async function payExactCash(): Promise<void> {
 async function onPaid(outcome: SaleOutcome): Promise<void> {
   cart.closePaid(state);
   toast(`اتسجّلت الفاتورة ${outcome.reference}`);
+  emit('shift-changed');
   await load();
 }
 
@@ -648,6 +650,10 @@ function onKey(event: KeyboardEvent): void {
   if (key === 'F3') return openDiscount();
   if (key === 'F4') return openCustomerPicker();
   if (key === 'F8') return hold();
+  if (key === 'F9') {
+    modal.value = 'services';
+    return;
+  }
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
     event.preventDefault();
     return openPay();
@@ -719,6 +725,7 @@ const KEYS: readonly [string, string][] = [
   ['F3', 'خصم'],
   ['F4', 'العميل'],
   ['F8', 'انتظار'],
+  ['F9', 'خدمات'],
   ['F12', 'دفع'],
   ['Del', 'حذف سطر'],
   ['+ / −', 'الكمية'],
@@ -798,6 +805,14 @@ const KEYS: readonly [string, string][] = [
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            class="btn ghost"
+            data-open-services
+            @click="modal = 'services'"
+          >
+            <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+          </button>
         </div>
 
         <div v-if="loadError" class="note warn"><Icon name="triangle-alert" /><span>{{ loadError }}</span></div>
@@ -1169,6 +1184,11 @@ const KEYS: readonly [string, string][] = [
       :warranty-months="invoice.lines[state.selected]?.warrantyMonths ?? 0"
       @close="closeModal"
       @apply="onApplyLineWarranty"
+    />
+    <ServicesModal
+      v-if="modal === 'services'"
+      @close="closeModal"
+      @recorded="emit('shift-changed')"
     />
     <Modal v-if="modal === 'clear'" title="مسح الفاتورة؟" size="sm" @close="closeModal">
       <p>هتتشال كل السطور من الفاتورة الحالية. فواتير الانتظار مش هتتأثر.</p>
