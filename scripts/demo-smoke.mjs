@@ -2270,6 +2270,57 @@ check(
     (await count('.line')) === 0 && (await count('[data-pos-tradein-row]')) === 0
   );
 
+  // --- Phase 2 Item 2.3: Labels & Internal Shop Barcodes (ADR-033) -----------
+  await clickText('.rail .nav-btn', 'المخزن');
+  await page.waitForSelector('[data-open-labels]', { timeout: 3000 });
+  await page.click('[data-open-labels]');
+  await page.waitForSelector('[data-labels-modal]', { timeout: 3000 });
+  await sleep(250);
+
+  check(
+    'LabelsModal opens with a barcoded product queued and renders a real SVG barcode sticker',
+    (await count('[data-sticker-svg] rect')) >= 10 &&
+      (await count('[data-sticker-digits]')) >= 1
+  );
+
+  if ((await count('[data-labels-generate-all-missing]')) > 0) {
+    await page.click('[data-labels-generate-all-missing]');
+    await sleep(300);
+  }
+  check(
+    'Generating missing internal shop codes assigns valid 200... EAN-13 barcodes to all active products',
+    (await count('[data-labels-generate-all-missing]')) === 0 &&
+      (await count('[data-labels-internal-badge]')) >= 1
+  );
+
+  await page.click('[data-labels-tab="units"]');
+  await sleep(200);
+  await page.type('[data-labels-search]', 'A34');
+  await sleep(150);
+  await page.click('[data-labels-add-unit]');
+  await sleep(200);
+  check(
+    'Adding an IMEI unit to the label queue renders a Code-128 IMEI sticker with used-phone grade & battery subtitle',
+    (await count('[data-sticker-unit-subtitle]')) >= 1 &&
+      (await text('[data-sticker-unit-subtitle]')).includes('فئة B') &&
+      (await text('[data-labels-preview]')).includes('IMEI:')
+  );
+
+  await page.click('[data-labels-toggle-tspl]');
+  await sleep(150);
+  await page.click('[data-labels-print]');
+  await sleep(250);
+  check(
+    'TSPL thermal printer preview and Print Labels action confirm ready-to-print stickers',
+    (await text('[data-labels-tspl-code]')).includes('SIZE 40 mm, 30 mm') &&
+      (await text('[data-labels-tspl-code]')).includes('BARCODE') &&
+      (await count('[data-labels-print-status]')) === 1
+  );
+  await shot('57-labels-modal');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[data-labels-modal]', { hidden: true, timeout: 3000 });
+  await sleep(150);
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with

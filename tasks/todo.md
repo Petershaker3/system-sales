@@ -243,7 +243,13 @@
     - ترحيلة `0028_used_phone_details.sql` على جدول `units` (`condition_grade`, `battery_health_pct`, `accessories`, `seller_name`, `seller_phone`, `seller_national_id`, `intake_note`).
     - الدومين (`domain/unit.rs`) والمستودعات (`data/repositories/inventory/unit.rs` و`catalog/brand.rs`) والخدمات (`services/catalog/phone.rs`: `create_used_phone`, `check_imei`) والأوامر (`commands/brands.rs`: `create_used_phone`, `check_imei`).
     - الواجهة (`NewItemKindModal.vue`, `NewUsedPhoneModal.vue`, `ImeiCheckModal.vue`, `StoreScreen.vue`, `StockPanel.vue`, `ImeiPickerModal.vue`, `PosScreen.vue`, `PayModal.vue`)، وفحص المتصفح 205/205، و113 اختبار واجهة.
-- [ ] **2.3 الملصقات (Labels) والباركود الداخلي** (`docs/PLAN.md` §14، `ADR-016` #17)
+- [x] **2.3 الملصقات (Labels) والباركود الداخلي** (`docs/PLAN.md` §6 و§19، `ADR-016` #12 و`D5`)
+  - **البوابة:** بدون تعديل في قاعدة البيانات (يستخدم `products.barcode` و`units` الموجودة).
+  - **القبول:** توليد باركود داخلي قياسي `EAN-13` يبدأ بـ `200` (فردي أو جماعي لكل الأصناف اللي من غير باركود) وحفظه على الصنف؛ طابور طباعة ملصقات من «المخزن ← طباعة ملصقات» أو زرار «ملصق» على أي صنف؛ دعم ملصقات الأصناف بالعدد وملصقات علب الموبايلات (`IMEI` بترميز `Code-128B` مع الفئة والبطارية واللون للمستعمل)؛ مقاسات `40×30 مم (قياسي)` و`50×25 مم` و`38×25 مم` و`50×30 مم (علبة)`؛ ملء النسخ بالمتاح في المخزن؛ طباعة صورة عالية الدقة (`2x High-DPI PNG`) وأوامر `TSPL2` لطابعات `Xprinter / TSC`.
+  - **التصميم:** [`ADR-033`](../docs/decisions/ADR-033-labels-and-internal-barcodes.md).
+  - **اتعمل (2026-10-19):**
+    - الدومين (`domain/catalog/shop_code.rs`): `encode_ean13_bars` (95 موديول GS1) و`LabelDimensionsMm` و`format_tspl_barcode_label` مع اختبارات الوحدة والمعمارية.
+    - الواجهة (`src/screens/store/labels.ts`, `labels.test.ts`, `LabelsModal.vue`, `StoreScreen.vue`, `CatalogPanel.vue`)، وفحص المتصفح 209/209، و117 اختبار واجهة.
 - [ ] **2.4 الجرد بالمسح (Stock Count)** (`docs/PLAN.md` §14، `ADR-016` #18)
 - [ ] **2.5 التقارير الشهرية والتقييم والنسخة المطبوعة** (`docs/PLAN.md` §10 و§19، `ADR-016` #22–#24 و#34)
 

@@ -23,7 +23,10 @@ pub use image::{
     decode_jpeg_data_url, encode_jpeg_data_url, parse_jpeg_dimensions, validate_jpeg_192,
     ImageError, ProductImage, IMAGES_DIR_PREFIX, IMAGE_SIDE, MAX_IMAGE_BYTES,
 };
-pub use shop_code::{ean13, ean13_check_digit, next_shop_code, next_shop_codes, ShopCodeError};
+pub use shop_code::{
+    ean13, ean13_check_digit, encode_ean13_bars, format_tspl_barcode_label, next_shop_code,
+    next_shop_codes, LabelDimensionsMm, ShopCodeError,
+};
 
 pub use variant::{
     variant_combos, variant_title, ProductVariant, VariantDimension, VariantError, VariantParent,

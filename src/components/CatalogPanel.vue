@@ -30,6 +30,9 @@ import Icon from '../ui/Icon.vue';
 import type { IconName } from '../ui/icons';
 import { asIconName } from '../screens/pos/icons';
 
+const emit = defineEmits<{
+  'print-label': [productId: string];
+}>();
 
 const error = ref<string>('');
 const notice = ref<string>('');
@@ -219,6 +222,15 @@ function startEdit(product: Product): void {
   formCategory.value = product.categoryId ?? '';
 }
 
+async function generateEditShopCode(): Promise<void> {
+  error.value = '';
+  try {
+    formBarcode.value = await api.nextShopCode();
+  } catch (err) {
+    error.value = describeError(err);
+  }
+}
+
 async function submit(): Promise<void> {
   busy.value = true;
   try {
@@ -365,7 +377,17 @@ onMounted(() => {
 
       <label class="field">
         <span>الباركود (اختياري)</span>
-        <input v-model="formBarcode" autocomplete="off" />
+        <div class="row" style="margin-bottom: 0">
+          <input v-model="formBarcode" class="grow" dir="ltr" autocomplete="off" />
+          <button
+            type="button"
+            data-edit-generate-barcode
+            title="اعمل كود EAN-13 للمحل يبدأ بـ 2"
+            @click="generateEditShopCode"
+          >
+            اعمل كود للمحل
+          </button>
+        </div>
       </label>
 
       <label class="field">
@@ -449,6 +471,15 @@ onMounted(() => {
           </div>
         </div>
         <div class="row">
+          <button
+            v-if="product.status === 'active'"
+            type="button"
+            :data-product-label="product.id"
+            title="طباعة ملصق باركود للصنف"
+            @click="emit('print-label', product.id)"
+          >
+            ملصق
+          </button>
           <button
             type="button"
             :disabled="busy || product.status !== 'active'"

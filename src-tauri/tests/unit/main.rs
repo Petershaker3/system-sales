@@ -7,13 +7,13 @@
 
 use mobile_shop_system_lib::domain::catalog::{
     brand_aliases, brand_lines, can_delete_brand, decode_jpeg_data_url, ean13, ean13_check_digit,
-    encode_jpeg_data_url, is_default_brand, next_shop_code, next_shop_codes,
-    parse_jpeg_dimensions, phone_title, storage_label, validate_jpeg_192, variant_combos,
-    variant_title, BrandDeviceType, BrandError, BrandId, BrandName, CatalogError, DeviceType,
-    Disposition, ImageError, PhoneDetails, PhoneModel, Product, ProductId, ProductImage,
-    ProductName, ProductStatus, SalePrice, ShopCodeError, VariantDimension, VariantError,
-    VariantParent, VariantParentId, VariantValue, DEFAULT_BRANDS, IMAGE_SIDE, MAX_IMAGE_BYTES,
-    MAX_VARIANTS, VARIANT_DIMENSIONS,
+    encode_ean13_bars, encode_jpeg_data_url, format_tspl_barcode_label, is_default_brand,
+    next_shop_code, next_shop_codes, parse_jpeg_dimensions, phone_title, storage_label,
+    validate_jpeg_192, variant_combos, variant_title, BrandDeviceType, BrandError, BrandId,
+    BrandName, CatalogError, DeviceType, Disposition, ImageError, LabelDimensionsMm, PhoneDetails,
+    PhoneModel, Product, ProductId, ProductImage, ProductName, ProductStatus, SalePrice,
+    ShopCodeError, VariantDimension, VariantError, VariantParent, VariantParentId, VariantValue,
+    DEFAULT_BRANDS, IMAGE_SIDE, MAX_IMAGE_BYTES, MAX_VARIANTS, VARIANT_DIMENSIONS,
 };
 
 
@@ -3003,6 +3003,25 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     assert_eq!(alloc[1].method, PaymentMethod::Vf);
     assert_eq!(alloc[1].amount_minor, 5_000);
 }
+
+#[test]
+fn ean13_bar_encoding_and_tspl_label_formatting() {
+    let code = next_shop_code(&[]).expect("first internal shop code");
+    assert_eq!(code, "2000000000015");
+    let bars = encode_ean13_bars(&code).expect("valid 95-module GS1 EAN-13 bars");
+    assert_eq!(bars.len(), 95);
+    assert!(bars.starts_with("101"));
+    assert_eq!(&bars[45..50], "01010");
+    assert!(bars.ends_with("101"));
+    assert_eq!(encode_ean13_bars("2000000000014"), None);
+
+    let tspl = format_tspl_barcode_label(LabelDimensionsMm::STANDARD_40X30, &code, 3);
+    assert!(tspl.contains("SIZE 40 mm, 30 mm"));
+    assert!(tspl.contains("GAP 2 mm, 0 mm"));
+    assert!(tspl.contains("BARCODE 24,88,\"EAN13\",68,1,0,2,2,\"2000000000015\""));
+    assert!(tspl.contains("PRINT 3,1"));
+}
+
 
 
 

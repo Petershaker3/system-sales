@@ -137,3 +137,130 @@ pub fn next_shop_codes<'a>(
     Ok(out)
 }
 
+/// GS1 EAN-13 left-half parity table (`'L'` or `'G'` per digit `1..=6`), indexed by first digit `0..=9`.
+const EAN13_PARITY: [&[u8; 6]; 10] = [
+    b"LLLLLL", b"LLGLGG", b"LLGGLG", b"LLGGGL", b"LGLLGG", b"LGGLLG", b"LGGGLL", b"LGLGLG",
+    b"LGLGGL", b"LGGLGL",
+];
+
+/// GS1 EAN-13 7-module L-code patterns for digits `0..=9`.
+const EAN13_L: [&str; 10] = [
+    "0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011",
+    "0110111", "0001011",
+];
+
+/// GS1 EAN-13 7-module G-code patterns for digits `0..=9`.
+const EAN13_G: [&str; 10] = [
+    "0100111", "0110011", "0011011", "0100001", "0011101", "0111001", "0000101", "0010001",
+    "0001001", "0010111",
+];
+
+/// GS1 EAN-13 7-module R-code patterns for digits `0..=9`.
+const EAN13_R: [&str; 10] = [
+    "1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100",
+    "1001000", "1110100",
+];
+
+/// Encode a valid 13-digit EAN-13 barcode into its 95-module binary bar string
+/// (`'1'` = bar, `'0'` = space) per GS1 specification (`ADR-033`, Plan item 2.3).
+///
+/// Returns `None` if `code` is not 13 ASCII digits or its check digit does not match.
+pub fn encode_ean13_bars(code: &str) -> Option<String> {
+    if code.len() != CODE_LEN || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let expected = ean13_check_digit(&code[..BODY_LEN])?;
+    let actual = code.as_bytes()[BODY_LEN] - b'0';
+    if expected != actual {
+        return None;
+    }
+
+    let first = usize::from(code.as_bytes()[0] - b'0');
+    let parity = EAN13_PARITY[first];
+    let mut bars = String::with_capacity(95);
+    bars.push_str("101"); // Start guard (3 modules)
+    for idx in 0..6 {
+        let d = usize::from(code.as_bytes()[idx + 1] - b'0');
+        if parity[idx] == b'G' {
+            bars.push_str(EAN13_G[d]);
+        } else {
+            bars.push_str(EAN13_L[d]);
+        }
+    }
+    bars.push_str("01010"); // Center guard (5 modules)
+    for idx in 7..13 {
+        let d = usize::from(code.as_bytes()[idx] - b'0');
+        bars.push_str(EAN13_R[d]);
+    }
+    bars.push_str("101"); // End guard (3 modules)
+    Some(bars)
+}
+
+/// Thermal label dimensions in millimetres (`ADR-033`, `ADR-016` #12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LabelDimensionsMm {
+    pub width_mm: u16,
+    pub height_mm: u16,
+}
+
+impl LabelDimensionsMm {
+    pub const STANDARD_40X30: Self = Self {
+        width_mm: 40,
+        height_mm: 30,
+    };
+}
+
+/// Format a TSPL2 thermal label command block (`SIZE`, `GAP`, `CLS`, `BARCODE`, `PRINT`)
+/// for Xprinter / TSC thermal label printers (`ADR-016` #12, `ADR-033`).
+pub fn format_tspl_barcode_label(
+    dims: LabelDimensionsMm,
+    barcode: &str,
+    copies: u16,
+) -> String {
+    let copies = copies.max(1);
+    let symbology = if encode_ean13_bars(barcode).is_some() {
+        "EAN13"
+    } else {
+        "128"
+    };
+    let safe_code: String = barcode
+        .chars()
+        .filter(|c| c.is_ascii_graphic() && *c != '"')
+        .collect();
+    format!(
+        "SIZE {} mm, {} mm\nGAP 2 mm, 0 mm\nDIRECTION 1\nCLS\nBARCODE 24,88,\"{}\",64,1,0,2,2,\"{}\"\nPRINT {},1\n",
+        dims.width_mm, dims.height_mm, symbology, safe_code, copies
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ean13_bars_and_tspl_label_format_correctly() {
+        let code = next_shop_code(std::iter::empty()).expect("first shop code");
+        assert_eq!(code, "2000000000015");
+
+        let bars = encode_ean13_bars(&code).expect("valid 95-module EAN-13 bars");
+        assert_eq!(bars.len(), 95);
+        assert!(bars.starts_with("101"));
+        assert!(bars.ends_with("101"));
+        assert_eq!(&bars[45..50], "01010");
+        assert!(encode_ean13_bars("2000000000010").is_none());
+
+        let tspl = format_tspl_barcode_label(LabelDimensionsMm::STANDARD_40X30, &code, 2);
+        assert!(tspl.contains("SIZE 40 mm, 30 mm"));
+        assert!(tspl.contains("BARCODE 24,88,\"EAN13\",64,1,0,2,2,\"2000000000015\""));
+        assert!(tspl.contains("PRINT 2,1"));
+
+        let imei_tspl = format_tspl_barcode_label(
+            LabelDimensionsMm::STANDARD_40X30,
+            "356938035643809",
+            1,
+        );
+        assert!(imei_tspl.contains("BARCODE 24,88,\"128\",64,1,0,2,2,\"356938035643809\""));
+    }
+}
+
+

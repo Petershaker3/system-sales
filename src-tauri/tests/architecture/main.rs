@@ -3224,6 +3224,80 @@ fn repairs_and_software_migration_service_commands_and_ui_invariants_hold() {
     }
 }
 
+const USED_PHONES_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0028_used_phone_details.sql");
+const SHOP_CODE_DOMAIN: &str = include_str!("../../src/domain/catalog/shop_code.rs");
+const NEW_USED_PHONE_MODAL_VUE: &str =
+    include_str!("../../../src/screens/store/NewUsedPhoneModal.vue");
+const IMEI_CHECK_MODAL_VUE: &str =
+    include_str!("../../../src/screens/store/ImeiCheckModal.vue");
+const LABELS_MODAL_VUE: &str = include_str!("../../../src/screens/store/LabelsModal.vue");
+
+#[test]
+fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
+    let sql = sql_only(USED_PHONES_MIGRATION);
+    for clause in [
+        "alter table units add column condition_grade",
+        "alter table units add column battery_health_pct",
+        "alter table units add column accessories",
+        "alter table units add column seller_name",
+        "alter table units add column seller_phone",
+        "alter table units add column seller_national_id",
+        "alter table units add column intake_note",
+    ] {
+        assert!(
+            sql.contains(clause),
+            "0028_used_phone_details.sql must contain `{clause}`"
+        );
+    }
+
+    let shop_code = code_only(SHOP_CODE_DOMAIN);
+    for fn_name in ["encode_ean13_bars", "format_tspl_barcode_label"] {
+        assert!(
+            shop_code.contains(fn_name),
+            "domain/catalog/shop_code.rs must define `{fn_name}`"
+        );
+    }
+
+    for marker in [
+        "شراء مستعمل من عميل",
+        "طباعة ملصقات",
+        "فحص الـ IMEI",
+    ] {
+        assert!(
+            STORE_SCREEN_VUE.contains(marker),
+            "StoreScreen.vue must include `{marker}`"
+        );
+    }
+
+    for marker in [
+        "بطاقة 14 رقم",
+        "من المستعمل اللي في المحل يوم البداية",
+    ] {
+        assert!(
+            NEW_USED_PHONE_MODAL_VUE.contains(marker),
+            "NewUsedPhoneModal.vue must include `{marker}`"
+        );
+    }
+
+    assert!(
+        IMEI_CHECK_MODAL_VUE.contains("تليفوني (NTRA)"),
+        "ImeiCheckModal.vue must include NTRA check instructions"
+    );
+
+    for marker in [
+        "طباعة الملصقات والباركود الداخلي",
+        "اعمل كود للمحل",
+        "أوامر TSPL",
+    ] {
+        assert!(
+            LABELS_MODAL_VUE.contains(marker),
+            "LabelsModal.vue must include `{marker}`"
+        );
+    }
+}
+
+
 
 
 

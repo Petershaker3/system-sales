@@ -20,6 +20,7 @@ import NewItemModal from './NewItemModal.vue';
 import NewPhoneModal from './NewPhoneModal.vue';
 import NewUsedPhoneModal from './NewUsedPhoneModal.vue';
 import ImeiCheckModal from './ImeiCheckModal.vue';
+import LabelsModal from './LabelsModal.vue';
 import ShortagesPanel from './ShortagesPanel.vue';
 import type { RegisteredUsedPhone } from '../../api/brands';
 
@@ -36,6 +37,9 @@ const newUsed = ref(false);
 const newUsedMode = ref<'catalog' | 'opening'>('catalog');
 const newItem = ref(false);
 const showImeiCheck = ref(false);
+const showLabels = ref(false);
+const labelsInitialProductId = ref<string | null>(null);
+const labelsInitialUnitId = ref<string | null>(null);
 /** Bumped after an item is registered, so the panels read the catalogue again. */
 const reload = ref(0);
 const damagedItems = ref<readonly DamagedStockRow[]>([]);
@@ -101,6 +105,12 @@ function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
     newUsed.value = false;
   }
 }
+
+function openLabelsModal(productId?: string | null, unitId?: string | null): void {
+  labelsInitialProductId.value = productId ?? null;
+  labelsInitialUnitId.value = unitId ?? null;
+  showLabels.value = true;
+}
 </script>
 
 <template>
@@ -120,6 +130,14 @@ function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
         "
       >
         <Icon name="recycle" /> شراء مستعمل من عميل
+      </button>
+      <button
+        type="button"
+        class="btn"
+        data-open-labels
+        @click="openLabelsModal()"
+      >
+        <Icon name="tag" /> طباعة ملصقات
       </button>
       <button
         type="button"
@@ -260,7 +278,9 @@ function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
     </section>
 
     <div class="legacy-grid">
-      <section class="card legacy-panel"><CatalogPanel :key="`c${reload}`" /></section>
+      <section class="card legacy-panel">
+        <CatalogPanel :key="`c${reload}`" @print-label="openLabelsModal($event, null)" />
+      </section>
       <section class="card legacy-panel">
         <StockPanel :key="`s${reload}`" @new-item="kind = true" @received="loadShortagesBadge" />
       </section>
@@ -288,6 +308,13 @@ function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
     />
     <NewItemModal v-if="newItem" @close="newItem = false" @created="registered" />
     <ImeiCheckModal v-if="showImeiCheck" @close="showImeiCheck = false" />
+    <LabelsModal
+      v-if="showLabels"
+      :initial-product-id="labelsInitialProductId"
+      :initial-unit-id="labelsInitialUnitId"
+      @close="showLabels = false"
+      @barcode-generated="reload += 1"
+    />
   </div>
 </template>
 
