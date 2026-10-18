@@ -371,10 +371,10 @@ fn row_to_shift(row: sqlx::sqlite::SqliteRow) -> Result<ShiftRecord, sqlx::Error
     };
     let close_note =
         ShiftCloseNote::parse_optional(close_note_raw.as_deref()).map_err(|_| sqlx::Error::RowNotFound)?;
-    let opened_by = UserId::parse(&opened_by_raw).map_err(|_| sqlx::Error::RowNotFound)?;
+    let opened_by = parse_user_id(&opened_by_raw)?;
     let opened_at = Timestamp::from_millis(opened_at_raw);
     let closed_by = match closed_by_raw {
-        Some(raw) => Some(UserId::parse(&raw).map_err(|_| sqlx::Error::RowNotFound)?),
+        Some(raw) => Some(parse_user_id(&raw)?),
         None => None,
     };
     let closed_at = closed_at_raw.map(Timestamp::from_millis);
@@ -395,6 +395,12 @@ fn row_to_shift(row: sqlx::sqlite::SqliteRow) -> Result<ShiftRecord, sqlx::Error
     })
 }
 
+fn parse_user_id(raw: &str) -> Result<UserId, sqlx::Error> {
+    raw.parse()
+        .map(UserId::from_uuid)
+        .map_err(|_| sqlx::Error::RowNotFound)
+}
+
 fn row_to_expense(row: sqlx::sqlite::SqliteRow) -> Result<ExpenseRecord, sqlx::Error> {
     let id_raw: String = row.try_get("id")?;
     let shift_id_raw: String = row.try_get("shift_id")?;
@@ -411,7 +417,7 @@ fn row_to_expense(row: sqlx::sqlite::SqliteRow) -> Result<ExpenseRecord, sqlx::E
         amount: Piastres::new_minor(amount_raw).map_err(|_| sqlx::Error::RowNotFound)?,
         note: ExpenseNote::parse_optional(note_raw.as_deref())
             .map_err(|_| sqlx::Error::RowNotFound)?,
-        created_by: UserId::parse(&created_by_raw).map_err(|_| sqlx::Error::RowNotFound)?,
+        created_by: parse_user_id(&created_by_raw)?,
         created_at: Timestamp::from_millis(created_at_raw),
     })
 }
@@ -431,7 +437,7 @@ fn row_to_cash_movement(row: sqlx::sqlite::SqliteRow) -> Result<CashMovementReco
         kind: CashMovementKind::parse(&kind_raw).map_err(|_| sqlx::Error::RowNotFound)?,
         amount: Piastres::new_minor(amount_raw).map_err(|_| sqlx::Error::RowNotFound)?,
         reason: CashMovementReason::new(reason_raw).map_err(|_| sqlx::Error::RowNotFound)?,
-        created_by: UserId::parse(&created_by_raw).map_err(|_| sqlx::Error::RowNotFound)?,
+        created_by: parse_user_id(&created_by_raw)?,
         created_at: Timestamp::from_millis(created_at_raw),
     })
 }
