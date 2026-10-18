@@ -3163,15 +3163,15 @@ const REPAIRS_SCREEN_VUE: &str =
 fn repairs_and_software_migration_service_commands_and_ui_invariants_hold() {
     let sql = sql_only(REPAIRS_MIGRATION_SQL);
     for clause in [
-        "CREATE TABLE repairs",
-        "service_kind TEXT NOT NULL DEFAULT 'hardware' CHECK (service_kind IN ('hardware', 'software'))",
-        "status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received', 'diagnosing', 'waiting', 'ready', 'delivered', 'cancelled'))",
-        "estimated_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (estimated_price_minor >= 0)",
-        "final_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (final_price_minor >= 0)",
-        "parts_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK (parts_cost_minor >= 0)",
-        "deposit_minor INTEGER NOT NULL DEFAULT 0 CHECK (deposit_minor >= 0)",
-        "pay_method TEXT NOT NULL DEFAULT 'cash' CHECK (pay_method IN ('cash', 'vf', 'instapay', 'card'))",
-        ") STRICT;",
+        "create table repairs",
+        "service_kind text not null default 'hardware' check (service_kind in ('hardware', 'software'))",
+        "status text not null default 'received' check (status in ('received', 'diagnosing', 'waiting', 'ready', 'delivered', 'cancelled'))",
+        "estimated_price_minor integer not null default 0 check (estimated_price_minor >= 0)",
+        "final_price_minor integer not null default 0 check (final_price_minor >= 0)",
+        "parts_cost_minor integer not null default 0 check (parts_cost_minor >= 0)",
+        "deposit_minor integer not null default 0 check (deposit_minor >= 0)",
+        "pay_method text not null default 'cash' check (pay_method in ('cash', 'vf', 'instapay', 'card'))",
+        ") strict;",
     ] {
         assert!(
             sql.contains(clause),
