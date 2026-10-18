@@ -32,7 +32,7 @@ pub struct PosCatalog {
     pub units: Vec<PosUnit>,
 }
 
-/// One available device unit on the sales screen (`ADR-019`).
+/// One available device unit on the sales screen (`ADR-019`, `ADR-032`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PosUnit {
     pub id: String,
@@ -40,6 +40,10 @@ pub struct PosUnit {
     pub imei: String,
     pub imei2: Option<String>,
     pub color: Option<String>,
+    pub condition_grade: Option<String>,
+    pub battery_health_pct: Option<i64>,
+    pub accessories: Option<String>,
+    pub intake_note: Option<String>,
     pub created_at: i64,
 }
 
@@ -93,6 +97,10 @@ pub async fn read(
             imei: u.imei,
             imei2: u.imei2,
             color: u.color,
+            condition_grade: u.condition_grade,
+            battery_health_pct: u.battery_health_pct,
+            accessories: u.accessories,
+            intake_note: u.intake_note,
             created_at: u.created_at,
         })
         .collect();

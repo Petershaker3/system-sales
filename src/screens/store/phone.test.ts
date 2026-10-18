@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { brandsFor, cleanModel, phoneTitle, storageLabel } from './phone.ts';
+import {
+  brandsFor,
+  cleanModel,
+  gradeArabicLabel,
+  isValidNationalId,
+  phoneTitle,
+  storageLabel,
+  usedPhoneTitle,
+} from './phone.ts';
 
 // The same examples as the Rust unit test `a_phone_is_named_from_its_details`.
 test('a phone is named from its company, model and storage', () => {
@@ -31,3 +39,26 @@ test('«موبايل جديد» offers the shown companies that make that kind o
   assert.deepEqual(brandsFor(brands, 'touch').map((b) => b.id), ['s', 'n']);
   assert.deepEqual(brandsFor(brands, 'keypad').map((b) => b.id), ['n', 'i']);
 });
+
+test('usedPhoneTitle, gradeArabicLabel, and isValidNationalId match ADR-032 rules', () => {
+  assert.equal(
+    usedPhoneTitle('Samsung', [], 'Galaxy A54', 128, 'A'),
+    'Samsung Galaxy A54 128GB مستعمل فئة A',
+  );
+  assert.equal(
+    usedPhoneTitle('Apple', ['iPhone'], 'iPhone 13', 256, 'B'),
+    'iPhone 13 256GB مستعمل فئة B',
+  );
+  assert.equal(
+    usedPhoneTitle('Nokia', [], '105', null, 'C'),
+    'Nokia 105 مستعمل فئة C',
+  );
+  assert.equal(gradeArabicLabel('A'), 'فئة A (زي الجديد)');
+  assert.equal(gradeArabicLabel('B'), 'فئة B (خدوش خفيفة)');
+  assert.equal(gradeArabicLabel('C'), 'فئة C (عيوب واضحة)');
+  assert.equal(isValidNationalId(''), true);
+  assert.equal(isValidNationalId('29501011234567'), true);
+  assert.equal(isValidNationalId('2950101123456'), false);
+  assert.equal(isValidNationalId('2950101123456A'), false);
+});
+

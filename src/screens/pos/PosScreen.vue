@@ -14,6 +14,7 @@
 // again.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 
+import type { RegisteredUsedPhone } from '../../api/brands';
 import { type Customer, listCustomers } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
@@ -30,6 +31,8 @@ import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/f
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
+import ImeiCheckModal from '../store/ImeiCheckModal.vue';
+import NewUsedPhoneModal from '../store/NewUsedPhoneModal.vue';
 import { defaultMinQty, suggestedQty } from '../store/shortages';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
@@ -66,6 +69,20 @@ const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'se
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
+const showImeiCheck = ref(false);
+const showTradeInModal = ref(false);
+const tradeInByInvoiceId = ref<
+  Record<
+    string,
+    {
+      unitId: string;
+      productName: string;
+      imei: string;
+      conditionGrade: string;
+      creditMinor: number;
+    }
+  >
+>({});
 const openFamily = ref<Extract<PosTileEntry<PosProduct>, { kind: 'family' }> | null>(null);
 const imeiTarget = ref<
   | null
@@ -616,7 +633,38 @@ async function payExactCash(): Promise<void> {
   }
 }
 
+const activeTradeIn = computed(
+  () => tradeInByInvoiceId.value[invoice.value.id] ?? null
+);
+const netAfterTradeInMinor = computed(() =>
+  Math.max(0, totals.value.totalMinor - (activeTradeIn.value?.creditMinor ?? 0))
+);
+
+async function onTradeInSaved(registered: RegisteredUsedPhone): Promise<void> {
+  showTradeInModal.value = false;
+  tradeInByInvoiceId.value[invoice.value.id] = {
+    unitId: registered.unitId,
+    productName: registered.product.name,
+    imei: registered.imei,
+    conditionGrade: registered.conditionGrade,
+    creditMinor: registered.costMinor,
+  };
+  emit('shift-changed');
+  await load();
+  toast(
+    `اتسجّل «${registered.product.name}» في المخزن واتخصم ${money(registered.costMinor)} من الفاتورة`,
+    'ok',
+    4500
+  );
+  void nextTick(focusSearch);
+}
+
+function removeTradeIn(): void {
+  delete tradeInByInvoiceId.value[invoice.value.id];
+}
+
 async function onPaid(outcome: SaleOutcome): Promise<void> {
+  delete tradeInByInvoiceId.value[invoice.value.id];
   cart.closePaid(state);
   toast(`اتسجّلت الفاتورة ${outcome.reference}`);
   emit('shift-changed');
@@ -660,6 +708,8 @@ function onKey(event: KeyboardEvent): void {
   if (
     modal.value !== null ||
     customerPickerOpen.value ||
+    showImeiCheck.value ||
+    showTradeInModal.value ||
     openFamily.value !== null ||
     imeiTarget.value !== null ||
     document.querySelector('.overlay') !== null
@@ -908,6 +958,22 @@ const KEYS: readonly [string, string][] = [
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            class="btn ghost"
+            data-pos-check-imei
+            @click="showImeiCheck = true"
+          >
+            <Icon name="search" /><span>فحص IMEI</span>
+          </button>
+          <button
+            type="button"
+            class="btn ghost"
+            data-pos-tradein
+            @click="showTradeInModal = true"
+          >
+            <Icon name="recycle" /><span>استبدال مستعمل</span>
+          </button>
           <button
             type="button"
             class="btn ghost"
@@ -1197,11 +1263,28 @@ const KEYS: readonly [string, string][] = [
             </span>
             <span class="num">− {{ money(discSummary.totalDiscountMinor) }}</span>
           </div>
-          <div class="r grand"><span>المطلوب</span><span class="num">{{ money(totals.totalMinor) }}</span></div>
+          <div v-if="activeTradeIn" id="pos-tradein-row" class="r disc" data-pos-tradein-row>
+            <span>
+              استبدال (<bdi dir="rtl">{{ activeTradeIn.productName }}</bdi>)
+              <button
+                type="button"
+                class="icon-btn sm danger"
+                title="إلغاء ربط الاستبدال بالفاتورة"
+                @click.stop="removeTradeIn"
+              >
+                <Icon name="x" />
+              </button>
+            </span>
+            <span class="num">− {{ money(activeTradeIn.creditMinor) }}</span>
+          </div>
+          <div class="r grand">
+            <span>{{ activeTradeIn ? 'الصافي المطلوب' : 'المطلوب' }}</span>
+            <span class="num">{{ money(netAfterTradeInMinor) }}</span>
+          </div>
         </div>
         <div class="cart-actions">
           <button type="button" class="btn primary btn-pay" :disabled="empty" @click="openPay">
-            <Icon name="banknote" /> ادفع <span class="amt num">{{ money(totals.totalMinor) }}</span> <kbd>F12</kbd>
+            <Icon name="banknote" /> ادفع <span class="amt num">{{ money(netAfterTradeInMinor) }}</span> <kbd>F12</kbd>
           </button>
           <button
             id="pos-exact-cash-btn"
@@ -1260,10 +1343,22 @@ const KEYS: readonly [string, string][] = [
       :invoice-discount-minor="discSummary.invoiceDiscountMinor"
       :gross-subtotal-minor="discSummary.grossSubtotalMinor"
       :seller-name="props.session.displayName"
+      :trade-in-credit-minor="activeTradeIn?.creditMinor ?? 0"
+      :trade-in-label="activeTradeIn?.productName ?? null"
       @close="closeModal"
       @paid="onPaid"
       @price-changed="onPriceChanged"
       @open-customer-picker="openCustomerPicker"
+    />
+    <NewUsedPhoneModal
+      v-if="showTradeInModal"
+      mode="tradein"
+      @close="showTradeInModal = false"
+      @saved="onTradeInSaved"
+    />
+    <ImeiCheckModal
+      v-if="showImeiCheck"
+      @close="showImeiCheck = false"
     />
     <DiscountModal
       v-if="modal === 'discount'"

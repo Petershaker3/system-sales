@@ -56,6 +56,8 @@ const props = defineProps<{
   invoiceDiscountMinor?: number;
   grossSubtotalMinor?: number;
   sellerName?: string;
+  tradeInCreditMinor?: number;
+  tradeInLabel?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -141,9 +143,13 @@ const currentMethodMeta = computed(
     PAY_METHODS.find((m) => m.id === method.value) ?? PAY_METHODS[0]!
 );
 
+const netPayableMinor = computed(() =>
+  Math.max(0, props.totalMinor - (props.tradeInCreditMinor ?? 0))
+);
+
 const paidMinor = computed(() => paidSoFar(splitPayments.value));
 const dueMinor = computed(() =>
-  remainingDue(props.totalMinor, splitPayments.value)
+  remainingDue(netPayableMinor.value, splitPayments.value)
 );
 
 const cashMinor = computed(() =>
@@ -434,6 +440,28 @@ async function pay(): Promise<void> {
 
   busy.value = true;
   try {
+    const tradeInAppliedMinor = Math.min(
+      props.totalMinor,
+      Math.max(0, props.tradeInCreditMinor ?? 0)
+    );
+    const paymentsForSale: DraftPayment[] = finalPayments.map((p) => ({ ...p }));
+    if (tradeInAppliedMinor > 0) {
+      const cashIdx = paymentsForSale.findIndex((p) => p.method === 'cash');
+      if (cashIdx >= 0) {
+        const existing = paymentsForSale[cashIdx]!;
+        paymentsForSale[cashIdx] = {
+          ...existing,
+          amountMinor: existing.amountMinor + tradeInAppliedMinor,
+        };
+      } else {
+        paymentsForSale.push({
+          method: 'cash',
+          amountMinor: tradeInAppliedMinor,
+          reference: null,
+        });
+      }
+    }
+
     const saleTimestamp = new Date();
     const approvalOutcome = await withOwnerApproval(
       () =>
@@ -449,7 +477,7 @@ async function pay(): Promise<void> {
             };
           }),
           props.totalMinor,
-          finalPayments,
+          paymentsForSale,
           props.selectedCustomer?.id ?? null,
           props.invoiceDiscountMinor ?? 0
         ),
@@ -598,6 +626,14 @@ function onEnter(): void {
         <div class="r">
           <span>{{ (grossSubtotalMinor ?? totalMinor) > totalMinor ? 'الصافي بعد الخصم' : `الإجمالي (${pcsWord(count)})` }}</span>
           <span class="num">{{ money(totalMinor) }}</span>
+        </div>
+        <div
+          v-if="(tradeInCreditMinor ?? 0) > 0"
+          class="r"
+          data-pay-tradein-row
+        >
+          <span>خصم استبدال ({{ tradeInLabel || 'جهاز مستعمل' }})</span>
+          <span class="num">- {{ money(tradeInCreditMinor ?? 0) }}</span>
         </div>
         <div v-if="paidMinor > 0" class="r">
           <span>مدفوع حتى الآن</span>

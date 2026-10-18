@@ -19,7 +19,10 @@ use crate::domain::catalog::{
     can_delete_brand, is_default_brand, Brand, BrandDeviceType, BrandError, BrandId, BrandName,
     CatalogError, DEFAULT_BRANDS,
 };
+use crate::domain::costing::CostError;
 use crate::domain::identity::{DomainError, Permission, Session, Timestamp, UserId};
+use crate::domain::shift::ShiftError;
+use crate::domain::unit::UnitError;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 
@@ -30,6 +33,9 @@ pub enum BrandServiceError {
     Identity(DomainError),
     Brand(BrandError),
     Catalog(CatalogError),
+    Unit(UnitError),
+    Costing(CostError),
+    Shift(ShiftError),
 }
 
 impl From<DomainError> for BrandServiceError {
@@ -50,12 +56,33 @@ impl From<CatalogError> for BrandServiceError {
     }
 }
 
+impl From<UnitError> for BrandServiceError {
+    fn from(error: UnitError) -> Self {
+        Self::Unit(error)
+    }
+}
+
+impl From<CostError> for BrandServiceError {
+    fn from(error: CostError) -> Self {
+        Self::Costing(error)
+    }
+}
+
+impl From<ShiftError> for BrandServiceError {
+    fn from(error: ShiftError) -> Self {
+        Self::Shift(error)
+    }
+}
+
 impl BrandServiceError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::Identity(error) => error.code(),
             Self::Brand(error) => error.code(),
             Self::Catalog(error) => error.code(),
+            Self::Unit(error) => error.code(),
+            Self::Costing(error) => error.code(),
+            Self::Shift(error) => error.code(),
         }
     }
 }

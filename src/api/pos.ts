@@ -61,13 +61,17 @@ export interface PosBrand {
   readonly sortOrder: number;
 }
 
-/** One available serialized unit (`ADR-019`), carrying no cost figure. */
+/** One available serialized unit (`ADR-019`, `ADR-032`), carrying no cost figure. */
 export interface PosUnit {
   readonly id: string;
   readonly productId: string;
   readonly imei: string;
   readonly imei2: string | null;
   readonly color: string | null;
+  readonly conditionGrade?: 'A' | 'B' | 'C' | string | null;
+  readonly batteryHealthPct?: number | null;
+  readonly accessories?: string | null;
+  readonly intakeNote?: string | null;
   readonly createdAt: number;
 }
 

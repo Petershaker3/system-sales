@@ -10,6 +10,14 @@ use std::fmt;
 
 /// Maximum length for an optional unit colour label.
 pub const UNIT_COLOR_MAX_CHARS: usize = 40;
+/// Maximum length for included accessories on a used phone (`علبة، شاحن، فاتورة`).
+pub const UNIT_ACCESSORIES_MAX_CHARS: usize = 240;
+/// Maximum length for the seller's name on a used phone intake.
+pub const UNIT_SELLER_NAME_MAX_CHARS: usize = 120;
+/// Maximum length for the seller's phone on a used phone intake.
+pub const UNIT_SELLER_PHONE_MAX_CHARS: usize = 40;
+/// Maximum length for defects / inspection notes on a used phone intake.
+pub const UNIT_INTAKE_NOTE_MAX_CHARS: usize = 400;
 
 /// Domain refusals for IMEI units and stock receipts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +30,8 @@ pub enum UnitError {
     ImeiAlreadyRegistered,
     /// The same IMEI was scanned/entered twice in one receipt or sale request.
     ImeiDuplicateInBatch,
+    /// Secondary IMEI (`imei2`) is identical to primary IMEI (`imei`).
+    ImeiSecondaryMatchesPrimary,
     /// More IMEIs were provided on a receipt line than the line's quantity.
     ImeiCountExceedsQuantity,
     /// The product or global `ui.imei_mode = required` requires an IMEI for every unit.
@@ -40,6 +50,14 @@ pub enum UnitError {
     ReceiptKindInvalid,
     /// Unit colour exceeds 40 characters.
     ColorTooLong,
+    /// Used phone condition grade is not `A`, `B`, or `C`.
+    GradeInvalid,
+    /// Used phone battery health percentage is outside `1..=100`.
+    BatteryHealthInvalid,
+    /// Seller national ID must be 14 digits when provided.
+    NationalIdInvalid,
+    /// Used phone accessories, seller details, or intake note exceeds max length.
+    NoteTooLong,
 }
 
 impl UnitError {
@@ -50,6 +68,7 @@ impl UnitError {
             UnitError::ImeiCheckDigitInvalid => "IMEI_CHECK_DIGIT_INVALID",
             UnitError::ImeiAlreadyRegistered => "IMEI_ALREADY_REGISTERED",
             UnitError::ImeiDuplicateInBatch => "IMEI_DUPLICATE_IN_BATCH",
+            UnitError::ImeiSecondaryMatchesPrimary => "IMEI_SECONDARY_MATCHES_PRIMARY",
             UnitError::ImeiCountExceedsQuantity => "IMEI_COUNT_EXCEEDS_QUANTITY",
             UnitError::ImeiRequiredForAllUnits => "IMEI_REQUIRED_FOR_ALL_UNITS",
             UnitError::ProductNotSerialTracked => "IMEI_PRODUCT_NOT_SERIAL_TRACKED",
@@ -59,6 +78,10 @@ impl UnitError {
             UnitError::OpeningReceiptHasSupplier => "RECEIPT_OPENING_HAS_SUPPLIER",
             UnitError::ReceiptKindInvalid => "RECEIPT_KIND_INVALID",
             UnitError::ColorTooLong => "UNIT_COLOR_TOO_LONG",
+            UnitError::GradeInvalid => "UNIT_GRADE_INVALID",
+            UnitError::BatteryHealthInvalid => "UNIT_BATTERY_HEALTH_INVALID",
+            UnitError::NationalIdInvalid => "UNIT_NATIONAL_ID_INVALID",
+            UnitError::NoteTooLong => "UNIT_NOTE_TOO_LONG",
         }
     }
 }
@@ -268,9 +291,109 @@ impl UnitColor {
     }
 }
 
+/// Used phone condition grade (`A` = زي الجديد, `B` = خدوش خفيفة, `C` = عيوب واضحة).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionGrade {
+    A,
+    B,
+    C,
+}
+
+impl ConditionGrade {
+    pub fn parse(raw: &str) -> Result<Self, UnitError> {
+        match raw.trim().to_ascii_uppercase().as_str() {
+            "A" | "فئة A" => Ok(Self::A),
+            "B" | "فئة B" => Ok(Self::B),
+            "C" | "فئة C" => Ok(Self::C),
+            _ => Err(UnitError::GradeInvalid),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+        }
+    }
+}
+
+/// Build the stored title of a used phone (`docs/ui/mockup-v1/views/catalog.js` `usedTitle`).
+pub fn used_phone_title(base_phone_title: &str, grade: ConditionGrade) -> String {
+    format!("{} مستعمل فئة {}", base_phone_title.trim(), grade.as_str())
+}
+
+/// Validate optional battery health percentage (`1..=100`).
+pub fn validate_battery_health_pct(raw: Option<i64>) -> Result<Option<i64>, UnitError> {
+    match raw {
+        None | Some(0) => Ok(None),
+        Some(v) if (1..=100).contains(&v) => Ok(Some(v)),
+        Some(_) => Err(UnitError::BatteryHealthInvalid),
+    }
+}
+
+/// Validate optional 14-digit Egyptian national ID (`رقم البطاقة`).
+pub fn validate_national_id(raw: Option<&str>) -> Result<Option<String>, UnitError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let digits = normalize_imei_digits(trimmed);
+    if digits.len() != 14 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(UnitError::NationalIdInvalid);
+    }
+    Ok(Some(digits))
+}
+
+/// Validate optional text bounded by `max_chars`.
+pub fn validate_optional_bounded(
+    raw: Option<&str>,
+    max_chars: usize,
+) -> Result<Option<String>, UnitError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(UnitError::NoteTooLong);
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn used_phone_grade_battery_and_national_id_validate() {
+        assert_eq!(ConditionGrade::parse("a"), Ok(ConditionGrade::A));
+        assert_eq!(ConditionGrade::parse("فئة B"), Ok(ConditionGrade::B));
+        assert_eq!(ConditionGrade::parse("X"), Err(UnitError::GradeInvalid));
+        assert_eq!(
+            used_phone_title("iPhone 13 128GB", ConditionGrade::A),
+            "iPhone 13 128GB مستعمل فئة A"
+        );
+        assert_eq!(validate_battery_health_pct(Some(88)), Ok(Some(88)));
+        assert_eq!(validate_battery_health_pct(Some(0)), Ok(None));
+        assert_eq!(
+            validate_battery_health_pct(Some(105)),
+            Err(UnitError::BatteryHealthInvalid)
+        );
+        assert_eq!(
+            validate_national_id(Some("٢٩٨٠١٠١١٢٣٤٥٦٧")),
+            Ok(Some("29801011234567".to_owned()))
+        );
+        assert_eq!(
+            validate_national_id(Some("12345")),
+            Err(UnitError::NationalIdInvalid)
+        );
+    }
 
     #[test]
     fn luhn_accepts_valid_15_digit_imeis_and_rejects_bad_check_digits() {

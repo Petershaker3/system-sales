@@ -1,13 +1,14 @@
 <script setup lang="ts">
-// The kind chooser behind «صنف جديد» (the mockup's `niKinds`, ADR-018 §3):
-// a new phone, or a counted item. «موبايل مستعمل» is not shown until its units
-// exist in item 1.4 — a button is not offered before it works.
+// The kind chooser behind «صنف جديد» (the mockup's `niKinds`, ADR-018 §3, ADR-032):
+// 1. موبايل جديد ('phone')
+// 2. موبايل مستعمل ('used')
+// 3. إكسسوار أو أي صنف بالعدد ('item')
 import { onBeforeUnmount, onMounted } from 'vue';
 
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 
-const emit = defineEmits<{ close: []; pick: [kind: 'phone' | 'item'] }>();
+const emit = defineEmits<{ close: []; pick: [kind: 'phone' | 'used' | 'item'] }>();
 
 function onKey(event: KeyboardEvent): void {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
@@ -15,6 +16,9 @@ function onKey(event: KeyboardEvent): void {
     event.preventDefault();
     emit('pick', 'phone');
   } else if (event.key === '2') {
+    event.preventDefault();
+    emit('pick', 'used');
+  } else if (event.key === '3') {
     event.preventDefault();
     emit('pick', 'item');
   }
@@ -27,7 +31,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 <template>
   <Modal title="صنف جديد" sub="اختار نوعه" size="md" @close="emit('close')">
     <div class="ni-kinds">
-      <button type="button" class="ni-kind" @click="emit('pick', 'phone')">
+      <button type="button" class="ni-kind" data-kind="phone" @click="emit('pick', 'phone')">
         <span class="t-ico"><Icon name="smartphone" /></span>
         <span class="t">
           <b>موبايل جديد</b>
@@ -35,13 +39,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
         </span>
         <kbd>1</kbd>
       </button>
-      <button type="button" class="ni-kind" @click="emit('pick', 'item')">
+      <button type="button" class="ni-kind" data-kind="used" @click="emit('pick', 'used')">
+        <span class="t-ico"><Icon name="recycle" /></span>
+        <span class="t">
+          <b>موبايل مستعمل</b>
+          <small>تقييم الحالة والبطارية والـ IMEI وبيانات اللي باعه</small>
+        </span>
+        <kbd>2</kbd>
+      </button>
+      <button type="button" class="ni-kind" data-kind="item" @click="emit('pick', 'item')">
         <span class="t-ico"><Icon name="package" /></span>
         <span class="t">
           <b>إكسسوار أو أي صنف بالعدد</b>
           <small>جرابات وشواحن وسماعات، بالتصنيف والباركود أو كود المحل</small>
         </span>
-        <kbd>2</kbd>
+        <kbd>3</kbd>
       </button>
     </div>
     <div class="note">
@@ -49,7 +61,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
       <span>التصنيفات والشركات بتتغيّر من الإعدادات. وأي صنف بيتسجّل هنا بيظهر على طول في البيع والبحث والمخزن.</span>
     </div>
     <template #foot>
-      <span class="muted">دوس 1 أو 2</span>
+      <span class="muted">دوس 1 أو 2 أو 3</span>
       <span class="sp"></span>
       <button type="button" class="btn ghost" @click="emit('close')">رجوع <kbd>Esc</kbd></button>
     </template>

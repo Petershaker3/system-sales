@@ -384,8 +384,15 @@ void loadPickers();
       <div v-if="selectedIsSerial && units.length > 0" class="units-box">
         <div class="units-head">أجهزة متسجّل ليها IMEI في المخزن ({{ units.length }})</div>
         <div class="units-chips">
-          <span v-for="u in units" :key="u.id" class="unit-tag mono" dir="ltr">
-            {{ u.imei }}
+          <span v-for="u in units" :key="u.id" class="unit-tag" :data-unit-imei="u.imei">
+            <b class="mono" dir="ltr">{{ u.imei }}</b>
+            <small v-if="u.conditionGrade" class="unit-sub">· فئة {{ u.conditionGrade }}</small>
+            <small v-if="u.batteryHealthPct !== null && u.batteryHealthPct !== undefined" class="unit-sub mono" dir="ltr">
+              · {{ u.batteryHealthPct }}%
+            </small>
+            <small v-if="u.color" class="unit-sub">· {{ u.color }}</small>
+            <small v-if="u.accessories" class="unit-sub">· ({{ u.accessories }})</small>
+            <small v-if="u.sellerName" class="unit-sub">· البائع: {{ u.sellerName }}</small>
           </span>
         </div>
       </div>

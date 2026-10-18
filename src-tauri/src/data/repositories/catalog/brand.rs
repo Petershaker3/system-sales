@@ -166,10 +166,13 @@ pub async fn find_phone(
     details: &PhoneDetails,
 ) -> Result<Option<(String, String)>, sqlx::Error> {
     let found: Option<(String, String)> = sqlx::query_as(
-        "SELECT id, name FROM products
-          WHERE status = 'active' AND brand_id = ?1 AND lower(model) = lower(?2)
-            AND storage_gb IS ?3 AND ram_gb IS ?4
-          LIMIT 1",
+        "SELECT p.id, p.name FROM products p
+         LEFT JOIN departments d ON d.id = p.department_id
+         WHERE p.status = 'active'
+           AND COALESCE(d.kind, 'phone') = 'phone'
+           AND p.brand_id = ?1 AND lower(p.model) = lower(?2)
+           AND p.storage_gb IS ?3 AND p.ram_gb IS ?4
+         LIMIT 1",
     )
     .bind(details.brand.as_str())
     .bind(details.model.as_str())
@@ -178,6 +181,45 @@ pub async fn find_phone(
     .fetch_optional(&mut *conn)
     .await?;
     Ok(found)
+}
+
+/// Find an active used-phone product in `department_id` matching the exact generated title (`ADR-032`).
+pub async fn find_used_phone_by_name(
+    conn: &mut SqliteConnection,
+    department_id: &str,
+    name: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT id FROM products
+         WHERE status = 'active' AND department_id = ?1 AND lower(name) = lower(?2)
+         LIMIT 1",
+    )
+    .bind(department_id)
+    .bind(name)
+    .fetch_optional(&mut *conn)
+    .await
+}
+
+/// Update `sale_price_minor` on a product row inside a transaction.
+pub async fn update_product_sale_price_minor(
+    conn: &mut SqliteConnection,
+    product_id: &str,
+    sale_price_minor: i64,
+    updated_by: &str,
+    updated_at: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE products
+         SET sale_price_minor = ?2, updated_by = ?3, updated_at = ?4
+         WHERE id = ?1",
+    )
+    .bind(product_id)
+    .bind(sale_price_minor)
+    .bind(updated_by)
+    .bind(updated_at)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 fn row_to_brand(row: sqlx::sqlite::SqliteRow) -> Result<Brand, sqlx::Error> {

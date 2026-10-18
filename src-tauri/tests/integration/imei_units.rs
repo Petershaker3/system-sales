@@ -13,7 +13,7 @@ use mobile_shop_system_lib::domain::organisation::DEFAULT_CATEGORIES;
 use mobile_shop_system_lib::domain::supplier::SupplierName;
 use mobile_shop_system_lib::domain::unit::ReceiptKind;
 use mobile_shop_system_lib::services::catalog::brands;
-use mobile_shop_system_lib::services::catalog::phone::{self, NewPhone};
+use mobile_shop_system_lib::services::catalog::phone::{self, NewPhone, NewUsedPhone};
 use mobile_shop_system_lib::services::catalog::pos;
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
@@ -672,3 +672,178 @@ async fn required_imei_mode_enforces_imei_on_phone_receiving_and_selling() {
     .await
     .expect("sell phone with IMEI + accessory by count");
 }
+
+#[tokio::test]
+async fn used_phone_registration_opening_stock_and_imei_check_work_end_to_end() {
+    let shop = shop().await;
+    pin::set_own_pin(&shop.pool, shop.tokens.as_ref(), PASSWORD, OWNER_PIN)
+        .await
+        .expect("set owner PIN");
+
+    let samsung = DEFAULT_BRANDS
+        .iter()
+        .find(|b| b.name == "Samsung")
+        .map(|b| b.brand_id())
+        .expect("Samsung brand");
+    let used_cat = DEFAULT_CATEGORIES
+        .iter()
+        .find(|c| c.name == "موبايلات مستعملة")
+        .map(|c| c.department_id())
+        .expect("used phones category");
+
+    // 1. Validation: secondary IMEI matching primary is refused.
+    let same_imei = phone::create_used_phone(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        NewUsedPhone {
+            category: used_cat,
+            brand: samsung,
+            model: "Galaxy A54".to_string(),
+            device_type: DeviceType::Touch,
+            storage_gb: Some(128),
+            ram_gb: Some(8),
+            color: Some("أسود".to_string()),
+            imei: IMEI_1.to_string(),
+            imei2: Some(IMEI_1.to_string()),
+            condition_grade: "A".to_string(),
+            battery_health_pct: Some(91),
+            accessories: Some("علبة، شاحن".to_string()),
+            intake_note: Some("حالة ممتازة".to_string()),
+            cost_minor: 950_000,
+            sale_price_minor: 1_150_000,
+            seller_name: Some("أحمد سمير".to_string()),
+            seller_phone: Some("01012345678".to_string()),
+            seller_national_id: Some("29501011234567".to_string()),
+            is_opening_stock: false,
+            payout_from_drawer: false,
+        },
+    )
+    .await;
+    assert_eq!(
+        same_imei.err().map(|e| e.code()),
+        Some("IMEI_SECONDARY_MATCHES_PRIMARY")
+    );
+
+    // 2. Register a customer-purchased used phone (Grade A, 91% battery).
+    let used_a = phone::create_used_phone(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        NewUsedPhone {
+            category: used_cat,
+            brand: samsung,
+            model: "Galaxy A54".to_string(),
+            device_type: DeviceType::Touch,
+            storage_gb: Some(128),
+            ram_gb: Some(8),
+            color: Some("أسود".to_string()),
+            imei: IMEI_1.to_string(),
+            imei2: Some(IMEI_2.to_string()),
+            condition_grade: "A".to_string(),
+            battery_health_pct: Some(91),
+            accessories: Some("علبة، شاحن".to_string()),
+            intake_note: Some("حالة ممتازة".to_string()),
+            cost_minor: 950_000,
+            sale_price_minor: 1_150_000,
+            seller_name: Some("أحمد سمير".to_string()),
+            seller_phone: Some("01012345678".to_string()),
+            seller_national_id: Some("29501011234567".to_string()),
+            is_opening_stock: false,
+            payout_from_drawer: false,
+        },
+    )
+    .await
+    .expect("register used phone");
+
+    assert_eq!(
+        used_a.product.name.as_str(),
+        "Samsung Galaxy A54 128GB مستعمل فئة A"
+    );
+    assert_eq!(used_a.on_hand, 1);
+
+    // 3. Opening-stock used phone requires owner PIN approval.
+    let without_approval = phone::create_used_phone(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        NewUsedPhone {
+            category: used_cat,
+            brand: samsung,
+            model: "Galaxy A54".to_string(),
+            device_type: DeviceType::Touch,
+            storage_gb: Some(128),
+            ram_gb: Some(8),
+            color: Some("أبيض".to_string()),
+            imei: IMEI_3.to_string(),
+            imei2: None,
+            condition_grade: "A".to_string(),
+            battery_health_pct: Some(86),
+            accessories: Some("شاحن".to_string()),
+            intake_note: None,
+            cost_minor: 900_000,
+            sale_price_minor: 1_150_000,
+            seller_name: None,
+            seller_phone: None,
+            seller_national_id: None,
+            is_opening_stock: true,
+            payout_from_drawer: false,
+        },
+    )
+    .await;
+    assert_eq!(
+        without_approval.err().map(|e| e.code()),
+        Some("OWNER_APPROVAL_REQUIRED")
+    );
+
+    let session_id = session::resolve(&shop.pool, shop.tokens.as_ref())
+        .await
+        .expect("session")
+        .id();
+    approval::grant(&shop.pool, session_id, shop.owner, OWNER_PIN)
+        .await
+        .expect("grant owner PIN approval");
+
+    let opening_used = phone::create_used_phone(
+        &shop.pool,
+        shop.tokens.as_ref(),
+        NewUsedPhone {
+            category: used_cat,
+            brand: samsung,
+            model: "Galaxy A54".to_string(),
+            device_type: DeviceType::Touch,
+            storage_gb: Some(128),
+            ram_gb: Some(8),
+            color: Some("أبيض".to_string()),
+            imei: IMEI_3.to_string(),
+            imei2: None,
+            condition_grade: "A".to_string(),
+            battery_health_pct: Some(86),
+            accessories: Some("شاحن".to_string()),
+            intake_note: None,
+            cost_minor: 900_000,
+            sale_price_minor: 1_150_000,
+            seller_name: None,
+            seller_phone: None,
+            seller_national_id: None,
+            is_opening_stock: true,
+            payout_from_drawer: false,
+        },
+    )
+    .await
+    .expect("opening stock used phone");
+    assert_eq!(opening_used.product.id, used_a.product.id);
+    assert_eq!(opening_used.on_hand, 2);
+
+    // 4. IMEI check finds the unit by secondary IMEI too and validates Luhn + TAC.
+    let report = phone::check_imei(&shop.pool, shop.tokens.as_ref(), IMEI_2)
+        .await
+        .expect("check IMEI");
+    assert!(report.format_valid);
+    assert!(report.luhn_valid);
+    assert_eq!(report.tac.as_deref(), Some("49015420"));
+    let matched = report.local_unit.expect("local unit match");
+    assert_eq!(matched.imei, IMEI_1);
+    assert_eq!(matched.condition_grade.as_deref(), Some("A"));
+    assert_eq!(matched.battery_health_pct, Some(91));
+    assert_eq!(matched.seller_name.as_deref(), Some("أحمد سمير"));
+    assert_eq!(matched.unit_cost_minor, Some(950_000));
+}
+

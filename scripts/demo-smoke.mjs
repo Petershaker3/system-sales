@@ -450,11 +450,11 @@ await clickText('.page-h button', 'صنف جديد');
 await page.waitForSelector('.ni-kinds');
 const kinds = await page.$$eval('.ni-kind .t b', (els) => els.map((e) => (e.textContent ?? '').trim()));
 check(
-  'the kind chooser offers a phone and a counted item, and hides «مستعمل» until 1.4',
-  kinds.length === 2 &&
+  'the kind chooser offers a new phone, a used phone («موبايل مستعمل»), and a counted item',
+  kinds.length === 3 &&
     kinds.includes('موبايل جديد') &&
-    kinds.some((k) => k.includes('إكسسوار أو أي صنف بالعدد')) &&
-    !kinds.some((k) => k.includes('مستعمل')),
+    kinds.includes('موبايل مستعمل') &&
+    kinds.some((k) => k.includes('إكسسوار أو أي صنف بالعدد')),
   kinds.join('، ')
 );
 await clickText('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
@@ -2157,6 +2157,118 @@ check(
   });
   await new Promise((r) => setTimeout(r, 150));
   await shot('53-repairs-and-software');
+
+  // --- Phase 2 Item 2.2: Used phones, trade-in, IMEI check, and opening used stock (ADR-032) ---
+  await clickText('.rail .nav-btn', 'المخزن');
+  await page.waitForSelector('[data-open-used-phone]', { timeout: 3000 });
+  await page.click('[data-open-used-phone]');
+  await page.waitForSelector('#nu-model', { timeout: 3000 });
+  await page.type('#nu-model', 'Galaxy A54');
+  await page.type('#nu-color', 'أسود');
+  await page.type('#nu-imei', '358240051111110');
+  await page.click('[data-nu-check-imei]');
+  await page.waitForSelector('[data-nu-imei-report]', { timeout: 3000 });
+  check(
+    'Inline IMEI check inside NewUsedPhoneModal verifies Luhn + TAC and confirms the device is not in shop stock',
+    (await text('[data-nu-imei-report]')).includes('35824005')
+  );
+  await page.$eval('#nu-batt', (el) => {
+    el.value = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.type('#nu-batt', '91');
+  await page.type('#nu-note', 'حالة ممتازة بدون خدوش');
+  await page.type('#nu-cost', '9500');
+  await page.type('#nu-price', '11500');
+  await page.click('[data-nu-seller-summary]');
+  await page.waitForSelector('#nu-seller-name', { timeout: 3000 });
+  await page.type('#nu-seller-name', 'أحمد سمير');
+  await page.type('#nu-seller-phone', '01012345678');
+  await page.type('#nu-seller-nid', '29501011234567');
+  check(
+    'NewUsedPhoneModal builds the automatic used phone title with grade («Samsung Galaxy A54 128GB مستعمل فئة A»)',
+    (await text('#nu-preview')).includes('Samsung Galaxy A54 128GB مستعمل فئة A')
+  );
+  await shot('54-used-phone-modal');
+  await page.click('[data-nu-submit]');
+  await page.waitForSelector('#nu-model', { hidden: true, timeout: 3000 });
+  await sleep(250);
+
+  // Open IMEI Check modal and inspect the newly registered used phone
+  await page.click('[data-open-imei-check]');
+  await page.waitForSelector('#imei-check-input', { timeout: 3000 });
+  await page.type('#imei-check-input', '358240051111110');
+  await page.click('[data-imei-check-submit]');
+  await page.waitForSelector('[data-imei-local-unit]', { timeout: 3000 });
+  const imeiModalTxt = await text('[data-imei-check-result]');
+  check(
+    'ImeiCheckModal verifies Luhn + TAC and shows the local used phone unit with grade, battery %, cost, and seller details',
+    (await count('[data-imei-luhn-ok]')) === 1 &&
+      imeiModalTxt.includes('Samsung Galaxy A54 128GB مستعمل فئة A') &&
+      imeiModalTxt.includes('91%') &&
+      imeiModalTxt.includes('أحمد سمير') &&
+      imeiModalTxt.includes('29501011234567')
+  );
+  await shot('55-imei-check-modal');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#imei-check-input', { hidden: true, timeout: 3000 });
+
+  // Register an opening-stock used phone («المستعمل اللي في المحل يوم البداية») with owner PIN approval
+  await page.click('[data-open-used-phone]');
+  await page.waitForSelector('[data-used-opening-toggle]', { timeout: 3000 });
+  await page.click('[data-used-opening-toggle]');
+  await page.click('[data-grade="B"]');
+  await page.type('#nu-model', 'Galaxy A34');
+  await page.type('#nu-imei', '352099001761481');
+  await page.type('#nu-cost', '7200');
+  await page.type('#nu-price', '8600');
+  await page.click('[data-nu-submit]');
+  await page.waitForSelector('.modal .approver', { timeout: 3000 });
+  await page.keyboard.type('4321');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#nu-model', { hidden: true, timeout: 3000 });
+  await sleep(250);
+  check(
+    'Opening-stock used phone requires owner PIN approval and registers «Samsung Galaxy A34 128GB مستعمل فئة B»',
+    (await text('.page')).includes('Samsung Galaxy A34 128GB مستعمل فئة B')
+  );
+
+  // Switch to POS and perform a Trade-in («استبدال مستعمل: شراء + بيع في فاتورة واحدة»)
+  await clickText('.rail .nav-btn', 'البيع');
+  await page.waitForSelector('[data-pos-tradein]', { timeout: 3000 });
+  await clickText('.chips.cats .chip', 'الكل');
+  await sleep(150);
+  await clickText('.tile', 'Samsung Galaxy A54 128GB مستعمل فئة A');
+  await sleep(200);
+  if ((await count('#imei-in')) > 0) {
+    await page.click('.imei-row');
+    await sleep(150);
+  }
+  await page.click('[data-pos-tradein]');
+  await page.waitForSelector('#nu-model', { timeout: 3000 });
+  await page.click('[data-grade="B"]');
+  await page.type('#nu-model', 'Galaxy A24');
+  await page.type('#nu-imei', '864219042345679');
+  await page.type('#nu-cost', '4500');
+  await page.type('#nu-price', '5600');
+  await page.type('#nu-seller-name', 'محمود عادل');
+  await page.type('#nu-seller-phone', '01122334455');
+  await page.click('[data-nu-submit]');
+  await page.waitForSelector('#nu-model', { hidden: true, timeout: 3000 });
+  await sleep(250);
+  check(
+    'POS trade-in («استبدال مستعمل») registers the customer device into stock and deducts 4,500 EGP from the active invoice',
+    (await count('[data-pos-tradein-row]')) === 1 &&
+      (await text('[data-pos-tradein-row]')).includes('Samsung Galaxy A24 128GB مستعمل فئة B') &&
+      (await text('.totals .grand')).includes('7,000')
+  );
+  await shot('56-pos-tradein');
+  await page.click('#pos-exact-cash-btn');
+  await sleep(300);
+  check(
+    'Completing the trade-in sale clears the invoice and removes the sold used phone from available POS tiles',
+    (await count('.line')) === 0 && (await count('[data-pos-tradein-row]')) === 0
+  );
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen

@@ -114,9 +114,14 @@ export const ErrorCode = {
   IMEI_UNIT_NOT_AVAILABLE: 'IMEI_UNIT_NOT_AVAILABLE',
   IMEI_UNIT_PRODUCT_MISMATCH: 'IMEI_UNIT_PRODUCT_MISMATCH',
   IMEI_NO_UNREGISTERED_STOCK: 'IMEI_NO_UNREGISTERED_STOCK',
+  IMEI_SECONDARY_MATCHES_PRIMARY: 'IMEI_SECONDARY_MATCHES_PRIMARY',
   RECEIPT_OPENING_HAS_SUPPLIER: 'RECEIPT_OPENING_HAS_SUPPLIER',
   RECEIPT_KIND_INVALID: 'RECEIPT_KIND_INVALID',
   UNIT_COLOR_TOO_LONG: 'UNIT_COLOR_TOO_LONG',
+  UNIT_GRADE_INVALID: 'UNIT_GRADE_INVALID',
+  UNIT_BATTERY_HEALTH_INVALID: 'UNIT_BATTERY_HEALTH_INVALID',
+  UNIT_NATIONAL_ID_INVALID: 'UNIT_NATIONAL_ID_INVALID',
+  UNIT_NOTE_TOO_LONG: 'UNIT_NOTE_TOO_LONG',
 
   // الإعدادات
 
@@ -643,7 +648,19 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.REPAIR_NOT_FOUND]:
     'تذكرة الصيانة دي مش موجودة.',
   [ErrorCode.REPAIR_ALREADY_DELIVERED]:
-    'التذكرة دي اتسلّمت أو اتلغت قبل كده.'
+    'التذكرة دي اتسلّمت أو اتلغت قبل كده.',
+
+  // الموبايلات المستعملة وفحص الـ IMEI (البند 2.2، ADR-032)
+  [ErrorCode.IMEI_SECONDARY_MATCHES_PRIMARY]:
+    'الـ IMEI التاني لازم يكون مختلف عن الـ IMEI الأولاني.',
+  [ErrorCode.UNIT_GRADE_INVALID]:
+    'اختار حالة الجهاز المستعمل (A أو B أو C).',
+  [ErrorCode.UNIT_BATTERY_HEALTH_INVALID]:
+    'نسبة البطارية لازم تكون رقم من 1 لـ 100.',
+  [ErrorCode.UNIT_NATIONAL_ID_INVALID]:
+    'رقم البطاقة القومي لازم يكون 14 رقم بالظبط.',
+  [ErrorCode.UNIT_NOTE_TOO_LONG]:
+    'البيان أو الملاحظات أطول من الحد المسموح.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

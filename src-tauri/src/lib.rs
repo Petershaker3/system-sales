@@ -92,6 +92,8 @@ pub fn run() {
             commands::brands::move_brand,
             commands::brands::delete_brand,
             commands::brands::create_phone,
+            commands::brands::create_used_phone,
+            commands::brands::check_imei,
             commands::settings::read_settings,
             commands::settings::update_setting,
             commands::settings::read_appearance,

@@ -235,7 +235,14 @@
     - ترحيلة `0027_repairs_and_software.sql`: جدول `repairs` (`STRICT`) مع فهارس الحالة والنوع (`hardware` / `software`) وتاريخ التسليم والفني.
     - الدومين (`domain/repair.rs`) والمستودع (`data/repositories/repair.rs`) والخدمة (`services/repair.rs`) والأوامر (`commands/repair.rs`: `repairs_overview`, `create_repair`, `update_repair_status`, `deliver_repair`, `cancel_repair`)، وتحديث `wallet.rs` و`shift.rs` لدمج إيرادات الصيانة والسوفت وير وسداد الآجل عبر المحفظة/إنستاباي في أرصدة المحافظ وتقفيل الوردية.
     - شاشة «الصيانة والسوفت وير» (`src/screens/repairs/RepairsScreen.vue` و`repairs.ts` و`repairs.test.ts`) في الشريط الجانبي للمالك والبيّاع، وفحص المتصفح 199/199، و112 اختبار واجهة.
-- [ ] **2.2 المستعمل والاستبدال وفحص الـIMEI وتسجيل المستعمل اللي في المحل يوم البداية** (`docs/PLAN.md` §13، `ADR-016` #15–#16 و#34)
+- [x] **2.2 المستعمل والاستبدال وفحص الـIMEI وتسجيل المستعمل اللي في المحل يوم البداية** (`docs/PLAN.md` §13، `ADR-016` #15–#16 و#34)
+  - **البوابة:** ترحيلة `0028_used_phone_details.sql` على جدول `units` اتوافق عليها من المالك (2026-10-18: «كمل»).
+  - **القبول:** تسجيل موبايل مستعمل من «صنف جديد ← موبايل مستعمل» أو «شراء مستعمل من عميل» (تاتش / زراير، شركة، موديل، مساحة، رام، لون، `IMEI` أساسي وتاني مع فحص `Luhn`، الحالة `A/B/C`، البطارية %، الملحقات، ملاحظات الفحص، تكلفة الشراء وسعر البيع المستهدف، وبيانات البائع: الاسم والتليفون والرقم القومي 14 رقم)؛ تسجيل المستعمل اللي في المحل يوم البداية بـ PIN صاحب المحل؛ الاستبدال في خطوة واحدة من شاشة البيع مع خصم قيمة الاستبدال تلقائياً من المطلوب؛ وفحص الـ `IMEI` (`Luhn` + `TAC` + سجل المخزن والمبيعات والصيانة + خطوات تليفوني `NTRA`).
+  - **التصميم:** [`ADR-032`](../docs/decisions/ADR-032-used-phones-tradein-imei-check.md).
+  - **اتعمل (2026-10-18):**
+    - ترحيلة `0028_used_phone_details.sql` على جدول `units` (`condition_grade`, `battery_health_pct`, `accessories`, `seller_name`, `seller_phone`, `seller_national_id`, `intake_note`).
+    - الدومين (`domain/unit.rs`) والمستودعات (`data/repositories/inventory/unit.rs` و`catalog/brand.rs`) والخدمات (`services/catalog/phone.rs`: `create_used_phone`, `check_imei`) والأوامر (`commands/brands.rs`: `create_used_phone`, `check_imei`).
+    - الواجهة (`NewItemKindModal.vue`, `NewUsedPhoneModal.vue`, `ImeiCheckModal.vue`, `StoreScreen.vue`, `StockPanel.vue`, `ImeiPickerModal.vue`, `PosScreen.vue`, `PayModal.vue`)، وفحص المتصفح 205/205، و113 اختبار واجهة.
 - [ ] **2.3 الملصقات (Labels) والباركود الداخلي** (`docs/PLAN.md` §14، `ADR-016` #17)
 - [ ] **2.4 الجرد بالمسح (Stock Count)** (`docs/PLAN.md` §14، `ADR-016` #18)
 - [ ] **2.5 التقارير الشهرية والتقييم والنسخة المطبوعة** (`docs/PLAN.md` §10 و§19، `ADR-016` #22–#24 و#34)

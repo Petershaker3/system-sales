@@ -7,7 +7,7 @@ use sqlx::{Row, SqliteConnection};
 
 use crate::domain::unit::TrackingMode;
 
-/// One persisted device unit row from `units`.
+/// One persisted device unit row from `units` (`ADR-019`, `ADR-032`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitRecord {
     pub id: String,
@@ -22,6 +22,13 @@ pub struct UnitRecord {
     pub retired_reason: Option<String>,
     pub created_by: String,
     pub created_at: i64,
+    pub condition_grade: Option<String>,
+    pub battery_health_pct: Option<i64>,
+    pub accessories: Option<String>,
+    pub seller_name: Option<String>,
+    pub seller_phone: Option<String>,
+    pub seller_national_id: Option<String>,
+    pub intake_note: Option<String>,
 }
 
 /// Read `products.tracking` for a product, or `None` if no such product exists.
@@ -66,8 +73,10 @@ pub async fn insert_unit(
     sqlx::query(
         "INSERT INTO units
              (id, product_id, imei, imei2, color, unit_cost_minor, status,
-              received_movement_id, sale_line_id, retired_reason, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+              received_movement_id, sale_line_id, retired_reason, created_by, created_at,
+              condition_grade, battery_health_pct, accessories,
+              seller_name, seller_phone, seller_national_id, intake_note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
     )
     .bind(&unit.id)
     .bind(&unit.product_id)
@@ -81,6 +90,13 @@ pub async fn insert_unit(
     .bind(unit.retired_reason.as_deref())
     .bind(&unit.created_by)
     .bind(unit.created_at)
+    .bind(unit.condition_grade.as_deref())
+    .bind(unit.battery_health_pct)
+    .bind(unit.accessories.as_deref())
+    .bind(unit.seller_name.as_deref())
+    .bind(unit.seller_phone.as_deref())
+    .bind(unit.seller_national_id.as_deref())
+    .bind(unit.intake_note.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -93,7 +109,9 @@ pub async fn find_by_imei(
 ) -> Result<Option<UnitRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, product_id, imei, imei2, color, unit_cost_minor, status,
-                received_movement_id, sale_line_id, retired_reason, created_by, created_at
+                received_movement_id, sale_line_id, retired_reason, created_by, created_at,
+                condition_grade, battery_health_pct, accessories,
+                seller_name, seller_phone, seller_national_id, intake_note
          FROM units
          WHERE imei = ?1 OR imei2 = ?1
          LIMIT 1",
@@ -112,7 +130,9 @@ pub async fn list_in_stock_for_product(
 ) -> Result<Vec<UnitRecord>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, product_id, imei, imei2, color, unit_cost_minor, status,
-                received_movement_id, sale_line_id, retired_reason, created_by, created_at
+                received_movement_id, sale_line_id, retired_reason, created_by, created_at,
+                condition_grade, battery_health_pct, accessories,
+                seller_name, seller_phone, seller_national_id, intake_note
          FROM units
          WHERE product_id = ?1 AND status = 'in_stock'
          ORDER BY created_at ASC, id ASC",
@@ -130,7 +150,9 @@ pub async fn list_all_in_stock_for_active_products(
 ) -> Result<Vec<UnitRecord>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT u.id, u.product_id, u.imei, u.imei2, u.color, u.unit_cost_minor, u.status,
-                u.received_movement_id, u.sale_line_id, u.retired_reason, u.created_by, u.created_at
+                u.received_movement_id, u.sale_line_id, u.retired_reason, u.created_by, u.created_at,
+                u.condition_grade, u.battery_health_pct, u.accessories,
+                u.seller_name, u.seller_phone, u.seller_national_id, u.intake_note
          FROM units u
          JOIN products p ON p.id = u.product_id
          WHERE u.status = 'in_stock' AND p.status = 'active'
@@ -284,6 +306,72 @@ pub async fn find_imei_by_unit_id(
         .await
 }
 
+/// Find a unit and its product name by primary or secondary IMEI (`ADR-032`).
+pub async fn find_unit_with_product_by_imei(
+    conn: &mut SqliteConnection,
+    imei: &str,
+) -> Result<Option<(UnitRecord, String)>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT u.id, u.product_id, u.imei, u.imei2, u.color, u.unit_cost_minor, u.status,
+                u.received_movement_id, u.sale_line_id, u.retired_reason, u.created_by, u.created_at,
+                u.condition_grade, u.battery_health_pct, u.accessories,
+                u.seller_name, u.seller_phone, u.seller_national_id, u.intake_note,
+                p.name AS product_name
+         FROM units u
+         JOIN products p ON p.id = u.product_id
+         WHERE u.imei = ?1 OR u.imei2 = ?1
+         LIMIT 1",
+    )
+    .bind(imei)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    Ok(row.map(|r| {
+        let product_name: String = r.get("product_name");
+        (row_to_unit(r), product_name)
+    }))
+}
+
+/// Summary of a repair ticket matching an inspected IMEI (`ADR-032`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImeiRepairMatch {
+    pub ticket_no: String,
+    pub device_name: String,
+    pub issue: String,
+    pub status: String,
+    pub customer_name: String,
+    pub created_at: i64,
+}
+
+/// List repair tickets that recorded `imei`.
+pub async fn list_repairs_by_imei(
+    conn: &mut SqliteConnection,
+    imei: &str,
+) -> Result<Vec<ImeiRepairMatch>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT ticket_no, device_name, issue, status, customer_name, created_at
+         FROM repairs
+         WHERE imei = ?1
+         ORDER BY created_at DESC, id DESC
+         LIMIT 10",
+    )
+    .bind(imei)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| ImeiRepairMatch {
+            ticket_no: r.get("ticket_no"),
+            device_name: r.get("device_name"),
+            issue: r.get("issue"),
+            status: r.get("status"),
+            customer_name: r.get("customer_name"),
+            created_at: r.get("created_at"),
+        })
+        .collect())
+}
+
 fn row_to_unit(row: sqlx::sqlite::SqliteRow) -> UnitRecord {
     UnitRecord {
         id: row.get("id"),
@@ -298,5 +386,12 @@ fn row_to_unit(row: sqlx::sqlite::SqliteRow) -> UnitRecord {
         retired_reason: row.get("retired_reason"),
         created_by: row.get("created_by"),
         created_at: row.get("created_at"),
+        condition_grade: row.get("condition_grade"),
+        battery_health_pct: row.get("battery_health_pct"),
+        accessories: row.get("accessories"),
+        seller_name: row.get("seller_name"),
+        seller_phone: row.get("seller_phone"),
+        seller_national_id: row.get("seller_national_id"),
+        intake_note: row.get("intake_note"),
     }
 }

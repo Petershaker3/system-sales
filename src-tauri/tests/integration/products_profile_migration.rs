@@ -160,8 +160,8 @@ async fn all_migrations_apply_in_order_on_a_fresh_database() {
 
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
-        "every migration must be recorded in order, with 0027 (repairs_and_software) last"
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28],
+        "every migration must be recorded in order, with 0028 (used_phone_details) last"
     );
 
 

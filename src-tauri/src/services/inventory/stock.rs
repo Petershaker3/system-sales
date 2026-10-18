@@ -624,6 +624,13 @@ pub(crate) async fn consume_unit_in_tx(
                     retired_reason: None,
                     created_by: acting_user.as_str().to_owned(),
                     created_at: now.as_millis(),
+                    condition_grade: None,
+                    battery_health_pct: None,
+                    accessories: None,
+                    seller_name: None,
+                    seller_phone: None,
+                    seller_national_id: None,
+                    intake_note: None,
                 },
             )
             .await
@@ -836,6 +843,13 @@ pub async fn receive_with_units(
                 retired_reason: None,
                 created_by: actor.as_str().to_owned(),
                 created_at: now.as_millis(),
+                condition_grade: None,
+                battery_health_pct: None,
+                accessories: None,
+                seller_name: None,
+                seller_phone: None,
+                seller_national_id: None,
+                intake_note: None,
             },
         )
         .await

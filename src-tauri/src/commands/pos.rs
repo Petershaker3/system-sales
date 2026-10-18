@@ -72,7 +72,7 @@ pub struct PosCategoryDto {
     pub sort_order: i64,
 }
 
-/// One available serialized unit (`ADR-019`), carrying no cost figure.
+/// One available serialized unit (`ADR-019`, `ADR-032`), carrying no cost figure.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PosUnitDto {
@@ -81,6 +81,10 @@ pub struct PosUnitDto {
     pub imei: String,
     pub imei2: Option<String>,
     pub color: Option<String>,
+    pub condition_grade: Option<String>,
+    pub battery_health_pct: Option<i64>,
+    pub accessories: Option<String>,
+    pub intake_note: Option<String>,
     pub created_at: i64,
 }
 
@@ -166,6 +170,10 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 imei: u.imei,
                 imei2: u.imei2,
                 color: u.color,
+                condition_grade: u.condition_grade,
+                battery_health_pct: u.battery_health_pct,
+                accessories: u.accessories,
+                intake_note: u.intake_note,
                 created_at: u.created_at,
             })
             .collect(),

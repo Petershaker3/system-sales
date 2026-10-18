@@ -92,3 +92,115 @@ export function createPhone(input: NewPhone): Promise<RegisteredPhone> {
     salePriceMinor: input.salePriceMinor,
   });
 }
+
+export type ConditionGrade = 'A' | 'B' | 'C';
+
+export interface NewUsedPhone {
+  readonly categoryId: string;
+  readonly brandId: string;
+  readonly model: string;
+  readonly deviceType: DeviceType;
+  readonly storageGb: number | null;
+  readonly ramGb: number | null;
+  readonly color?: string | null;
+  readonly imei: string;
+  readonly imei2?: string | null;
+  readonly conditionGrade: ConditionGrade;
+  readonly batteryHealthPct?: number | null;
+  readonly accessories?: string | null;
+  readonly intakeNote?: string | null;
+  readonly costMinor: number;
+  readonly salePriceMinor: number;
+  readonly sellerName?: string | null;
+  readonly sellerPhone?: string | null;
+  readonly sellerNationalId?: string | null;
+  readonly isOpeningStock?: boolean;
+  readonly payoutFromDrawer?: boolean;
+}
+
+export interface RegisteredUsedPhone {
+  readonly product: Product;
+  readonly brandId: string;
+  readonly model: string;
+  readonly deviceType: DeviceType;
+  readonly storageGb: number | null;
+  readonly ramGb: number | null;
+  readonly unitId: string;
+  readonly imei: string;
+  readonly imei2: string | null;
+  readonly conditionGrade: ConditionGrade;
+  readonly batteryHealthPct: number | null;
+  readonly costMinor: number;
+  readonly salePriceMinor: number;
+  readonly onHand: number;
+}
+
+/** Register a used phone unit into stock (`ADR-032`). */
+export function createUsedPhone(input: NewUsedPhone): Promise<RegisteredUsedPhone> {
+  return invoke<RegisteredUsedPhone>('create_used_phone', {
+    categoryId: input.categoryId,
+    brandId: input.brandId,
+    model: input.model,
+    deviceType: input.deviceType,
+    storageGb: input.storageGb,
+    ramGb: input.ramGb,
+    color: input.color ?? null,
+    imei: input.imei,
+    imei2: input.imei2 ?? null,
+    conditionGrade: input.conditionGrade,
+    batteryHealthPct: input.batteryHealthPct ?? null,
+    accessories: input.accessories ?? null,
+    intakeNote: input.intakeNote ?? null,
+    costMinor: input.costMinor,
+    salePriceMinor: input.salePriceMinor,
+    sellerName: input.sellerName ?? null,
+    sellerPhone: input.sellerPhone ?? null,
+    sellerNationalId: input.sellerNationalId ?? null,
+    isOpeningStock: input.isOpeningStock ?? false,
+    payoutFromDrawer: input.payoutFromDrawer ?? false,
+  });
+}
+
+export interface ImeiLocalUnitMatch {
+  readonly unitId: string;
+  readonly productId: string;
+  readonly productName: string;
+  readonly imei: string;
+  readonly imei2: string | null;
+  readonly status: 'in_stock' | 'sold' | 'retired' | string;
+  readonly color: string | null;
+  readonly conditionGrade: ConditionGrade | null;
+  readonly batteryHealthPct: number | null;
+  readonly accessories: string | null;
+  readonly intakeNote: string | null;
+  readonly unitCostMinor: number | null;
+  readonly sellerName: string | null;
+  readonly sellerPhone: string | null;
+  readonly sellerNationalId: string | null;
+  readonly createdAt: number;
+}
+
+export interface ImeiRepairMatch {
+  readonly ticketNo: string;
+  readonly deviceName: string;
+  readonly issue: string;
+  readonly status: string;
+  readonly customerName: string;
+  readonly createdAt: number;
+}
+
+export interface ImeiCheckResult {
+  readonly normalized: string;
+  readonly digitCount: number;
+  readonly formatValid: boolean;
+  readonly luhnValid: boolean;
+  readonly tac: string | null;
+  readonly localUnit: ImeiLocalUnitMatch | null;
+  readonly repairs: readonly ImeiRepairMatch[];
+}
+
+/** Inspect an IMEI for Luhn check digit, TAC prefix, and local history (`ADR-032`). */
+export function checkImei(imei: string): Promise<ImeiCheckResult> {
+  return invoke<ImeiCheckResult>('check_imei', { imei });
+}
+

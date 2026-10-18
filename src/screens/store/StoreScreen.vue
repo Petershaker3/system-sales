@@ -18,7 +18,10 @@ import { toast } from '../../ui/toast';
 import NewItemKindModal from './NewItemKindModal.vue';
 import NewItemModal from './NewItemModal.vue';
 import NewPhoneModal from './NewPhoneModal.vue';
+import NewUsedPhoneModal from './NewUsedPhoneModal.vue';
+import ImeiCheckModal from './ImeiCheckModal.vue';
 import ShortagesPanel from './ShortagesPanel.vue';
+import type { RegisteredUsedPhone } from '../../api/brands';
 
 defineProps<{
   session?: Session | null;
@@ -29,7 +32,10 @@ const shortagesCount = ref(0);
 /** The kind chooser behind «صنف جديد»; the form it names opens next. */
 const kind = ref(false);
 const newPhone = ref(false);
+const newUsed = ref(false);
+const newUsedMode = ref<'catalog' | 'opening'>('catalog');
 const newItem = ref(false);
+const showImeiCheck = ref(false);
 /** Bumped after an item is registered, so the panels read the catalogue again. */
 const reload = ref(0);
 const damagedItems = ref<readonly DamagedStockRow[]>([]);
@@ -73,10 +79,13 @@ async function loadStoreMeta(): Promise<void> {
 onMounted(loadStoreMeta);
 watch(reload, loadStoreMeta);
 
-function pick(kindPicked: 'phone' | 'item'): void {
+function pick(kindPicked: 'phone' | 'used' | 'item'): void {
   kind.value = false;
   if (kindPicked === 'phone') newPhone.value = true;
-  else newItem.value = true;
+  else if (kindPicked === 'used') {
+    newUsedMode.value = 'catalog';
+    newUsed.value = true;
+  } else newItem.value = true;
 }
 
 function registered(name: string): void {
@@ -84,6 +93,13 @@ function registered(name: string): void {
   newItem.value = false;
   reload.value += 1;
   toast(`اتسجّل «${name}». استلم الكمية بسعر الشراء من «استلام توريد»`, 'ok', 4500);
+}
+
+function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
+  reload.value += 1;
+  if (!keepOpen) {
+    newUsed.value = false;
+  }
 }
 </script>
 
@@ -94,6 +110,25 @@ function registered(name: string): void {
       <span class="sub">سجّل الصنف بسعره، وبعدين استلم الكمية بسعر الشراء. التكلفة بتتحسب بالمتوسط المرجح.</span>
       <span class="sp"></span>
       <button type="button" class="btn primary" @click="kind = true"><Icon name="package-plus" /> صنف جديد</button>
+      <button
+        type="button"
+        class="btn"
+        data-open-used-phone
+        @click="
+          newUsedMode = 'catalog';
+          newUsed = true;
+        "
+      >
+        <Icon name="recycle" /> شراء مستعمل من عميل
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-imei-check
+        @click="showImeiCheck = true"
+      >
+        <Icon name="search" /> فحص الـ IMEI
+      </button>
     </div>
 
     <div class="inv-seg" role="tablist" aria-label="تبويبات المخزن" data-store-tabs style="align-self: flex-start">
@@ -240,7 +275,19 @@ function registered(name: string): void {
 
     <NewItemKindModal v-if="kind" @close="kind = false" @pick="pick" />
     <NewPhoneModal v-if="newPhone" @close="newPhone = false" @created="registered" />
+    <NewUsedPhoneModal
+      v-if="newUsed"
+      :mode="newUsedMode"
+      can-back
+      @close="newUsed = false"
+      @back="
+        newUsed = false;
+        kind = true;
+      "
+      @saved="usedSaved"
+    />
     <NewItemModal v-if="newItem" @close="newItem = false" @created="registered" />
+    <ImeiCheckModal v-if="showImeiCheck" @close="showImeiCheck = false" />
   </div>
 </template>
 

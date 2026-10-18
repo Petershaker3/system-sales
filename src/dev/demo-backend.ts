@@ -308,6 +308,13 @@ interface DemoUnit {
   unitCostMinor: number;
   status: 'in_stock' | 'sold' | 'retired';
   createdAt: number;
+  conditionGrade?: 'A' | 'B' | 'C' | null;
+  batteryHealthPct?: number | null;
+  accessories?: string | null;
+  intakeNote?: string | null;
+  sellerName?: string | null;
+  sellerPhone?: string | null;
+  sellerNationalId?: string | null;
 }
 const productUnits: DemoUnit[] = [];
 function demoNormalizeImei(raw: string): string {
@@ -1845,6 +1852,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
           imei: u.imei,
           imei2: u.imei2,
           color: u.color,
+          conditionGrade: u.conditionGrade ?? null,
+          batteryHealthPct: u.batteryHealthPct ?? null,
+          accessories: u.accessories ?? null,
+          intakeNote: u.intakeNote ?? null,
+          createdAt: u.createdAt,
         })),
     };
   },
@@ -3080,6 +3092,14 @@ const handlers: Record<string, (args: Args) => unknown> = {
         imei2: u.imei2,
         color: u.color,
         unitCostMinor: u.unitCostMinor,
+        conditionGrade: u.conditionGrade ?? null,
+        batteryHealthPct: u.batteryHealthPct ?? null,
+        accessories: u.accessories ?? null,
+        intakeNote: u.intakeNote ?? null,
+        sellerName: u.sellerName ?? null,
+        sellerPhone: u.sellerPhone ?? null,
+        sellerNationalId: u.sellerNationalId ?? null,
+        createdAt: u.createdAt,
         status: u.status,
       }));
   },
@@ -3175,9 +3195,17 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (device === 'touch' && storage === null) fail('PHONE_STORAGE_REQUIRED');
     if (device === 'keypad' && (storage !== null || ram !== null)) fail('PHONE_KEYPAD_HAS_NO_SPECS');
     if (
-      products.some(
-        (x) => x.status === 'active' && x.brandId === b.id && (x.model ?? '').toLowerCase() === model.toLowerCase() && x.storageGb === storage && x.ramGb === ram
-      )
+      products.some((x) => {
+        const cat = categories.find((c) => c.id === x.categoryId);
+        return (
+          x.status === 'active' &&
+          (cat?.kind ?? 'phone') === 'phone' &&
+          x.brandId === b.id &&
+          (x.model ?? '').toLowerCase() === model.toLowerCase() &&
+          x.storageGb === storage &&
+          x.ramGb === ram
+        );
+      })
     )
       fail('PHONE_ALREADY_REGISTERED');
     const price = args?.['salePriceMinor'];
@@ -3201,6 +3229,218 @@ const handlers: Record<string, (args: Args) => unknown> = {
     };
     products.push(x);
     return { product: productDto(x), brandId: b.id, model, deviceType: device, storageGb: storage, ramGb: ram };
+  },
+  create_used_phone: (args) => {
+    const u = requireUser();
+    const isOpeningStock = Boolean(args?.['isOpeningStock']);
+    const payoutFromDrawer = Boolean(args?.['payoutFromDrawer']);
+    if (isOpeningStock) {
+      requireManager();
+      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      approvedOnce = false;
+    }
+    const category =
+      categories.find((c) => c.id === str(args, 'categoryId')) ?? fail('PRODUCT_CATEGORY_NOT_FOUND');
+    if (category.kind !== 'used' && category.kind !== 'phone') fail('PHONE_CATEGORY_NOT_PHONE');
+    const b = findBrand(str(args, 'brandId'));
+    const device = str(args, 'deviceType') as 'touch' | 'keypad';
+    if (!(b.deviceType === 'both' || b.deviceType === device)) fail('PHONE_BRAND_TYPE_MISMATCH');
+    const model = str(args, 'model').trim().split(/\s+/).join(' ');
+    if (model === '') fail('PHONE_MODEL_REQUIRED');
+    const storage = typeof args?.['storageGb'] === 'number' ? (args['storageGb'] as number) : null;
+    const ram = typeof args?.['ramGb'] === 'number' ? (args['ramGb'] as number) : null;
+    if (device === 'touch' && storage === null) fail('PHONE_STORAGE_REQUIRED');
+    if (device === 'keypad' && (storage !== null || ram !== null)) fail('PHONE_KEYPAD_HAS_NO_SPECS');
+
+    const gradeRaw = str(args, 'conditionGrade').trim().toUpperCase();
+    if (!['A', 'B', 'C'].includes(gradeRaw)) fail('UNIT_GRADE_INVALID');
+    const grade = gradeRaw as 'A' | 'B' | 'C';
+
+    const batteryRaw = args?.['batteryHealthPct'];
+    const battery =
+      typeof batteryRaw === 'number' && Number.isFinite(batteryRaw) ? Math.trunc(batteryRaw) : null;
+    if (battery !== null && (battery < 1 || battery > 100)) fail('UNIT_BATTERY_HEALTH_INVALID');
+
+    const imei = demoNormalizeImei(str(args, 'imei'));
+    if (!/^\d{15}$/.test(imei)) fail('IMEI_INVALID_FORMAT');
+    if (!demoLuhn(imei)) fail('IMEI_INVALID_LUHN');
+    const imei2Raw = str(args, 'imei2').trim();
+    const imei2 = imei2Raw ? demoNormalizeImei(imei2Raw) : null;
+    if (imei2 !== null) {
+      if (!/^\d{15}$/.test(imei2)) fail('IMEI_INVALID_FORMAT');
+      if (!demoLuhn(imei2)) fail('IMEI_INVALID_LUHN');
+      if (imei2 === imei) fail('IMEI_SECONDARY_MATCHES_PRIMARY');
+    }
+    if (productUnits.some((unit) => unit.imei === imei || unit.imei2 === imei)) {
+      fail('IMEI_ALREADY_REGISTERED');
+    }
+    if (imei2 && productUnits.some((unit) => unit.imei === imei2 || unit.imei2 === imei2)) {
+      fail('IMEI_ALREADY_REGISTERED');
+    }
+
+    const sellerNatIdRaw = str(args, 'sellerNationalId').trim().replace(/[\s-]/g, '');
+    if (sellerNatIdRaw && !/^\d{14}$/.test(sellerNatIdRaw)) fail('UNIT_NATIONAL_ID_INVALID');
+
+    const costMinor = Math.max(0, numArg(args, 'costMinor'));
+    const salePriceMinor = numArg(args, 'salePriceMinor');
+    if (salePriceMinor <= 0) fail('PRODUCT_INVALID_PRICE');
+
+    const title = `${phoneName(b, model, storage)} مستعمل فئة ${grade}`;
+    let prod = products.find(
+      (x) =>
+        x.status === 'active' &&
+        x.categoryId === category.id &&
+        x.name.toLowerCase() === title.toLowerCase()
+    );
+    if (prod) {
+      prod.salePriceMinor = salePriceMinor;
+      prod.tracking = 'serial_optional';
+    } else {
+      prod = {
+        id: newId('p'),
+        name: title,
+        disposition: 'quantity',
+        barcode: null,
+        salePriceMinor,
+        categoryId: category.id,
+        brandId: b.id,
+        model,
+        deviceType: device,
+        storageGb: storage,
+        ramGb: ram,
+        tracking: 'serial_optional',
+        onHand: 0,
+        totalCostMinor: 0,
+        soldRecently: 0,
+        status: 'active',
+      };
+      products.push(prod);
+    }
+
+    prod.onHand += 1;
+    prod.totalCostMinor += costMinor;
+
+    const nowMs = Date.now();
+    const unitId = newId('u');
+    const color = str(args, 'color').trim() || null;
+    const accessories = str(args, 'accessories').trim() || null;
+    const intakeNote = str(args, 'intakeNote').trim() || null;
+    const sellerName = str(args, 'sellerName').trim() || null;
+    const sellerPhone = str(args, 'sellerPhone').trim() || null;
+    const sellerNationalId = sellerNatIdRaw || null;
+
+    productUnits.push({
+      id: unitId,
+      productId: prod.id,
+      imei,
+      imei2,
+      color,
+      unitCostMinor: costMinor,
+      status: 'in_stock',
+      createdAt: nowMs,
+      conditionGrade: grade,
+      batteryHealthPct: battery,
+      accessories,
+      intakeNote,
+      sellerName,
+      sellerPhone,
+      sellerNationalId,
+    });
+
+    for (const sh of demoShortages) {
+      if (sh.productId === prod.id && sh.resolvedAt === null) {
+        sh.resolvedAt = nowMs;
+      }
+    }
+
+    if (payoutFromDrawer && !isOpeningStock && costMinor > 0) {
+      const openShift = shifts.find((s) => s.status === 'open');
+      if (openShift) {
+        cashMovements.push({
+          id: newId('cm'),
+          shiftId: openShift.id,
+          kind: 'owner_draw',
+          amountMinor: costMinor,
+          reason: `شراء جهاز مستعمل: ${prod.name}`,
+          createdBy: u.id,
+          createdAt: nowMs,
+        });
+      }
+    }
+
+    return {
+      product: productDto(prod),
+      brandId: b.id,
+      model,
+      deviceType: device,
+      storageGb: storage,
+      ramGb: ram,
+      unitId,
+      imei,
+      imei2,
+      conditionGrade: grade,
+      batteryHealthPct: battery,
+      costMinor,
+      salePriceMinor,
+      onHand: prod.onHand,
+    };
+  },
+  check_imei: (args) => {
+    const u = requireUser();
+    const canViewCost = u.role === 'manager';
+    const normalized = demoNormalizeImei(str(args, 'imei'));
+    const digitsOnly = normalized.length > 0 && /^\d+$/.test(normalized);
+    const digitCount = normalized.length;
+    const formatValid = digitsOnly && digitCount === 15;
+    const luhnValid = formatValid && demoLuhn(normalized);
+    const tac = digitsOnly && digitCount >= 8 ? normalized.slice(0, 8) : null;
+
+    const unitMatch = normalized
+      ? productUnits.find((item) => item.imei === normalized || item.imei2 === normalized) ?? null
+      : null;
+    const prod = unitMatch ? products.find((p) => p.id === unitMatch.productId) : null;
+
+    const repairMatches = normalized
+      ? demoRepairs
+          .filter((r) => r.imei === normalized)
+          .map((r) => ({
+            ticketNo: r.ticketNo,
+            deviceName: r.deviceName,
+            issue: r.issue,
+            status: r.status,
+            customerName: r.customerName,
+            createdAt: r.createdAt,
+          }))
+      : [];
+
+    return {
+      normalized,
+      digitCount,
+      formatValid,
+      luhnValid,
+      tac,
+      localUnit: unitMatch
+        ? {
+            unitId: unitMatch.id,
+            productId: unitMatch.productId,
+            productName: prod?.name ?? 'جهاز',
+            imei: unitMatch.imei,
+            imei2: unitMatch.imei2,
+            status: unitMatch.status,
+            color: unitMatch.color,
+            conditionGrade: unitMatch.conditionGrade ?? null,
+            batteryHealthPct: unitMatch.batteryHealthPct ?? null,
+            accessories: unitMatch.accessories ?? null,
+            intakeNote: unitMatch.intakeNote ?? null,
+            unitCostMinor: canViewCost ? unitMatch.unitCostMinor : null,
+            sellerName: canViewCost ? unitMatch.sellerName ?? null : null,
+            sellerPhone: canViewCost ? unitMatch.sellerPhone ?? null : null,
+            sellerNationalId: canViewCost ? unitMatch.sellerNationalId ?? null : null,
+            createdAt: unitMatch.createdAt,
+          }
+        : null,
+      repairs: repairMatches,
+    };
   },
 
   // the category tree (ADR-018 §1)

@@ -167,7 +167,19 @@ function onEnter(): void {
           <bdi dir="ltr" class="mono imei-digits">
             {{ u.imei.slice(0, 11) }}<b>{{ u.imei.slice(11) }}</b>
           </bdi>
+          <span v-if="u.conditionGrade" class="tag">فئة {{ u.conditionGrade }}</span>
+          <span
+            v-if="u.batteryHealthPct !== null && u.batteryHealthPct !== undefined"
+            class="tag mono"
+            dir="ltr"
+          >
+            {{ u.batteryHealthPct }}%
+          </span>
           <span v-if="u.color" class="tag">{{ u.color }}</span>
+          <span v-if="u.accessories" class="tag">{{ u.accessories }}</span>
+          <span v-if="u.intakeNote" class="muted" style="font-size: 0.78rem">
+            {{ u.intakeNote }}
+          </span>
           <span class="sp" />
           <span class="pick-lbl">
             {{ u.imei === currentImei ? 'المربوط حاليًا' : 'اختار' }}

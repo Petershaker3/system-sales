@@ -78,7 +78,7 @@ pub struct StockOutcomeDto {
     pub cost_minor: i64,
 }
 
-/// One registered `in_stock` device unit (`ADR-019`).
+/// One registered `in_stock` device unit (`ADR-019`, `ADR-032`).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductUnitDto {
@@ -87,6 +87,14 @@ pub struct ProductUnitDto {
     pub imei: String,
     pub imei2: Option<String>,
     pub color: Option<String>,
+    pub unit_cost_minor: i64,
+    pub condition_grade: Option<String>,
+    pub battery_health_pct: Option<i64>,
+    pub accessories: Option<String>,
+    pub intake_note: Option<String>,
+    pub seller_name: Option<String>,
+    pub seller_phone: Option<String>,
+    pub seller_national_id: Option<String>,
     pub created_at: i64,
 }
 
@@ -177,6 +185,14 @@ pub async fn list_product_units(
             imei: u.imei,
             imei2: u.imei2,
             color: u.color,
+            unit_cost_minor: u.unit_cost_minor,
+            condition_grade: u.condition_grade,
+            battery_health_pct: u.battery_health_pct,
+            accessories: u.accessories,
+            intake_note: u.intake_note,
+            seller_name: u.seller_name,
+            seller_phone: u.seller_phone,
+            seller_national_id: u.seller_national_id,
             created_at: u.created_at,
         })
         .collect())

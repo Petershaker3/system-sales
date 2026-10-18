@@ -132,6 +132,11 @@ pub const SHORTAGES: &str = include_str!("0026_shortages.sql");
 /// for Plan item 2.1 (ADR-031).
 pub const REPAIRS_AND_SOFTWARE: &str = include_str!("0027_repairs_and_software.sql");
 
+/// `0028`: used phone unit details (`condition_grade`, `battery_health_pct`,
+/// `accessories`, `seller_name`, `seller_phone`, `seller_national_id`,
+/// `intake_note` on `units`) for Plan item 2.2 (ADR-032).
+pub const USED_PHONE_DETAILS: &str = include_str!("0028_used_phone_details.sql");
+
 
 
 

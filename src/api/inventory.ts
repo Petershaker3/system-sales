@@ -39,13 +39,21 @@ export interface StockOutcome {
   readonly costMinor: number;
 }
 
-/** One registered `in_stock` device unit (`ADR-019`). */
+/** One registered `in_stock` device unit (`ADR-019`, `ADR-032`). */
 export interface ProductUnit {
   readonly id: string;
   readonly productId: string;
   readonly imei: string;
   readonly imei2: string | null;
   readonly color: string | null;
+  readonly unitCostMinor?: number;
+  readonly conditionGrade?: 'A' | 'B' | 'C' | string | null;
+  readonly batteryHealthPct?: number | null;
+  readonly accessories?: string | null;
+  readonly intakeNote?: string | null;
+  readonly sellerName?: string | null;
+  readonly sellerPhone?: string | null;
+  readonly sellerNationalId?: string | null;
   readonly createdAt: number;
 }
 
