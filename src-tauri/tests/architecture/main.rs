@@ -3061,7 +3061,7 @@ fn sales_history_screen_slice_preserves_layer_and_permission_invariants() {
     }
 
     assert!(
-        SHELL_NAV_TS.contains("id: 'sales', label: 'المبيعات', icon: 'receipt', ownerOnly: false"),
+        SHELL_NAV_TS.contains("id: 'sales', label: 'المبيعات', icon: 'receipt-text', ownerOnly: false"),
         "src/shell/nav.ts must expose «المبيعات» to both owner and seller (`ownerOnly: false`)"
     );
 }
