@@ -26,14 +26,16 @@ use crate::domain::catalog::{
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp};
+use crate::domain::money::Piastres;
 use crate::domain::organisation::{CategoryKind, DepartmentId};
 use crate::domain::shift::{
-    CashMovementId, CashMovementKind, CashMovementReason, CashMovementRecord, Piastres,
+    CashMovementId, CashMovementKind, CashMovementReason, CashMovementRecord,
 };
 use crate::domain::unit::{
-    luhn_imei_valid, used_phone_title, validate_battery_health_pct, validate_national_id,
-    validate_optional_bounded, ConditionGrade, Imei, ReceiptKind, TrackingMode, UnitError,
-    MAX_ACCESSORIES_CHARS, MAX_INTAKE_NOTE_CHARS, MAX_SELLER_NAME_CHARS, MAX_SELLER_PHONE_CHARS,
+    luhn_check_digit, normalize_imei_digits, used_phone_title, validate_battery_health_pct,
+    validate_national_id, validate_optional_bounded, ConditionGrade, Imei, ReceiptKind,
+    TrackingMode, UnitError, UNIT_ACCESSORIES_MAX_CHARS, UNIT_COLOR_MAX_CHARS,
+    UNIT_INTAKE_NOTE_MAX_CHARS, UNIT_SELLER_NAME_MAX_CHARS, UNIT_SELLER_PHONE_MAX_CHARS,
 };
 use crate::services::catalog::brands::{authorize, storage, BrandServiceError};
 use crate::services::identity::approval as approval_service;
@@ -206,11 +208,11 @@ pub async fn create_used_phone(
         session.authorize(Permission::ManageInventory)?;
         session.require_sensitivity(Sensitivity::Sensitive, now)?
     } else {
-        if !session.has_permission(Permission::ManageCatalog)
-            && !session.has_permission(Permission::ManageInventory)
-            && !session.has_permission(Permission::Sell)
+        if session.authorize(Permission::ManageCatalog).is_err()
+            && session.authorize(Permission::ManageInventory).is_err()
+            && session.authorize(Permission::Sell).is_err()
         {
-            return Err(DomainError::Forbidden.into());
+            return Err(DomainError::PermissionDenied.into());
         }
         None
     };
@@ -233,15 +235,15 @@ pub async fn create_used_phone(
         }
         None => None,
     };
-    let color = validate_optional_bounded(input.color.as_deref(), MAX_ACCESSORIES_CHARS)?;
+    let color = validate_optional_bounded(input.color.as_deref(), UNIT_COLOR_MAX_CHARS)?;
     let accessories =
-        validate_optional_bounded(input.accessories.as_deref(), MAX_ACCESSORIES_CHARS)?;
+        validate_optional_bounded(input.accessories.as_deref(), UNIT_ACCESSORIES_MAX_CHARS)?;
     let intake_note =
-        validate_optional_bounded(input.intake_note.as_deref(), MAX_INTAKE_NOTE_CHARS)?;
+        validate_optional_bounded(input.intake_note.as_deref(), UNIT_INTAKE_NOTE_MAX_CHARS)?;
     let seller_name =
-        validate_optional_bounded(input.seller_name.as_deref(), MAX_SELLER_NAME_CHARS)?;
+        validate_optional_bounded(input.seller_name.as_deref(), UNIT_SELLER_NAME_MAX_CHARS)?;
     let seller_phone =
-        validate_optional_bounded(input.seller_phone.as_deref(), MAX_SELLER_PHONE_CHARS)?;
+        validate_optional_bounded(input.seller_phone.as_deref(), UNIT_SELLER_PHONE_MAX_CHARS)?;
     let seller_national_id = validate_national_id(input.seller_national_id.as_deref())?;
 
     if input.cost_minor < 0 {
@@ -294,34 +296,39 @@ pub async fn create_used_phone(
         }
     }
 
-    let title = used_phone_title(
+    let base_title = phone_title(
         brand.name.as_str(),
         brand_lines(brand.id),
         &details.model,
         details.storage_gb,
-        grade,
     );
+    let title = used_phone_title(&base_title, grade);
 
     let product = if let Some(existing_raw_id) =
-        brand_repo::find_used_phone_by_name(&mut tx, category.id.as_str(), &title)
+        brand_repo::find_used_phone_by_name(&mut tx, &category.id.as_str(), &title)
             .await
             .map_err(storage)?
     {
-        let existing_id: ProductId = existing_raw_id
-            .parse()
+        let existing_id = existing_raw_id
+            .parse::<uuid::Uuid>()
+            .map(ProductId::from_uuid)
             .map_err(|_| BrandServiceError::Identity(DomainError::StorageUnavailable))?;
         brand_repo::update_product_sale_price_minor(
             &mut tx,
-            existing_id.as_str(),
+            &existing_id.as_str(),
             input.sale_price_minor,
             &actor.as_str(),
             now_ms,
         )
         .await
         .map_err(storage)?;
-        unit_repo::set_product_tracking(&mut tx, existing_id.as_str(), TrackingMode::SerialOptional)
-            .await
-            .map_err(storage)?;
+        unit_repo::set_product_tracking(
+            &mut tx,
+            &existing_id.as_str(),
+            TrackingMode::SerialOptional,
+        )
+        .await
+        .map_err(storage)?;
         product_repo::find_by_id(&mut tx, existing_id)
             .await
             .map_err(storage)?
@@ -346,13 +353,13 @@ pub async fn create_used_phone(
         brand_repo::set_phone_details(&mut tx, p.id, &details)
             .await
             .map_err(storage)?;
-        unit_repo::set_product_tracking(&mut tx, p.id.as_str(), TrackingMode::SerialOptional)
+        unit_repo::set_product_tracking(&mut tx, &p.id.as_str(), TrackingMode::SerialOptional)
             .await
             .map_err(storage)?;
         p
     };
 
-    let current_pos = match stock_repo::find_position(&mut tx, product.id.as_str())
+    let current_pos = match stock_repo::find_position(&mut tx, &product.id.as_str())
         .await
         .map_err(storage)?
     {
@@ -363,7 +370,7 @@ pub async fn create_used_phone(
     stock_repo::upsert_position(
         &mut tx,
         &stock_repo::StockPosition {
-            product_id: product.id.as_str().to_owned(),
+            product_id: product.id.as_str(),
             quantity: updated_pos.on_hand,
             total_cost_minor: Some(updated_pos.total_cost_minor),
         },
@@ -434,7 +441,7 @@ pub async fn create_used_phone(
     .await
     .map_err(storage)?;
 
-    let _ = shortage_repo::resolve_shortages_for_product(&mut tx, product.id.as_str(), now_ms)
+    let _ = shortage_repo::resolve_shortages_for_product(&mut tx, &product.id.as_str(), now_ms)
         .await
         .map_err(storage)?;
 
@@ -462,7 +469,7 @@ pub async fn create_used_phone(
     }
 
     let audit_event = if input.is_opening_stock {
-        audit::event::OPENING_STOCK_RECEIVED
+        audit::event::STOCK_RECEIVED
     } else {
         audit::event::USED_PHONE_REGISTERED
     };
@@ -551,17 +558,14 @@ pub async fn check_imei(
         .await
         .map_err(storage)?;
     let can_view_cost =
-        session.has_permission(Permission::ViewCostAndProfit) || appearance.seller_can_view_cost;
+        session.role().allows(Permission::ViewCostAndProfit) || appearance.seller_can_view_cost;
 
-    let normalized: String = raw_imei
-        .trim()
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != '-')
-        .collect();
-    let digits_only = !normalized.is_empty() && normalized.chars().all(|c| c.is_ascii_digit());
+    let normalized = normalize_imei_digits(raw_imei);
+    let digits_only = !normalized.is_empty() && normalized.bytes().all(|b| b.is_ascii_digit());
     let digit_count = normalized.chars().count();
     let format_valid = digits_only && digit_count == 15;
-    let luhn_valid = format_valid && luhn_imei_valid(&normalized);
+    let luhn_valid =
+        format_valid && luhn_check_digit(&normalized[..14]) == Some(normalized.as_bytes()[14] - b'0');
     let tac = if digits_only && digit_count >= 8 {
         Some(normalized.chars().take(8).collect())
     } else {

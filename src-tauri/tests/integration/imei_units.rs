@@ -793,13 +793,7 @@ async fn used_phone_registration_opening_stock_and_imei_check_work_end_to_end() 
         Some("OWNER_APPROVAL_REQUIRED")
     );
 
-    let session_id = session::resolve(&shop.pool, shop.tokens.as_ref())
-        .await
-        .expect("session")
-        .id();
-    approval::grant(&shop.pool, session_id, shop.owner, OWNER_PIN)
-        .await
-        .expect("grant owner PIN approval");
+    owner_approves(&shop).await;
 
     let opening_used = phone::create_used_phone(
         &shop.pool,
