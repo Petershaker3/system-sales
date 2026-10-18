@@ -47,6 +47,109 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.imei_mode, "optional");
     assert_eq!(read.discount_limit_pct, "5");
     assert_eq!(read.discount_limit_pct_num(), 5);
+    assert_eq!(read.shop_name, "موبايل ستور");
+    assert_eq!(read.shop_phone, "01000000000");
+    assert_eq!(read.shop_address, "12 شارع شبرا، القاهرة");
+    assert_eq!(
+        read.receipt_footer,
+        "شكرًا لزيارتكم. الاستبدال خلال 14 يوم بالفاتورة والعلبة."
+    );
+    assert_eq!(
+        read.wa_template,
+        "أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}."
+    );
+    assert_eq!(read.receipt_mode, "wa");
+    assert_eq!(read.printer_enabled, "off");
+    assert_eq!(read.receipt_paper, "80");
+}
+
+#[tokio::test]
+async fn the_owner_updates_shop_and_receipt_settings_while_sellers_are_refused() {
+    let (pool, tokens) = signed_in_manager().await;
+
+    let after_name = appearance::update(&pool, tokens.as_ref(), "ui.shop_name", "  سنتر بيتر  ")
+        .await
+        .expect("owner updates shop name");
+    assert_eq!(after_name.shop_name, "سنتر بيتر");
+
+    let after_phone =
+        appearance::update(&pool, tokens.as_ref(), "ui.shop_phone", "01223344556")
+            .await
+            .expect("owner updates shop phone");
+    assert_eq!(after_phone.shop_phone, "01223344556");
+
+    let after_addr = appearance::update(
+        &pool,
+        tokens.as_ref(),
+        "ui.shop_address",
+        "شارع التحرير، الدقي",
+    )
+    .await
+    .expect("owner updates shop address");
+    assert_eq!(after_addr.shop_address, "شارع التحرير، الدقي");
+
+    let after_footer = appearance::update(
+        &pool,
+        tokens.as_ref(),
+        "ui.receipt_footer",
+        "الضمان بالفاتورة والعلبة السليمة",
+    )
+    .await
+    .expect("owner updates receipt footer");
+    assert_eq!(after_footer.receipt_footer, "الضمان بالفاتورة والعلبة السليمة");
+
+    let after_wa = appearance::update(
+        &pool,
+        tokens.as_ref(),
+        "ui.wa_template",
+        "فاتورتك #{رقم} من {المحل} بمبلغ {الإجمالي}",
+    )
+    .await
+    .expect("owner updates wa template");
+    assert_eq!(
+        after_wa.wa_template,
+        "فاتورتك #{رقم} من {المحل} بمبلغ {الإجمالي}"
+    );
+
+    let after_printer =
+        appearance::update(&pool, tokens.as_ref(), "ui.printer_enabled", "on")
+            .await
+            .expect("owner enables printer");
+    assert_eq!(after_printer.printer_enabled, "on");
+
+    let after_paper =
+        appearance::update(&pool, tokens.as_ref(), "ui.receipt_paper", "58")
+            .await
+            .expect("owner sets 58mm paper");
+    assert_eq!(after_paper.receipt_paper, "58");
+
+    let after_mode =
+        appearance::update(&pool, tokens.as_ref(), "ui.receipt_mode", "both")
+            .await
+            .expect("owner sets receipt mode to both");
+    assert_eq!(after_mode.receipt_mode, "both");
+
+    // Seller cannot update shop or receipt settings.
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("reauthenticate");
+    let manager = session::resolve(&pool, tokens.as_ref()).await.expect("manager");
+    let seller = users::create_user(&pool, &manager, "Youssef", "youssef", Role::Sales, PASSWORD)
+        .await
+        .expect("seller");
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD)
+        .await
+        .expect("login seller");
+
+    for (k, v) in [
+        ("ui.shop_name", "محل تاني"),
+        ("ui.wa_template", "قالب"),
+        ("ui.receipt_mode", "none"),
+        ("ui.printer_enabled", "off"),
+    ] {
+        let refused = appearance::update(&pool, tokens.as_ref(), k, v).await;
+        assert_eq!(refused.err().map(|e| e.code()), Some("PERMISSION_DENIED"));
+    }
 }
 
 

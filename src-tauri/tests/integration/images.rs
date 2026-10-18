@@ -305,3 +305,93 @@ async fn product_image_is_packed_into_the_encrypted_backup_and_restored_after_wi
     assert_eq!(listed[0].data_url, url);
 }
 
+#[tokio::test]
+async fn shop_logo_is_stored_on_disk_packed_in_backup_and_refused_to_sellers() {
+    let dir = TempDir::new().expect("tempdir");
+    let (pool, tokens, _product_id) = signed_in_shop(dir.path()).await;
+
+    assert_eq!(
+        images::get_shop_logo(&pool, tokens.as_ref(), dir.path())
+            .await
+            .expect("initial logo"),
+        None
+    );
+
+    let url = sample_jpeg_data_url(IMAGE_SIDE, IMAGE_SIDE, 48);
+    let stored = images::set_shop_logo(&pool, tokens.as_ref(), dir.path(), &url)
+        .await
+        .expect("owner sets shop logo");
+    assert_eq!(stored, url);
+    assert!(dir.path().join(images::SHOP_LOGO_RELATIVE_FILE).exists());
+    assert_eq!(
+        images::get_shop_logo(&pool, tokens.as_ref(), dir.path())
+            .await
+            .expect("read shop logo"),
+        Some(url.clone())
+    );
+
+    // Invalid dimensions refused.
+    let bad = sample_jpeg_data_url(128, 128, 8);
+    let err = images::set_shop_logo(&pool, tokens.as_ref(), dir.path(), &bad)
+        .await
+        .expect_err("non-192 logo refused");
+    assert_eq!(err.code(), "IMAGE_DIMENSIONS_INVALID");
+
+    // Seller may read the logo for receipts, but cannot change or remove it.
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("reauthenticate");
+    let manager = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("manager");
+    let seller = users::create_user(&pool, &manager, "Youssef", "youssef", Role::Sales, PASSWORD)
+        .await
+        .expect("create seller");
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD)
+        .await
+        .expect("login seller");
+
+    assert_eq!(
+        images::get_shop_logo(&pool, tokens.as_ref(), dir.path())
+            .await
+            .expect("seller reads shop logo"),
+        Some(url.clone())
+    );
+    assert_eq!(
+        images::set_shop_logo(&pool, tokens.as_ref(), dir.path(), &url)
+            .await
+            .err()
+            .map(|e| e.code()),
+        Some("PERMISSION_DENIED")
+    );
+    assert_eq!(
+        images::remove_shop_logo(&pool, tokens.as_ref(), dir.path())
+            .await
+            .err()
+            .map(|e| e.code()),
+        Some("PERMISSION_DENIED")
+    );
+
+    // Switch back to manager, back up, remove logo, restore backup, verify logo is restored.
+    auth::login(&pool, tokens.as_ref(), manager.user_id(), PASSWORD)
+        .await
+        .expect("login manager");
+    let backup_path = dir.path().join("with_logo.msb");
+    let report = backup::create_backup(&pool, dir.path(), &backup_path, BACKUP_PASSWORD)
+        .await
+        .expect("create backup");
+    assert_eq!(report.image_count, 1);
+
+    images::remove_shop_logo(&pool, tokens.as_ref(), dir.path())
+        .await
+        .expect("remove shop logo");
+    assert!(!dir.path().join(images::SHOP_LOGO_RELATIVE_FILE).exists());
+    pool.close().await;
+
+    let restored =
+        backup::restore_backup(dir.path(), &backup_path, BACKUP_PASSWORD).expect("restore backup");
+    assert_eq!(restored.image_count, 1);
+    assert!(dir.path().join(images::SHOP_LOGO_RELATIVE_FILE).exists());
+}
+
+

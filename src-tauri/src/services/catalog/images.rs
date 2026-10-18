@@ -17,7 +17,8 @@ use sqlx::SqlitePool;
 use crate::data::repositories::catalog::{image as image_repo, product as product_repo};
 use crate::data::repositories::identity::audit;
 use crate::domain::catalog::{
-    encode_jpeg_data_url, CatalogError, ImageError, ProductId, ProductImage,
+    decode_jpeg_data_url, encode_jpeg_data_url, validate_jpeg_192, CatalogError, ImageError,
+    ProductId, ProductImage,
 };
 use crate::domain::identity::{DomainError, Permission, Session, Timestamp};
 use crate::services::identity::secure_store::SecureTokenStore;
@@ -239,6 +240,113 @@ pub async fn list_images(
     }
 
     Ok(entries)
+}
+
+/// Relative path inside `<data_dir>` for the optional 192×192 JPEG shop logo
+/// (`ADR-022` §2.2, `PLAN.md` §10, §16). Lives in `images/` so `services/backup`
+/// packs and restores it automatically alongside product images.
+pub const SHOP_LOGO_RELATIVE_FILE: &str = "images/shop-logo.jpg";
+
+/// Read the optional 192×192 JPEG shop logo as a `data:image/jpeg;base64,...`
+/// string, or `None` if no valid logo file is present on disk (`ADR-022` §2.2).
+pub async fn get_shop_logo(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    data_dir: &Path,
+) -> Result<Option<String>, ImageServiceError> {
+    let _session = authorize_sell(pool, tokens).await?;
+    let full_path = data_dir.join(SHOP_LOGO_RELATIVE_FILE);
+    match fs::read(&full_path) {
+        Ok(bytes) if validate_jpeg_192(&bytes).is_ok() => Ok(Some(encode_jpeg_data_url(&bytes))),
+        Ok(_) => Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(DomainError::StorageUnavailable.into()),
+    }
+}
+
+/// Store or replace the shop's 192×192 JPEG logo on disk (`images/shop-logo.jpg`)
+/// and record `setting_changed` (`ui.shop_logo`) in the audit log (`ADR-022` §2.2).
+pub async fn set_shop_logo(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    data_dir: &Path,
+    data_url: &str,
+) -> Result<String, ImageServiceError> {
+    let session = authorize_manage(pool, tokens).await?;
+    let raw_bytes = decode_jpeg_data_url(data_url)?;
+    let (w, h) = validate_jpeg_192(&raw_bytes)?;
+
+    write_image_file_atomically(data_dir, SHOP_LOGO_RELATIVE_FILE, &raw_bytes)
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let now = Timestamp::now();
+    let detail = serde_json::json!({
+        "key": "ui.shop_logo",
+        "file": SHOP_LOGO_RELATIVE_FILE,
+        "w": w,
+        "h": h,
+        "bytes": raw_bytes.len(),
+    })
+    .to_string();
+    audit::append(
+        &mut tx,
+        session.user_id(),
+        audit::event::SETTING_CHANGED,
+        now,
+        Some(detail),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(encode_jpeg_data_url(&raw_bytes))
+}
+
+/// Remove the shop's stored 192×192 JPEG logo file and record `setting_changed`
+/// (`ui.shop_logo` removed) in the audit log (`ADR-022` §2.2).
+pub async fn remove_shop_logo(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    data_dir: &Path,
+) -> Result<(), ImageServiceError> {
+    let session = authorize_manage(pool, tokens).await?;
+    let full_path = data_dir.join(SHOP_LOGO_RELATIVE_FILE);
+    match fs::remove_file(&full_path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(DomainError::StorageUnavailable.into()),
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let now = Timestamp::now();
+    let detail = serde_json::json!({
+        "key": "ui.shop_logo",
+        "removed": true,
+    })
+    .to_string();
+    audit::append(
+        &mut tx,
+        session.user_id(),
+        audit::event::SETTING_CHANGED,
+        now,
+        Some(detail),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(())
 }
 
 fn write_image_file_atomically(

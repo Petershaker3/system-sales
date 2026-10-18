@@ -1,8 +1,6 @@
 <script setup lang="ts">
-// Paying (`docs/ui/mockup-v1/pos.js`, «الدفع»; `ADR-020`, `docs/PLAN.md` §8).
-// Supports cash, wallets (`vf`), InstaPay (`instapay`), optional card (`card`),
-// instalments (`install`), credit (`credit` / آجل with customer balance), and
-// split payments across multiple methods in a single atomic transaction.
+// Paying (`docs/ui/mockup-v1/pos.js`, «الدفع» & «تم البيع»; `ADR-020`, `ADR-022`,
+// `docs/PLAN.md` §8, §10).
 import { computed, nextTick, ref, watch } from 'vue';
 
 import type { Customer } from '../../api/customer';
@@ -17,6 +15,7 @@ import {
   isPayMethodEnabled,
   PAY_METHODS,
   type PayMethodId,
+  shopLogo,
 } from '../../ui/appearance';
 import { dg, money, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
@@ -32,6 +31,21 @@ import {
   paymentsSummaryText,
   remainingDue,
 } from './payments';
+import {
+  buildWhatsAppUrl,
+  copyReceiptCanvasToClipboard,
+  defaultInvoiceReceiptMode,
+  formatWhatsAppMessage,
+  isValidEgyptianPhone,
+  normalizeEgyptianPhone,
+  type ReceiptData,
+  type ReceiptMode,
+  receiptModeDoneLabel,
+  receiptModeOptions,
+  renderReceiptCanvas,
+  warrantyLabelForReceipt,
+} from './receipt';
+import ReceiptPreview from './ReceiptPreview.vue';
 
 const props = defineProps<{
   lines: readonly CartLine[];
@@ -40,6 +54,7 @@ const props = defineProps<{
   selectedCustomer?: Customer | null;
   invoiceDiscountMinor?: number;
   grossSubtotalMinor?: number;
+  sellerName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -56,17 +71,43 @@ const nonCashAmountText = ref('');
 const referenceText = ref('');
 const installProvider = ref<string>(INSTALLMENT_PROVIDERS[0] ?? 'valU');
 const customerName = ref('');
+const receiptMode = ref<ReceiptMode>(
+  defaultInvoiceReceiptMode(
+    appearance.receiptMode,
+    appearance.printerEnabled,
+    props.selectedCustomer?.contact
+  )
+);
+const waPhone = ref<string>(
+  normalizeEgyptianPhone(props.selectedCustomer?.contact)
+);
 const busy = ref(false);
 const error = ref('');
+
 const done = ref<{
   outcome: SaleOutcome;
   changeMinor: number;
   summary: string;
+  receipt: ReceiptData;
+  receiptMode: ReceiptMode;
+  waPhone: string;
+  waMessage: string;
+  waUrl: string;
+  imageCopied: boolean;
 } | null>(null);
+
+const askWaAfterDone = ref(false);
+const doneWaDraft = ref('');
+const doneWaError = ref('');
+const doneWaInput = ref<HTMLInputElement | null>(null);
 const finishButton = ref<HTMLButtonElement | null>(null);
 
 const visibleMethods = computed(() =>
   enabledPayMethods(appearance.payMethods)
+);
+
+const receiptOptions = computed(() =>
+  receiptModeOptions(appearance.printerEnabled)
 );
 
 watch(
@@ -75,6 +116,22 @@ watch(
     if (!isPayMethodEnabled(method.value, raw)) {
       method.value = 'cash';
     }
+  }
+);
+
+watch(
+  () => props.selectedCustomer,
+  (cust) => {
+    const phone = normalizeEgyptianPhone(cust?.contact);
+    if (phone && waPhone.value.trim() === '') {
+      waPhone.value = phone;
+    }
+    receiptMode.value = defaultInvoiceReceiptMode(
+      appearance.receiptMode,
+      appearance.printerEnabled,
+      phone || waPhone.value
+    );
+    error.value = '';
   }
 );
 
@@ -152,6 +209,11 @@ function selectMethod(next: PayMethodId): void {
   error.value = '';
 }
 
+function selectReceiptMode(next: ReceiptMode): void {
+  receiptMode.value = next;
+  error.value = '';
+}
+
 function addSplitPayment(): void {
   error.value = '';
   const amount = splitPartMinor.value;
@@ -182,6 +244,132 @@ function removeSplitAt(index: number): void {
 
 function iconOfMethod(id: PayMethodId) {
   return PAY_METHODS.find((m) => m.id === id)?.icon ?? 'banknote';
+}
+
+function currentShopProfile() {
+  return {
+    shopName: appearance.shopName,
+    shopPhone: appearance.shopPhone,
+    shopAddress: appearance.shopAddress,
+    receiptFooter: appearance.receiptFooter,
+    receiptPaper: appearance.receiptPaper,
+    shopLogo: shopLogo.value,
+  };
+}
+
+async function dispatchWhatsAppReceipt(
+  receipt: ReceiptData,
+  phoneRaw: string
+): Promise<void> {
+  const normalized = normalizeEgyptianPhone(phoneRaw);
+  if (!normalized) return;
+
+  const warrantyDate = warrantyLabelForReceipt(receipt);
+  const message = formatWhatsAppMessage(appearance.waTemplate, {
+    customerName: receipt.customerName,
+    reference: receipt.reference,
+    shopName: appearance.shopName,
+    totalMinor: receipt.totalMinor,
+    warrantyDate,
+  });
+  const url = buildWhatsAppUrl(normalized, message);
+  const canvas = await renderReceiptCanvas(receipt, currentShopProfile());
+  const { copied, dataUrl } = await copyReceiptCanvasToClipboard(canvas);
+
+  if (done.value) {
+    done.value.waPhone = normalized;
+    done.value.waMessage = message;
+    done.value.waUrl = url;
+    done.value.imageCopied = copied;
+    if (done.value.receiptMode === 'none') {
+      done.value.receiptMode = 'wa';
+    } else if (done.value.receiptMode === 'print') {
+      done.value.receiptMode = 'both';
+    }
+  }
+
+  (
+    window as unknown as {
+      __lastWhatsAppSent?: {
+        phone: string;
+        message: string;
+        url: string;
+        imageDataUrl: string;
+        copied: boolean;
+      };
+    }
+  ).__lastWhatsAppSent = {
+    phone: normalized,
+    message,
+    url,
+    imageDataUrl: dataUrl,
+    copied,
+  };
+
+  if (typeof navigator !== 'undefined' && navigator.webdriver !== true && url) {
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch {
+      // Ignore popup blocker
+    }
+  }
+
+  toast(
+    `اتبعت الإيصال على واتساب ${normalized} (صورة الإيصال + رسالة)`,
+    'ok'
+  );
+}
+
+async function onCopyReceiptImage(): Promise<void> {
+  if (!done.value) return;
+  const canvas = await renderReceiptCanvas(
+    done.value.receipt,
+    currentShopProfile()
+  );
+  const { copied } = await copyReceiptCanvasToClipboard(canvas);
+  toast(
+    copied
+      ? 'اتنسخت صورة الإيصال، جاهزة للصق (Ctrl+V) في واتساب'
+      : 'اتجهزت صورة الإيصال',
+    'info'
+  );
+}
+
+async function onReprintReceipt(): Promise<void> {
+  if (!done.value) return;
+  await renderReceiptCanvas(done.value.receipt, currentShopProfile());
+  toast(
+    `بيطبع الإيصال رقم ${done.value.outcome.reference} (كصورة عشان العربي يطلع مظبوط)`,
+    'info'
+  );
+}
+
+async function onClickDoneWhatsApp(): Promise<void> {
+  if (!done.value) return;
+  const existingPhone =
+    done.value.waPhone ||
+    normalizeEgyptianPhone(props.selectedCustomer?.contact);
+  if (existingPhone) {
+    await dispatchWhatsAppReceipt(done.value.receipt, existingPhone);
+    return;
+  }
+  askWaAfterDone.value = true;
+  doneWaDraft.value = '';
+  doneWaError.value = '';
+  await nextTick();
+  doneWaInput.value?.focus({ preventScroll: true });
+}
+
+async function submitDoneWhatsApp(): Promise<void> {
+  if (!done.value) return;
+  const normalized = normalizeEgyptianPhone(doneWaDraft.value);
+  if (!normalized) {
+    doneWaError.value = 'رقم الواتساب لازم يكون 11 رقم ويبدأ بـ 01';
+    return;
+  }
+  askWaAfterDone.value = false;
+  doneWaError.value = '';
+  await dispatchWhatsAppReceipt(done.value.receipt, normalized);
 }
 
 async function pay(): Promise<void> {
@@ -234,6 +422,15 @@ async function pay(): Promise<void> {
     return;
   }
 
+  if (
+    (receiptMode.value === 'wa' || receiptMode.value === 'both') &&
+    !isValidEgyptianPhone(waPhone.value)
+  ) {
+    error.value =
+      'اكتب رقم واتساب صحيح (11 رقم يبدأ بـ 01) أو غيّر طريقة الإيصال لـ «بدون»';
+    return;
+  }
+
   busy.value = true;
   try {
     const approvalOutcome = await withOwnerApproval(
@@ -270,11 +467,58 @@ async function pay(): Promise<void> {
         }
       }
     }
+
+    const grossSubtotal = props.grossSubtotalMinor ?? props.totalMinor;
+    const receiptData: ReceiptData = {
+      reference: outcome.reference,
+      occurredAt: new Date(),
+      sellerName: props.sellerName || 'بيتر',
+      customerName:
+        props.selectedCustomer?.name ?? (customerName.value.trim() || null),
+      lines: props.lines.map((line) => ({
+        name: line.name,
+        quantity: line.quantity,
+        unitPriceMinor: line.unitPriceMinor,
+        discountMinor: line.discountMinor ?? 0,
+        lineTotalMinor:
+          line.quantity * line.unitPriceMinor - (line.discountMinor ?? 0),
+        imei: line.imei ?? null,
+        warrantyMonths: line.serial ? 12 : 0,
+        warrantyEnd: null,
+      })),
+      grossSubtotalMinor: grossSubtotal,
+      discountMinor: Math.max(0, grossSubtotal - props.totalMinor),
+      totalMinor: props.totalMinor,
+      payments: finalPayments,
+      changeMinor: cashChangeMinor,
+    };
+
+    const normalizedWa = normalizeEgyptianPhone(waPhone.value);
     done.value = {
       outcome,
       changeMinor: cashChangeMinor,
       summary: paymentsSummaryText(finalPayments),
+      receipt: receiptData,
+      receiptMode: receiptMode.value,
+      waPhone:
+        receiptMode.value === 'wa' || receiptMode.value === 'both'
+          ? normalizedWa
+          : '',
+      waMessage: '',
+      waUrl: '',
+      imageCopied: false,
     };
+
+    if (
+      appearance.printerEnabled === 'on' &&
+      (receiptMode.value === 'print' || receiptMode.value === 'both')
+    ) {
+      await onReprintReceipt();
+    }
+    if (receiptMode.value === 'wa' || receiptMode.value === 'both') {
+      await dispatchWhatsAppReceipt(receiptData, normalizedWa);
+    }
+
     await nextTick();
     finishButton.value?.focus({ preventScroll: true });
   } catch (err) {
@@ -296,8 +540,15 @@ function finish(): void {
 }
 
 function onEnter(): void {
-  if (done.value !== null) finish();
-  else void pay();
+  if (done.value !== null) {
+    if (askWaAfterDone.value) {
+      void submitDoneWhatsApp();
+    } else {
+      finish();
+    }
+  } else {
+    void pay();
+  }
 }
 </script>
 
@@ -306,10 +557,10 @@ function onEnter(): void {
     :title="done ? 'تم البيع' : 'الدفع'"
     :sub="
       done
-        ? done.summary
+        ? `فاتورة رقم ${dg(done.outcome.reference)} · ${done.summary}`
         : `${currentMethodMeta.name} · ${pcsWord(count)}`
     "
-    size="md"
+    :size="done ? 'wide' : 'md'"
     :closable="!busy"
     @close="done ? finish() : emit('close')"
   >
@@ -429,7 +680,6 @@ function onEnter(): void {
                 v-for="prov in INSTALLMENT_PROVIDERS"
                 :key="prov"
                 type="button"
-                class="chip"
                 :class="{ on: installProvider === prov }"
                 :data-provider="prov"
                 @click="installProvider = prov"
@@ -592,22 +842,159 @@ function onEnter(): void {
         </button>
       </div>
 
+      <div class="field" data-pay-receipt-section>
+        <span class="label">الإيصال</span>
+        <div class="seg" role="group" aria-label="طريقة الإيصال">
+          <button
+            v-for="[id, label] in receiptOptions"
+            :key="id"
+            :id="`pay-receipt-mode-${id}`"
+            type="button"
+            :class="{ on: receiptMode === id }"
+            :data-receipt-mode="id"
+            @click="selectReceiptMode(id)"
+          >
+            {{ label }}
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="receiptMode === 'wa' || receiptMode === 'both'"
+        class="field"
+      >
+        <label for="pay-wa">رقم واتساب العميل</label>
+        <input
+          id="pay-wa"
+          v-model="waPhone"
+          dir="ltr"
+          inputmode="tel"
+          autocomplete="off"
+          maxlength="20"
+          placeholder="01xxxxxxxxx"
+          @input="error = ''"
+        />
+      </div>
+
       <div class="err-msg" role="alert">{{ error }}</div>
     </form>
 
-    <div v-else class="stack">
-      <div class="done-hero">
-        <Icon name="circle-check" />
-        <div class="done-t">
-          <b>اتسجّلت الفاتورة</b>
-          <bdi dir="ltr" class="mono ref">{{ dg(done.outcome.reference) }}</bdi>
-          <span class="muted">{{ money(done.outcome.totalMinor) }} · {{ done.summary }}</span>
+    <div v-else class="done-wrap">
+      <div class="stack">
+        <div class="done-hero">
+          <Icon name="circle-check" />
+          <div class="done-t">
+            <b>اتسجّلت الفاتورة</b>
+            <bdi dir="ltr" class="mono ref">{{ dg(done.outcome.reference) }}</bdi>
+            <span class="muted">{{ money(done.outcome.totalMinor) }} · {{ done.summary }}</span>
+          </div>
         </div>
+        <div class="change-box">
+          <span>الباقي للعميل</span>
+          <b class="num">{{ money(done.changeMinor) }}</b>
+        </div>
+        <div class="sum-box">
+          <div class="r">
+            <span>البيّاع</span>
+            <b>{{ done.receipt.sellerName }}</b>
+          </div>
+          <div class="r">
+            <span>العميل</span>
+            <b>{{ done.receipt.customerName || 'نقدي' }}</b>
+          </div>
+          <div class="r">
+            <span>الإيصال</span>
+            <b data-done-receipt-status>
+              {{ receiptModeDoneLabel(done.receiptMode) }}
+              <bdi v-if="done.waPhone" dir="ltr" class="mono">({{ done.waPhone }})</bdi>
+            </b>
+          </div>
+          <div class="r">
+            <span>عدد القطع</span>
+            <b class="num">{{ num(count) }}</b>
+          </div>
+        </div>
+
+        <div v-if="done.waMessage" class="note" data-done-wa-summary>
+          <Icon name="message-circle" />
+          <div class="stack" style="gap: 4px; flex: 1">
+            <span>{{ done.waMessage }}</span>
+            <a
+              v-if="done.waUrl"
+              :href="done.waUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="link-btn"
+              style="justify-self: start"
+              data-wa-direct-link
+            >
+              فتح محادثة واتساب ({{ done.waPhone }})
+            </a>
+          </div>
+        </div>
+
+        <div class="row wrap" style="gap: 8px">
+          <button
+            v-if="!askWaAfterDone"
+            id="send-wa-receipt-btn"
+            type="button"
+            class="btn"
+            data-act="waSend"
+            @click="onClickDoneWhatsApp"
+          >
+            <Icon name="message-circle" />
+            {{ done.waPhone ? 'ابعت تاني واتساب' : 'ابعت الإيصال واتساب' }}
+          </button>
+          <button
+            id="copy-receipt-img-btn"
+            type="button"
+            class="btn"
+            @click="onCopyReceiptImage"
+          >
+            <Icon name="image" /> نسخ صورة الإيصال
+          </button>
+          <button
+            v-if="appearance.printerEnabled === 'on'"
+            id="reprint-receipt-btn"
+            type="button"
+            class="btn"
+            @click="onReprintReceipt"
+          >
+            <Icon name="printer" /> اطبع تاني
+          </button>
+        </div>
+
+        <template v-if="askWaAfterDone">
+          <div class="row wa-ask" data-done-wa-ask>
+            <div class="field">
+              <label for="done-wa">رقم واتساب العميل</label>
+              <input
+                id="done-wa"
+                ref="doneWaInput"
+                v-model="doneWaDraft"
+                dir="ltr"
+                inputmode="tel"
+                autocomplete="off"
+                maxlength="20"
+                placeholder="01xxxxxxxxx"
+                @input="doneWaError = ''"
+                @keydown.enter.prevent.stop="submitDoneWhatsApp"
+              />
+            </div>
+            <button
+              id="done-wa-send-btn"
+              type="button"
+              class="btn primary"
+              @click="submitDoneWhatsApp"
+            >
+              <Icon name="send" /> ابعت <kbd>Enter</kbd>
+            </button>
+          </div>
+          <div v-if="doneWaError" class="err-msg" role="alert">{{ doneWaError }}</div>
+        </template>
       </div>
-      <div class="change-box">
-        <span>الباقي للعميل</span>
-        <b class="num">{{ money(done.changeMinor) }}</b>
-      </div>
+
+      <ReceiptPreview :sale="done.receipt" />
     </div>
 
     <template #foot>
@@ -632,6 +1019,7 @@ function onEnter(): void {
       </template>
       <button
         v-else
+        id="finish-sale-btn"
         ref="finishButton"
         type="button"
         class="btn primary lg"

@@ -70,6 +70,14 @@ pub async fn update(
         AppearanceKey::ImeiMode => validated.imei_mode,
         AppearanceKey::PayMethods => validated.pay_methods,
         AppearanceKey::DiscountLimitPct => validated.discount_limit_pct,
+        AppearanceKey::ShopName => validated.shop_name,
+        AppearanceKey::ShopPhone => validated.shop_phone,
+        AppearanceKey::ShopAddress => validated.shop_address,
+        AppearanceKey::ReceiptFooter => validated.receipt_footer,
+        AppearanceKey::WaTemplate => validated.wa_template,
+        AppearanceKey::ReceiptMode => validated.receipt_mode,
+        AppearanceKey::PrinterEnabled => validated.printer_enabled,
+        AppearanceKey::ReceiptPaper => validated.receipt_paper,
     };
     let now = Timestamp::now();
 

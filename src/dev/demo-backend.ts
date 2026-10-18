@@ -277,7 +277,16 @@ const appearance = {
   imeiMode: 'optional',
   payMethods: 'cash,vf,instapay,card,install,credit',
   discountLimitPct: '5',
+  shopName: 'محل النور للموبايلات',
+  shopPhone: '01012345678',
+  shopAddress: 'شارع الجمهورية، أسيوط',
+  receiptFooter: 'شكراً لزيارتكم · الاستبدال خلال 14 يوم بالفاتورة والعلبة بحالتها',
+  waTemplate: 'أهلاً {الاسم}، إيصال فاتورة رقم {رقم} من {المحل} بمبلغ {الإجمالي}.{الضمان} شكراً لزيارتكم.',
+  receiptMode: 'wa',
+  printerEnabled: 'off',
+  receiptPaper: '80',
 };
+let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
   id: string;
   productId: string;
@@ -542,22 +551,41 @@ const handlers: Record<string, (args: Args) => unknown> = {
   read_appearance: () => ({ ...appearance }),
   update_appearance: (args) => {
     const rawKey = str(args, 'key');
-    const key = (
-      rawKey === 'ui.imei_mode'
-        ? 'imeiMode'
-        : rawKey === 'ui.pay_methods'
-          ? 'payMethods'
-          : rawKey === 'ui.discount_limit_pct'
-            ? 'discountLimitPct'
-            : rawKey.replace(/^ui\./, '')
-    ) as keyof typeof appearance;
-    if (!(key in appearance)) fail('SETTING_UNKNOWN_KEY');
+    const keyMap: Record<string, keyof typeof appearance> = {
+      'ui.look': 'look',
+      'ui.theme': 'theme',
+      'ui.accent': 'accent',
+      'ui.font': 'font',
+      'ui.scale': 'scale',
+      'ui.digits': 'digits',
+      'ui.images': 'images',
+      'ui.imei_mode': 'imeiMode',
+      'ui.pay_methods': 'payMethods',
+      'ui.discount_limit_pct': 'discountLimitPct',
+      'ui.shop_name': 'shopName',
+      'ui.shop_phone': 'shopPhone',
+      'ui.shop_address': 'shopAddress',
+      'ui.receipt_footer': 'receiptFooter',
+      'ui.wa_template': 'waTemplate',
+      'ui.receipt_mode': 'receiptMode',
+      'ui.printer_enabled': 'printerEnabled',
+      'ui.receipt_paper': 'receiptPaper',
+    };
+    const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
     else if (
       key === 'images' ||
       key === 'imeiMode' ||
       key === 'payMethods' ||
-      key === 'discountLimitPct'
+      key === 'discountLimitPct' ||
+      key === 'shopName' ||
+      key === 'shopPhone' ||
+      key === 'shopAddress' ||
+      key === 'receiptFooter' ||
+      key === 'waTemplate' ||
+      key === 'receiptMode' ||
+      key === 'printerEnabled' ||
+      key === 'receiptPaper'
     )
       requireManager(false);
     else requireManager(true);
@@ -568,6 +596,28 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const n = Number(val);
       if (!Number.isInteger(n) || n < 0 || n > 100) fail('SETTING_VALUE_INVALID');
       appearance[key] = String(n);
+    } else if (
+      key === 'shopName' ||
+      key === 'shopPhone' ||
+      key === 'shopAddress' ||
+      key === 'receiptFooter' ||
+      key === 'waTemplate'
+    ) {
+      if ((key === 'shopName' || key === 'waTemplate') && val === '') {
+        fail('SETTING_VALUE_INVALID');
+      }
+      appearance[key] = val;
+    } else if (key === 'receiptMode') {
+      const lower = val.toLowerCase();
+      if (!['wa', 'none', 'print', 'both'].includes(lower)) fail('SETTING_VALUE_INVALID');
+      appearance[key] = lower;
+    } else if (key === 'printerEnabled') {
+      const lower = val.toLowerCase();
+      if (!['on', 'off'].includes(lower)) fail('SETTING_VALUE_INVALID');
+      appearance[key] = lower;
+    } else if (key === 'receiptPaper') {
+      if (!['80', '58'].includes(val)) fail('SETTING_VALUE_INVALID');
+      appearance[key] = val;
     } else {
       appearance[key] = val.toLowerCase();
     }
@@ -998,6 +1048,28 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const productId = str(args, 'productId');
     if (!productImages.has(productId)) fail('IMAGE_NOT_FOUND');
     productImages.delete(productId);
+  },
+  get_shop_logo: () => {
+    requireUser();
+    return shopLogoDataUrl;
+  },
+  set_shop_logo: (args) => {
+    requireManager();
+    const dataUrl = str(args, 'dataUrl').trim();
+    if (dataUrl === '') fail('IMAGE_EMPTY');
+    if (!/^data:image\/jpe?g;base64,/i.test(dataUrl)) fail('IMAGE_NOT_JPEG');
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1).replace(/\s+/g, '');
+    if (b64.length === 0) fail('IMAGE_EMPTY');
+    const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+    const bytes = Math.floor((b64.length * 3) / 4) - pad;
+    if (bytes <= 0) fail('IMAGE_EMPTY');
+    if (bytes > 65_536) fail('IMAGE_TOO_LARGE');
+    shopLogoDataUrl = dataUrl;
+    return dataUrl;
+  },
+  remove_shop_logo: () => {
+    requireManager();
+    shopLogoDataUrl = null;
   },
 
 

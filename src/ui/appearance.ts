@@ -1,28 +1,13 @@
-// The look of the screens: the two looks («لافتة الشارع» / «علبة الموبايل»),
-// light or dark, the shop colour, the font, the text size and the digits
-// (DESIGN.md, docs/ui/REDESIGN.md; owner decisions in ADR-016).
-//
-// # Where it is kept
-//
-// In the shop database, as `ui.*` settings (src/api/appearance.ts). They are
-// read before anyone signs in, so the sign-in screen already wears the shop's
-// look. Nothing is kept in the WebView's storage: no file under src/ touches web
-// storage, and this one keeps it that way. Until the stored choices arrive the
-// approved defaults are applied, so the first frame is never unstyled.
-//
-// The light/dark switch on the rail is for whoever works the counter; every
-// other choice is the owner's, behind a fresh password (Rust decides).
-//
-// # How it is applied
-//
-// `<html data-look data-theme data-font data-scale>` picks the token set in
-// styles/tokens.css, and `--accent` plus the derived accent tokens (color.ts)
-// are written as inline custom properties, after the look's grounds are known.
+// The look of the screens and the shop/receipt profile: the two looks
+// («لافتة الشارع» / «علبة الموبايل»), light or dark, the shop colour, the font,
+// the text size, the digits, and the shop/receipt configuration
+// (DESIGN.md, docs/ui/REDESIGN.md; owner decisions in ADR-016, ADR-022).
 
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 
 import * as api from '../api/appearance';
 import type { AppearanceKey } from '../api/appearance';
+import * as imagesApi from '../api/images';
 import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './color.ts';
 import type { Grounds, Rgb } from './color.ts';
 import { setDigits } from './format.ts';
@@ -36,6 +21,9 @@ export type Scale = 'normal' | 'large';
 export type ImagesChoice = 'on' | 'off';
 export type ImeiModeChoice = 'optional' | 'required';
 export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit';
+export type ReceiptModeChoice = 'wa' | 'none' | 'print' | 'both';
+export type PrinterEnabledChoice = 'on' | 'off';
+export type ReceiptPaperChoice = '80' | '58';
 
 export interface PayMethodMeta {
   readonly id: PayMethodId;
@@ -95,6 +83,16 @@ export const INSTALLMENT_PROVIDERS: readonly string[] = [
 
 export const DEFAULT_PAY_METHODS = 'cash,vf,instapay,card,install,credit';
 export const DEFAULT_DISCOUNT_LIMIT_PCT = '5';
+export const DEFAULT_SHOP_NAME = 'موبايل ستور';
+export const DEFAULT_SHOP_PHONE = '01000000000';
+export const DEFAULT_SHOP_ADDRESS = '12 شارع شبرا، القاهرة';
+export const DEFAULT_RECEIPT_FOOTER =
+  'شكرًا لزيارتكم. الاستبدال خلال 14 يوم بالفاتورة والعلبة.';
+export const DEFAULT_WA_TEMPLATE =
+  'أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.';
+export const DEFAULT_RECEIPT_MODE: ReceiptModeChoice = 'wa';
+export const DEFAULT_PRINTER_ENABLED: PrinterEnabledChoice = 'off';
+export const DEFAULT_RECEIPT_PAPER: ReceiptPaperChoice = '80';
 
 export function normalizeDiscountLimitPct(raw: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_DISCOUNT_LIMIT_PCT;
@@ -126,6 +124,19 @@ export function normalizePayMethods(raw: unknown): string {
   return allowed.filter((id) => seen.has(id)).join(',');
 }
 
+function normalizeText(
+  raw: unknown,
+  fallback: string,
+  allowEmpty: boolean,
+  maxChars: number
+): string {
+  if (typeof raw !== 'string') return fallback;
+  const trimmed = raw.replace(/\r\n/g, '\n').trim();
+  if (!allowEmpty && trimmed === '') return fallback;
+  if (trimmed.length > maxChars) return trimmed.slice(0, maxChars);
+  return trimmed;
+}
+
 export interface Appearance {
   look: Look;
   theme: ThemeChoice;
@@ -137,6 +148,14 @@ export interface Appearance {
   imeiMode: ImeiModeChoice;
   payMethods: string;
   discountLimitPct: string;
+  shopName: string;
+  shopPhone: string;
+  shopAddress: string;
+  receiptFooter: string;
+  waTemplate: string;
+  receiptMode: ReceiptModeChoice;
+  printerEnabled: PrinterEnabledChoice;
+  receiptPaper: ReceiptPaperChoice;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -150,8 +169,15 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   imeiMode: 'optional',
   payMethods: DEFAULT_PAY_METHODS,
   discountLimitPct: DEFAULT_DISCOUNT_LIMIT_PCT,
+  shopName: DEFAULT_SHOP_NAME,
+  shopPhone: DEFAULT_SHOP_PHONE,
+  shopAddress: DEFAULT_SHOP_ADDRESS,
+  receiptFooter: DEFAULT_RECEIPT_FOOTER,
+  waTemplate: DEFAULT_WA_TEMPLATE,
+  receiptMode: DEFAULT_RECEIPT_MODE,
+  printerEnabled: DEFAULT_PRINTER_ENABLED,
+  receiptPaper: DEFAULT_RECEIPT_PAPER,
 };
-
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
 export const ACCENTS: readonly string[] = [
@@ -195,6 +221,14 @@ export function normalizeAppearance(raw: unknown): Appearance {
     imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
     payMethods: normalizePayMethods(r['payMethods']),
     discountLimitPct: normalizeDiscountLimitPct(r['discountLimitPct']),
+    shopName: normalizeText(r['shopName'], DEFAULT_SHOP_NAME, false, 120),
+    shopPhone: normalizeText(r['shopPhone'], DEFAULT_SHOP_PHONE, true, 40),
+    shopAddress: normalizeText(r['shopAddress'], DEFAULT_SHOP_ADDRESS, true, 200),
+    receiptFooter: normalizeText(r['receiptFooter'], DEFAULT_RECEIPT_FOOTER, true, 500),
+    waTemplate: normalizeText(r['waTemplate'], DEFAULT_WA_TEMPLATE, false, 1000),
+    receiptMode: oneOf(r['receiptMode'], ['wa', 'none', 'print', 'both'] as const, DEFAULT_RECEIPT_MODE),
+    printerEnabled: oneOf(r['printerEnabled'], ['on', 'off'] as const, DEFAULT_PRINTER_ENABLED),
+    receiptPaper: oneOf(r['receiptPaper'], ['80', '58'] as const, DEFAULT_RECEIPT_PAPER),
   };
 }
 
@@ -215,9 +249,31 @@ export function enabledPayMethods(
   return PAY_METHODS.filter((m) => isPayMethodEnabled(m.id, raw));
 }
 
-
 /** The single, reactive appearance every component reads. */
 export const appearance: Appearance = reactive({ ...DEFAULT_APPEARANCE });
+
+/** Reactive optional 192×192 JPEG shop logo (`data:image/jpeg;base64,...` or `null`). */
+export const shopLogo = ref<string | null>(null);
+
+export async function loadShopLogo(): Promise<string | null> {
+  try {
+    shopLogo.value = await imagesApi.getShopLogo();
+    return shopLogo.value;
+  } catch {
+    return shopLogo.value;
+  }
+}
+
+export async function saveShopLogo(dataUrl: string): Promise<string> {
+  const stored = await imagesApi.setShopLogo(dataUrl);
+  shopLogo.value = stored;
+  return stored;
+}
+
+export async function clearShopLogo(): Promise<void> {
+  await imagesApi.removeShopLogo();
+  shopLogo.value = null;
+}
 
 export function resolvedTheme(a: Appearance = appearance): 'light' | 'dark' {
   if (a.theme !== 'auto') return a.theme;
@@ -270,8 +326,15 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   imeiMode: 'ui.imei_mode',
   payMethods: 'ui.pay_methods',
   discountLimitPct: 'ui.discount_limit_pct',
+  shopName: 'ui.shop_name',
+  shopPhone: 'ui.shop_phone',
+  shopAddress: 'ui.shop_address',
+  receiptFooter: 'ui.receipt_footer',
+  waTemplate: 'ui.wa_template',
+  receiptMode: 'ui.receipt_mode',
+  printerEnabled: 'ui.printer_enabled',
+  receiptPaper: 'ui.receipt_paper',
 };
-
 
 /**
  * Change part of the appearance: repaint at once, then store it. When the store

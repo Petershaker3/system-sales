@@ -60,6 +60,9 @@ pub fn run() {
             commands::catalog::list_product_images,
             commands::catalog::set_product_image,
             commands::catalog::remove_product_image,
+            commands::catalog::get_shop_logo,
+            commands::catalog::set_shop_logo,
+            commands::catalog::remove_shop_logo,
 
 
             commands::identity_lifecycle::change_own_password,

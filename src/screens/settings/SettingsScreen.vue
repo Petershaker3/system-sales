@@ -15,17 +15,20 @@ import DiscountLimitCard from './DiscountLimitCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
-
+import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
+import ShopProfileCard from './ShopProfileCard.vue';
 </script>
 
 <template>
   <div class="page">
     <div class="page-h">
       <h2>الإعدادات</h2>
-      <span class="sub">الشكل والتصنيفات الأول، وبعدهم إعدادات الجهاز والمستخدمين والنسخ الاحتياطي.</span>
+      <span class="sub">بيانات المحل، والشكل، والإيصال والواتساب، والتصنيفات، والمستخدمين والنسخ الاحتياطي.</span>
     </div>
+    <ShopProfileCard />
     <AppearanceCard />
+    <ReceiptSettingsCard />
     <ProductImagesCard />
     <ImeiModeCard />
     <PaymentMethodsCard />

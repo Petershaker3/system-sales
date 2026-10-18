@@ -12,7 +12,13 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import * as api from '../api/identity';
 import type { Session, UserSummary } from '../api/identity';
 import { describeError } from '../api/errors';
-import { resolvedTheme, appearance, toggleTheme } from '../ui/appearance';
+import {
+  appearance,
+  loadShopLogo,
+  resolvedTheme,
+  shopLogo,
+  toggleTheme,
+} from '../ui/appearance';
 import { fmtTime } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
@@ -119,6 +125,7 @@ function onDocClick(event: MouseEvent): void {
 }
 
 onMounted(() => {
+  void loadShopLogo();
   tick = window.setInterval(() => (clock.value = fmtTime()), 15_000);
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
@@ -141,7 +148,10 @@ async function switchTheme(): Promise<void> {
 <template>
   <div class="shell">
     <nav class="rail" aria-label="الأقسام">
-      <div class="logo" aria-hidden="true">م</div>
+      <div class="logo" aria-hidden="true">
+        <img v-if="shopLogo" :src="shopLogo" alt="" />
+        <span v-else>{{ (appearance.shopName || 'م').trim().charAt(0) }}</span>
+      </div>
       <button
         v-for="item in items"
         :key="item.id"
@@ -169,10 +179,29 @@ async function switchTheme(): Promise<void> {
     <main class="main">
       <header class="topbar">
         <h1>{{ TITLES[screen] }}</h1>
+        <span class="shop hide-sm" data-topbar-shop-name>{{ appearance.shopName }}</span>
         <span v-if="demo" class="status fresh-tag" title="نسخة للتجربة في المتصفح. البيانات وهمية ومش بتتحفظ">
           <Icon name="info" /> نسخة تجربة: بيانات وهمية
         </span>
         <div class="sp" />
+        <span
+          v-if="appearance.printerEnabled === 'on'"
+          class="status hide-sm"
+          data-topbar-receipt-status="printer"
+          title="الطابعة"
+        >
+          <span class="dot" />
+          <Icon name="printer" /> الطابعة جاهزة
+        </span>
+        <span
+          v-else
+          class="status hide-sm"
+          data-topbar-receipt-status="wa"
+          title="مفيش طابعة. الإيصال بيتبعت للعميل على واتساب"
+        >
+          <span class="dot" />
+          <Icon name="message-circle" /> الإيصال: واتساب
+        </span>
         <span class="status num" title="الساعة">{{ clock }}</span>
         <div class="user-switch" :class="{ open: menuOpen }">
           <button

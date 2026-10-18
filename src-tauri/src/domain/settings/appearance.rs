@@ -1,10 +1,9 @@
-//! How the screens look (DESIGN.md; plan items 1.6 and 1.13).
+//! How the screens look and how the shop/receipt profile is configured
+//! (DESIGN.md; plan items 1.6, 1.7, and 1.13; ADR-022).
 //!
-//! Six display choices, stored as `app_settings` rows under the `ui.` prefix:
-//! the look («لافتة الشارع» `plate` / «علبة الموبايل» `box`), the theme, the
-//! shop colour, the font, the text size and the digit style. They are not
-//! business data and not secret, so they can be read before anyone signs in —
-//! the sign-in screen is drawn in the shop's own look.
+//! Display, POS, shop, and receipt choices, stored as `app_settings` rows
+//! under the `ui.` prefix. They are not secret, so they can be read before
+//! anyone signs in — the sign-in screen is drawn in the shop's own look.
 //!
 //! Kept apart from [`super::SettingsSnapshot`] on purpose: that snapshot is
 //! read inside every sale, and a display choice must never be able to fail a
@@ -15,7 +14,7 @@ use super::SettingsError;
 /// The `app_settings` key prefix that belongs to this slice.
 pub const APPEARANCE_PREFIX: &str = "ui.";
 
-/// One display choice.
+/// One display, POS, shop, or receipt choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppearanceKey {
     Look,
@@ -28,10 +27,18 @@ pub enum AppearanceKey {
     ImeiMode,
     PayMethods,
     DiscountLimitPct,
+    ShopName,
+    ShopPhone,
+    ShopAddress,
+    ReceiptFooter,
+    WaTemplate,
+    ReceiptMode,
+    PrinterEnabled,
+    ReceiptPaper,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 10] = [
+    pub const ALL: [AppearanceKey; 18] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -42,6 +49,14 @@ impl AppearanceKey {
         AppearanceKey::ImeiMode,
         AppearanceKey::PayMethods,
         AppearanceKey::DiscountLimitPct,
+        AppearanceKey::ShopName,
+        AppearanceKey::ShopPhone,
+        AppearanceKey::ShopAddress,
+        AppearanceKey::ReceiptFooter,
+        AppearanceKey::WaTemplate,
+        AppearanceKey::ReceiptMode,
+        AppearanceKey::PrinterEnabled,
+        AppearanceKey::ReceiptPaper,
     ];
 
     /// The stored key.
@@ -57,6 +72,14 @@ impl AppearanceKey {
             AppearanceKey::ImeiMode => "ui.imei_mode",
             AppearanceKey::PayMethods => "ui.pay_methods",
             AppearanceKey::DiscountLimitPct => "ui.discount_limit_pct",
+            AppearanceKey::ShopName => "ui.shop_name",
+            AppearanceKey::ShopPhone => "ui.shop_phone",
+            AppearanceKey::ShopAddress => "ui.shop_address",
+            AppearanceKey::ReceiptFooter => "ui.receipt_footer",
+            AppearanceKey::WaTemplate => "ui.wa_template",
+            AppearanceKey::ReceiptMode => "ui.receipt_mode",
+            AppearanceKey::PrinterEnabled => "ui.printer_enabled",
+            AppearanceKey::ReceiptPaper => "ui.receipt_paper",
         }
     }
 
@@ -74,7 +97,7 @@ impl AppearanceKey {
     }
 
     /// Whether the owner may toggle this choice under [`Permission::ManageCatalog`]
-    /// alongside category and brand visibility in «الأصناف والبيع».
+    /// alongside category, brand, payment, discount, shop, and receipt cards.
     pub fn is_catalog_choice(self) -> bool {
         matches!(
             self,
@@ -82,6 +105,14 @@ impl AppearanceKey {
                 | AppearanceKey::ImeiMode
                 | AppearanceKey::PayMethods
                 | AppearanceKey::DiscountLimitPct
+                | AppearanceKey::ShopName
+                | AppearanceKey::ShopPhone
+                | AppearanceKey::ShopAddress
+                | AppearanceKey::ReceiptFooter
+                | AppearanceKey::WaTemplate
+                | AppearanceKey::ReceiptMode
+                | AppearanceKey::PrinterEnabled
+                | AppearanceKey::ReceiptPaper
         )
     }
 }
@@ -125,6 +156,18 @@ pub fn parse_pay_methods(raw: &str) -> Option<String> {
 /// Default seller discount limit percentage without owner PIN approval (`ADR-021`, `PLAN.md` §4).
 pub const DEFAULT_DISCOUNT_LIMIT_PCT: &str = "5";
 
+/// Default shop and receipt settings (`ADR-022`, `PLAN.md` §10, §16).
+pub const DEFAULT_SHOP_NAME: &str = "موبايل ستور";
+pub const DEFAULT_SHOP_PHONE: &str = "01000000000";
+pub const DEFAULT_SHOP_ADDRESS: &str = "12 شارع شبرا، القاهرة";
+pub const DEFAULT_RECEIPT_FOOTER: &str =
+    "شكرًا لزيارتكم. الاستبدال خلال 14 يوم بالفاتورة والعلبة.";
+pub const DEFAULT_WA_TEMPLATE: &str =
+    "أهلاً {الاسم}، دي فاتورتك رقم {رقم} من {المحل}. الضمان لحد {تاريخ_الضمان}.";
+pub const DEFAULT_RECEIPT_MODE: &str = "wa";
+pub const DEFAULT_PRINTER_ENABLED: &str = "off";
+pub const DEFAULT_RECEIPT_PAPER: &str = "80";
+
 /// Parse and canonicalize a discount limit percentage (`0..=100`).
 pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
     let trimmed = raw.trim();
@@ -138,7 +181,54 @@ pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
     Some((pct, pct.to_string()))
 }
 
-/// The current display choices, defaults applied for anything never set.
+fn validate_single_line_text(
+    raw: &str,
+    allow_empty: bool,
+    max_chars: usize,
+) -> Option<String> {
+    let trimmed = raw.trim();
+    if !allow_empty && trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() > max_chars || trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+fn validate_multiline_text(
+    raw: &str,
+    allow_empty: bool,
+    max_chars: usize,
+) -> Option<String> {
+    let normalized = raw.replace("\r\n", "\n");
+    let trimmed = normalized.trim();
+    if !allow_empty && trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() > max_chars
+        || trimmed.chars().any(|c| c.is_control() && c != '\n')
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+fn validate_phone_text(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.chars().count() > 40 {
+        return None;
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '+' | '-' | ' ' | '(' | ')'))
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+/// The current display, POS, shop, and receipt choices, defaults applied for anything never set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Appearance {
     pub look: String,
@@ -151,13 +241,22 @@ pub struct Appearance {
     pub imei_mode: String,
     pub pay_methods: String,
     pub discount_limit_pct: String,
+    pub shop_name: String,
+    pub shop_phone: String,
+    pub shop_address: String,
+    pub receipt_footer: String,
+    pub wa_template: String,
+    pub receipt_mode: String,
+    pub printer_enabled: String,
+    pub receipt_paper: String,
 }
 
 impl Default for Appearance {
     /// The approved defaults: «لافتة الشارع», light, the navy shop colour, the
     /// look's own font, normal size, Latin digits, product images on, IMEI
-    /// mode optional, all payment methods enabled, 5% seller discount limit
-    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2).
+    /// mode optional, all payment methods enabled, 5% seller discount limit,
+    /// and the shop/receipt profile defaults
+    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -170,10 +269,17 @@ impl Default for Appearance {
             imei_mode: "optional".to_owned(),
             pay_methods: DEFAULT_PAY_METHODS.to_owned(),
             discount_limit_pct: DEFAULT_DISCOUNT_LIMIT_PCT.to_owned(),
+            shop_name: DEFAULT_SHOP_NAME.to_owned(),
+            shop_phone: DEFAULT_SHOP_PHONE.to_owned(),
+            shop_address: DEFAULT_SHOP_ADDRESS.to_owned(),
+            receipt_footer: DEFAULT_RECEIPT_FOOTER.to_owned(),
+            wa_template: DEFAULT_WA_TEMPLATE.to_owned(),
+            receipt_mode: DEFAULT_RECEIPT_MODE.to_owned(),
+            printer_enabled: DEFAULT_PRINTER_ENABLED.to_owned(),
+            receipt_paper: DEFAULT_RECEIPT_PAPER.to_owned(),
         }
     }
 }
-
 
 fn is_hex_colour(value: &str) -> bool {
     value.len() == 7
@@ -189,24 +295,83 @@ impl Appearance {
         let parsed = AppearanceKey::parse(key).ok_or_else(|| SettingsError::UnknownKey {
             key: key.to_owned(),
         })?;
-        if parsed == AppearanceKey::PayMethods {
-            let canonical =
-                parse_pay_methods(value).ok_or_else(|| SettingsError::MalformedValue {
-                    key: parsed.as_str().to_owned(),
-                    reason: "invalid enabled payment methods list (cash must stay enabled)",
+        match parsed {
+            AppearanceKey::PayMethods => {
+                let canonical =
+                    parse_pay_methods(value).ok_or_else(|| SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "invalid enabled payment methods list (cash must stay enabled)",
+                    })?;
+                self.pay_methods = canonical;
+                return Ok(());
+            }
+            AppearanceKey::DiscountLimitPct => {
+                let (_pct, canonical) = parse_discount_limit_pct(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "discount limit percentage must be an integer between 0 and 100",
+                    }
                 })?;
-            self.pay_methods = canonical;
-            return Ok(());
-        }
-        if parsed == AppearanceKey::DiscountLimitPct {
-            let (_pct, canonical) =
-                parse_discount_limit_pct(value).ok_or_else(|| SettingsError::MalformedValue {
-                    key: parsed.as_str().to_owned(),
-                    reason: "discount limit percentage must be an integer between 0 and 100",
+                self.discount_limit_pct = canonical;
+                return Ok(());
+            }
+            AppearanceKey::ShopName => {
+                let clean =
+                    validate_single_line_text(value, false, 120).ok_or_else(|| {
+                        SettingsError::MalformedValue {
+                            key: parsed.as_str().to_owned(),
+                            reason: "shop name must be non-empty and at most 120 characters",
+                        }
+                    })?;
+                self.shop_name = clean;
+                return Ok(());
+            }
+            AppearanceKey::ShopPhone => {
+                let clean = validate_phone_text(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "shop phone must be at most 40 phone characters",
+                    }
                 })?;
-            self.discount_limit_pct = canonical;
-            return Ok(());
+                self.shop_phone = clean;
+                return Ok(());
+            }
+            AppearanceKey::ShopAddress => {
+                let clean =
+                    validate_single_line_text(value, true, 200).ok_or_else(|| {
+                        SettingsError::MalformedValue {
+                            key: parsed.as_str().to_owned(),
+                            reason: "shop address must be at most 200 characters",
+                        }
+                    })?;
+                self.shop_address = clean;
+                return Ok(());
+            }
+            AppearanceKey::ReceiptFooter => {
+                let clean =
+                    validate_multiline_text(value, true, 500).ok_or_else(|| {
+                        SettingsError::MalformedValue {
+                            key: parsed.as_str().to_owned(),
+                            reason: "receipt footer must be at most 500 characters",
+                        }
+                    })?;
+                self.receipt_footer = clean;
+                return Ok(());
+            }
+            AppearanceKey::WaTemplate => {
+                let clean =
+                    validate_multiline_text(value, false, 1000).ok_or_else(|| {
+                        SettingsError::MalformedValue {
+                            key: parsed.as_str().to_owned(),
+                            reason: "WhatsApp template must be non-empty and at most 1000 characters",
+                        }
+                    })?;
+                self.wa_template = clean;
+                return Ok(());
+            }
+            _ => {}
         }
+
         let allowed = match parsed {
             AppearanceKey::Look => matches!(value, "plate" | "box"),
             AppearanceKey::Theme => matches!(value, "light" | "dark" | "auto"),
@@ -216,7 +381,16 @@ impl Appearance {
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
-            AppearanceKey::PayMethods | AppearanceKey::DiscountLimitPct => unreachable!(),
+            AppearanceKey::ReceiptMode => matches!(value, "wa" | "none" | "print" | "both"),
+            AppearanceKey::PrinterEnabled => matches!(value, "on" | "off"),
+            AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
+            AppearanceKey::PayMethods
+            | AppearanceKey::DiscountLimitPct
+            | AppearanceKey::ShopName
+            | AppearanceKey::ShopPhone
+            | AppearanceKey::ShopAddress
+            | AppearanceKey::ReceiptFooter
+            | AppearanceKey::WaTemplate => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -234,7 +408,16 @@ impl Appearance {
             AppearanceKey::Digits => self.digits = value,
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
-            AppearanceKey::PayMethods | AppearanceKey::DiscountLimitPct => unreachable!(),
+            AppearanceKey::ReceiptMode => self.receipt_mode = value,
+            AppearanceKey::PrinterEnabled => self.printer_enabled = value,
+            AppearanceKey::ReceiptPaper => self.receipt_paper = value,
+            AppearanceKey::PayMethods
+            | AppearanceKey::DiscountLimitPct
+            | AppearanceKey::ShopName
+            | AppearanceKey::ShopPhone
+            | AppearanceKey::ShopAddress
+            | AppearanceKey::ReceiptFooter
+            | AppearanceKey::WaTemplate => unreachable!(),
         }
         Ok(())
     }
@@ -260,7 +443,14 @@ mod tests {
     #[test]
     fn defaults_are_the_approved_look() {
         let a = Appearance::default();
-        assert_eq!((a.look.as_str(), a.theme.as_str(), a.accent.as_str()), ("plate", "light", "#1d4f91"));
+        assert_eq!(
+            (a.look.as_str(), a.theme.as_str(), a.accent.as_str()),
+            ("plate", "light", "#1d4f91")
+        );
+        assert_eq!(a.shop_name, DEFAULT_SHOP_NAME);
+        assert_eq!(a.receipt_mode, "wa");
+        assert_eq!(a.printer_enabled, "off");
+        assert_eq!(a.receipt_paper, "80");
     }
 
     #[test]
@@ -277,16 +467,44 @@ mod tests {
         let mut a = Appearance::default();
         assert!(a.set("ui.look", "box").is_ok());
         assert_eq!(a.look, "box");
-        assert_eq!(a.set("ui.look", "neon").map_err(|e| e.code()), Err("SETTING_VALUE_INVALID"));
-        assert_eq!(a.set("ui.accent", "#12345").map_err(|e| e.code()), Err("SETTING_VALUE_INVALID"));
+        assert_eq!(
+            a.set("ui.look", "neon").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+        assert_eq!(
+            a.set("ui.accent", "#12345").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
         assert!(a.set("ui.accent", "#ABCDEF").is_ok());
         assert_eq!(a.accent, "#abcdef", "stored lower case");
-        assert_eq!(a.set("ui.nope", "x").map_err(|e| e.code()), Err("SETTING_UNKNOWN_KEY"));
+        assert_eq!(
+            a.set("ui.nope", "x").map_err(|e| e.code()),
+            Err("SETTING_UNKNOWN_KEY")
+        );
+        assert_eq!(
+            a.set("ui.shop_name", "   ").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+        assert_eq!(
+            a.set("ui.wa_template", "   ").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+        assert_eq!(
+            a.set("ui.receipt_mode", "sms").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+        assert_eq!(
+            a.set("ui.receipt_paper", "72").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
     }
 
     #[test]
     fn only_the_theme_is_for_everyone() {
-        let everyone: Vec<_> = AppearanceKey::ALL.into_iter().filter(|k| k.is_for_everyone()).collect();
+        let everyone: Vec<_> = AppearanceKey::ALL
+            .into_iter()
+            .filter(|k| k.is_for_everyone())
+            .collect();
         assert_eq!(everyone, vec![AppearanceKey::Theme]);
     }
 }

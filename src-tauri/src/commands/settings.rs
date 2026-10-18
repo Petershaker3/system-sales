@@ -94,6 +94,14 @@ pub struct AppearanceDto {
     pub imei_mode: String,
     pub pay_methods: String,
     pub discount_limit_pct: String,
+    pub shop_name: String,
+    pub shop_phone: String,
+    pub shop_address: String,
+    pub receipt_footer: String,
+    pub wa_template: String,
+    pub receipt_mode: String,
+    pub printer_enabled: String,
+    pub receipt_paper: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -109,6 +117,14 @@ impl From<Appearance> for AppearanceDto {
             imei_mode: a.imei_mode,
             pay_methods: a.pay_methods,
             discount_limit_pct: a.discount_limit_pct,
+            shop_name: a.shop_name,
+            shop_phone: a.shop_phone,
+            shop_address: a.shop_address,
+            receipt_footer: a.receipt_footer,
+            wa_template: a.wa_template,
+            receipt_mode: a.receipt_mode,
+            printer_enabled: a.printer_enabled,
+            receipt_paper: a.receipt_paper,
         }
     }
 }

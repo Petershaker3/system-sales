@@ -1098,6 +1098,180 @@ check(
     (await text('body')).includes('اتسجّلت الفاتورة')
 );
 
+// --- Arabic receipt on WhatsApp & shop profile (ADR-022, plan item 1.7) ----
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('[data-card="shop-profile"]');
+await sleep(150);
+check(
+  'settings shows both «بيانات المحل» and «الإيصال والواتساب» cards with live receipt previews',
+  (await count('[data-card="shop-profile"]')) === 1 &&
+    (await count('[data-card="receipt-settings"]')) === 1 &&
+    (await count('[data-receipt-preview]')) >= 2
+);
+
+await page.$eval('#set-shopName', (el) => {
+  el.value = 'سنتر بيتر للموبايلات';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.$eval('#set-shopPhone', (el) => {
+  el.value = '01288887777';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.$eval('#set-shopAddress', (el) => {
+  el.value = 'ميدان المحطة، أسيوط';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await sleep(200);
+check(
+  'updating shop name, phone, and address updates the topbar and live receipt preview immediately',
+  (await text('[data-topbar-shop-name]')) === 'سنتر بيتر للموبايلات' &&
+    (await text('[data-receipt-preview]')).includes('سنتر بيتر للموبايلات') &&
+    (await text('[data-receipt-preview]')).includes('01288887777') &&
+    (await text('[data-receipt-preview]')).includes('ميدان المحطة، أسيوط')
+);
+
+const shopLogoUploaded = await page.evaluate(async () => {
+  const inp = document.querySelector('#shop-logo-file');
+  if (!inp) return { ok: false, reason: 'no #shop-logo-file' };
+  const c = document.createElement('canvas');
+  c.width = 240;
+  c.height = 240;
+  const x = c.getContext('2d');
+  x.fillStyle = '#1d4f91';
+  x.fillRect(0, 0, 240, 240);
+  x.fillStyle = '#ffffff';
+  x.fillRect(60, 60, 120, 120);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const file = new File([blob], 'logo.png', { type: 'image/png' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  inp.files = dt.files;
+  inp.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+  const railLogo = document.querySelector('.rail .logo img');
+  const receiptLogo = document.querySelector('[data-receipt-preview] .rc-logo img');
+  const src = railLogo?.getAttribute('src') ?? '';
+  return {
+    ok:
+      src.startsWith('data:image/jpeg;base64,') &&
+      src.length < 45000 &&
+      Boolean(receiptLogo),
+    len: src.length,
+  };
+});
+check(
+  'uploading a shop logo shrinks it to a 192×192 JPEG and displays it in the rail and on the receipt preview',
+  shopLogoUploaded.ok,
+  JSON.stringify(shopLogoUploaded)
+);
+
+await page.$eval('#set-receiptFooter', (el) => {
+  el.value = 'شكراً لثقتكم · الضمان بالفاتورة والعلبة السليمة';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.$eval('#set-waTemplate', (el) => {
+  el.value = 'منور يا {الاسم}، فاتورة {رقم} من {المحل} بمبلغ {الإجمالي}.{الضمان}';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await sleep(200);
+check(
+  'updating receipt footer and WhatsApp template updates the live receipt footer and WhatsApp preview',
+  (await text('[data-receipt-preview] .rc-foot')).includes('شكراً لثقتكم') &&
+    (await text('[data-wa-template-preview]')).includes('منور يا أحمد سمير') &&
+    (await text('[data-wa-template-preview]')).includes('سنتر بيتر للموبايلات')
+);
+await shot('33-settings-shop-and-receipt');
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile');
+await sleep(150);
+await clickText('.chips.cats .chip', 'الكل');
+await sleep(100);
+await clickText('.tile', 'كابل تايب سي 1 متر');
+await sleep(100);
+await page.keyboard.press('F12');
+await page.waitForSelector('#confirm-pay-btn');
+await sleep(150);
+check(
+  'without a linked customer, PayModal defaults the receipt mode to «بدون» so fast walk-in sales do not ask for a phone number',
+  (await count('#pay-receipt-mode-none.on')) === 1 &&
+    (await count('#pay-wa')) === 0
+);
+
+// Link a customer with a phone number from inside PayModal -> switches to «واتساب» and prefills #pay-wa.
+await page.click('[data-pay-receipt-section] #pay-receipt-mode-wa');
+await sleep(100);
+check(
+  'switching receipt mode to «واتساب» reveals the customer WhatsApp phone field',
+  (await count('#pay-wa')) === 1
+);
+await page.type('#pay-wa', '01099');
+await page.click('#confirm-pay-btn');
+await sleep(100);
+check(
+  'an invalid Egyptian WhatsApp number is refused before completing the sale',
+  (await text('.modal .err-msg')).includes('11 رقم')
+);
+await page.$eval('#pay-wa', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.type('#pay-wa', '01012345678');
+await shot('34-pos-pay-whatsapp-receipt');
+await page.click('#confirm-pay-btn');
+await page.waitForSelector('.done-wrap', { timeout: 3000 });
+await sleep(250);
+const waSentPre = await page.evaluate(() => window.__lastWhatsAppSent);
+check(
+  'completing a sale with «واتساب» renders the Arabic receipt preview and dispatches the WhatsApp message + receipt image',
+  (await count('.done-wrap [data-receipt-preview]')) === 1 &&
+    Boolean(waSentPre) &&
+    waSentPre.phone === '01012345678' &&
+    waSentPre.url.startsWith('https://wa.me/201012345678?text=') &&
+    waSentPre.message.includes('سنتر بيتر للموبايلات') &&
+    waSentPre.imageDataUrl.startsWith('data:image/png;base64,')
+);
+await shot('35-pos-done-receipt-preview');
+await page.click('#finish-sale-btn');
+await sleep(150);
+
+// Now test walk-in sale with «بدون» followed by post-sale «ابعت الإيصال واتساب» in «تم البيع».
+await clickText('.tile', 'كابل تايب سي 1 متر');
+await sleep(100);
+await page.keyboard.press('F12');
+await page.waitForSelector('#confirm-pay-btn');
+await sleep(100);
+await page.click('#confirm-pay-btn');
+await page.waitForSelector('.done-wrap', { timeout: 3000 });
+await sleep(150);
+check(
+  'after a walk-in sale with «بدون», the done screen shows «ابعت الإيصال واتساب»',
+  (await text('#send-wa-receipt-btn')).includes('ابعت الإيصال واتساب')
+);
+await page.$eval('#send-wa-receipt-btn', (el) => el.click());
+await page.waitForSelector('#done-wa', { timeout: 3000 });
+await page.$eval('#done-wa', (el) => {
+  el.value = '01122334455';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.$eval('#done-wa-send-btn', (el) => el.click());
+await sleep(300);
+const waSentPost = await page.evaluate(() => window.__lastWhatsAppSent);
+check(
+  'typing a phone number in «تم البيع» after payment sends the WhatsApp receipt and switches the button to «ابعت تاني واتساب»',
+  Boolean(waSentPost) &&
+    waSentPost.phone === '01122334455' &&
+    (await text('#send-wa-receipt-btn')).includes('ابعت تاني واتساب'),
+  JSON.stringify(waSentPost?.phone)
+);
+await page.click('#finish-sale-btn');
+await sleep(150);
+
 
 
 

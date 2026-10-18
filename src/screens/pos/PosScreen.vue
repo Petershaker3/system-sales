@@ -1078,6 +1078,7 @@ const KEYS: readonly [string, string][] = [
       :selected-customer="selectedCustomer"
       :invoice-discount-minor="discSummary.invoiceDiscountMinor"
       :gross-subtotal-minor="discSummary.grossSubtotalMinor"
+      :seller-name="props.session.displayName"
       @close="closeModal"
       @paid="onPaid"
       @price-changed="onPriceChanged"

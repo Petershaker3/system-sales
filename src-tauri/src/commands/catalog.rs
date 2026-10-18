@@ -496,3 +496,41 @@ pub async fn remove_product_image(
     Ok(())
 }
 
+/// Read the optional 192×192 JPEG shop logo as a `data:image/jpeg;base64,...`
+/// string, or `None` when no logo file is stored (`ADR-022` §2.2).
+#[tauri::command]
+pub async fn get_shop_logo(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<Option<String>, CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    let logo =
+        image_use_cases::get_shop_logo(&ctx.pool, ctx.tokens.as_ref(), &data_dir).await?;
+    Ok(logo)
+}
+
+/// Store or replace the shop's 192×192 JPEG logo on disk (`ADR-022` §2.2).
+#[tauri::command]
+pub async fn set_shop_logo(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+    data_url: String,
+) -> Result<String, CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    let stored =
+        image_use_cases::set_shop_logo(&ctx.pool, ctx.tokens.as_ref(), &data_dir, &data_url)
+            .await?;
+    Ok(stored)
+}
+
+/// Remove the shop's stored 192×192 JPEG logo (`ADR-022` §2.2).
+#[tauri::command]
+pub async fn remove_shop_logo(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<(), CatalogCommandError> {
+    let data_dir = resolve_data_dir(&app)?;
+    image_use_cases::remove_shop_logo(&ctx.pool, ctx.tokens.as_ref(), &data_dir).await?;
+    Ok(())
+}
+

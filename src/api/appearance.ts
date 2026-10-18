@@ -1,10 +1,9 @@
 /**
- * Display choices (`ui.*` settings; DESIGN.md).
+ * Display, POS, shop, and receipt choices (`ui.*` settings; DESIGN.md, ADR-022).
  *
  * Readable before anyone signs in, because the sign-in screen is drawn in the
- * shop's look. The light/dark switch may be changed by any role; the look, the
- * shop colour, the font, the size and the digits are the owner's, and Rust
- * asks for a fresh password (`REAUTHENTICATION_REQUIRED`) like every setting.
+ * shop's look. The light/dark switch may be changed by any role; the rest are
+ * the owner's.
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -20,6 +19,14 @@ export interface AppearanceDto {
   readonly imeiMode?: string;
   readonly payMethods?: string;
   readonly discountLimitPct?: string;
+  readonly shopName?: string;
+  readonly shopPhone?: string;
+  readonly shopAddress?: string;
+  readonly receiptFooter?: string;
+  readonly waTemplate?: string;
+  readonly receiptMode?: string;
+  readonly printerEnabled?: string;
+  readonly receiptPaper?: string;
 }
 
 export type AppearanceKey =
@@ -32,8 +39,15 @@ export type AppearanceKey =
   | 'ui.images'
   | 'ui.imei_mode'
   | 'ui.pay_methods'
-  | 'ui.discount_limit_pct';
-
+  | 'ui.discount_limit_pct'
+  | 'ui.shop_name'
+  | 'ui.shop_phone'
+  | 'ui.shop_address'
+  | 'ui.receipt_footer'
+  | 'ui.wa_template'
+  | 'ui.receipt_mode'
+  | 'ui.printer_enabled'
+  | 'ui.receipt_paper';
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');
