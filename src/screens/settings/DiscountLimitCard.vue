@@ -46,11 +46,27 @@ async function applyPct(raw: string): Promise<void> {
     toast(describeError(err), 'err');
   }
 }
+
+async function toggleSellerCanCloseShift(event: Event): Promise<void> {
+  const checked = (event.target as HTMLInputElement).checked;
+  const next = checked ? 'on' : 'off';
+  try {
+    await setAppearance({ sellerCanCloseShift: next });
+    toast(
+      checked
+        ? 'تم السماح للبيّاع بتقفيل الوردية'
+        : 'تقفيل الوردية بقى للمالك بس',
+      'info'
+    );
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
 </script>
 
 <template>
   <section class="card" data-card="discount-limit">
-    <h3>حد خصم البيّاع</h3>
+    <h3>صلاحيات البيّاع والخصومات</h3>
     <div class="s-row">
       <div class="t">
         <b>أقصى نسبة خصم للبيّاع من غير PIN المالك</b>
@@ -93,6 +109,24 @@ async function applyPct(raw: string): Promise<void> {
           </button>
         </div>
       </div>
+    </div>
+    <div class="s-row" style="margin-top: 10px">
+      <div class="t">
+        <b>السماح للبيّاع بتقفيل الوردية</b>
+        <small>
+          افتراضيًا المالك بس اللي بيقفّل الوردية. لو فعّلتها يقدر البيّاع يقفّل الوردية ويبعت التقرير على واتساب
+        </small>
+      </div>
+      <label class="switch">
+        <input
+          id="seller-can-close-shift-toggle"
+          type="checkbox"
+          data-seller-can-close-shift-toggle
+          :checked="appearance.sellerCanCloseShift === 'on'"
+          @change="toggleSellerCanCloseShift"
+        />
+        <i />
+      </label>
     </div>
     <div class="note" style="margin-top: 10px">
       <Icon name="percent" />

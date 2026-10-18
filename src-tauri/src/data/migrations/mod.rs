@@ -110,6 +110,11 @@ pub const SALE_PAYMENTS_AND_CUSTOMER_LEDGER: &str =
 /// `sales` for Plan item 1.6 (ADR-021).
 pub const SALE_DISCOUNTS: &str = include_str!("0022_sale_discounts.sql");
 
+/// `0023`: shifts (`shifts`), drawer expenses (`expenses`), and cash movements
+/// (`cash_movements`) for Plan item 1.9 (ADR-024).
+pub const SHIFTS_AND_EXPENSES: &str = include_str!("0023_shifts_and_expenses.sql");
+
+
 
 
 

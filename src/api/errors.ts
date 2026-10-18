@@ -193,7 +193,21 @@ export const ErrorCode = {
   CUSTOMER_PAYMENT_AMOUNT_INVALID: 'CUSTOMER_PAYMENT_AMOUNT_INVALID',
   CUSTOMER_PAYMENT_EXCEEDS_BALANCE: 'CUSTOMER_PAYMENT_EXCEEDS_BALANCE',
   CUSTOMER_PAYMENT_METHOD_INVALID: 'CUSTOMER_PAYMENT_METHOD_INVALID',
-  CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID'
+  CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID',
+
+  // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  SHIFT_ALREADY_OPEN: 'SHIFT_ALREADY_OPEN',
+  SHIFT_NOT_OPEN: 'SHIFT_NOT_OPEN',
+  SHIFT_OPENING_CASH_INVALID: 'SHIFT_OPENING_CASH_INVALID',
+  SHIFT_COUNTED_CASH_INVALID: 'SHIFT_COUNTED_CASH_INVALID',
+  SHIFT_CLOSE_NOTE_INVALID: 'SHIFT_CLOSE_NOTE_INVALID',
+  SHIFT_CLOSE_FORBIDDEN_FOR_SELLER: 'SHIFT_CLOSE_FORBIDDEN_FOR_SELLER',
+  EXPENSE_CATEGORY_INVALID: 'EXPENSE_CATEGORY_INVALID',
+  EXPENSE_AMOUNT_INVALID: 'EXPENSE_AMOUNT_INVALID',
+  EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
+  CASH_MOVEMENT_KIND_INVALID: 'CASH_MOVEMENT_KIND_INVALID',
+  CASH_MOVEMENT_AMOUNT_INVALID: 'CASH_MOVEMENT_AMOUNT_INVALID',
+  CASH_MOVEMENT_REASON_INVALID: 'CASH_MOVEMENT_REASON_INVALID'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -474,7 +488,33 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
     'طريقة تحصيل الآجل غير مسموحة.',
   [ErrorCode.CUSTOMER_NOTE_INVALID]:
-    'الملاحظة طويلة زيادة عن اللزوم.'
+    'الملاحظة طويلة زيادة عن اللزوم.',
+
+  // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  [ErrorCode.SHIFT_ALREADY_OPEN]:
+    'فيه وردية مفتوحة بالفعل دلوقتي.',
+  [ErrorCode.SHIFT_NOT_OPEN]:
+    'مفيش وردية مفتوحة دلوقتي. افتح الوردية الأول.',
+  [ErrorCode.SHIFT_OPENING_CASH_INVALID]:
+    'رصيد فتح الدرج لازم يكون صفر أو أكبر.',
+  [ErrorCode.SHIFT_COUNTED_CASH_INVALID]:
+    'المعدود في الدرج لازم يكون صفر أو أكبر.',
+  [ErrorCode.SHIFT_CLOSE_NOTE_INVALID]:
+    'ملاحظة تقفيل الوردية طويلة زيادة عن اللزوم.',
+  [ErrorCode.SHIFT_CLOSE_FORBIDDEN_FOR_SELLER]:
+    'تقفيل الوردية للمالك بس. كلّم المالك يقفّلها أو يفعّلها من الإعدادات.',
+  [ErrorCode.EXPENSE_CATEGORY_INVALID]:
+    'اختار أو اكتب بند المصروف الأول.',
+  [ErrorCode.EXPENSE_AMOUNT_INVALID]:
+    'مبلغ المصروف لازم يكون أكبر من صفر.',
+  [ErrorCode.EXPENSE_NOTE_INVALID]:
+    'ملاحظة المصروف طويلة زيادة عن اللزوم.',
+  [ErrorCode.CASH_MOVEMENT_KIND_INVALID]:
+    'نوع حركة الدرج غير معروف.',
+  [ErrorCode.CASH_MOVEMENT_AMOUNT_INVALID]:
+    'مبلغ حركة الدرج لازم يكون أكبر من صفر.',
+  [ErrorCode.CASH_MOVEMENT_REASON_INVALID]:
+    'اكتب سبب حركة الدرج الأول.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

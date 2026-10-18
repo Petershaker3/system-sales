@@ -2782,5 +2782,63 @@ fn discount_validation_and_seller_limit_math_are_exact() {
     assert!(def.set("ui.discount_limit_pct", "5.5").is_err());
 }
 
+#[test]
+fn shift_domain_and_seller_close_setting_are_validated() {
+    use mobile_shop_system_lib::domain::settings::appearance::Appearance;
+    use mobile_shop_system_lib::domain::shift::{
+        validate_cash_movement_amount, validate_counted_cash, validate_expense_amount,
+        validate_opening_cash, CashMovementKind, CashMovementReason, ExpenseCategory, ExpenseNote,
+        ShiftCloseNote, ShiftError, ShiftTotals,
+    };
+
+    let mut a = Appearance::default();
+    assert_eq!(a.seller_can_close_shift, "off");
+    a.set("ui.seller_can_close_shift", "on").expect("on is valid");
+    assert_eq!(a.seller_can_close_shift, "on");
+    assert!(a.set("ui.seller_can_close_shift", "maybe").is_err());
+
+    assert_eq!(validate_opening_cash(0).unwrap().as_minor(), 0);
+    assert_eq!(
+        validate_opening_cash(-10),
+        Err(ShiftError::InvalidOpeningCash)
+    );
+    assert_eq!(
+        validate_counted_cash(-1),
+        Err(ShiftError::InvalidCountedCash)
+    );
+    assert_eq!(
+        validate_expense_amount(0),
+        Err(ShiftError::InvalidExpenseAmount)
+    );
+    assert_eq!(
+        validate_cash_movement_amount(0),
+        Err(ShiftError::InvalidCashMovementAmount)
+    );
+    assert_eq!(
+        ExpenseCategory::new("  شاي وضيافة ").unwrap().as_str(),
+        "شاي وضيافة"
+    );
+    assert!(ExpenseNote::parse_optional(Some("   ")).unwrap().is_none());
+    assert!(ShiftCloseNote::parse_optional(None).unwrap().is_none());
+    assert_eq!(
+        CashMovementKind::parse("owner_draw").unwrap(),
+        CashMovementKind::OwnerDraw
+    );
+    assert_eq!(
+        CashMovementReason::new("سحب المالك").unwrap().as_str(),
+        "سحب المالك"
+    );
+
+    let totals = ShiftTotals::compute(
+        100_000, 150_000, 30_000, 20_000, 0, 0, 50_000, 250_000, 180_000, 3, 10_000, 5_000, 25_000,
+        4_000,
+    );
+    // Expected drawer = 1000 + 1500 + 100 + 50 - 40 - 250 = 2,360 EGP (236_000 minor)
+    assert_eq!(totals.expected_cash_minor, 236_000);
+    assert_eq!(totals.gross_profit_minor, 70_000);
+    assert_eq!(totals.net_profit_minor, 66_000);
+}
+
+
 
 

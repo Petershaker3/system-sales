@@ -1684,6 +1684,11 @@ fn every_authority_command_is_registered_in_lib() {
         ("customer", "archive_customer"),
         ("customer", "record_customer_payment"),
         ("customer", "list_customer_ledger"),
+        ("shift", "current_shift_summary"),
+        ("shift", "open_shift"),
+        ("shift", "record_expense"),
+        ("shift", "record_cash_movement"),
+        ("shift", "close_shift"),
     ] {
         assert!(
             code.contains(&format!("commands::{module}::{command}")),
@@ -2748,3 +2753,64 @@ fn a_built_bundle_carries_no_recovery_call() {
         );
     }
 }
+
+const SHIFTS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0023_shifts_and_expenses.sql");
+const SHIFT_DOMAIN: &str = include_str!("../../src/domain/shift.rs");
+const SHIFT_SERVICE: &str = include_str!("../../src/services/shift.rs");
+const SHIFT_COMMANDS: &str = include_str!("../../src/commands/shift.rs");
+
+#[test]
+fn shift_slice_preserves_layer_and_schema_invariants() {
+    let sql = sql_only(SHIFTS_MIGRATION);
+    for required in [
+        "create table shifts",
+        "create unique index idx_shifts_single_open on shifts (status) where status = 'open'",
+        "create trigger shifts_immutable_once_closed",
+        "create table expenses",
+        "create trigger expenses_require_open_shift",
+        "create table cash_movements",
+        "create trigger cash_movements_require_open_shift",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0023_shifts_and_expenses.sql must contain `{required}`"
+        );
+    }
+
+    let domain = code_only(SHIFT_DOMAIN);
+    for forbidden in ["tauri", "sqlx", "SqlitePool", "keyring"] {
+        assert!(
+            !domain.contains(forbidden),
+            "domain/shift.rs must not reference `{forbidden}`"
+        );
+    }
+
+    let service = code_only(SHIFT_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden),
+            "services/shift.rs must delegate SQL to repositories (`{forbidden}`)"
+        );
+    }
+
+    let commands = code_only(SHIFT_COMMANDS);
+    let params = command_parameters(&commands);
+    for forbidden in [
+        "token",
+        "user_id",
+        "userid",
+        "role",
+        "created_by",
+        "updated_by",
+        "actor",
+        "assurance",
+        "session",
+    ] {
+        assert!(
+            !params.iter().any(|p| p == forbidden),
+            "commands/shift.rs must not accept `{forbidden}`; found {params:?}"
+        );
+    }
+}
+

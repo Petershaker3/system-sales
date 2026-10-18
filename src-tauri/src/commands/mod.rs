@@ -1,4 +1,4 @@
-﻿//! Transport boundaries.
+//! Transport boundaries.
 //!
 //! Named commands only. There is deliberately no `execute_sql` or `select_sql`
 //! command, so the WebView can never obtain general data access
@@ -17,3 +17,4 @@ pub mod inventory;
 pub mod pos;
 pub mod sales;
 pub mod settings;
+pub mod shift;

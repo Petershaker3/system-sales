@@ -24,6 +24,7 @@ export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'cre
 export type ReceiptModeChoice = 'wa' | 'none' | 'print' | 'both';
 export type PrinterEnabledChoice = 'on' | 'off';
 export type ReceiptPaperChoice = '80' | '58';
+export type SellerCanCloseShiftChoice = 'on' | 'off';
 
 export interface PayMethodMeta {
   readonly id: PayMethodId;
@@ -96,6 +97,7 @@ export const DEFAULT_RECEIPT_PAPER: ReceiptPaperChoice = '80';
 export const DEFAULT_WARRANTY_NEW = '12';
 export const DEFAULT_WARRANTY_USED = '1';
 export const DEFAULT_WARRANTY_ITEM = '0';
+export const DEFAULT_SELLER_CAN_CLOSE_SHIFT: SellerCanCloseShiftChoice = 'off';
 
 export function normalizeWarrantyMonths(
   raw: unknown,
@@ -174,6 +176,7 @@ export interface Appearance {
   warrantyNew: string;
   warrantyUsed: string;
   warrantyItem: string;
+  sellerCanCloseShift: SellerCanCloseShiftChoice;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -198,6 +201,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   warrantyNew: DEFAULT_WARRANTY_NEW,
   warrantyUsed: DEFAULT_WARRANTY_USED,
   warrantyItem: DEFAULT_WARRANTY_ITEM,
+  sellerCanCloseShift: DEFAULT_SELLER_CAN_CLOSE_SHIFT,
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -253,6 +257,11 @@ export function normalizeAppearance(raw: unknown): Appearance {
     warrantyNew: normalizeWarrantyMonths(r['warrantyNew'], DEFAULT_WARRANTY_NEW),
     warrantyUsed: normalizeWarrantyMonths(r['warrantyUsed'], DEFAULT_WARRANTY_USED),
     warrantyItem: normalizeWarrantyMonths(r['warrantyItem'], DEFAULT_WARRANTY_ITEM),
+    sellerCanCloseShift: oneOf(
+      r['sellerCanCloseShift'],
+      ['on', 'off'] as const,
+      DEFAULT_SELLER_CAN_CLOSE_SHIFT
+    ),
   };
 }
 
@@ -361,6 +370,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   warrantyNew: 'ui.warranty_new',
   warrantyUsed: 'ui.warranty_used',
   warrantyItem: 'ui.warranty_item',
+  sellerCanCloseShift: 'ui.seller_can_close_shift',
 };
 
 /**

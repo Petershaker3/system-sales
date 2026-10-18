@@ -38,10 +38,11 @@ pub enum AppearanceKey {
     WarrantyNew,
     WarrantyUsed,
     WarrantyItem,
+    SellerCanCloseShift,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 21] = [
+    pub const ALL: [AppearanceKey; 22] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -63,6 +64,7 @@ impl AppearanceKey {
         AppearanceKey::WarrantyNew,
         AppearanceKey::WarrantyUsed,
         AppearanceKey::WarrantyItem,
+        AppearanceKey::SellerCanCloseShift,
     ];
 
     /// The stored key.
@@ -89,6 +91,7 @@ impl AppearanceKey {
             AppearanceKey::WarrantyNew => "ui.warranty_new",
             AppearanceKey::WarrantyUsed => "ui.warranty_used",
             AppearanceKey::WarrantyItem => "ui.warranty_item",
+            AppearanceKey::SellerCanCloseShift => "ui.seller_can_close_shift",
         }
     }
 
@@ -125,6 +128,7 @@ impl AppearanceKey {
                 | AppearanceKey::WarrantyNew
                 | AppearanceKey::WarrantyUsed
                 | AppearanceKey::WarrantyItem
+                | AppearanceKey::SellerCanCloseShift
         )
     }
 }
@@ -184,6 +188,9 @@ pub const DEFAULT_RECEIPT_PAPER: &str = "80";
 pub const DEFAULT_WARRANTY_NEW: &str = "12";
 pub const DEFAULT_WARRANTY_USED: &str = "1";
 pub const DEFAULT_WARRANTY_ITEM: &str = "0";
+
+/// Default seller shift-closing permission (`ADR-024`, `docs/ui/mockup-v1/pos.js`).
+pub const DEFAULT_SELLER_CAN_CLOSE_SHIFT: &str = "off";
 
 /// Parse and canonicalize a discount limit percentage (`0..=100`).
 pub fn parse_discount_limit_pct(raw: &str) -> Option<(u8, String)> {
@@ -282,6 +289,7 @@ pub struct Appearance {
     pub warranty_new: String,
     pub warranty_used: String,
     pub warranty_item: String,
+    pub seller_can_close_shift: String,
 }
 
 impl Default for Appearance {
@@ -314,6 +322,7 @@ impl Default for Appearance {
             warranty_new: DEFAULT_WARRANTY_NEW.to_owned(),
             warranty_used: DEFAULT_WARRANTY_USED.to_owned(),
             warranty_item: DEFAULT_WARRANTY_ITEM.to_owned(),
+            seller_can_close_shift: DEFAULT_SELLER_CAN_CLOSE_SHIFT.to_owned(),
         }
     }
 }
@@ -438,6 +447,7 @@ impl Appearance {
             AppearanceKey::ReceiptMode => matches!(value, "wa" | "none" | "print" | "both"),
             AppearanceKey::PrinterEnabled => matches!(value, "on" | "off"),
             AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
+            AppearanceKey::SellerCanCloseShift => matches!(value, "on" | "off"),
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName
@@ -468,6 +478,7 @@ impl Appearance {
             AppearanceKey::ReceiptMode => self.receipt_mode = value,
             AppearanceKey::PrinterEnabled => self.printer_enabled = value,
             AppearanceKey::ReceiptPaper => self.receipt_paper = value,
+            AppearanceKey::SellerCanCloseShift => self.seller_can_close_shift = value,
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName

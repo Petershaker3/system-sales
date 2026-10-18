@@ -288,6 +288,7 @@ const appearance = {
   warrantyNew: '12',
   warrantyUsed: '1',
   warrantyItem: '0',
+  sellerCanCloseShift: 'off',
 };
 let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
@@ -362,8 +363,10 @@ const sales: {
   id: string;
   reference: string;
   totalMinor: number;
+  costTotalMinor: number;
   discountMinor: number;
   customerId: string | null;
+  occurredAt: number;
   payments: { method: string; amountMinor: number; reference: string | null }[];
   lines: {
     productId: string;
@@ -372,6 +375,145 @@ const sales: {
     warrantyEnd: string | null;
   }[];
 }[] = [];
+
+interface DemoShift {
+  id: string;
+  shiftNumber: number;
+  status: 'open' | 'closed';
+  openingCashMinor: number;
+  expectedCashMinor: number | null;
+  countedCashMinor: number | null;
+  differenceMinor: number | null;
+  closeNote: string | null;
+  openedBy: string;
+  openedAt: number;
+  closedBy: string | null;
+  closedAt: number | null;
+}
+
+interface DemoExpense {
+  id: string;
+  shiftId: string;
+  category: string;
+  amountMinor: number;
+  note: string | null;
+  createdBy: string;
+  createdAt: number;
+}
+
+interface DemoCashMovement {
+  id: string;
+  shiftId: string;
+  kind: 'cash_in' | 'owner_draw';
+  amountMinor: number;
+  reason: string;
+  createdBy: string;
+  createdAt: number;
+}
+
+const shifts: DemoShift[] = [
+  {
+    id: 'shift-1',
+    shiftNumber: 1,
+    status: 'open',
+    openingCashMinor: 100_000,
+    expectedCashMinor: null,
+    countedCashMinor: null,
+    differenceMinor: null,
+    closeNote: null,
+    openedBy: 'u-youssef',
+    openedAt: 1,
+    closedBy: null,
+    closedAt: null,
+  },
+];
+const expenses: DemoExpense[] = [];
+const cashMovements: DemoCashMovement[] = [];
+
+function buildDemoShiftSummary(shift: DemoShift) {
+  const fromMs = shift.openedAt;
+  const toMs = shift.closedAt ?? Number.MAX_SAFE_INTEGER;
+  const shiftSales = sales.filter((s) => s.occurredAt >= fromMs && s.occurredAt <= toMs);
+  let cashSalesMinor = 0;
+  let vfSalesMinor = 0;
+  let instapaySalesMinor = 0;
+  let cardSalesMinor = 0;
+  let installSalesMinor = 0;
+  let creditSalesMinor = 0;
+  let salesTotalMinor = 0;
+  let salesCostMinor = 0;
+  for (const s of shiftSales) {
+    salesTotalMinor += s.totalMinor;
+    salesCostMinor += s.costTotalMinor;
+    for (const p of s.payments) {
+      if (p.method === 'cash') cashSalesMinor += p.amountMinor;
+      else if (p.method === 'vf') vfSalesMinor += p.amountMinor;
+      else if (p.method === 'instapay') instapaySalesMinor += p.amountMinor;
+      else if (p.method === 'card') cardSalesMinor += p.amountMinor;
+      else if (p.method === 'install') installSalesMinor += p.amountMinor;
+      else if (p.method === 'credit') creditSalesMinor += p.amountMinor;
+    }
+  }
+  const customerCashInMinor = customerLedger
+    .filter(
+      (e) =>
+        e.kind === 'payment' &&
+        e.method === 'cash' &&
+        e.occurredAt >= fromMs &&
+        e.occurredAt <= toMs
+    )
+    .reduce((sum, e) => sum + Math.abs(e.amountMinor), 0);
+
+  const shiftExpenses = expenses
+    .filter((e) => e.shiftId === shift.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const shiftMovements = cashMovements
+    .filter((m) => m.shiftId === shift.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  const expensesMinor = shiftExpenses.reduce((sum, e) => sum + e.amountMinor, 0);
+  const cashInMinor = shiftMovements
+    .filter((m) => m.kind === 'cash_in')
+    .reduce((sum, m) => sum + m.amountMinor, 0);
+  const ownerDrawMinor = shiftMovements
+    .filter((m) => m.kind === 'owner_draw')
+    .reduce((sum, m) => sum + m.amountMinor, 0);
+
+  const expectedCashMinor =
+    shift.openingCashMinor +
+    cashSalesMinor +
+    customerCashInMinor +
+    cashInMinor -
+    expensesMinor -
+    ownerDrawMinor;
+  const grossProfitMinor = salesTotalMinor - salesCostMinor;
+  const netProfitMinor = grossProfitMinor - expensesMinor;
+
+  return {
+    shift: { ...shift },
+    totals: {
+      openingCashMinor: shift.openingCashMinor,
+      cashSalesMinor,
+      vfSalesMinor,
+      instapaySalesMinor,
+      cardSalesMinor,
+      installSalesMinor,
+      creditSalesMinor,
+      salesTotalMinor,
+      salesCostMinor,
+      salesCount: shiftSales.length,
+      customerCashInMinor,
+      cashInMinor,
+      ownerDrawMinor,
+      expensesMinor,
+      expectedCashMinor,
+      grossProfitMinor,
+      netProfitMinor,
+    },
+    expenses: shiftExpenses.map((e) => ({ ...e })),
+    cashMovements: shiftMovements.map((m) => ({ ...m })),
+  };
+}
 const settings = {
   defaultCostMethod: 'moving_average',
   invoicePrefix: 'INV',
@@ -582,6 +724,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.warranty_new': 'warrantyNew',
       'ui.warranty_used': 'warrantyUsed',
       'ui.warranty_item': 'warrantyItem',
+      'ui.seller_can_close_shift': 'sellerCanCloseShift',
     };
     const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
@@ -600,7 +743,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
       key === 'receiptPaper' ||
       key === 'warrantyNew' ||
       key === 'warrantyUsed' ||
-      key === 'warrantyItem'
+      key === 'warrantyItem' ||
+      key === 'sellerCanCloseShift'
     )
       requireManager(false);
     else requireManager(true);
@@ -635,7 +779,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const lower = val.toLowerCase();
       if (!['wa', 'none', 'print', 'both'].includes(lower)) fail('SETTING_VALUE_INVALID');
       appearance[key] = lower;
-    } else if (key === 'printerEnabled') {
+    } else if (key === 'printerEnabled' || key === 'sellerCanCloseShift') {
       const lower = val.toLowerCase();
       if (!['on', 'off'].includes(lower)) fail('SETTING_VALUE_INVALID');
       appearance[key] = lower;
@@ -866,8 +1010,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       id: newId('s'),
       reference,
       totalMinor: total,
+      costTotalMinor: cost,
       discountMinor: totalDiscount,
       customerId: linkedCustomer ? linkedCustomer.id : null,
+      occurredAt: now(),
       payments: cleanPayments,
       lines: saleLines,
     };
@@ -1453,6 +1599,104 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const cid = str(args, 'customerId');
     if (!customers.some((x) => x.id === cid)) fail('CUSTOMER_NOT_FOUND');
     return customerLedger.filter((e) => e.customerId === cid);
+  },
+
+  // shifts, drawer expenses, and cash movements
+  current_shift_summary: () => {
+    requireUser();
+    const open = shifts.find((s) => s.status === 'open') ?? null;
+    const closed = shifts
+      .filter((s) => s.status === 'closed')
+      .sort((a, b) => b.shiftNumber - a.shiftNumber);
+    return {
+      openShift: open ? buildDemoShiftSummary(open) : null,
+      lastClosedShift: closed[0] ? { ...closed[0] } : null,
+      recentClosedShifts: closed.slice(0, 10).map((s) => ({ ...s })),
+    };
+  },
+  open_shift: (args) => {
+    const user = requireUser();
+    if (shifts.some((s) => s.status === 'open')) fail('SHIFT_ALREADY_OPEN');
+    const openingCashMinor = numArg(args, 'openingCashMinor');
+    if (openingCashMinor < 0) fail('SHIFT_OPENING_CASH_INVALID');
+    const maxNo = shifts.reduce((m, s) => Math.max(m, s.shiftNumber), 0);
+    const shift: DemoShift = {
+      id: newId('shift'),
+      shiftNumber: maxNo + 1,
+      status: 'open',
+      openingCashMinor,
+      expectedCashMinor: null,
+      countedCashMinor: null,
+      differenceMinor: null,
+      closeNote: null,
+      openedBy: user.id,
+      openedAt: now(),
+      closedBy: null,
+      closedAt: null,
+    };
+    shifts.push(shift);
+    return buildDemoShiftSummary(shift);
+  },
+  record_expense: (args) => {
+    const user = requireUser();
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const category = str(args, 'category').trim();
+    if (!category || category.length > 80) fail('EXPENSE_CATEGORY_INVALID');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('EXPENSE_AMOUNT_INVALID');
+    const note = str(args, 'note').trim() || null;
+    expenses.push({
+      id: newId('exp'),
+      shiftId: open.id,
+      category,
+      amountMinor,
+      note,
+      createdBy: user.id,
+      createdAt: now(),
+    });
+    return buildDemoShiftSummary(open);
+  },
+  record_cash_movement: (args) => {
+    const user = requireUser();
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const kind = str(args, 'kind').trim();
+    if (kind !== 'cash_in' && kind !== 'owner_draw') fail('CASH_MOVEMENT_KIND_INVALID');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('CASH_MOVEMENT_AMOUNT_INVALID');
+    const reason = str(args, 'reason').trim();
+    if (!reason || reason.length > 200) fail('CASH_MOVEMENT_REASON_INVALID');
+    cashMovements.push({
+      id: newId('cm'),
+      shiftId: open.id,
+      kind: kind as 'cash_in' | 'owner_draw',
+      amountMinor,
+      reason,
+      createdBy: user.id,
+      createdAt: now(),
+    });
+    return buildDemoShiftSummary(open);
+  },
+  close_shift: (args) => {
+    const user = requireUser();
+    if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') {
+      fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
+    }
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const countedCashMinor = numArg(args, 'countedCashMinor');
+    if (countedCashMinor < 0) fail('SHIFT_COUNTED_CASH_INVALID');
+    const closeNote = str(args, 'closeNote').trim() || null;
+    const closedAt = Math.max(now(), open.openedAt);
+    open.closedAt = closedAt;
+    const summaryBeforeClose = buildDemoShiftSummary(open);
+    const expectedCashMinor = summaryBeforeClose.totals.expectedCashMinor;
+    const differenceMinor = countedCashMinor - expectedCashMinor;
+    open.status = 'closed';
+    open.expectedCashMinor = expectedCashMinor;
+    open.countedCashMinor = countedCashMinor;
+    open.differenceMinor = differenceMinor;
+    open.closeNote = closeNote;
+    open.closedBy = user.id;
+    return buildDemoShiftSummary(open);
   },
 
   // settings panels

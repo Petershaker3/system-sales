@@ -30,6 +30,7 @@ export interface AppearanceDto {
   readonly warrantyNew?: string;
   readonly warrantyUsed?: string;
   readonly warrantyItem?: string;
+  readonly sellerCanCloseShift?: string;
 }
 
 export type AppearanceKey =
@@ -53,7 +54,8 @@ export type AppearanceKey =
   | 'ui.receipt_paper'
   | 'ui.warranty_new'
   | 'ui.warranty_used'
-  | 'ui.warranty_item';
+  | 'ui.warranty_item'
+  | 'ui.seller_can_close_shift';
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');

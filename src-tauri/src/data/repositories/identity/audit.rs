@@ -139,6 +139,12 @@ pub const CUSTOMER_CREATED: &str = "customer_created";
 pub const CUSTOMER_ARCHIVED: &str = "customer_archived";
 pub const CUSTOMER_PAYMENT_RECORDED: &str = "customer_payment_recorded";
 
+/// Shifts, drawer expenses, and cash movements (Plan item 1.9, ADR-024).
+pub const SHIFT_OPENED: &str = "shift_opened";
+pub const EXPENSE_RECORDED: &str = "expense_recorded";
+pub const CASH_MOVEMENT_RECORDED: &str = "cash_movement_recorded";
+pub const SHIFT_CLOSED: &str = "shift_closed";
+
 /// Settings, and the retired Pattern.
 ///
 /// The Pattern was replaced by the owner's PIN approval (ADR-017 §3) and nothing

@@ -11,6 +11,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import * as api from '../api/identity';
 import type { Session, UserSummary } from '../api/identity';
+import {
+  currentShiftSummary,
+  type CurrentShiftState,
+  type ShiftSummary,
+} from '../api/shift';
 import { describeError } from '../api/errors';
 import {
   appearance,
@@ -27,6 +32,8 @@ import PosScreen from '../screens/pos/PosScreen.vue';
 import SalesScreen from '../screens/sales/SalesScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
+import DrawerExpenseModal from './DrawerExpenseModal.vue';
+import ShiftModal from './ShiftModal.vue';
 import { avatarColour, navFor, roleName, TITLES } from './nav';
 import type { ScreenId } from './nav';
 
@@ -120,12 +127,58 @@ function onSwitchKey(event: KeyboardEvent): void {
 const clock = ref(fmtTime());
 let tick = 0;
 
+const shiftState = ref<CurrentShiftState>({
+  openShift: null,
+  lastClosedShift: null,
+  recentClosedShifts: [],
+});
+const drawerModalOpen = ref(false);
+const shiftModalOpen = ref(false);
+
+async function refreshShiftState(): Promise<void> {
+  try {
+    shiftState.value = await currentShiftSummary();
+  } catch {
+    // Best-effort refresh in topbar
+  }
+}
+
+async function openDrawerExpenseModal(): Promise<void> {
+  await refreshShiftState();
+  if (!shiftState.value.openShift) {
+    toast('افتح الوردية الأول عشان تسجّل مصروف أو حركة درج', 'err');
+    shiftModalOpen.value = true;
+    return;
+  }
+  drawerModalOpen.value = true;
+}
+
+async function openShiftDialog(): Promise<void> {
+  await refreshShiftState();
+  shiftModalOpen.value = true;
+}
+
+function onDrawerSummaryUpdated(updated: ShiftSummary): void {
+  shiftState.value = {
+    ...shiftState.value,
+    openShift: updated,
+  };
+}
+
+watch(
+  () => props.session.userId,
+  () => {
+    void refreshShiftState();
+  }
+);
+
 function onDocClick(event: MouseEvent): void {
   if (!(event.target instanceof Element) || !event.target.closest('.user-switch')) closeMenu();
 }
 
 onMounted(() => {
   void loadShopLogo();
+  void refreshShiftState();
   tick = window.setInterval(() => (clock.value = fmtTime()), 15_000);
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
@@ -203,6 +256,43 @@ async function switchTheme(): Promise<void> {
           <Icon name="message-circle" /> الإيصال: واتساب
         </span>
         <span class="status num" title="الساعة">{{ clock }}</span>
+        <span
+          class="status num"
+          data-topbar-shift-status
+          :data-shift-open="shiftState.openShift ? 'true' : 'false'"
+          :title="
+            shiftState.openShift
+              ? `وردية #${shiftState.openShift.shift.shiftNumber} مفتوحة`
+              : 'مفيش وردية مفتوحة'
+          "
+        >
+          <span class="dot" />
+          <template v-if="shiftState.openShift">
+            وردية #{{ shiftState.openShift.shift.shiftNumber }} مفتوحة
+          </template>
+          <template v-else>مفيش وردية مفتوحة</template>
+        </span>
+        <button
+          v-if="shiftState.openShift"
+          type="button"
+          class="btn sm"
+          data-open-drawer-expense
+          title="تسجيل مصروف من الدرج أو سحب للمالك"
+          @click="openDrawerExpenseModal"
+        >
+          <Icon name="receipt" />
+          <span>مصروف / درج</span>
+        </button>
+        <button
+          type="button"
+          class="btn sm"
+          data-open-shift-modal
+          :title="shiftState.openShift ? 'تقفيل الوردية وعدّ الدرج' : 'فتح وردية جديدة'"
+          @click="openShiftDialog"
+        >
+          <Icon name="wallet" />
+          <span>{{ shiftState.openShift ? 'تقفيل الوردية' : 'فتح وردية' }}</span>
+        </button>
         <div class="user-switch" :class="{ open: menuOpen }">
           <button
             type="button"
@@ -281,6 +371,20 @@ async function switchTheme(): Promise<void> {
         <StoreScreen v-else-if="screen === 'store'" />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>
+
+      <DrawerExpenseModal
+        v-if="drawerModalOpen && shiftState.openShift"
+        :open-shift="shiftState.openShift"
+        @close="drawerModalOpen = false"
+        @updated="onDrawerSummaryUpdated"
+      />
+      <ShiftModal
+        v-if="shiftModalOpen"
+        :session="session"
+        :shift-state="shiftState"
+        @close="shiftModalOpen = false"
+        @changed="refreshShiftState"
+      />
     </main>
   </div>
 </template>

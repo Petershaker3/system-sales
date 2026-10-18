@@ -81,6 +81,7 @@ pub async fn update(
         AppearanceKey::WarrantyNew => validated.warranty_new,
         AppearanceKey::WarrantyUsed => validated.warranty_used,
         AppearanceKey::WarrantyItem => validated.warranty_item,
+        AppearanceKey::SellerCanCloseShift => validated.seller_can_close_shift,
     };
     let now = Timestamp::now();
 

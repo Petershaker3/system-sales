@@ -1,4 +1,4 @@
-﻿//! Persistence abstraction.
+//! Persistence abstraction.
 //!
 //! Repositories isolate SQLite so that `domain/` never sees SQL and
 //! `services/` never writes a query. Adding methods here as slices arrive is
@@ -11,3 +11,4 @@ pub mod inventory;
 pub mod organisation;
 pub mod sales;
 pub mod settings;
+pub mod shift;

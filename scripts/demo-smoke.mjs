@@ -1368,6 +1368,101 @@ await shot('38-pos-receipt-warranty-lines');
 await page.click('#finish-sale-btn');
 await sleep(150);
 
+// --- Plan item 1.9: Shift, drawer expenses, cash movements & closing (`ADR-024`) ---
+check(
+  'Topbar displays open Shift #1 status and drawer/shift action buttons',
+  (await text('[data-topbar-shift-status]')).includes('وردية #1 مفتوحة') &&
+    (await count('[data-open-drawer-expense]')) === 1 &&
+    (await count('[data-open-shift-modal]')) === 1
+);
+
+await page.click('[data-open-drawer-expense]');
+await page.waitForSelector('[data-drawer-expense-modal]', { timeout: 3000 });
+await sleep(150);
+await page.click('[data-expense-chip="شاي وضيافة"]');
+await page.click('[data-expense-quick="50"]');
+await page.type('[data-expense-note]', 'شاي وقهوة للعملاء');
+await page.click('[data-expense-submit]');
+await sleep(200);
+
+await page.click('[data-drawer-tab="movement"]');
+await sleep(100);
+await page.click('[data-movement-kind="owner_draw"]');
+await page.click('[data-movement-quick="200"]');
+await page.click('[data-movement-submit]');
+await sleep(200);
+
+check(
+  'Drawer modal records 50 EGP expense and 200 EGP owner draw and updates shift ledger',
+  (await text('[data-drawer-expenses-total]')).includes('50') &&
+    (await text('[data-drawer-owner-draw-total]')).includes('200') &&
+    (await count('[data-shift-ledger-row]')) === 2
+);
+await shot('39-drawer-expenses-and-movements');
+await page.click('[data-drawer-close]');
+await page.waitForSelector('[data-drawer-expense-modal]', { hidden: true, timeout: 3000 });
+await sleep(150);
+
+// Open Shift Close modal and verify denomination counter, expected vs counted cash, WhatsApp report, and close
+await page.click('[data-open-shift-modal]');
+await page.waitForSelector('[data-close-shift-view]', { timeout: 3000 });
+await sleep(150);
+await page.click('[data-shift-match-expected]');
+await sleep(100);
+const diffState = await page.$eval('[data-shift-diff-banner]', (el) => el.getAttribute('data-shift-diff-state'));
+const diffLabel = await text('[data-shift-diff-label]');
+check(
+  'Shift close modal reconciles opening cash + cash sales + customer cash - expenses - owner draw with zero difference («مظبوط»)',
+  diffState === 'exact' &&
+    diffLabel.includes('مظبوط') &&
+    (await text('[data-shift-expenses]')).includes('50') &&
+    (await text('[data-shift-owner-draw]')).includes('200'),
+  `${diffState}: ${diffLabel}`
+);
+
+await page.type('[data-shift-close-note]', 'الدرج مطابق بالملليم');
+await page.click('[data-shift-wa-send]');
+await sleep(150);
+const lastShiftWa = await page.evaluate(() => window.__lastShiftWhatsAppSent);
+check(
+  'Sending shift report on WhatsApp builds Arabic shift summary for the owner phone',
+  Boolean(lastShiftWa) &&
+    lastShiftWa.shiftNumber === 1 &&
+    lastShiftWa.differenceMinor === 0 &&
+    lastShiftWa.url.startsWith('https://wa.me/201288887777?text=') &&
+    lastShiftWa.text.includes('تقرير تقفيل الوردية #1') &&
+    lastShiftWa.text.includes('مظبوط'),
+  lastShiftWa?.url
+);
+await shot('40-shift-close-reconciliation');
+
+await page.click('[data-close-shift-submit]');
+await page.waitForSelector('[data-close-shift-view]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'After closing Shift #1, topbar shows no open shift and offers «فتح وردية»',
+  (await text('[data-topbar-shift-status]')).includes('مفيش وردية مفتوحة') &&
+    (await text('[data-open-shift-modal]')).includes('فتح وردية')
+);
+
+await page.click('[data-open-shift-modal]');
+await page.waitForSelector('[data-open-shift-view]', { timeout: 3000 });
+await sleep(150);
+check(
+  'Open Shift modal pre-fills previous closed shift counted cash and lists recent closed shifts',
+  (await count('[data-last-closed-shift-hint]')) === 1 &&
+    (await count('[data-recent-closed-shifts]')) === 1
+);
+await shot('41-open-next-shift');
+await page.click('[data-open-shift-submit]');
+await page.waitForSelector('[data-open-shift-view]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'Opening the next shift starts Shift #2 in the topbar',
+  (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة')
+);
+
+
 
 
 

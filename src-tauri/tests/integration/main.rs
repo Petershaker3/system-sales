@@ -814,6 +814,11 @@ mod payments;
 // discount limit (`ui.discount_limit_pct`), and owner PIN approval above limit.
 mod discounts;
 
+// Plan item 1.9 (ADR-024): shifts (`shifts`), drawer expenses (`expenses`),
+// cash movements (`cash_movements`), and seller shift-closing permission.
+mod shifts;
+
+
 
 
 
