@@ -225,7 +225,7 @@ pub async fn create_repair(
         "deposit_minor": effective_deposit,
     })
     .to_string();
-    audit::append(&mut tx, actor, audit::REPAIR_CREATED, now, Some(detail))
+    audit::append(&mut tx, actor, audit::event::REPAIR_CREATED, now, Some(detail))
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -299,7 +299,7 @@ pub async fn update_repair_status(
         "status": status.as_str(),
     })
     .to_string();
-    audit::append(&mut tx, actor, audit::REPAIR_UPDATED, now, Some(detail))
+    audit::append(&mut tx, actor, audit::event::REPAIR_UPDATED, now, Some(detail))
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -381,7 +381,7 @@ pub async fn deliver_repair(
         "pay_method": pay_method.as_str(),
     })
     .to_string();
-    audit::append(&mut tx, actor, audit::REPAIR_DELIVERED, now, Some(detail))
+    audit::append(&mut tx, actor, audit::event::REPAIR_DELIVERED, now, Some(detail))
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -433,7 +433,7 @@ pub async fn cancel_repair(
         "ticket_no": cancelled.ticket_no,
     })
     .to_string();
-    audit::append(&mut tx, actor, audit::REPAIR_CANCELLED, now, Some(detail))
+    audit::append(&mut tx, actor, audit::event::REPAIR_CANCELLED, now, Some(detail))
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
