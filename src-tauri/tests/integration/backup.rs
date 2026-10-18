@@ -743,7 +743,7 @@ async fn automatic_backup_on_shift_open_and_close_verifies_integrity_and_records
     // When `ui.backup_on_shift` is turned off, shift triggers skip backup creation.
     sqlx::query(
         "INSERT INTO app_settings (key, value, updated_by, updated_at)
-         VALUES ('ui.backup_on_shift', 'off', 'system', 1)",
+         VALUES ('ui.backup_on_shift', 'off', (SELECT id FROM users LIMIT 1), 1)",
     )
     .execute(&pool)
     .await
