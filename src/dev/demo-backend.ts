@@ -736,6 +736,137 @@ function demoOpDrawerDelta(op: DemoWalletOp): number {
   }
 }
 
+interface DemoRepair {
+  id: string;
+  ticketNo: string;
+  serviceKind: 'hardware' | 'software';
+  customerName: string;
+  customerPhone: string;
+  deviceName: string;
+  imei: string | null;
+  deviceLock: string;
+  issue: string;
+  accessories: string;
+  dueLabel: string;
+  status: 'received' | 'diagnosing' | 'waiting' | 'ready' | 'delivered' | 'cancelled';
+  estimatedPriceMinor: number;
+  finalPriceMinor: number;
+  partsCostMinor: number;
+  depositMinor: number;
+  payMethod: 'cash' | 'vf' | 'instapay' | 'card';
+  technicianName: string | null;
+  warrantyDays: number;
+  note: string;
+  createdBy: string;
+  createdAt: number;
+  deliveredAt: number | null;
+}
+
+const DEMO_PAST_TS = Date.now() - 3 * 86_400_000;
+
+const demoRepairs: DemoRepair[] = [
+  {
+    id: 'rep-seed-1',
+    ticketNo: 'R-1091',
+    serviceKind: 'hardware',
+    customerName: 'كريم سامي',
+    customerPhone: '01098765432',
+    deviceName: 'آيفون 12 برو',
+    imei: '356789012345111',
+    deviceLock: 'رمز 1470',
+    issue: 'تغيير شاشة أصلية + سماعة مكالمات',
+    accessories: 'جراب + شريحة',
+    dueLabel: 'النهارده',
+    status: 'ready',
+    estimatedPriceMinor: 3_200_00,
+    finalPriceMinor: 0,
+    partsCostMinor: 2_100_00,
+    depositMinor: 500_00,
+    payMethod: 'cash',
+    technicianName: 'م. حسن',
+    warrantyDays: 30,
+    note: 'تم التركيب والتجربة وجاهز للاستلام',
+    createdBy: 'u-peter',
+    createdAt: DEMO_PAST_TS,
+    deliveredAt: null,
+  },
+  {
+    id: 'rep-seed-2',
+    ticketNo: 'R-1092',
+    serviceKind: 'hardware',
+    customerName: 'سارة محمود',
+    customerPhone: '01234567890',
+    deviceName: 'شاومي ريدمي نوت 12',
+    imei: null,
+    deviceLock: 'حرف L',
+    issue: 'تغيير سوكت شحن + تنظيف بوردة',
+    accessories: 'شاحن',
+    dueLabel: 'بكره',
+    status: 'diagnosing',
+    estimatedPriceMinor: 450_00,
+    finalPriceMinor: 0,
+    partsCostMinor: 120_00,
+    depositMinor: 100_00,
+    payMethod: 'cash',
+    technicianName: 'م. حسن',
+    warrantyDays: 14,
+    note: 'تحت الفحص في الورشة',
+    createdBy: 'u-peter',
+    createdAt: DEMO_PAST_TS + 3_600_000,
+    deliveredAt: null,
+  },
+  {
+    id: 'rep-seed-3',
+    ticketNo: 'R-1093',
+    serviceKind: 'software',
+    customerName: 'طارق فؤاد',
+    customerPhone: '01122334455',
+    deviceName: 'سامسونج A34',
+    imei: null,
+    deviceLock: '',
+    issue: 'تخطي حساب جوجل FRP + تفليش روم رسمي',
+    accessories: '',
+    dueLabel: 'النهارده',
+    status: 'delivered',
+    estimatedPriceMinor: 250_00,
+    finalPriceMinor: 250_00,
+    partsCostMinor: 0,
+    depositMinor: 0,
+    payMethod: 'cash',
+    technicianName: 'يوسف',
+    warrantyDays: 0,
+    note: 'تم التسليم في ساعتها',
+    createdBy: 'u-youssef',
+    createdAt: DEMO_PAST_TS + 7_200_000,
+    deliveredAt: DEMO_PAST_TS + 7_200_000,
+  },
+  {
+    id: 'rep-seed-4',
+    ticketNo: 'R-1094',
+    serviceKind: 'hardware',
+    customerName: 'وائل جمال',
+    customerPhone: '01555667788',
+    deviceName: 'أوبو رينو 8T',
+    imei: null,
+    deviceLock: '0000',
+    issue: 'تغيير بطارية أصلية',
+    accessories: 'جراب',
+    dueLabel: 'النهارده',
+    status: 'delivered',
+    estimatedPriceMinor: 850_00,
+    finalPriceMinor: 850_00,
+    partsCostMinor: 500_00,
+    depositMinor: 200_00,
+    payMethod: 'cash',
+    technicianName: 'م. حسن',
+    warrantyDays: 14,
+    note: 'تم التسليم للعميل',
+    createdBy: 'u-peter',
+    createdAt: DEMO_PAST_TS + 10_800_000,
+    deliveredAt: DEMO_PAST_TS + 14_400_000,
+  },
+];
+
 function demoComputeWalletBalanceMinor(w: DemoWallet): number {
   let bal = w.openingBalanceMinor;
   for (const op of demoWalletOps) {
@@ -758,6 +889,16 @@ function demoComputeWalletBalanceMinor(w: DemoWallet): number {
         if (p.method === w.payMethod) {
           bal += sign * p.amountMinor;
         }
+      }
+    }
+    for (const entry of customerLedger) {
+      if (entry.kind === 'payment' && entry.method === w.payMethod) {
+        bal += Math.abs(entry.amountMinor);
+      }
+    }
+    for (const rep of demoRepairs) {
+      if (rep.status === 'delivered' && rep.payMethod === w.payMethod) {
+        bal += Math.max(0, rep.finalPriceMinor - rep.depositMinor);
       }
     }
   }
@@ -813,6 +954,27 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
         if (p.method === w.payMethod) {
           salesInMinor += sign * p.amountMinor;
         }
+      }
+    }
+    for (const entry of customerLedger) {
+      if (
+        entry.kind === 'payment' &&
+        entry.method === w.payMethod &&
+        entry.occurredAt >= fromMs &&
+        entry.occurredAt <= toMs
+      ) {
+        salesInMinor += Math.abs(entry.amountMinor);
+      }
+    }
+    for (const rep of demoRepairs) {
+      if (
+        rep.status === 'delivered' &&
+        rep.payMethod === w.payMethod &&
+        rep.deliveredAt !== null &&
+        rep.deliveredAt >= fromMs &&
+        rep.deliveredAt <= toMs
+      ) {
+        salesInMinor += Math.max(0, rep.finalPriceMinor - rep.depositMinor);
       }
     }
   }
@@ -905,6 +1067,26 @@ function buildDemoShiftSummary(shift: DemoShift) {
     .reduce((sum, e) => sum + Math.abs(e.amountMinor), 0);
 
   const svc = demoServicesWindowTotals(fromMs, toMs);
+  for (const rep of demoRepairs) {
+    if (rep.status === 'cancelled') continue;
+    if (rep.createdAt >= fromMs && rep.createdAt <= toMs && rep.depositMinor > 0) {
+      svc.servicesCashInMinor += rep.depositMinor;
+    }
+    if (
+      rep.status === 'delivered' &&
+      rep.deliveredAt !== null &&
+      rep.deliveredAt >= fromMs &&
+      rep.deliveredAt <= toMs
+    ) {
+      const rem = Math.max(0, rep.finalPriceMinor - rep.depositMinor);
+      svc.servicesCount += 1;
+      svc.servicesFeeMinor += rep.finalPriceMinor - rep.partsCostMinor;
+      if (rep.payMethod === 'cash') svc.servicesCashInMinor += rem;
+      else if (rep.payMethod === 'vf') vfSalesMinor += rem;
+      else if (rep.payMethod === 'instapay') instapaySalesMinor += rem;
+      else if (rep.payMethod === 'card') cardSalesMinor += rem;
+    }
+  }
 
   const shiftExpenses = expenses
     .filter((e) => e.shiftId === shift.id)
@@ -1128,6 +1310,216 @@ function demoMinQty(p: DemoProduct): number {
     catObj?.kind === 'phone';
   if (isSerial) return 2;
   return 5;
+}
+
+function repairTicketDto(rep: DemoRepair, includeCost: boolean) {
+  const creator = users.find((u) => u.id === rep.createdBy);
+  const collectedMinor =
+    rep.status === 'cancelled'
+      ? 0
+      : rep.status === 'delivered'
+        ? Math.max(rep.finalPriceMinor, rep.depositMinor)
+        : rep.depositMinor;
+  const targetPrice =
+    rep.status === 'delivered' || rep.finalPriceMinor > 0
+      ? rep.finalPriceMinor
+      : rep.estimatedPriceMinor;
+  const remainingMinor =
+    rep.status === 'delivered' || rep.status === 'cancelled'
+      ? 0
+      : Math.max(0, targetPrice - rep.depositMinor);
+  const netProfit = collectedMinor - rep.partsCostMinor;
+  return {
+    id: rep.id,
+    ticketNo: rep.ticketNo,
+    serviceKind: rep.serviceKind,
+    customerName: rep.customerName,
+    customerPhone: rep.customerPhone,
+    deviceName: rep.deviceName,
+    imei: rep.imei,
+    deviceLock: rep.deviceLock,
+    issue: rep.issue,
+    accessories: rep.accessories,
+    dueLabel: rep.dueLabel,
+    status: rep.status,
+    estimatedPriceMinor: rep.estimatedPriceMinor,
+    finalPriceMinor: rep.finalPriceMinor,
+    partsCostMinor: includeCost ? rep.partsCostMinor : null,
+    netProfitMinor: includeCost ? netProfit : null,
+    depositMinor: rep.depositMinor,
+    collectedMinor,
+    remainingMinor,
+    payMethod: rep.payMethod,
+    technicianName: rep.technicianName,
+    warrantyDays: rep.warrantyDays,
+    note: rep.note,
+    createdBy: rep.createdBy,
+    createdByName: creator?.displayName ?? 'المالك',
+    createdAt: rep.createdAt,
+    deliveredAt: rep.deliveredAt,
+  };
+}
+
+function emptyDemoRepairBucket(serviceKind: string, includeCost: boolean) {
+  return {
+    serviceKind,
+    ticketsCount: 0,
+    openCount: 0,
+    readyCount: 0,
+    deliveredCount: 0,
+    depositCollectedMinor: 0,
+    deliveryCollectedMinor: 0,
+    totalRevenueMinor: 0,
+    cashCollectedMinor: 0,
+    vfCollectedMinor: 0,
+    instapayCollectedMinor: 0,
+    cardCollectedMinor: 0,
+    partsCostMinor: includeCost ? 0 : (null as number | null),
+    netProfitMinor: includeCost ? 0 : (null as number | null),
+  };
+}
+
+function buildDemoRepairsOverview(
+  fromTs: number | null,
+  toTs: number | null,
+  includeCost: boolean
+) {
+  const inWin = (ts: number) => {
+    if (fromTs !== null && ts < fromTs) return false;
+    if (toTs !== null && ts > toTs) return false;
+    return true;
+  };
+  const hardware = emptyDemoRepairBucket('hardware', includeCost);
+  const software = emptyDemoRepairBucket('software', includeCost);
+  const combined = emptyDemoRepairBucket('all', includeCost);
+
+  const addBucket = (
+    b: ReturnType<typeof emptyDemoRepairBucket>,
+    rep: DemoRepair,
+    createdInPeriod: boolean,
+    deliveredInPeriod: boolean,
+    isOpen: boolean
+  ) => {
+    if (isOpen) {
+      b.openCount += 1;
+      if (rep.status === 'ready') b.readyCount += 1;
+    }
+    if ((createdInPeriod || deliveredInPeriod || isOpen) && rep.status !== 'cancelled') {
+      b.ticketsCount += 1;
+    }
+    if (rep.status === 'cancelled') return;
+    const addPay = (m: string, amt: number) => {
+      if (amt <= 0) return;
+      if (m === 'vf') b.vfCollectedMinor += amt;
+      else if (m === 'instapay') b.instapayCollectedMinor += amt;
+      else if (m === 'card') b.cardCollectedMinor += amt;
+      else b.cashCollectedMinor += amt;
+    };
+    if (createdInPeriod && rep.depositMinor > 0) {
+      b.depositCollectedMinor += rep.depositMinor;
+      b.totalRevenueMinor += rep.depositMinor;
+      addPay('cash', rep.depositMinor);
+    }
+    if (rep.status === 'delivered' && deliveredInPeriod) {
+      b.deliveredCount += 1;
+      const slice = Math.max(0, rep.finalPriceMinor - rep.depositMinor);
+      b.deliveryCollectedMinor += slice;
+      b.totalRevenueMinor += slice;
+      addPay(rep.payMethod, slice);
+      if (b.partsCostMinor !== null) b.partsCostMinor += rep.partsCostMinor;
+    } else if (rep.status !== 'delivered' && createdInPeriod && rep.partsCostMinor > 0) {
+      if (b.partsCostMinor !== null) b.partsCostMinor += rep.partsCostMinor;
+    }
+    if (b.partsCostMinor !== null) {
+      b.netProfitMinor = b.totalRevenueMinor - b.partsCostMinor;
+    }
+  };
+
+  const techMap = new Map<
+    string,
+    {
+      hwCount: number;
+      swCount: number;
+      deliveredCount: number;
+      hwRev: number;
+      swRev: number;
+      partsCost: number;
+    }
+  >();
+
+  const visibleTickets = [];
+  for (const rep of demoRepairs) {
+    const isOpen =
+      rep.status === 'received' ||
+      rep.status === 'diagnosing' ||
+      rep.status === 'waiting' ||
+      rep.status === 'ready';
+    const createdIn = inWin(rep.createdAt);
+    const deliveredIn = rep.deliveredAt !== null ? inWin(rep.deliveredAt) : false;
+
+    if (rep.serviceKind === 'software') {
+      addBucket(software, rep, createdIn, deliveredIn, isOpen);
+    } else {
+      addBucket(hardware, rep, createdIn, deliveredIn, isOpen);
+    }
+    addBucket(combined, rep, createdIn, deliveredIn, isOpen);
+
+    if (rep.status !== 'cancelled' && (createdIn || deliveredIn || isOpen)) {
+      const tech = (rep.technicianName ?? '').trim();
+      if (tech) {
+        const entry = techMap.get(tech) ?? {
+          hwCount: 0,
+          swCount: 0,
+          deliveredCount: 0,
+          hwRev: 0,
+          swRev: 0,
+          partsCost: 0,
+        };
+        if (rep.serviceKind === 'software') entry.swCount += 1;
+        else entry.hwCount += 1;
+        let rev = 0;
+        if (createdIn && rep.depositMinor > 0) rev += rep.depositMinor;
+        if (rep.status === 'delivered' && deliveredIn) {
+          entry.deliveredCount += 1;
+          rev += Math.max(0, rep.finalPriceMinor - rep.depositMinor);
+          entry.partsCost += rep.partsCostMinor;
+        }
+        if (rep.serviceKind === 'software') entry.swRev += rev;
+        else entry.hwRev += rev;
+        techMap.set(tech, entry);
+      }
+    }
+
+    if (isOpen || createdIn || deliveredIn) {
+      visibleTickets.push(repairTicketDto(rep, includeCost));
+    }
+  }
+
+  const technicians = Array.from(techMap.entries())
+    .map(([technicianName, acc]) => {
+      const totalRevenueMinor = acc.hwRev + acc.swRev;
+      const net = totalRevenueMinor - acc.partsCost;
+      return {
+        technicianName,
+        hardwareCount: acc.hwCount,
+        softwareCount: acc.swCount,
+        deliveredCount: acc.deliveredCount,
+        hardwareRevenueMinor: acc.hwRev,
+        softwareRevenueMinor: acc.swRev,
+        totalRevenueMinor,
+        partsCostMinor: includeCost ? acc.partsCost : null,
+        netProfitMinor: includeCost ? net : null,
+      };
+    })
+    .sort((a, b) => b.totalRevenueMinor - a.totalRevenueMinor);
+
+  return {
+    tickets: visibleTickets,
+    hardware,
+    software,
+    combined,
+    technicians,
+  };
 }
 
 function shortageDto(sh: DemoShortage) {
@@ -3519,6 +3911,153 @@ const handlers: Record<string, (args: Args) => unknown> = {
       added.push(shortageDto(created));
     }
     return added;
+  },
+  repairs_overview: (args) => {
+    const u = requireUser();
+    const fromTs = typeof args?.['fromTs'] === 'number' ? args['fromTs'] : null;
+    const toTs = typeof args?.['toTs'] === 'number' ? args['toTs'] : null;
+    const includeCost = u.role === 'manager';
+    return buildDemoRepairsOverview(fromTs, toTs, includeCost);
+  },
+  create_repair: (args) => {
+    const u = requireUser();
+    const serviceKind = str(args, 'serviceKind').trim() === 'software' ? 'software' : 'hardware';
+    const customerName = str(args, 'customerName').trim();
+    const customerPhone = str(args, 'customerPhone').trim();
+    if (!customerName || !customerPhone) fail('REPAIR_CUSTOMER_REQUIRED');
+    const deviceName = str(args, 'deviceName').trim();
+    if (!deviceName) fail('REPAIR_DEVICE_REQUIRED');
+    const issue = str(args, 'issue').trim();
+    if (!issue) fail('REPAIR_ISSUE_REQUIRED');
+    const imei =
+      typeof args?.['imei'] === 'string' && args['imei'].trim() ? args['imei'].trim() : null;
+    const deviceLock = typeof args?.['deviceLock'] === 'string' ? args['deviceLock'].trim() : '';
+    const accessories =
+      typeof args?.['accessories'] === 'string' ? args['accessories'].trim() : '';
+    const dueLabel =
+      typeof args?.['dueLabel'] === 'string' && args['dueLabel'].trim()
+        ? args['dueLabel'].trim()
+        : 'بكره';
+    const estimatedPriceMinor =
+      typeof args?.['estimatedPriceMinor'] === 'number' ? Math.trunc(args['estimatedPriceMinor']) : 0;
+    const partsCostMinor =
+      typeof args?.['partsCostMinor'] === 'number' ? Math.trunc(args['partsCostMinor']) : 0;
+    const depositMinor =
+      typeof args?.['depositMinor'] === 'number' ? Math.trunc(args['depositMinor']) : 0;
+    const payMethodRaw = typeof args?.['payMethod'] === 'string' ? args['payMethod'].trim() : 'cash';
+    const payMethod = (
+      ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
+    ) as DemoRepair['payMethod'];
+    const technicianName =
+      typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()
+        ? args['technicianName'].trim()
+        : null;
+    const warrantyDays =
+      typeof args?.['warrantyDays'] === 'number' ? Math.trunc(args['warrantyDays']) : 0;
+    const note = typeof args?.['note'] === 'string' ? args['note'].trim() : '';
+    const deliverNow = Boolean(args?.['deliverNow']);
+
+    let maxNum = 1094;
+    for (const r of demoRepairs) {
+      const m = /^R-(\d+)$/.exec(r.ticketNo);
+      if (m) maxNum = Math.max(maxNum, Number(m[1]));
+    }
+    const ticketNo = `R-${maxNum + 1}`;
+    const ts = now();
+    const created: DemoRepair = {
+      id: newId('rep'),
+      ticketNo,
+      serviceKind,
+      customerName,
+      customerPhone,
+      deviceName,
+      imei,
+      deviceLock,
+      issue,
+      accessories,
+      dueLabel,
+      status: deliverNow ? 'delivered' : 'received',
+      estimatedPriceMinor,
+      finalPriceMinor: deliverNow ? estimatedPriceMinor : 0,
+      partsCostMinor,
+      depositMinor: deliverNow ? 0 : depositMinor,
+      payMethod,
+      technicianName,
+      warrantyDays,
+      note,
+      createdBy: u.id,
+      createdAt: ts,
+      deliveredAt: deliverNow ? ts : null,
+    };
+    demoRepairs.unshift(created);
+    return repairTicketDto(created, u.role === 'manager');
+  },
+  update_repair_status: (args) => {
+    const u = requireUser();
+    const id = str(args, 'id').trim();
+    const status = str(args, 'status').trim() as DemoRepair['status'];
+    const rep = demoRepairs.find((r) => r.id === id) ?? fail('REPAIR_NOT_FOUND');
+    if (rep.status === 'delivered' || rep.status === 'cancelled') {
+      fail('REPAIR_ALREADY_DELIVERED');
+    }
+    rep.status = status;
+    if (typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()) {
+      rep.technicianName = args['technicianName'].trim();
+    }
+    if (typeof args?.['estimatedPriceMinor'] === 'number') {
+      rep.estimatedPriceMinor = Math.trunc(args['estimatedPriceMinor']);
+    }
+    if (typeof args?.['partsCostMinor'] === 'number') {
+      rep.partsCostMinor = Math.trunc(args['partsCostMinor']);
+    }
+    if (typeof args?.['note'] === 'string') {
+      rep.note = args['note'].trim();
+    }
+    return repairTicketDto(rep, u.role === 'manager');
+  },
+  deliver_repair: (args) => {
+    const u = requireUser();
+    const id = str(args, 'id').trim();
+    const rep = demoRepairs.find((r) => r.id === id) ?? fail('REPAIR_NOT_FOUND');
+    if (rep.status === 'delivered' || rep.status === 'cancelled') {
+      fail('REPAIR_ALREADY_DELIVERED');
+    }
+    rep.status = 'delivered';
+    rep.finalPriceMinor =
+      typeof args?.['finalPriceMinor'] === 'number'
+        ? Math.trunc(args['finalPriceMinor'])
+        : rep.estimatedPriceMinor;
+    if (typeof args?.['partsCostMinor'] === 'number') {
+      rep.partsCostMinor = Math.trunc(args['partsCostMinor']);
+    }
+    const payMethodRaw = typeof args?.['payMethod'] === 'string' ? args['payMethod'].trim() : 'cash';
+    rep.payMethod = (
+      ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
+    ) as DemoRepair['payMethod'];
+    if (typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()) {
+      rep.technicianName = args['technicianName'].trim();
+    }
+    if (typeof args?.['warrantyDays'] === 'number') {
+      rep.warrantyDays = Math.trunc(args['warrantyDays']);
+    }
+    if (typeof args?.['note'] === 'string') {
+      rep.note = args['note'].trim();
+    }
+    rep.deliveredAt = now();
+    return repairTicketDto(rep, u.role === 'manager');
+  },
+  cancel_repair: (args) => {
+    const u = requireUser();
+    const id = str(args, 'id').trim();
+    const rep = demoRepairs.find((r) => r.id === id) ?? fail('REPAIR_NOT_FOUND');
+    if (rep.status === 'delivered' || rep.status === 'cancelled') {
+      fail('REPAIR_ALREADY_DELIVERED');
+    }
+    rep.status = 'cancelled';
+    if (typeof args?.['note'] === 'string' && args['note'].trim()) {
+      rep.note = args['note'].trim();
+    }
+    return repairTicketDto(rep, u.role === 'manager');
   },
 };
 

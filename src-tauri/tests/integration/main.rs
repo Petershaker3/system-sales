@@ -830,6 +830,11 @@ mod returns;
 // duplicate merging, creator-or-owner deletion rule, and auto-resolution on stock receipt.
 mod shortages;
 
+// Plan item 2.1 (ADR-031): hardware repairs and software operations (`repairs`),
+// separate hardware vs software financial buckets, shift/wallet integration,
+// and customer credit repayment wallet balance sync.
+mod repairs;
+
 
 
 

@@ -159,6 +159,12 @@ pub const SHORTAGE_UPDATED: &str = "shortage_updated";
 pub const SHORTAGE_RESOLVED: &str = "shortage_resolved";
 pub const SHORTAGE_DELETED: &str = "shortage_deleted";
 
+/// Repairs and software operations (`الصيانة والسوفت وير`, Plan item 2.1, ADR-031).
+pub const REPAIR_CREATED: &str = "repair_created";
+pub const REPAIR_UPDATED: &str = "repair_updated";
+pub const REPAIR_DELIVERED: &str = "repair_delivered";
+pub const REPAIR_CANCELLED: &str = "repair_cancelled";
+
 
 /// Settings, and the retired Pattern.
 ///

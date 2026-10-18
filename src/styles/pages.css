@@ -58,8 +58,26 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .ticket .note-s { color: var(--warn); font-size: .8rem; display: flex; gap: 4px; align-items: flex-start; }
 .ticket .note-s svg.i { width: 14px; height: 14px; margin-top: 2px; }
 .money-row { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: .8rem; color: var(--text-2); }
-.tk-f { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.tk-f { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 .k-empty { color: var(--muted); text-align: center; padding: 14px; font-size: .8rem; }
+.kb { display: grid; gap: 8px; }
+.ticket .device { font-weight: 700; overflow-wrap: anywhere; }
+.ticket .issue { color: var(--text-2); overflow-wrap: anywhere; }
+.ticket .cust { color: var(--muted); font-size: .8rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ticket .cust svg.i { width: 13px; height: 13px; }
+.tech-tag { font-size: .74rem; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--surface-3); color: var(--text-2); }
+.repairs-money-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
+.repair-bucket-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.rb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rb-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 10px; }
+.rb-metric { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r-s); background: var(--surface-2); }
+.rb-metric.highlight { background: var(--accent-weak); }
+.rb-metric .lbl { font-size: .78rem; color: var(--muted); }
+.rb-metric .val { font-size: 1.15rem; font-weight: 700; }
+.tech-list { display: grid; gap: 6px; }
+.tech-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: var(--r-s); background: var(--surface-2); font-size: .84rem; }
+.pay-split-strip { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-top: 6px; border-top: 1px solid var(--border); }
+.repairs-toolbar { padding: 10px 14px; }
 .settings { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
 .s-nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; }
 .s-nav button { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--r-s); border: 0; background: transparent; text-align: start; font-weight: 600; color: var(--text-2); }
@@ -289,6 +307,9 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .empty-state.sm { padding: 20px 12px; }
 .empty-state p { margin: 0; color: var(--text); font-weight: 600; }
 .result-sh-btn { flex: none; }
+.banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: var(--r-s); border: 1px solid var(--border); background: var(--surface); font-size: .88rem; font-weight: 600; }
+.banner.ok { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 28%, var(--border)); }
+.banner.err { background: var(--err-bg); color: var(--err); border-color: color-mix(in srgb, var(--err) 28%, var(--border)); }
 @media (max-width: 1020px) {
   .sh-grid { grid-template-columns: minmax(0, 1fr); }
 }

@@ -32,6 +32,7 @@ import { toast } from '../ui/toast';
 import PosScreen from '../screens/pos/PosScreen.vue';
 import SalesScreen from '../screens/sales/SalesScreen.vue';
 import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
+import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
@@ -385,6 +386,11 @@ async function switchTheme(): Promise<void> {
         />
         <WalletsScreen
           v-else-if="screen === 'wallets'"
+          :session="session"
+          @changed="refreshShiftState"
+        />
+        <RepairsScreen
+          v-else-if="screen === 'repairs'"
           :session="session"
           @changed="refreshShiftState"
         />

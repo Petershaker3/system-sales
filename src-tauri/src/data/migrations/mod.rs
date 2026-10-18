@@ -128,6 +128,11 @@ pub const PARTIAL_RETURNS_AND_DAMAGED_STOCK: &str =
 /// for Plan item 1.15 (ADR-030).
 pub const SHORTAGES: &str = include_str!("0026_shortages.sql");
 
+/// `0027`: hardware repairs and software operations (`repairs`)
+/// for Plan item 2.1 (ADR-031).
+pub const REPAIRS_AND_SOFTWARE: &str = include_str!("0027_repairs_and_software.sql");
+
+
 
 
 

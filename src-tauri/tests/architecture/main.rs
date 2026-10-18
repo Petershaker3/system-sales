@@ -3152,6 +3152,79 @@ fn shortages_slice_preserves_layer_and_schema_invariants() {
     }
 }
 
+const REPAIRS_MIGRATION_SQL: &str =
+    include_str!("../../src/data/migrations/0027_repairs_and_software.sql");
+const REPAIR_SERVICE: &str = include_str!("../../src/services/repair.rs");
+const REPAIR_COMMANDS: &str = include_str!("../../src/commands/repair.rs");
+const REPAIRS_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/repairs/RepairsScreen.vue");
+
+#[test]
+fn repairs_and_software_migration_service_commands_and_ui_invariants_hold() {
+    let sql = sql_only(REPAIRS_MIGRATION_SQL);
+    for clause in [
+        "CREATE TABLE repairs",
+        "service_kind TEXT NOT NULL DEFAULT 'hardware' CHECK (service_kind IN ('hardware', 'software'))",
+        "status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received', 'diagnosing', 'waiting', 'ready', 'delivered', 'cancelled'))",
+        "estimated_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (estimated_price_minor >= 0)",
+        "final_price_minor INTEGER NOT NULL DEFAULT 0 CHECK (final_price_minor >= 0)",
+        "parts_cost_minor INTEGER NOT NULL DEFAULT 0 CHECK (parts_cost_minor >= 0)",
+        "deposit_minor INTEGER NOT NULL DEFAULT 0 CHECK (deposit_minor >= 0)",
+        "pay_method TEXT NOT NULL DEFAULT 'cash' CHECK (pay_method IN ('cash', 'vf', 'instapay', 'card'))",
+        ") STRICT;",
+    ] {
+        assert!(
+            sql.contains(clause),
+            "0027_repairs_and_software.sql must contain `{clause}`"
+        );
+    }
+
+    let service = code_only(REPAIR_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden),
+            "services/repair.rs must not write raw SQL (`{forbidden}`)"
+        );
+    }
+
+    let cmds = code_only(REPAIR_COMMANDS);
+    for forbidden in ["sqlx::", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !cmds.contains(forbidden),
+            "commands/repair.rs must not touch SQL (`{forbidden}`)"
+        );
+    }
+    assert!(
+        !command_parameters(REPAIR_COMMANDS).iter().any(|p| {
+            let lower = p.to_lowercase();
+            ["token", "user_id", "userid", "role", "created_by", "actor", "session"]
+                .iter()
+                .any(|f| lower.contains(f))
+        }),
+        "repair commands must never accept identity/session parameters from the caller"
+    );
+
+    assert!(
+        SHELL_NAV_TS.contains("id: 'repairs', label: 'الصيانة', icon: 'wrench', ownerOnly: false"),
+        "src/shell/nav.ts must expose the Repairs & Software screen on the rail"
+    );
+
+    for marker in [
+        "الصيانة والسوفت وير",
+        "فلوس الصيانة لوحدها",
+        "فلوس السوفت وير لوحدها",
+        "صيانة هاردوير",
+        "سوفت وير",
+        "سلّم وحصّل",
+    ] {
+        assert!(
+            REPAIRS_SCREEN_VUE.contains(marker),
+            "RepairsScreen.vue must include `{marker}`"
+        );
+    }
+}
+
+
 
 
 

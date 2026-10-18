@@ -349,21 +349,45 @@ pub async fn compute_shift_totals(
     let services_cash_out_minor: i64 = svc_row.try_get("services_cash_out_minor")?;
     let wallet_drawer_net_minor: i64 = svc_row.try_get("wallet_drawer_net_minor")?;
 
+    let rep_row = sqlx::query(
+        "SELECT
+            COALESCE(SUM(CASE WHEN status != 'cancelled' AND created_at >= ?1 AND created_at <= ?2 AND deposit_minor > 0 THEN deposit_minor ELSE 0 END), 0) AS deposit_cash_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'cash' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_cash_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'vf' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_vf_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'instapay' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_instapay_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'card' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_card_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 THEN 1 ELSE 0 END), 0) AS deliv_count,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 THEN (final_price_minor - parts_cost_minor) ELSE 0 END), 0) AS deliv_profit_minor
+         FROM repairs",
+    )
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let rep_deposit_cash: i64 = rep_row.try_get("deposit_cash_minor")?;
+    let rep_deliv_cash: i64 = rep_row.try_get("deliv_cash_minor")?;
+    let rep_deliv_vf: i64 = rep_row.try_get("deliv_vf_minor")?;
+    let rep_deliv_instapay: i64 = rep_row.try_get("deliv_instapay_minor")?;
+    let rep_deliv_card: i64 = rep_row.try_get("deliv_card_minor")?;
+    let rep_deliv_count: i64 = rep_row.try_get("deliv_count")?;
+    let rep_deliv_profit: i64 = rep_row.try_get("deliv_profit_minor")?;
+
     Ok(ShiftTotals::compute_with_services(
         shift.opening_cash.as_minor(),
         cash_sales_minor,
-        vf_sales_minor,
-        instapay_sales_minor,
-        card_sales_minor,
+        vf_sales_minor + rep_deliv_vf,
+        instapay_sales_minor + rep_deliv_instapay,
+        card_sales_minor + rep_deliv_card,
         install_sales_minor,
         credit_sales_minor,
         sales_total_minor,
         sales_cost_minor,
         sales_count,
         customer_cash_in_minor,
-        services_count_raw.max(0) as u64,
-        services_fee_minor,
-        services_cash_in_minor,
+        (services_count_raw + rep_deliv_count).max(0) as u64,
+        services_fee_minor + rep_deliv_profit,
+        services_cash_in_minor + rep_deposit_cash + rep_deliv_cash,
         services_cash_out_minor,
         wallet_drawer_net_minor,
         cash_in_minor,

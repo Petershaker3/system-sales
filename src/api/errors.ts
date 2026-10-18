@@ -242,7 +242,17 @@ export const ErrorCode = {
   SHORTAGE_CUSTOMER_INVALID: 'SHORTAGE_CUSTOMER_INVALID',
   SHORTAGE_STATUS_INVALID: 'SHORTAGE_STATUS_INVALID',
   SHORTAGE_NOT_FOUND: 'SHORTAGE_NOT_FOUND',
-  SHORTAGE_DELETE_FORBIDDEN: 'SHORTAGE_DELETE_FORBIDDEN'
+  SHORTAGE_DELETE_FORBIDDEN: 'SHORTAGE_DELETE_FORBIDDEN',
+
+  // الصيانة والسوفت وير (البند 2.1، ADR-031)
+  REPAIR_CUSTOMER_REQUIRED: 'REPAIR_CUSTOMER_REQUIRED',
+  REPAIR_DEVICE_REQUIRED: 'REPAIR_DEVICE_REQUIRED',
+  REPAIR_ISSUE_REQUIRED: 'REPAIR_ISSUE_REQUIRED',
+  REPAIR_AMOUNT_INVALID: 'REPAIR_AMOUNT_INVALID',
+  REPAIR_STATUS_INVALID: 'REPAIR_STATUS_INVALID',
+  REPAIR_PAY_METHOD_INVALID: 'REPAIR_PAY_METHOD_INVALID',
+  REPAIR_NOT_FOUND: 'REPAIR_NOT_FOUND',
+  REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -615,7 +625,25 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SHORTAGE_NOT_FOUND]:
     'الناقص ده مش موجود في القايمة.',
   [ErrorCode.SHORTAGE_DELETE_FORBIDDEN]:
-    'اللي ضاف الناقص أو المالك بس اللي يقدر يمسحه.'
+    'اللي ضاف الناقص أو المالك بس اللي يقدر يمسحه.',
+
+  // الصيانة والسوفت وير (البند 2.1، ADR-031)
+  [ErrorCode.REPAIR_CUSTOMER_REQUIRED]:
+    'اكتب اسم العميل ورقم تليفونه.',
+  [ErrorCode.REPAIR_DEVICE_REQUIRED]:
+    'اكتب موديل الجهاز الأول.',
+  [ErrorCode.REPAIR_ISSUE_REQUIRED]:
+    'حدد العطل أو عملية السوفت وير المطلوبة.',
+  [ErrorCode.REPAIR_AMOUNT_INVALID]:
+    'المبلغ أو البيان المدخل غير صحيح.',
+  [ErrorCode.REPAIR_STATUS_INVALID]:
+    'حالة التذكرة غير صحيحة.',
+  [ErrorCode.REPAIR_PAY_METHOD_INVALID]:
+    'طريقة التحصيل غير صحيحة.',
+  [ErrorCode.REPAIR_NOT_FOUND]:
+    'تذكرة الصيانة دي مش موجودة.',
+  [ErrorCode.REPAIR_ALREADY_DELIVERED]:
+    'التذكرة دي اتسلّمت أو اتلغت قبل كده.'
 };
 
 /** Shown when Rust sends something this build does not know about. */

@@ -205,7 +205,8 @@ pub async fn compute_wallet_balance_minor(
 
     let sales_in_minor = match wallet.pay_method {
         Some(method) => {
-            sqlx::query_scalar(
+            let m = method.as_str();
+            let pos_sales_minor: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(
                     CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
                 ), 0)
@@ -213,9 +214,29 @@ pub async fn compute_wallet_balance_minor(
                 INNER JOIN sales s ON s.id = sp.sale_id
                 WHERE sp.method = ?1",
             )
-            .bind(method.as_str())
+            .bind(m)
             .fetch_one(&mut *conn)
-            .await?
+            .await?;
+
+            let credit_payments_minor: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(-amount_minor), 0)
+                 FROM customer_ledger
+                 WHERE kind = 'payment' AND method = ?1",
+            )
+            .bind(m)
+            .fetch_one(&mut *conn)
+            .await?;
+
+            let repairs_in_minor: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+                 FROM repairs
+                 WHERE status = 'delivered' AND pay_method = ?1",
+            )
+            .bind(m)
+            .fetch_one(&mut *conn)
+            .await?;
+
+            pos_sales_minor + credit_payments_minor + repairs_in_minor
         }
         None => 0,
     };
@@ -260,7 +281,8 @@ pub async fn compute_wallet_period_stats(
 
     let sales_in_minor = match wallet.pay_method {
         Some(method) => {
-            sqlx::query_scalar(
+            let m = method.as_str();
+            let pos_sales_minor: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(
                     CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
                 ), 0)
@@ -270,11 +292,42 @@ pub async fn compute_wallet_period_stats(
                   AND s.occurred_at >= ?2
                   AND s.occurred_at <= ?3",
             )
-            .bind(method.as_str())
+            .bind(m)
             .bind(from_ms)
             .bind(to_ms)
             .fetch_one(&mut *conn)
-            .await?
+            .await?;
+
+            let credit_payments_minor: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(-amount_minor), 0)
+                 FROM customer_ledger
+                 WHERE kind = 'payment'
+                   AND method = ?1
+                   AND occurred_at >= ?2
+                   AND occurred_at <= ?3",
+            )
+            .bind(m)
+            .bind(from_ms)
+            .bind(to_ms)
+            .fetch_one(&mut *conn)
+            .await?;
+
+            let repairs_in_minor: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+                 FROM repairs
+                 WHERE status = 'delivered'
+                   AND pay_method = ?1
+                   AND delivered_at IS NOT NULL
+                   AND delivered_at >= ?2
+                   AND delivered_at <= ?3",
+            )
+            .bind(m)
+            .bind(from_ms)
+            .bind(to_ms)
+            .fetch_one(&mut *conn)
+            .await?;
+
+            pos_sales_minor + credit_payments_minor + repairs_in_minor
         }
         None => 0,
     };

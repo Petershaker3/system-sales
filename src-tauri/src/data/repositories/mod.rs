@@ -9,6 +9,7 @@ pub mod customer;
 pub mod identity;
 pub mod inventory;
 pub mod organisation;
+pub mod repair;
 pub mod sales;
 pub mod settings;
 pub mod shift;

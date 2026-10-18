@@ -2071,6 +2071,93 @@ check(
     (await text('[data-store-shortages-badge]')) === '4'
 );
 
+// --- Repairs & Software («الصيانة والسوفت وير», Plan 2.1 / ADR-031) ----------
+await clickText('.rail .nav-btn', 'الصيانة');
+await page.waitForSelector('[data-repairs-screen]', { timeout: 3000 });
+await sleep(200);
+check(
+  'Repairs & Software screen shows 5 Kanban stages and separate Hardware vs Software money cards',
+  (await count('[data-kanban-col]')) === 5 &&
+    (await count('[data-repairs-hw-card]')) === 1 &&
+    (await count('[data-repairs-sw-card]')) === 1 &&
+    (await text('[data-hw-revenue]')).includes('1,450') &&
+    (await text('[data-sw-revenue]')).includes('250')
+);
+
+// Record a walk-in Software operation (`+ عملية سوفت وير`, 300 EGP, delivered immediately by يوسف)
+await page.click('[data-repairs-new-software]');
+await page.waitForSelector('[data-intake-phone]', { timeout: 3000 });
+await page.type('[data-intake-phone]', '01066778899');
+await page.type('[data-intake-customer]', 'رامي نبيل');
+await page.type('[data-intake-device]', 'شاومي ريدمي 13C');
+await page.click('[data-intake-issue-chip="تخطي حساب جوجل FRP"]');
+await page.type('[data-intake-tech]', 'يوسف');
+await page.type('[data-intake-price]', '300');
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-phone]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'Recording a 300 EGP Software operation increases Software revenue to 550 EGP without touching Hardware money',
+  (await text('[data-sw-revenue]')).includes('550') &&
+    (await text('[data-sw-profit]')).includes('550') &&
+    (await text('[data-hw-revenue]')).includes('1,450'),
+  `sw=${await text('[data-sw-revenue]')} hw=${await text('[data-hw-revenue]')}`
+);
+
+// Deliver ready Hardware ticket R-1091 (`سلّم وحصّل`, 3,200 EGP final, 2,100 EGP parts cost, 500 EGP prior deposit -> 2,700 EGP remaining)
+await page.click('[data-repair-wa-ready="R-1091"]');
+await sleep(100);
+check(
+  'Ready ticket WhatsApp button prepares the ready-for-pickup message for the customer',
+  (await text('[data-repairs-ok-banner]')).includes('جاهز للاستلام')
+);
+await page.click('[data-repair-deliver-open="R-1091"]');
+await page.waitForSelector('[data-deliver-final-price]', { timeout: 3000 });
+check(
+  'Deliver modal calculates remaining 2,700 EGP (3,200 final − 500 deposit) and 1,100 EGP net profit',
+  (await text('[data-deliver-remaining]')).includes('2,700') &&
+    (await text('[data-deliver-net-profit]')).includes('1,100')
+);
+await page.click('[data-deliver-confirm]');
+await page.waitForSelector('[data-deliver-final-price]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'Delivering R-1091 adds 2,700 EGP to Hardware revenue (1,450 -> 4,150 EGP) while Software revenue stays 550 EGP',
+  (await text('[data-hw-revenue]')).includes('4,150') &&
+    (await text('[data-sw-revenue]')).includes('550'),
+  `hw=${await text('[data-hw-revenue]')} sw=${await text('[data-sw-revenue]')}`
+);
+
+// Receive a new Hardware repair into Kanban (`استلام جهاز صيانة`) and advance it one stage
+await page.click('[data-repairs-new]');
+await page.waitForSelector('[data-intake-phone]', { timeout: 3000 });
+await page.type('[data-intake-phone]', '01200112233');
+await page.type('[data-intake-customer]', 'ماجد شوقي');
+await page.type('[data-intake-device]', 'سامسونج A54');
+await page.click('[data-intake-issue-chip="شاشة"]');
+await page.click('[data-intake-acc-chip="جراب"]');
+await page.type('[data-intake-tech]', 'م. حسن');
+await page.type('[data-intake-price]', '1800');
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-phone]', { hidden: true, timeout: 3000 });
+await sleep(200);
+check(
+  'New hardware repair R-1096 lands in «استلام» column and advances to «فحص» on click',
+  (await count('[data-kanban-col="received"] [data-ticket-no="R-1096"]')) === 1
+);
+await page.click('[data-repair-advance="R-1096"]');
+await sleep(200);
+check(
+  'Advancing R-1096 moves it from «استلام» to «فحص»',
+  (await count('[data-kanban-col="diagnosing"] [data-ticket-no="R-1096"]')) === 1
+);
+  await page.evaluate(() => {
+    document.querySelector('.content')?.scrollTo(0, 0);
+    document.querySelectorAll('.toast').forEach((el) => el.remove());
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  await shot('53-repairs-and-software');
+
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen
 // will open it: through the app's own module, which the dev server shares with
