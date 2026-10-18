@@ -211,12 +211,11 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
     .expect("topup et from drawer");
 
     // 9. Sale paid via Vodafone Cash (`vf`, 200 EGP) automatically increases `vf` wallet balance!
-    let active = session::resolve(&pool, tokens.as_ref()).await.unwrap();
     sales::record_sale_with_payments(
         &pool,
-        active.token(),
+        tokens.as_ref(),
         &[SaleLineWithUnitInput {
-            product_id: &product_id,
+            product_id: product_id.clone(),
             quantity: 1,
             warranty_start: None,
             warranty_end: None,
