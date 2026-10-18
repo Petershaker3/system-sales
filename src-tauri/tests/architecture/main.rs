@@ -2943,5 +2943,62 @@ fn partial_returns_and_damaged_stock_slice_preserves_layer_and_schema_invariants
     }
 }
 
+const BACKUP_POLICY_DOMAIN: &str = include_str!("../../src/domain/backup/policy.rs");
+const BACKUP_AUTO_SERVICE: &str = include_str!("../../src/services/backup/auto.rs");
+const BACKUP_COMMANDS: &str = include_str!("../../src/commands/backup.rs");
+
+#[test]
+fn automatic_backup_policy_slice_preserves_layer_invariants() {
+    let domain = code_only(BACKUP_POLICY_DOMAIN);
+    for forbidden in ["tauri", "sqlx", "SqlitePool", "keyring", "std::fs"] {
+        assert!(
+            !domain.contains(forbidden),
+            "domain/backup/policy.rs must not reference `{forbidden}`"
+        );
+    }
+
+    let service = code_only(BACKUP_AUTO_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden),
+            "services/backup/auto.rs must delegate SQL to repositories (`{forbidden}`)"
+        );
+    }
+
+    let commands = code_only(BACKUP_COMMANDS);
+    let params = command_parameters(&commands);
+    for forbidden in [
+        "token",
+        "user_id",
+        "userid",
+        "role",
+        "created_by",
+        "updated_by",
+        "actor",
+        "assurance",
+        "session",
+        "sensitivity",
+    ] {
+        assert!(
+            !params.iter().any(|p| p == forbidden),
+            "commands/backup.rs must not accept `{forbidden}`; found {params:?}"
+        );
+    }
+
+    let lib = code_only(LIB);
+    for command in [
+        "commands::backup::create_backup",
+        "commands::backup::restore_backup",
+        "commands::backup::list_saved_backups",
+        "commands::backup::create_auto_backup_now",
+        "commands::backup::copy_latest_backup_to_usb",
+        "commands::backup::restore_saved_backup",
+        "commands::backup::run_periodic_backup_tick",
+    ] {
+        assert!(lib.contains(command), "lib.rs must register `{command}`");
+    }
+}
+
+
 
 

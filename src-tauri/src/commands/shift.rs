@@ -3,7 +3,7 @@
 //! Transport boundary only: no SQL and no session construction appears here.
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::domain::shift::{
     CashMovementRecord, ExpenseRecord, ShiftRecord, ShiftSummary, ShiftTotals,
@@ -225,10 +225,20 @@ pub async fn current_shift_summary(
 #[tauri::command]
 pub async fn open_shift(
     ctx: Ctx<'_>,
+    app: AppHandle,
     opening_cash_minor: i64,
 ) -> Result<ShiftSummaryDto, ShiftCommandError> {
     let summary =
         use_cases::open_shift(&ctx.pool, ctx.tokens.as_ref(), opening_cash_minor).await?;
+    if let Ok(data_dir) = app.path().app_local_data_dir() {
+        let _ = crate::services::backup::auto::trigger_shift_backup(
+            &ctx.pool,
+            &data_dir,
+            summary.shift.shift_number,
+            true,
+        )
+        .await;
+    }
     Ok(summary.into())
 }
 
@@ -274,6 +284,7 @@ pub async fn record_cash_movement(
 #[tauri::command]
 pub async fn close_shift(
     ctx: Ctx<'_>,
+    app: AppHandle,
     counted_cash_minor: i64,
     close_note: Option<String>,
 ) -> Result<ShiftSummaryDto, ShiftCommandError> {
@@ -284,5 +295,14 @@ pub async fn close_shift(
         close_note.as_deref(),
     )
     .await?;
+    if let Ok(data_dir) = app.path().app_local_data_dir() {
+        let _ = crate::services::backup::auto::trigger_shift_backup(
+            &ctx.pool,
+            &data_dir,
+            summary.shift.shift_number,
+            false,
+        )
+        .await;
+    }
     Ok(summary.into())
 }

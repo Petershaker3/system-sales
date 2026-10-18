@@ -27,6 +27,7 @@ use tauri::Manager;
 use zeroize::Zeroizing;
 
 use crate::domain::backup::error::BackupError;
+use crate::domain::backup::policy::SavedBackupEntry;
 use crate::services::backup::{self as use_cases, BackupServiceError};
 use crate::services::identity::IdentityContext;
 
@@ -164,4 +165,114 @@ pub async fn restore_backup(
         database_len: outcome.database_len,
         image_count: outcome.image_count,
     })
+}
+
+/// List saved automatic and manual backups in `<data_dir>/backups/` (`ADR-027`).
+#[tauri::command]
+pub async fn list_saved_backups(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<Vec<SavedBackupEntry>, BackupCommandError> {
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| BackupCommandError {
+            code: BackupError::CreateFailed.code(),
+        })?;
+    let entries = use_cases::auto::list_saved_backups_authorized(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &data_dir,
+    )
+    .await?;
+    Ok(entries)
+}
+
+/// Take an automatic-policy backup immediately («خد نسخة دلوقتي», `ADR-027`).
+#[tauri::command]
+pub async fn create_auto_backup_now(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<SavedBackupEntry, BackupCommandError> {
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| BackupCommandError {
+            code: BackupError::CreateFailed.code(),
+        })?;
+    let entry = use_cases::auto::create_auto_backup_now_authorized(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &data_dir,
+    )
+    .await?;
+    Ok(entry)
+}
+
+/// Copy the latest saved backup to a connected `MSHOP-BACKUP` USB flash drive («انسخ على فلاشة», `ADR-027`).
+#[tauri::command]
+pub async fn copy_latest_backup_to_usb(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<SavedBackupEntry, BackupCommandError> {
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| BackupCommandError {
+            code: BackupError::CreateFailed.code(),
+        })?;
+    let entry = use_cases::auto::copy_latest_backup_to_usb_authorized(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &data_dir,
+    )
+    .await?;
+    Ok(entry)
+}
+
+/// Restore a saved backup from «آخر النسخ المحفوظة» with Owner PIN approval (`ADR-027`).
+#[tauri::command]
+pub async fn restore_saved_backup(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+    backup_id: String,
+) -> Result<RestoreOutcomeDto, BackupCommandError> {
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| BackupCommandError {
+            code: BackupError::RestoreFailed.code(),
+        })?;
+    let outcome = use_cases::auto::restore_saved_backup_authorized(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &data_dir,
+        &backup_id,
+    )
+    .await?;
+    Ok(RestoreOutcomeDto {
+        database_len: outcome.database_len,
+        image_count: outcome.image_count,
+    })
+}
+
+/// Run the background periodic 2-hour backup and USB auto-sync tick (`ADR-027`).
+#[tauri::command]
+pub async fn run_periodic_backup_tick(
+    ctx: Ctx<'_>,
+    app: AppHandle,
+) -> Result<Option<SavedBackupEntry>, BackupCommandError> {
+    let data_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| BackupCommandError {
+            code: BackupError::CreateFailed.code(),
+        })?;
+    let res = use_cases::auto::run_periodic_backup_tick_authorized(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &data_dir,
+    )
+    .await?;
+    Ok(res)
 }

@@ -1668,10 +1668,71 @@ check(
 );
 await shot('47-store-damaged-stock');
 
+// --- Plan item 1.12: Automatic backup policy (ADR-027) ----------------------
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('[data-backup-policy-card]', { timeout: 3000 });
+await sleep(200);
+const backupCardText = await text('[data-backup-policy-card]');
+check(
+  'settings show automatic backup policy card with all 4 policy rows and MSHOP-BACKUP',
+  backupCardText.includes('النسخ الاحتياطي التلقائي') &&
+    backupCardText.includes('نسخة مع فتح وقفل الوردية') &&
+    backupCardText.includes('نسخة كل ساعتين أثناء الشغل') &&
+    backupCardText.includes('MSHOP-BACKUP') &&
+    backupCardText.includes('فحص سلامة كل نسخة بعد الإنشاء'),
+  backupCardText
+);
+const initialSavedRows = await count('[data-saved-backup-row]');
+check('saved backups table shows initial shift and periodic backups', initialSavedRows >= 4, String(initialSavedRows));
 
+// Toggle USB auto off, take a manual backup («خد نسخة دلوقتي»), verify it shows «الكمبيوتر» and «سليمة ✓»
+await page.click('[data-backup-toggle="backupUsbAuto"]');
+await sleep(150);
+await page.click('[data-backup-now-btn]');
+await sleep(250);
+const afterManualRows = await count('[data-saved-backup-row]');
+const firstSavedRowText = await text('[data-saved-backups-table] tbody tr:first-child');
+check(
+  '«خد نسخة دلوقتي» adds a verified manual backup row at the top of the table',
+  afterManualRows === initialSavedRows + 1 &&
+    firstSavedRowText.includes('يدوي') &&
+    firstSavedRowText.includes('الكمبيوتر') &&
+    !firstSavedRowText.includes('فلاشة USB') &&
+    firstSavedRowText.includes('سليمة'),
+  firstSavedRowText
+);
 
+// Click «انسخ على فلاشة» and verify the latest backup row updates to «الكمبيوتر + فلاشة USB»
+await page.click('[data-backup-usb-btn]');
+await sleep(250);
+const afterUsbRowText = await text('[data-saved-backups-table] tbody tr:first-child');
+check(
+  '«انسخ على فلاشة» copies the latest backup to MSHOP-BACKUP and updates its location',
+  afterUsbRowText.includes('الكمبيوتر + فلاشة USB'),
+  afterUsbRowText
+);
+await page.click('[data-backup-toggle="backupUsbAuto"]');
+await sleep(150);
+await page.$eval('[data-backup-policy-card]', (el) => el.scrollIntoView({ block: 'start' }));
+await sleep(150);
+await shot('48-settings-automatic-backup-policy');
 
-
+// Click «استرجاع» on the first row -> requires Owner PIN approval («استرجاع نسخة احتياطية»)
+await page.click('[data-saved-backups-table] tbody tr:first-child [data-backup-restore-btn]');
+await page.waitForSelector('.modal .approver', { timeout: 3000 });
+const restoreApproveTitle = await text('.modal');
+check(
+  'restoring a saved backup prompts for Owner PIN approval',
+  restoreApproveTitle.includes('استرجاع نسخة احتياطية'),
+  restoreApproveTitle
+);
+await page.keyboard.type('4321');
+await page.keyboard.press('Enter');
+await sleep(300);
+check(
+  'owner PIN approval completes the saved backup restore and closes the prompt',
+  (await count('.modal .approver')) === 0
+);
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
 // No demo screen is sensitive yet, so the prompt is opened the way a screen

@@ -293,6 +293,10 @@ const appearance = {
   serviceFeePct: '1',
   serviceFeeMin: '5',
   billFee: '5',
+  backupOnShift: 'on',
+  backupEvery2h: 'on',
+  backupUsbAuto: 'on',
+  backupVerify: 'on',
 };
 let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
@@ -621,6 +625,95 @@ const demoWallets: DemoWallet[] = [
 ];
 
 const demoWalletOps: DemoWalletOp[] = [];
+
+interface DemoSavedBackup {
+  id: string;
+  fileName: string;
+  createdAtUnixMs: number;
+  triggerKind: 'manual' | 'shift_open' | 'shift_close' | 'periodic';
+  reason: string;
+  totalLen: number;
+  databaseLen: number;
+  imageCount: number;
+  verified: boolean;
+  usbCopied: boolean;
+}
+
+const demoSavedBackups: DemoSavedBackup[] = [
+  {
+    id: 'backup-1792324800000-d004.msb',
+    fileName: 'backup-1792324800000-d004.msb',
+    createdAtUnixMs: Date.now() - 30 * 60_000,
+    triggerKind: 'periodic',
+    reason: 'دوري (كل ساعتين)',
+    totalLen: Math.round(14.2 * 1024 * 1024),
+    databaseLen: Math.round(11.8 * 1024 * 1024),
+    imageCount: 18,
+    verified: true,
+    usbCopied: true,
+  },
+  {
+    id: 'backup-1792317600000-d003.msb',
+    fileName: 'backup-1792317600000-d003.msb',
+    createdAtUnixMs: Date.now() - 150 * 60_000,
+    triggerKind: 'periodic',
+    reason: 'دوري (كل ساعتين)',
+    totalLen: Math.round(14.1 * 1024 * 1024),
+    databaseLen: Math.round(11.7 * 1024 * 1024),
+    imageCount: 18,
+    verified: true,
+    usbCopied: false,
+  },
+  {
+    id: 'backup-1792307100000-d002.msb',
+    fileName: 'backup-1792307100000-d002.msb',
+    createdAtUnixMs: Date.now() - 300 * 60_000,
+    triggerKind: 'shift_open',
+    reason: 'فتح وردية #1',
+    totalLen: Math.round(13.9 * 1024 * 1024),
+    databaseLen: Math.round(11.5 * 1024 * 1024),
+    imageCount: 17,
+    verified: true,
+    usbCopied: true,
+  },
+  {
+    id: 'backup-1792271400000-d001.msb',
+    fileName: 'backup-1792271400000-d001.msb',
+    createdAtUnixMs: Date.now() - 24 * 60 * 60_000,
+    triggerKind: 'shift_close',
+    reason: 'تقفيل وردية #0',
+    totalLen: Math.round(13.9 * 1024 * 1024),
+    databaseLen: Math.round(11.5 * 1024 * 1024),
+    imageCount: 17,
+    verified: true,
+    usbCopied: true,
+  },
+];
+
+function recordDemoBackup(
+  triggerKind: DemoSavedBackup['triggerKind'],
+  reason: string,
+): DemoSavedBackup {
+  const ts = now();
+  const id = `backup-${ts}-${String(demoSavedBackups.length + 1).padStart(4, '0')}.msb`;
+  const entry: DemoSavedBackup = {
+    id,
+    fileName: id,
+    createdAtUnixMs: ts,
+    triggerKind,
+    reason,
+    totalLen: Math.round(14.3 * 1024 * 1024),
+    databaseLen: Math.round(11.9 * 1024 * 1024),
+    imageCount: Object.keys(productImages).length || 18,
+    verified: appearance.backupVerify === 'on',
+    usbCopied: appearance.backupUsbAuto === 'on',
+  };
+  demoSavedBackups.unshift(entry);
+  if (demoSavedBackups.length > 30) {
+    demoSavedBackups.length = 30;
+  }
+  return { ...entry };
+}
 
 function demoOpDrawerDelta(op: DemoWalletOp): number {
   if (op.voidedAt !== null) return 0;
@@ -1085,6 +1178,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.service_fee_pct': 'serviceFeePct',
       'ui.service_fee_min': 'serviceFeeMin',
       'ui.bill_fee': 'billFee',
+      'ui.backup_on_shift': 'backupOnShift',
+      'ui.backup_every_2h': 'backupEvery2h',
+      'ui.backup_usb_auto': 'backupUsbAuto',
+      'ui.backup_verify': 'backupVerify',
     };
     const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
@@ -1108,7 +1205,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
       key === 'serviceFeeMode' ||
       key === 'serviceFeePct' ||
       key === 'serviceFeeMin' ||
-      key === 'billFee'
+      key === 'billFee' ||
+      key === 'backupOnShift' ||
+      key === 'backupEvery2h' ||
+      key === 'backupUsbAuto' ||
+      key === 'backupVerify'
     )
       requireManager(false);
     else requireManager(true);
@@ -1156,7 +1257,14 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const lower = val.toLowerCase();
       if (!['wa', 'none', 'print', 'both'].includes(lower)) fail('SETTING_VALUE_INVALID');
       appearance[key] = lower;
-    } else if (key === 'printerEnabled' || key === 'sellerCanCloseShift') {
+    } else if (
+      key === 'printerEnabled' ||
+      key === 'sellerCanCloseShift' ||
+      key === 'backupOnShift' ||
+      key === 'backupEvery2h' ||
+      key === 'backupUsbAuto' ||
+      key === 'backupVerify'
+    ) {
       const lower = val.toLowerCase();
       if (!['on', 'off'].includes(lower)) fail('SETTING_VALUE_INVALID');
       appearance[key] = lower;
@@ -2570,6 +2678,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
       closedAt: null,
     };
     shifts.push(shift);
+    if (appearance.backupOnShift === 'on') {
+      recordDemoBackup('shift_open', `فتح وردية #${shift.shiftNumber}`);
+    }
     return buildDemoShiftSummary(shift);
   },
   record_expense: (args) => {
@@ -2631,6 +2742,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
     open.differenceMinor = differenceMinor;
     open.closeNote = closeNote;
     open.closedBy = user.id;
+    if (appearance.backupOnShift === 'on') {
+      recordDemoBackup('shift_close', `تقفيل وردية #${open.shiftNumber}`);
+    }
     return buildDemoShiftSummary(open);
   },
 
@@ -2945,6 +3059,52 @@ const handlers: Record<string, (args: Args) => unknown> = {
       mustChangePassword: false,
       credentialsMissing: false,
     }));
+  },
+
+  // automatic backup policy (Plan item 1.12, ADR-027)
+  list_saved_backups: () => {
+    requireManager(false);
+    return demoSavedBackups.map((b) => ({ ...b }));
+  },
+  create_auto_backup_now: () => {
+    requireManager(false);
+    return recordDemoBackup('manual', 'يدوي');
+  },
+  copy_latest_backup_to_usb: () => {
+    requireManager(false);
+    if (demoSavedBackups.length === 0) {
+      recordDemoBackup('manual', 'يدوي');
+    }
+    const latest = demoSavedBackups[0] ?? fail('BACKUP_NOT_FOUND');
+    latest.usbCopied = true;
+    return { ...latest };
+  },
+  restore_saved_backup: (args) => {
+    requireManager(false);
+    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    approvedOnce = false;
+    const backupId = str(args, 'backupId').trim();
+    const found =
+      demoSavedBackups.find((b) => b.id === backupId) ??
+      fail('BACKUP_NOT_FOUND');
+    return {
+      databaseLen: found.databaseLen,
+      imageCount: found.imageCount,
+    };
+  },
+  run_periodic_backup_tick: () => {
+    requireUser();
+    if (appearance.backupUsbAuto === 'on' && demoSavedBackups[0] && !demoSavedBackups[0].usbCopied) {
+      demoSavedBackups[0].usbCopied = true;
+      return { ...demoSavedBackups[0] };
+    }
+    if (appearance.backupEvery2h === 'on') {
+      const lastTs = demoSavedBackups[0]?.createdAtUnixMs ?? 0;
+      if (now() - lastTs >= 2 * 60 * 60 * 1000) {
+        return recordDemoBackup('periodic', 'دوري (كل ساعتين)');
+      }
+    }
+    return null;
   },
 };
 

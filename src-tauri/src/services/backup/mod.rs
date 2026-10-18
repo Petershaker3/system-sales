@@ -14,6 +14,7 @@
 //! * [`recover_interrupted`] — run at startup, before opening the database, to
 //!   finish or undo a restore that was interrupted.
 
+pub mod auto;
 pub mod container;
 pub mod create;
 pub mod crypto;
@@ -28,7 +29,7 @@ pub use authorized::{
 
 pub use create::{create_backup, snapshot_database, BackupReport};
 pub use journal::{recover_interrupted, RecoveryOutcome};
-pub use restore::{restore_backup, RestoreOutcome};
+pub use restore::{restore_backup, verify_backup, RestoreOutcome};
 
 use crate::domain::backup::error::BackupError;
 

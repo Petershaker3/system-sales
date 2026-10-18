@@ -9,6 +9,7 @@ import BackupPanel from '../../components/BackupPanel.vue';
 import SettingsPanel from '../../components/SettingsPanel.vue';
 import UserManagement from '../../components/UserManagement.vue';
 import AppearanceCard from './AppearanceCard.vue';
+import BackupPolicyCard from './BackupPolicyCard.vue';
 import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
@@ -37,6 +38,7 @@ import WalletsSettingsCard from './WalletsSettingsCard.vue';
     <DiscountLimitCard />
     <CategoriesCard />
     <BrandsCard />
+    <BackupPolicyCard />
 
     <RecoveryCodeCard />
     <div class="legacy-grid">

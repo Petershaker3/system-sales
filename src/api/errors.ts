@@ -185,6 +185,8 @@ export const ErrorCode = {
   BACKUP_CREATE_FAILED: 'BACKUP_CREATE_FAILED',
   BACKUP_RESTORE_FAILED: 'BACKUP_RESTORE_FAILED',
   BACKUP_RECOVERY_INCOMPLETE: 'BACKUP_RECOVERY_INCOMPLETE',
+  BACKUP_USB_NOT_CONNECTED: 'BACKUP_USB_NOT_CONNECTED',
+  BACKUP_NOT_FOUND: 'BACKUP_NOT_FOUND',
 
   // ملف العملاء (P4، spec:178-179)
   CUSTOMER_NAME_INVALID: 'CUSTOMER_NAME_INVALID',
@@ -505,6 +507,10 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'تعذّر استيراد النسخة الاحتياطية. تمت إعادة بيانات الجهاز كما كانت.',
   [ErrorCode.BACKUP_RECOVERY_INCOMPLETE]:
     'توقفت عملية استيراد سابقة في منتصفها وتعذّر إكمالها. راجع المسؤول الفني عن الجهاز.',
+  [ErrorCode.BACKUP_USB_NOT_CONNECTED]:
+    'وصّل فلاشة USB باسم MSHOP-BACKUP الأول وجرب تاني.',
+  [ErrorCode.BACKUP_NOT_FOUND]:
+    'النسخة الاحتياطية المطلوبة غير موجودة على الجهاز.',
 
   // ملف العملاء (P4)
   [ErrorCode.CUSTOMER_NAME_INVALID]:

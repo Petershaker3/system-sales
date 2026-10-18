@@ -16,6 +16,7 @@ import {
   type CurrentShiftState,
   type ShiftSummary,
 } from '../api/shift';
+import { runPeriodicBackupTick } from '../api/backup';
 import { describeError } from '../api/errors';
 import {
   appearance,
@@ -180,7 +181,11 @@ function onDocClick(event: MouseEvent): void {
 onMounted(() => {
   void loadShopLogo();
   void refreshShiftState();
-  tick = window.setInterval(() => (clock.value = fmtTime()), 15_000);
+  void runPeriodicBackupTick().catch(() => {});
+  tick = window.setInterval(() => {
+    clock.value = fmtTime();
+    void runPeriodicBackupTick().catch(() => {});
+  }, 15_000);
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
 });

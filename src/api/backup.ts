@@ -63,4 +63,54 @@ export async function restoreBackup(
   return invoke<RestoreOutcome>('restore_backup', { backupPath, password });
 }
 
+export type BackupTriggerKind = 'manual' | 'shift_open' | 'shift_close' | 'periodic';
+
+export interface SavedBackupEntry {
+  readonly id: string;
+  readonly fileName: string;
+  readonly createdAtUnixMs: number;
+  readonly triggerKind: BackupTriggerKind | string;
+  readonly reason: string;
+  readonly totalLen: number;
+  readonly databaseLen: number;
+  readonly imageCount: number;
+  readonly verified: boolean;
+  readonly usbCopied: boolean;
+}
+
+/**
+ * List saved automatic and manual backups («آخر النسخ المحفوظة», `ADR-027`).
+ */
+export async function listSavedBackups(): Promise<SavedBackupEntry[]> {
+  return invoke<SavedBackupEntry[]>('list_saved_backups');
+}
+
+/**
+ * Create an automatic-policy backup immediately («خد نسخة دلوقتي», `ADR-027`).
+ */
+export async function createAutoBackupNow(): Promise<SavedBackupEntry> {
+  return invoke<SavedBackupEntry>('create_auto_backup_now');
+}
+
+/**
+ * Copy the latest backup to a connected `MSHOP-BACKUP` USB flash drive («انسخ على فلاشة», `ADR-027`).
+ */
+export async function copyLatestBackupToUsb(): Promise<SavedBackupEntry> {
+  return invoke<SavedBackupEntry>('copy_latest_backup_to_usb');
+}
+
+/**
+ * Restore a saved backup from «آخر النسخ المحفوظة» with Owner PIN approval (`ADR-027`).
+ */
+export async function restoreSavedBackup(backupId: string): Promise<RestoreOutcome> {
+  return invoke<RestoreOutcome>('restore_saved_backup', { backupId });
+}
+
+/**
+ * Run the periodic 2-hour backup and USB auto-sync tick (`ADR-027`).
+ */
+export async function runPeriodicBackupTick(): Promise<SavedBackupEntry | null> {
+  return invoke<SavedBackupEntry | null>('run_periodic_backup_tick');
+}
+
 export type { CommandError };

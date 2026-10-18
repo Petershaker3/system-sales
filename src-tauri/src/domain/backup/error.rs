@@ -57,6 +57,10 @@ pub enum BackupError {
     RestoreFailed,
     /// A previous restore was interrupted and could not be completed.
     RecoveryIncomplete,
+    /// The MSHOP-BACKUP USB flash drive is not connected.
+    UsbNotConnected,
+    /// The requested saved backup entry or file was not found.
+    BackupNotFound,
 }
 
 impl BackupError {
@@ -84,6 +88,8 @@ impl BackupError {
             BackupError::CreateFailed => "BACKUP_CREATE_FAILED",
             BackupError::RestoreFailed => "BACKUP_RESTORE_FAILED",
             BackupError::RecoveryIncomplete => "BACKUP_RECOVERY_INCOMPLETE",
+            BackupError::UsbNotConnected => "BACKUP_USB_NOT_CONNECTED",
+            BackupError::BackupNotFound => "BACKUP_NOT_FOUND",
         }
     }
 }
@@ -111,6 +117,8 @@ impl fmt::Display for BackupError {
             BackupError::CreateFailed => "the backup could not be created",
             BackupError::RestoreFailed => "the backup could not be restored",
             BackupError::RecoveryIncomplete => "an interrupted restore could not be completed",
+            BackupError::UsbNotConnected => "the MSHOP-BACKUP USB drive is not connected",
+            BackupError::BackupNotFound => "the requested backup was not found",
         })
     }
 }

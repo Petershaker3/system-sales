@@ -33,7 +33,7 @@ use zeroize::Zeroizing;
 
 use crate::domain::backup::error::BackupError;
 use crate::domain::backup::format::{self as fmt, TAG_LEN};
-use crate::domain::backup::manifest::DB_COMPONENT;
+use crate::domain::backup::manifest::{Manifest, DB_COMPONENT};
 
 use super::container::{self, Unpacked};
 use super::crypto;
@@ -181,6 +181,18 @@ fn apply(data_dir: &Path, unpacked: &Unpacked) -> Result<(), BackupError> {
     let _ = journal::remove_if_exists(&work.rollback());
     let _ = journal::remove_if_exists(&work.root);
     Ok(())
+}
+
+/// Verify a backup file's integrity without touching any live device files (`ADR-027` §3.3).
+///
+/// Re-reads the file from disk, validates the `MSB1` header and exact file
+/// length, derives the key, authenticates the AEAD tag, parses the manifest,
+/// and checks the SHA-256 digest of `shop.db` and every image component.
+pub fn verify_backup(backup_path: &Path, password: &str) -> Result<Manifest, BackupError> {
+    check_password(password)?;
+    let secret = Zeroizing::new(password.as_bytes().to_vec());
+    let unpacked = open_envelope(backup_path, &secret)?;
+    Ok(unpacked.manifest)
 }
 
 /// Restore `backup_path` over the device data at `data_dir`.

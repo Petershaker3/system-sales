@@ -35,6 +35,10 @@ export interface AppearanceDto {
   readonly serviceFeePct?: string;
   readonly serviceFeeMin?: string;
   readonly billFee?: string;
+  readonly backupOnShift?: string;
+  readonly backupEvery2h?: string;
+  readonly backupUsbAuto?: string;
+  readonly backupVerify?: string;
 }
 
 export type AppearanceKey =
@@ -63,7 +67,11 @@ export type AppearanceKey =
   | 'ui.service_fee_mode'
   | 'ui.service_fee_pct'
   | 'ui.service_fee_min'
-  | 'ui.bill_fee';
+  | 'ui.bill_fee'
+  | 'ui.backup_on_shift'
+  | 'ui.backup_every_2h'
+  | 'ui.backup_usb_auto'
+  | 'ui.backup_verify';
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');

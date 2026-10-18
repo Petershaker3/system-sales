@@ -398,6 +398,8 @@ fn every_backup_error_has_a_distinct_code() {
         BackupError::CreateFailed,
         BackupError::RestoreFailed,
         BackupError::RecoveryIncomplete,
+        BackupError::UsbNotConnected,
+        BackupError::BackupNotFound,
     ];
     let mut codes: Vec<&str> = errors.iter().map(|e| e.code()).collect();
     let count = codes.len();

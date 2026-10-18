@@ -86,6 +86,10 @@ pub async fn update(
         AppearanceKey::ServiceFeePct => validated.service_fee_pct,
         AppearanceKey::ServiceFeeMin => validated.service_fee_min,
         AppearanceKey::BillFee => validated.bill_fee,
+        AppearanceKey::BackupOnShift => validated.backup_on_shift,
+        AppearanceKey::BackupEvery2h => validated.backup_every_2h,
+        AppearanceKey::BackupUsbAuto => validated.backup_usb_auto,
+        AppearanceKey::BackupVerify => validated.backup_verify,
     };
     let now = Timestamp::now();
 

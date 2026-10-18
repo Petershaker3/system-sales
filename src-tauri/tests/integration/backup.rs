@@ -708,3 +708,208 @@ fn a_restore_clears_leftovers_from_an_earlier_interruption() {
     assert_original(data);
     assert!(!work.root.exists());
 }
+
+// ---------------------------------------------------------------------------
+// Plan item 1.12 — Automatic backup policy, USB sync, rotation, and PIN restore (ADR-027)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn automatic_backup_on_shift_open_and_close_verifies_integrity_and_records_arabic_reasons() {
+    let dir = TempDir::new().expect("temp dir");
+    let pool = shop_with_data(dir.path()).await;
+
+    let open_entry = backup::auto::trigger_shift_backup(&pool, dir.path(), 142, true)
+        .await
+        .expect("shift open backup")
+        .expect("enabled by default");
+    assert_eq!(open_entry.trigger_kind, "shift_open");
+    assert_eq!(open_entry.reason, "فتح وردية #142");
+    assert!(open_entry.verified);
+    assert!(!open_entry.usb_copied);
+
+    let close_entry = backup::auto::trigger_shift_backup(&pool, dir.path(), 142, false)
+        .await
+        .expect("shift close backup")
+        .expect("enabled by default");
+    assert_eq!(close_entry.trigger_kind, "shift_close");
+    assert_eq!(close_entry.reason, "تقفيل وردية #142");
+    assert!(close_entry.verified);
+
+    let list = backup::auto::list_saved_backups(dir.path());
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].id, close_entry.id);
+    assert_eq!(list[1].id, open_entry.id);
+
+    // When `ui.backup_on_shift` is turned off, shift triggers skip backup creation.
+    sqlx::query(
+        "INSERT INTO app_settings (key, value, updated_by, updated_at)
+         VALUES ('ui.backup_on_shift', 'off', 'system', 1)",
+    )
+    .execute(&pool)
+    .await
+    .expect("disable shift backup");
+
+    let skipped = backup::auto::trigger_shift_backup(&pool, dir.path(), 143, true)
+        .await
+        .expect("shift trigger when off");
+    assert!(skipped.is_none());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn automatic_backup_copies_to_mshop_backup_usb_and_rotates_oldest_files() {
+    use mobile_shop_system_lib::domain::backup::policy::{
+        BackupTriggerKind, USB_BACKUPS_SUBDIR, USB_VOLUME_NAME,
+    };
+
+    let dir = TempDir::new().expect("temp dir");
+    let pool = shop_with_data(dir.path()).await;
+
+    // Simulate a mounted `MSHOP-BACKUP` USB flash drive inside the isolated temp dir.
+    let usb_mount = dir.path().join(USB_VOLUME_NAME);
+    fs::create_dir_all(&usb_mount).expect("create USB mount");
+
+    let b1 = backup::auto::create_auto_backup_with_limit(
+        &pool,
+        dir.path(),
+        BackupTriggerKind::Periodic,
+        None,
+        2,
+    )
+    .await
+    .expect("backup 1");
+    assert!(b1.usb_copied);
+    assert_eq!(b1.reason, "دوري (كل ساعتين)");
+    assert!(usb_mount.join(USB_BACKUPS_SUBDIR).join(&b1.file_name).is_file());
+
+    let b2 = backup::auto::create_auto_backup_with_limit(
+        &pool,
+        dir.path(),
+        BackupTriggerKind::Manual,
+        None,
+        2,
+    )
+    .await
+    .expect("backup 2");
+    let b3 = backup::auto::create_auto_backup_with_limit(
+        &pool,
+        dir.path(),
+        BackupTriggerKind::Manual,
+        None,
+        2,
+    )
+    .await
+    .expect("backup 3");
+
+    // Local rotation retains only the newest 2 backups (`b3` and `b2`), pruning `b1` from PC disk.
+    assert!(!dir.path().join("backups").join(&b1.file_name).exists());
+    assert!(dir.path().join("backups").join(&b2.file_name).is_file());
+    assert!(dir.path().join("backups").join(&b3.file_name).is_file());
+
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn usb_manual_copy_and_pin_approved_saved_backup_restore_round_trip() {
+    use mobile_shop_system_lib::domain::backup::policy::USB_VOLUME_NAME;
+    use mobile_shop_system_lib::domain::identity::DomainError;
+    use mobile_shop_system_lib::services::backup::BackupServiceError;
+    use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
+    use mobile_shop_system_lib::services::identity::{approval, auth, pin, session};
+
+    let dir = TempDir::new().expect("temp dir");
+    let pool = db::open(&dir.path().join("shop.db")).await.expect("open db");
+    let tokens = InMemoryTokenStore::new();
+
+    let created = bootstrap::create_first_manager(&pool, "Peter", BACKUP_PASSWORD)
+        .await
+        .expect("first manager");
+    auth::login(&pool, &tokens, created.user_id, BACKUP_PASSWORD)
+        .await
+        .expect("login");
+    let mgr_session = session::resolve(&pool, &tokens).await.expect("session");
+    pin::set_own_pin(&pool, &mgr_session, None, "2580")
+        .await
+        .expect("set owner pin");
+
+    sqlx::query("CREATE TABLE test_marker (id INTEGER PRIMARY KEY, note TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .expect("marker table");
+    sqlx::query("INSERT INTO test_marker (id, note) VALUES (1, 'before-backup')")
+        .execute(&pool)
+        .await
+        .expect("marker row");
+
+    // 1. Create a manual saved backup («خد نسخة دلوقتي»).
+    let saved = backup::auto::create_auto_backup_now_authorized(&pool, &tokens, dir.path())
+        .await
+        .expect("create auto backup now");
+    assert_eq!(saved.reason, "يدوي");
+    assert!(saved.verified);
+    assert!(!saved.usb_copied);
+
+    // 2. Manual copy to USB («انسخ على فلاشة») fails with UsbNotConnected when USB is absent.
+    let err = backup::auto::copy_latest_backup_to_usb_authorized(&pool, &tokens, dir.path())
+        .await
+        .expect_err("no usb connected");
+    assert!(matches!(
+        err,
+        BackupServiceError::Backup(BackupError::UsbNotConnected)
+    ));
+
+    // Plug in MSHOP-BACKUP and copy again -> succeeds and marks usb_copied = true.
+    fs::create_dir_all(dir.path().join(USB_VOLUME_NAME)).expect("plug usb");
+    let copied = backup::auto::copy_latest_backup_to_usb_authorized(&pool, &tokens, dir.path())
+        .await
+        .expect("copy to usb");
+    assert!(copied.usb_copied);
+
+    // 3. Mutate the live database after the backup.
+    sqlx::query("INSERT INTO test_marker (id, note) VALUES (2, 'after-backup')")
+        .execute(&pool)
+        .await
+        .expect("insert after backup");
+    assert_eq!(
+        marker_notes(&pool).await,
+        vec!["before-backup".to_string(), "after-backup".to_string()]
+    );
+
+    // 4. Restoring from saved backups WITHOUT Owner PIN approval is refused and leaves pool open.
+    let unapproved = backup::auto::restore_saved_backup_authorized(
+        &pool,
+        &tokens,
+        dir.path(),
+        &saved.id,
+    )
+    .await
+    .expect_err("requires owner PIN approval");
+    assert!(matches!(
+        unapproved,
+        BackupServiceError::Identity(DomainError::OwnerApprovalRequired)
+    ));
+
+    // 5. Grant Owner PIN approval and restore -> succeeds and reverts `shop.db` to backup state.
+    approval::approve_with_owner_pin(&pool, &tokens, created.user_id, "2580")
+        .await
+        .expect("approve with owner pin");
+    let outcome = backup::auto::restore_saved_backup_authorized(
+        &pool,
+        &tokens,
+        dir.path(),
+        &saved.id,
+    )
+    .await
+    .expect("restore saved backup with owner approval");
+    assert!(outcome.database_len > 0);
+
+    let reopened = db::open(&dir.path().join("shop.db"))
+        .await
+        .expect("reopen restored db");
+    assert_eq!(
+        marker_notes(&reopened).await,
+        vec!["before-backup".to_string()]
+    );
+    reopened.close().await;
+}
+

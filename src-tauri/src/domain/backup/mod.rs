@@ -11,7 +11,13 @@
 pub mod error;
 pub mod format;
 pub mod manifest;
+pub mod policy;
 
 pub use error::BackupError;
 pub use format::Header;
 pub use manifest::{ComponentKind, ComponentMeta, Manifest};
+pub use policy::{
+    is_periodic_backup_due, partition_retained_backups, validate_saved_backup_id,
+    BackupTriggerKind, SavedBackupEntry, AUTO_BACKUP_INTERVAL_MS, MAX_RETAINED_BACKUPS,
+    USB_BACKUPS_SUBDIR, USB_VOLUME_NAME,
+};

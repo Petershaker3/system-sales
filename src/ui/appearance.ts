@@ -26,6 +26,7 @@ export type PrinterEnabledChoice = 'on' | 'off';
 export type ReceiptPaperChoice = '80' | '58';
 export type SellerCanCloseShiftChoice = 'on' | 'off';
 export type ServiceFeeModeChoice = 'manual' | 'auto';
+export type BackupToggleChoice = 'on' | 'off';
 
 export interface PayMethodMeta {
   readonly id: PayMethodId;
@@ -103,6 +104,10 @@ export const DEFAULT_SERVICE_FEE_MODE: ServiceFeeModeChoice = 'manual';
 export const DEFAULT_SERVICE_FEE_PCT = '1';
 export const DEFAULT_SERVICE_FEE_MIN = '5';
 export const DEFAULT_BILL_FEE = '5';
+export const DEFAULT_BACKUP_ON_SHIFT: BackupToggleChoice = 'on';
+export const DEFAULT_BACKUP_EVERY_2H: BackupToggleChoice = 'on';
+export const DEFAULT_BACKUP_USB_AUTO: BackupToggleChoice = 'on';
+export const DEFAULT_BACKUP_VERIFY: BackupToggleChoice = 'on';
 
 export function normalizeServiceFeeEgp(
   raw: unknown,
@@ -198,6 +203,10 @@ export interface Appearance {
   serviceFeePct: string;
   serviceFeeMin: string;
   billFee: string;
+  backupOnShift: BackupToggleChoice;
+  backupEvery2h: BackupToggleChoice;
+  backupUsbAuto: BackupToggleChoice;
+  backupVerify: BackupToggleChoice;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -227,6 +236,10 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   serviceFeePct: DEFAULT_SERVICE_FEE_PCT,
   serviceFeeMin: DEFAULT_SERVICE_FEE_MIN,
   billFee: DEFAULT_BILL_FEE,
+  backupOnShift: DEFAULT_BACKUP_ON_SHIFT,
+  backupEvery2h: DEFAULT_BACKUP_EVERY_2H,
+  backupUsbAuto: DEFAULT_BACKUP_USB_AUTO,
+  backupVerify: DEFAULT_BACKUP_VERIFY,
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -302,6 +315,26 @@ export function normalizeAppearance(raw: unknown): Appearance {
       DEFAULT_SERVICE_FEE_MIN
     ),
     billFee: normalizeServiceFeeEgp(r['billFee'], DEFAULT_BILL_FEE),
+    backupOnShift: oneOf(
+      r['backupOnShift'],
+      ['on', 'off'] as const,
+      DEFAULT_BACKUP_ON_SHIFT
+    ),
+    backupEvery2h: oneOf(
+      r['backupEvery2h'],
+      ['on', 'off'] as const,
+      DEFAULT_BACKUP_EVERY_2H
+    ),
+    backupUsbAuto: oneOf(
+      r['backupUsbAuto'],
+      ['on', 'off'] as const,
+      DEFAULT_BACKUP_USB_AUTO
+    ),
+    backupVerify: oneOf(
+      r['backupVerify'],
+      ['on', 'off'] as const,
+      DEFAULT_BACKUP_VERIFY
+    ),
   };
 }
 
@@ -415,6 +448,10 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   serviceFeePct: 'ui.service_fee_pct',
   serviceFeeMin: 'ui.service_fee_min',
   billFee: 'ui.bill_fee',
+  backupOnShift: 'ui.backup_on_shift',
+  backupEvery2h: 'ui.backup_every_2h',
+  backupUsbAuto: 'ui.backup_usb_auto',
+  backupVerify: 'ui.backup_verify',
 };
 
 export type ServiceFeeMode = ServiceFeeModeChoice;

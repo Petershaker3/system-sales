@@ -110,6 +110,10 @@ pub struct AppearanceDto {
     pub service_fee_pct: String,
     pub service_fee_min: String,
     pub bill_fee: String,
+    pub backup_on_shift: String,
+    pub backup_every_2h: String,
+    pub backup_usb_auto: String,
+    pub backup_verify: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -141,6 +145,10 @@ impl From<Appearance> for AppearanceDto {
             service_fee_pct: a.service_fee_pct,
             service_fee_min: a.service_fee_min,
             bill_fee: a.bill_fee,
+            backup_on_shift: a.backup_on_shift,
+            backup_every_2h: a.backup_every_2h,
+            backup_usb_auto: a.backup_usb_auto,
+            backup_verify: a.backup_verify,
         }
     }
 }

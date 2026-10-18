@@ -43,10 +43,14 @@ pub enum AppearanceKey {
     ServiceFeePct,
     ServiceFeeMin,
     BillFee,
+    BackupOnShift,
+    BackupEvery2h,
+    BackupUsbAuto,
+    BackupVerify,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 26] = [
+    pub const ALL: [AppearanceKey; 30] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -73,6 +77,10 @@ impl AppearanceKey {
         AppearanceKey::ServiceFeePct,
         AppearanceKey::ServiceFeeMin,
         AppearanceKey::BillFee,
+        AppearanceKey::BackupOnShift,
+        AppearanceKey::BackupEvery2h,
+        AppearanceKey::BackupUsbAuto,
+        AppearanceKey::BackupVerify,
     ];
 
     /// The stored key.
@@ -104,6 +112,10 @@ impl AppearanceKey {
             AppearanceKey::ServiceFeePct => "ui.service_fee_pct",
             AppearanceKey::ServiceFeeMin => "ui.service_fee_min",
             AppearanceKey::BillFee => "ui.bill_fee",
+            AppearanceKey::BackupOnShift => "ui.backup_on_shift",
+            AppearanceKey::BackupEvery2h => "ui.backup_every_2h",
+            AppearanceKey::BackupUsbAuto => "ui.backup_usb_auto",
+            AppearanceKey::BackupVerify => "ui.backup_verify",
         }
     }
 
@@ -145,6 +157,10 @@ impl AppearanceKey {
                 | AppearanceKey::ServiceFeePct
                 | AppearanceKey::ServiceFeeMin
                 | AppearanceKey::BillFee
+                | AppearanceKey::BackupOnShift
+                | AppearanceKey::BackupEvery2h
+                | AppearanceKey::BackupUsbAuto
+                | AppearanceKey::BackupVerify
         )
     }
 }
@@ -213,6 +229,12 @@ pub const DEFAULT_SERVICE_FEE_MODE: &str = "manual";
 pub const DEFAULT_SERVICE_FEE_PCT: &str = "1";
 pub const DEFAULT_SERVICE_FEE_MIN: &str = "5";
 pub const DEFAULT_BILL_FEE: &str = "5";
+
+/// Default automatic backup policy settings (`ADR-027`, `PLAN.md` §17, §19).
+pub const DEFAULT_BACKUP_ON_SHIFT: &str = "on";
+pub const DEFAULT_BACKUP_EVERY_2H: &str = "on";
+pub const DEFAULT_BACKUP_USB_AUTO: &str = "on";
+pub const DEFAULT_BACKUP_VERIFY: &str = "on";
 
 /// Parse and canonicalize a whole-EGP service fee (`0..=10000`).
 pub fn parse_service_fee_egp(raw: &str) -> Option<(u16, String)> {
@@ -329,6 +351,10 @@ pub struct Appearance {
     pub service_fee_pct: String,
     pub service_fee_min: String,
     pub bill_fee: String,
+    pub backup_on_shift: String,
+    pub backup_every_2h: String,
+    pub backup_usb_auto: String,
+    pub backup_verify: String,
 }
 
 impl Default for Appearance {
@@ -338,7 +364,7 @@ impl Default for Appearance {
     /// shop/receipt profile defaults, default warranty periods (12 months
     /// new phone, 1 month used phone, 0 months accessory), and manual service
     /// commission mode
-    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2, ADR-023, ADR-024, ADR-025).
+    /// (docs/ui/REDESIGN.md, ADR-018 §5, ADR-019 §2, ADR-020 §1, ADR-021 §2, ADR-022 §2, ADR-023, ADR-024, ADR-025, ADR-027).
     fn default() -> Self {
         Self {
             look: "plate".to_owned(),
@@ -367,6 +393,10 @@ impl Default for Appearance {
             service_fee_pct: DEFAULT_SERVICE_FEE_PCT.to_owned(),
             service_fee_min: DEFAULT_SERVICE_FEE_MIN.to_owned(),
             bill_fee: DEFAULT_BILL_FEE.to_owned(),
+            backup_on_shift: DEFAULT_BACKUP_ON_SHIFT.to_owned(),
+            backup_every_2h: DEFAULT_BACKUP_EVERY_2H.to_owned(),
+            backup_usb_auto: DEFAULT_BACKUP_USB_AUTO.to_owned(),
+            backup_verify: DEFAULT_BACKUP_VERIFY.to_owned(),
         }
     }
 }
@@ -517,6 +547,10 @@ impl Appearance {
             AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
             AppearanceKey::SellerCanCloseShift => matches!(value, "on" | "off"),
             AppearanceKey::ServiceFeeMode => matches!(value, "manual" | "auto"),
+            AppearanceKey::BackupOnShift
+            | AppearanceKey::BackupEvery2h
+            | AppearanceKey::BackupUsbAuto
+            | AppearanceKey::BackupVerify => matches!(value, "on" | "off"),
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName
@@ -552,6 +586,10 @@ impl Appearance {
             AppearanceKey::ReceiptPaper => self.receipt_paper = value,
             AppearanceKey::SellerCanCloseShift => self.seller_can_close_shift = value,
             AppearanceKey::ServiceFeeMode => self.service_fee_mode = value,
+            AppearanceKey::BackupOnShift => self.backup_on_shift = value,
+            AppearanceKey::BackupEvery2h => self.backup_every_2h = value,
+            AppearanceKey::BackupUsbAuto => self.backup_usb_auto = value,
+            AppearanceKey::BackupVerify => self.backup_verify = value,
             AppearanceKey::PayMethods
             | AppearanceKey::DiscountLimitPct
             | AppearanceKey::ShopName

@@ -133,6 +133,11 @@ pub fn run() {
             commands::wallet::delete_wallet,
             commands::backup::create_backup,
             commands::backup::restore_backup,
+            commands::backup::list_saved_backups,
+            commands::backup::create_auto_backup_now,
+            commands::backup::copy_latest_backup_to_usb,
+            commands::backup::restore_saved_backup,
+            commands::backup::run_periodic_backup_tick,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
