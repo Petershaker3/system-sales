@@ -3080,7 +3080,7 @@ fn shortages_slice_preserves_layer_and_schema_invariants() {
     let sql = sql_only(SHORTAGES_MIGRATION);
     for required in [
         "create table shortages",
-        "check (qty > 0)",
+        "check (qty >= 1)",
         "check (status in ('open', 'ordered'))",
         ") strict",
         "create index idx_shortages_active",
