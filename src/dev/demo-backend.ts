@@ -1478,7 +1478,11 @@ function requireUser(): DemoUser {
 function requireManager(fresh = false): DemoUser {
   const user = requireUser();
   if (user.role !== 'manager') fail('PERMISSION_DENIED');
-  if (fresh && now() >= freshUntil) fail('REAUTHENTICATION_REQUIRED');
+  // `ADR-039`: while the shop is open its session already stands at the assurance a
+  // fresh password would prove — `open_mode::reauthenticate` answers Ok because there
+  // is no secret to re-type yet — so the mirror must not demand one either, or every
+  // cost read in the demo is a wall the real program does not have.
+  if (fresh && claimed && now() >= freshUntil) fail('REAUTHENTICATION_REQUIRED');
   return user;
 }
 

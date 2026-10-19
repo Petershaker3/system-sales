@@ -502,6 +502,103 @@ await shot('20-new-item');
 await page.keyboard.press('Enter');
 await page.waitForSelector('#ni-name', { hidden: true, timeout: 3000 });
 check('the counted item is registered from «صنف جديد»', (await text('#toasts')).includes('اتسجّل «جراب سيليكون شفاف»'));
+// The hand-off the owner asked for: the product he just registered is what the receive
+// form is sitting on, with the cursor in the quantity box, so the cost is one field away.
+await page
+  .waitForFunction(() => document.activeElement?.id === 'stock-qty', { timeout: 3000 })
+  .catch(() => {});
+const handoff = await page.evaluate(() => {
+  const sel = document.querySelector('#stock-product');
+  const opt = sel && sel.options[sel.selectedIndex];
+  return {
+    label: (opt?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    active: document.activeElement?.id ?? '',
+  };
+});
+// The hand-off the owner asked for: the product he just registered is what «استلام
+// توريد» is sitting on, and the cursor is on the next real step — the quantity box where
+// the shop needs no password, the reveal button where it does.
+check(
+  'a saved item arrives already chosen in «استلام توريد» with the cursor on the next step',
+  handoff.label.includes('جراب سيليكون شفاف') &&
+    (handoff.active === 'stock-qty' || handoff.active === 'stock-reveal'),
+  JSON.stringify(handoff),
+);
+if (handoff.active === 'stock-reveal') {
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.overlay .modal input[type=password]', { timeout: 3000 });
+  await page.type('.overlay .modal input[type=password]', '1234');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#stock-qty', { timeout: 3000 });
+  check(
+    'two keys later the receive form is open on that product',
+    (await text('.position-title')).includes('جراب سيليكون شفاف'),
+  );
+}
+
+// The same hand-off on a device with no account yet (`ADR-039`): there is no password to
+// prove and no reveal button to stop at, so it goes the whole way into the quantity box.
+{
+  const open = await browser.newPage();
+  await open.setViewport({ width: 1366, height: 900 });
+  await open.goto(URL, { waitUntil: 'networkidle0' });
+  await open.waitForSelector('[data-open-mode-note]', { timeout: 5000 });
+  const click = (sel, text) =>
+    open.evaluate(
+      ([ss, tt]) => {
+        [...document.querySelectorAll(ss)]
+          .find((e) => (e.textContent ?? '').includes(tt))
+          ?.click();
+      },
+      [sel, text],
+    );
+  const typeIn = (sel, value) =>
+    open.evaluate(
+      ([ss, vv]) => {
+        const el = document.querySelector(ss);
+        if (el === null) return;
+        el.value = vv;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      [sel, value],
+    );
+  await click('.rail .nav-btn', 'المخزن');
+  await open.waitForSelector('.ni-kinds', { state: 'attached', timeout: 3000 }).catch(() => {});
+  await click('.page-h button', 'صنف جديد');
+  await open.waitForSelector('.ni-kind', { timeout: 3000 });
+  await click('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
+  await open.waitForSelector('#ni-name', { timeout: 3000 });
+  // The category chips arrive with the catalogue, and the form refuses a product with
+  // no category - waiting for one is the validation, not politeness.
+  await open.waitForSelector('#ni-cats .chip', { timeout: 3000 });
+  await open.evaluate(() => {
+    const chip = [...document.querySelectorAll('#ni-cats .chip')].find(
+      (c) => !c.textContent.includes('تصنيف جديد'),
+    );
+    chip?.click();
+  });
+  // Real keystrokes, not a value set from outside: implicit submission needs the caret
+  // inside the form, and a field filled by script leaves the focus on the body.
+  await (await open.$('#ni-name')).type('جراب من غير حساب');
+  await (await open.$('#ni-price')).type('40');
+  await open.keyboard.press('Enter');
+  await open.waitForSelector('#ni-name', { hidden: true, timeout: 4000 });
+  await open
+    .waitForFunction(() => document.activeElement?.id === 'stock-qty', { timeout: 3000 })
+    .catch(() => {});
+  const landed = await open.evaluate(() => ({
+    active: document.activeElement?.id ?? '',
+    qty: document.getElementById('stock-qty')?.value ?? null,
+  }));
+  check(
+    'an open shop walks the new item straight into the quantity box, with no password in the way',
+    landed.active === 'stock-qty' && landed.qty === '',
+    JSON.stringify(landed),
+  );
+  await open.screenshot({ path: path.join(OUT, '66-handoff-open-shop.png') });
+  await open.close();
+}
+
 
 // the same barcode again is refused, as the real backend refuses it
 await clickText('.page-h button', 'صنف جديد');

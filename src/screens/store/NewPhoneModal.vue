@@ -20,7 +20,7 @@ import { beep } from '../../ui/toast';
 import { asIconName } from '../pos/icons';
 import { brandsFor, phoneTitle, RAM_CHOICES, STORAGE_CHOICES, storageLabel } from './phone';
 
-const emit = defineEmits<{ close: []; created: [name: string] }>();
+const emit = defineEmits<{ close: []; created: [name: string, productId?: string] }>();
 
 const categories = ref<CategoryEntry[]>([]);
 const brands = ref<BrandEntry[]>([]);
@@ -120,7 +120,7 @@ async function save(): Promise<void> {
       ramGb: device.value === 'touch' ? ramGb.value : null,
       salePriceMinor: parseMoney(price.value),
     });
-    emit('created', made.product.name);
+    emit('created', made.product.name, made.product.id);
   } catch (err) {
     error.value = describeError(err);
     beep();
@@ -137,7 +137,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <Modal title="موبايل جديد" sub="الشركة والموديل والمساحة. الكمية والتكلفة من الاستلام" size="md" @close="emit('close')">
+  <Modal
+    title="موبايل جديد"
+    sub="الشركة والموديل والمساحة. الكمية والتكلفة من «استلام توريد» اللي هيفتح عليه على طول"
+    size="md"
+    @close="emit('close')"
+  >
     <p v-if="!loaded" class="muted">لحظة…</p>
     <form v-else id="np-form" class="stack new-phone" @submit.prevent="save">
       <div v-if="phoneCategories.length > 1" class="ni-row">
@@ -254,7 +259,7 @@ onMounted(async () => {
       </div>
       <div class="muted ni-foot">
         <Icon name="info" />
-        <span>بعد التسجيل استلم الكمية بسعر الشراء. والـ IMEI لكل جهاز بيتسجّل مع الاستلام بالـ IMEI لما يجهز.</span>
+        <span>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء، والـ IMEI لكل جهاز بيتسجّل مع الاستلام بالـ IMEI لما يجهز.</span>
       </div>
       <p class="err-msg" role="alert">{{ error }}</p>
     </form>

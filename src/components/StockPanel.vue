@@ -26,7 +26,7 @@
 // produce a second, different rounding rule — the exact drift `ADR-013` exists
 // to prevent.
 
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import * as catalog from '../api/catalog';
 import type { Product } from '../api/catalog';
@@ -44,6 +44,19 @@ import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
 import Icon from '../ui/Icon.vue';
 import { toast } from '../ui/toast';
+
+/**
+ * A product to hand over to the receive form, by id (`StoreScreen` sets it the moment
+ * an item or a phone is registered).
+ *
+ * The separation of «صنف جديد» from «استلام توريد» is a costing rule, not a filing
+ * habit — every unit needs a cost and a receipt (`ADR-013`, `ADR-016` #30) — so the
+ * two stay two writes. What the owner asked for is the walk between them: the panel
+ * opens on the product that was just made, with the cursor in the quantity box, and the
+ * hand-off is a selection, never a pre-filled amount. The quantity and the cost are
+ * what the shopkeeper knows and Rust cannot.
+ */
+const props = defineProps<{ selectProduct?: string }>();
 
 const emit = defineEmits<{ 'new-item': []; received: [productId: string] }>();
 
@@ -89,14 +102,40 @@ const selectedIsSerial = computed(() => {
   );
 });
 
+/**
+ * Land the product the shop just registered in the receive form, and put the cursor on
+ * whatever the next real step is.
+ *
+ * The cost of a product is a secret the panel reveals on purpose (`ADR-013`), so for a
+ * shop with accounts the quantity box does not exist yet — the hand-off stops at «عرض
+ * المخزن» with the field focused, and the password stays a thing the owner decides to
+ * type rather than something the app asks for on a guess. An open shop (`ADR-039`) has
+ * no password to prove, so the walk goes the whole way and lands in the quantity box.
+ * Never pre-filled: the quantity and the unit cost are what only the shopkeeper knows.
+ */
+async function handTheNewProductOver(prods: catalog.Product[]): Promise<void> {
+  const id = props.selectProduct;
+  if (!id || !prods.some((p) => p.id === id)) return;
+  selectedProductId.value = id;
+  if (skipsPasswordReauth()) {
+    // A read the owner can retry from the button right there. It must not take the
+    // hand-off — or the panel's start-up — down with it.
+    await loadPosition().catch(() => undefined);
+  }
+  await nextTick();
+  (document.getElementById('stock-qty') ?? document.getElementById('stock-reveal'))?.focus();
+}
+
 async function loadPickers(): Promise<void> {
   busy.value = true;
+  let prods: catalog.Product[] = [];
   try {
-    const [prods, cat] = await Promise.all([
+    const [list, cat] = await Promise.all([
       catalog.listProducts('active'),
       posApi.posCatalog().catch(() => null),
     ]);
-    products.value = prods;
+    products.value = list;
+    prods = list;
     if (cat) {
       posById.value = new Map(cat.products.map((p) => [p.id, p]));
     }
@@ -106,6 +145,10 @@ async function loadPickers(): Promise<void> {
   } finally {
     busy.value = false;
   }
+  // After `busy` is released, not before: the reveal button is `:disabled="busy"`, and a
+  // focus call on a disabled control does nothing — which is the difference between the
+  // cursor landing on the shopkeeper's next step and landing nowhere.
+  await handTheNewProductOver(prods);
 }
 
 // --- the read-only position ------------------------------------------------
@@ -373,7 +416,12 @@ void loadPickers();
       <p class="hint">
         عرض رصيد المنتج وتكلفته يتطلب تأكيد هوية المدير.
       </p>
-      <button type="button" :disabled="busy || selectedProductId === ''" @click="withReauth(loadPosition)">
+      <button
+        id="stock-reveal"
+        type="button"
+        :disabled="busy || selectedProductId === ''"
+        @click="withReauth(loadPosition)"
+      >
         عرض المخزن
       </button>
     </div>

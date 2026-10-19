@@ -94,11 +94,21 @@ function pick(kindPicked: 'phone' | 'used' | 'item'): void {
   } else newItem.value = true;
 }
 
-function registered(name: string): void {
+/** The product «استلام توريد» should open on, set the moment one is registered. */
+const justCreated = ref('');
+
+function registered(name: string, productId = ''): void {
   newPhone.value = false;
   newItem.value = false;
+  justCreated.value = productId;
   reload.value += 1;
-  toast(`اتسجّل «${name}». استلم الكمية بسعر الشراء من «استلام توريد»`, 'ok', 4500);
+  toast(
+    productId === ''
+      ? `اتسجّل «${name}». استلم الكمية بسعر الشراء من «استلام توريد»`
+      : `اتسجّل «${name}» و«استلام توريد» فتح عليه — حطّ الكمية وسعر الشراء`,
+    'ok',
+    4500,
+  );
 }
 
 function usedSaved(_registered: RegisteredUsedPhone, keepOpen: boolean): void {
@@ -292,7 +302,12 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
         <CatalogPanel :key="`c${reload}`" @print-label="openLabelsModal($event, null)" />
       </section>
       <section class="card legacy-panel">
-        <StockPanel :key="`s${reload}`" @new-item="kind = true" @received="loadShortagesBadge" />
+        <StockPanel
+          :key="`s${reload}`"
+          :select-product="justCreated"
+          @new-item="kind = true"
+          @received="loadShortagesBadge"
+        />
       </section>
     </div>
     </template>
