@@ -305,6 +305,7 @@ async fn wallet_reconciliation_custom_wallet_lifecycle_and_immutability_triggers
         "حساب بنك مصر",
         "#1d4f91",
         Some("BM-100"),
+        None,
     )
     .await
     .expect("create custom wallet");
