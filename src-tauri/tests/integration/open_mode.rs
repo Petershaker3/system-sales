@@ -14,7 +14,7 @@ use mobile_shop_system_lib::data::db;
 use mobile_shop_system_lib::domain::identity::{Assurance, DomainError, Permission, Role};
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{
-    auth, bootstrap, open_mode, pin, session, users,
+    auth, bootstrap, open_mode, password, pin, session, users,
 };
 use mobile_shop_system_lib::services::settings;
 use sqlx::SqlitePool;
@@ -494,6 +494,72 @@ async fn the_open_till_is_not_an_account_somebody_can_act_on() {
         users::set_username(&pool, &owner, open_id, "peter").await,
         Ok(()),
         "and the row that used to be the till takes a login name of its own"
+    );
+}
+
+#[tokio::test]
+async fn a_manager_made_while_the_shop_is_open_cannot_take_the_till_down() {
+    // An open till can make a second manager: `create_user` asks only for
+    // `ManageUsers`, and an open session has it. From there that new account used to
+    // have three ways to reach the row the whole shop is standing on — a temporary
+    // password (which is a sign-in as the shop, with a forced change on top of it),
+    // a demotion to Sales, or a disable, and disabling ends open mode on a device
+    // whose real owner has not made their account yet. The guard refuses all three
+    // with `UserNotFound`; the last-manager rule cannot help here, because by then
+    // there are two managers.
+    let (pool, tokens) = open_shop().await;
+    let operator = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the open operator");
+    let open_id = operator.user_id();
+
+    let rival = users::create_user(&pool, &operator, "Rival", "rival", Role::Manager, PASSWORD)
+        .await
+        .expect("an open till can make a manager");
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT COUNT(*) FROM users WHERE role = 'manager' AND disabled_at IS NULL"
+        )
+        .await,
+        2,
+        "so nothing below is the old guard answering by accident"
+    );
+
+    auth::login(&pool, tokens.as_ref(), rival, PASSWORD)
+        .await
+        .expect("the new manager signs in");
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("and proves the password, so `ManageUsers` opens");
+    let manager = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the new manager's session");
+
+    assert_eq!(
+        users::disable_user(&pool, &manager, open_id).await,
+        Err(DomainError::UserNotFound),
+        "the till cannot be disabled out from under the shop"
+    );
+    assert_eq!(
+        users::change_role(&pool, &manager, open_id, Role::Sales).await,
+        Err(DomainError::UserNotFound),
+        "nor demoted out of being the shop's manager"
+    );
+    assert_eq!(
+        password::manager_reset_password(&pool, &manager, open_id, "temporary pass phrase").await,
+        Err(DomainError::UserNotFound),
+        "and no temporary password turns the shop's own row into somebody's sign-in"
+    );
+
+    assert!(
+        open_mode::is_open(&pool).await.expect("read"),
+        "the shop is still open on that row"
+    );
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM user_credentials WHERE must_change_password = 1").await,
+        0,
+        "and every refusal wrote nothing, not even a forced change"
     );
 }
 
