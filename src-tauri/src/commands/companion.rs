@@ -26,7 +26,7 @@ impl From<DomainError> for CompanionCommandError {
 
 #[tauri::command]
 pub async fn companion_overview(ctx: Ctx<'_>) -> Result<CompanionStatus, CompanionCommandError> {
-    Ok(use_cases::overview(ctx.pool(), ctx.tokens()).await?)
+    Ok(use_cases::overview(&ctx.pool, ctx.tokens.as_ref()).await?)
 }
 
 #[tauri::command]
@@ -35,7 +35,7 @@ pub async fn pair_companion_device(
     name: String,
     model: String,
 ) -> Result<CompanionStatus, CompanionCommandError> {
-    Ok(use_cases::pair_device(ctx.pool(), ctx.tokens(), &name, &model).await?)
+    Ok(use_cases::pair_device(&ctx.pool, ctx.tokens.as_ref(), &name, &model).await?)
 }
 
 #[tauri::command]
@@ -43,7 +43,7 @@ pub async fn unpair_companion_device(
     ctx: Ctx<'_>,
     device_id: String,
 ) -> Result<CompanionStatus, CompanionCommandError> {
-    Ok(use_cases::unpair_device(ctx.pool(), ctx.tokens(), &device_id).await?)
+    Ok(use_cases::unpair_device(&ctx.pool, ctx.tokens.as_ref(), &device_id).await?)
 }
 
 #[tauri::command]
@@ -56,8 +56,8 @@ pub async fn push_companion_scan(
     device_name: String,
 ) -> Result<CompanionStatus, CompanionCommandError> {
     Ok(use_cases::push_scan(
-        ctx.pool(),
-        ctx.tokens(),
+        &ctx.pool,
+        ctx.tokens.as_ref(),
         &target,
         &code,
         product_id,
@@ -72,5 +72,5 @@ pub async fn consume_companion_scans(
     ctx: Ctx<'_>,
     target: String,
 ) -> Result<Vec<CompanionScanItem>, CompanionCommandError> {
-    Ok(use_cases::consume_scans(ctx.pool(), ctx.tokens(), &target).await?)
+    Ok(use_cases::consume_scans(&ctx.pool, ctx.tokens.as_ref(), &target).await?)
 }
