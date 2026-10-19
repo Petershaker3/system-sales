@@ -3243,8 +3243,6 @@ const COMPANION_SERVICE: &str = include_str!("../../src/services/companion.rs");
 const COMPANION_COMMANDS: &str = include_str!("../../src/commands/companion.rs");
 const MOBILE_COMPANION_SCREEN_VUE: &str =
     include_str!("../../../src/screens/mobile/MobileCompanionScreen.vue");
-const DEVICES_PRINTER_CARD_VUE: &str =
-    include_str!("../../../src/screens/settings/DevicesPrinterCard.vue");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
