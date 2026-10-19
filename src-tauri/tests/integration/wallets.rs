@@ -384,6 +384,44 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
         "creating another number of the same company must leave the first one linked"
     );
 
+    // Linking the second number to the same method must not take the method away from the
+    // first: that clearing rule left with `idx_wallets_pay_method` in `0030` (`ADR-040`).
+    wallet_service::update_wallet(
+        &pool,
+        tokens.as_ref(),
+        UpdateWalletInput {
+            wallet_id: second.id.as_str().to_owned(),
+            name: "فودافون كاش ٢".to_owned(),
+            number: "01009999999".to_owned(),
+            color: "#e60000".to_owned(),
+            opening_balance_minor: 0,
+            min_alert_minor: 0,
+            max_limit_minor: 0,
+            daily_limit_minor: 0,
+            pay_method: Some("vf".to_owned()),
+            company: Some("فودافون كاش".to_owned()),
+            sort: second.sort,
+            hidden: false,
+        },
+    )
+    .await
+    .expect("link the second number to the same method");
+
+    let both = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50)
+        .await
+        .expect("overview with two numbers of one method");
+    let linked: Vec<&str> = both
+        .wallets
+        .iter()
+        .filter(|s| s.wallet.pay_method == Some(WalletPayMethod::Vf))
+        .map(|s| s.wallet.id.as_str())
+        .collect();
+    assert_eq!(
+        linked,
+        vec!["vf", second.id.as_str()],
+        "both numbers receive the method, and the first one stayed the primary"
+    );
+
     sales::record_sale_with_payments(
         &pool,
         tokens.as_ref(),
