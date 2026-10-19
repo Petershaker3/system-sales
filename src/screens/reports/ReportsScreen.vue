@@ -7,10 +7,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { listCategories, type Category } from '../../api/categories';
 import { describeError } from '../../api/errors';
 import { listUsers, type Session, type UserSummary } from '../../api/identity';
+import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
+import { posCatalog, type PosProduct } from '../../api/pos';
 import { repairsOverview, type RepairsOverview } from '../../api/repairs';
 import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
 import { currentShiftSummary, type CurrentShiftState } from '../../api/shift';
+import { shortagesOverview, type ShortagesOverview } from '../../api/shortages';
 import { walletsOverview, type WalletsOverview } from '../../api/wallet';
+import type { ScreenId } from '../../shell/nav';
+import { appearance } from '../../ui/appearance';
 import {
   dg,
   fmtDay,
@@ -25,6 +30,7 @@ import {
 } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
+import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
 import {
   addDays,
   byMonth,
@@ -43,6 +49,10 @@ import {
   todayReport,
   type EvaluationNote,
 } from '../sales/analytics';
+import {
+  buildSmartAlertsBundle,
+  formatDailyWhatsAppSummary,
+} from './smart-alerts';
 
 defineProps<{
   session?: Session;
@@ -51,6 +61,7 @@ defineProps<{
 const emit = defineEmits<{
   openSalesDay: [iso: string];
   openSalesMonth: [monthKey: string];
+  goScreen: [screen: ScreenId];
 }>();
 
 const activeTab = ref<'today' | 'month'>('today');
@@ -65,6 +76,10 @@ const todayWallets = ref<WalletsOverview | null>(null);
 const monthWallets = ref<WalletsOverview | null>(null);
 const todayRepairs = ref<RepairsOverview | null>(null);
 const monthRepairs = ref<RepairsOverview | null>(null);
+const shortagesData = ref<ShortagesOverview | null>(null);
+const posProducts = ref<readonly PosProduct[]>([]);
+const allUnits = ref<readonly ProductUnit[]>([]);
+const showWaSummaryPreview = ref(false);
 const loading = ref(false);
 
 function categoryNameById(id: string, fallback = ''): string {
@@ -358,6 +373,75 @@ const monthWalletFeesMinor = computed(
   () => monthWallets.value?.servicesWindow.servicesFeeMinor ?? 0,
 );
 
+const smartAlerts = computed(() =>
+  buildSmartAlertsBundle({
+    shortages: shortagesData.value,
+    repairTickets: todayRepairs.value?.tickets ?? [],
+    posProducts: posProducts.value,
+    units: allUnits.value,
+    salesHistory: history.value,
+    now: nowDate.value,
+  }),
+);
+
+const dailyWhatsAppSummaryText = computed(() =>
+  formatDailyWhatsAppSummary({
+    shopName: appearance.shopName || 'موبايل ستور',
+    date: nowDate.value,
+    shiftNumber: currentShiftNumber.value,
+    salesMinor: todayData.value.salesMinor,
+    invoicesCount: todayData.value.invoices,
+    goodsProfitMinor: todayData.value.profitMinor,
+    hardwareRevenueMinor: todayHardwareRevenueMinor.value,
+    softwareRevenueMinor: todaySoftwareRevenueMinor.value,
+    walletFeesMinor: todayServicesFeeMinor.value,
+    expectedDrawerCashMinor: expectedDrawerCashMinor.value,
+    alerts: smartAlerts.value,
+  }),
+);
+
+async function sendDailySummaryWhatsApp(): Promise<void> {
+  showWaSummaryPreview.value = true;
+  const msg = dailyWhatsAppSummaryText.value;
+  try {
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.clipboard &&
+      navigator.webdriver !== true
+    ) {
+      await navigator.clipboard.writeText(msg);
+    }
+  } catch {
+    // Non-blocking clipboard fallback
+  }
+  const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone || '01000000000');
+  if (
+    ownerPhone &&
+    typeof window !== 'undefined' &&
+    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
+  ) {
+    const url = buildWhatsAppUrl(ownerPhone, msg);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  toast('اتبعت ملخص اليوم على واتساب المالك', 'ok');
+}
+
+function sendOverdueRepairWhatsApp(customerName: string, customerPhone: string, deviceName: string, ticketNo: string, isReady: boolean): void {
+  const norm = normalizeEgyptianPhone(customerPhone);
+  const msg = isReady
+    ? `أهلاً ${customerName}، نذكرك إن جهازك (${deviceName} — تذكرة ${ticketNo}) جاهز للاستلام في ${appearance.shopName || 'المحل'}.`
+    : `أهلاً ${customerName}، بخصوص جهازك (${deviceName} — تذكرة ${ticketNo}) في ${appearance.shopName || 'المحل'}، جاري استكمال الصيانة وهنبلغك فور انتهاء العمل.`;
+  if (
+    norm &&
+    typeof window !== 'undefined' &&
+    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
+  ) {
+    const url = buildWhatsAppUrl(norm, msg);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  toast(`تم تجهيز رسالة واتساب للعميل ${customerName}`, 'ok');
+}
+
 function setReportMonth(d: Date): void {
   const t = monthStart(nowDate.value);
   const f = firstMonth.value;
@@ -445,21 +529,36 @@ async function loadAll(): Promise<void> {
   const todayStartMs = dayStart(nowDate.value).getTime();
   const todayEndMs = addDays(dayStart(nowDate.value), 1).getTime() - 1;
   try {
-    const [salesData, catsData, usersData, shiftData, wToday, rToday] =
-      await Promise.all([
-        listSalesHistory(5000),
-        listCategories().catch(() => [] as Category[]),
-        listUsers().catch(() => [] as UserSummary[]),
-        currentShiftSummary().catch(() => null),
-        walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(() => null),
-        repairsOverview({ fromTs: todayStartMs, toTs: todayEndMs }).catch(() => null),
-      ]);
+    const [
+      salesData,
+      catsData,
+      usersData,
+      shiftData,
+      wToday,
+      rToday,
+      shOv,
+      posCat,
+      unitsList,
+    ] = await Promise.all([
+      listSalesHistory(5000),
+      listCategories().catch(() => [] as Category[]),
+      listUsers().catch(() => [] as UserSummary[]),
+      currentShiftSummary().catch(() => null),
+      walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(() => null),
+      repairsOverview({ fromTs: todayStartMs, toTs: todayEndMs }).catch(() => null),
+      shortagesOverview().catch(() => null),
+      posCatalog().catch(() => ({ products: [], categories: [], brands: [], units: [] })),
+      listAllProductUnits().catch(() => [] as ProductUnit[]),
+    ]);
     history.value = salesData;
     categories.value = catsData;
     users.value = usersData;
     shiftState.value = shiftData;
     todayWallets.value = wToday;
     todayRepairs.value = rToday;
+    shortagesData.value = shOv;
+    posProducts.value = posCat.products;
+    allUnits.value = unitsList;
     await loadMonthAuxiliary(selectedMonth.value);
   } catch (err) {
     toast(describeError(err), 'err');
@@ -550,12 +649,53 @@ onBeforeUnmount(() => {
         {{ activeTab === 'today' ? fmtLong(nowDate) : 'الشهر كله ومقارنته وتقييمه' }}
       </span>
       <span class="sp"></span>
+      <button
+        type="button"
+        class="btn primary"
+        data-reports-wa-summary
+        @click="sendDailySummaryWhatsApp"
+      >
+        <Icon name="message-circle" /> ملخص اليوم واتساب للمالك
+      </button>
       <button type="button" class="btn" data-reports-export @click="exportCsv">
         <Icon name="download" /> تصدير Excel
       </button>
       <button type="button" class="btn" data-reports-print @click="printReport">
         <Icon name="printer" /> طباعة
       </button>
+    </div>
+
+    <!-- معاينة رسالة ملخص اليوم واتساب للمالك -->
+    <div
+      v-if="showWaSummaryPreview"
+      class="card"
+      data-reports-wa-preview
+      style="border-color: var(--ok)"
+    >
+      <div class="card-h">
+        <h3>
+          <Icon name="message-circle" /> ملخص اليوم الجاهز للإرسال على واتساب المالك
+        </h3>
+        <button
+          type="button"
+          class="btn sm ghost"
+          @click="showWaSummaryPreview = false"
+        >
+          إغلاق
+        </button>
+      </div>
+      <pre
+        style="
+          margin: 0;
+          white-space: pre-wrap;
+          font-family: inherit;
+          font-size: 0.88rem;
+          line-height: 1.65;
+          background: var(--surface-2);
+          padding: 10px 12px;
+          border-radius: var(--r-s);
+        "
+      >{{ dailyWhatsAppSummaryText }}</pre>
     </div>
 
     <!-- ======================= تبويب النهارده ======================= -->
@@ -618,6 +758,149 @@ onBeforeUnmount(() => {
           <div class="label">المفروض في الدرج</div>
           <div class="value num">{{ money(expectedDrawerCashMinor) }}</div>
           <div class="sub muted">وردية #{{ num(currentShiftNumber) }}</div>
+        </div>
+      </div>
+
+      <!-- التنبيهات الذكية (Plan item 3.1 / ADR-036: نواقص، وصيانة متأخرة فعلاً، وأصناف راكدة) -->
+      <div class="cards" data-reports-smart-alerts>
+        <!-- 1. النواقص والعملاء المنتظرين -->
+        <div class="card" data-smart-alert-shortages>
+          <div class="card-h">
+            <h3>
+              <Icon name="bell" /> النواقص والعملاء المنتظرين
+              <span class="tag warn">{{ num(smartAlerts.shortages.openItems.length) }}</span>
+            </h3>
+            <button
+              type="button"
+              class="btn sm ghost"
+              data-smart-alert-go-store
+              @click="emit('goScreen', 'store')"
+            >
+              افتح النواقص
+            </button>
+          </div>
+          <div
+            v-for="sh in smartAlerts.shortages.openItems.slice(0, 4)"
+            :key="sh.id"
+            class="li"
+          >
+            <bdi dir="rtl" class="ell">{{ sh.name }}</bdi>
+            <span class="sp"></span>
+            <span v-if="sh.customerName || sh.customerPhone" class="tag ok">
+              عميل منتظر: {{ sh.customerName || sh.customerPhone }}
+            </span>
+            <span class="muted num">{{ pcsWord(sh.qty) }}</span>
+          </div>
+          <div
+            v-if="smartAlerts.shortages.suggestions.length > 0"
+            class="li muted"
+          >
+            مقترح إعادة طلب من المخزن
+            <span class="sp"></span>
+            <b class="num">{{ num(smartAlerts.shortages.suggestions.length) }} صنف</b>
+          </div>
+          <div
+            v-if="
+              smartAlerts.shortages.openItems.length === 0 &&
+              smartAlerts.shortages.suggestions.length === 0
+            "
+            class="muted"
+          >
+            مفيش نواقص مفتوحة حالياً
+          </div>
+        </div>
+
+        <!-- 2. صيانة متأخرة فعلاً -->
+        <div class="card" data-smart-alert-repairs>
+          <div class="card-h">
+            <h3>
+              <Icon name="wrench" /> صيانة متأخرة فعلاً
+              <span
+                class="tag"
+                :class="smartAlerts.overdueRepairs.length > 0 ? 'warn' : 'ok'"
+              >
+                {{ num(smartAlerts.overdueRepairs.length) }}
+              </span>
+            </h3>
+            <button
+              type="button"
+              class="btn sm ghost"
+              data-smart-alert-go-repairs
+              @click="emit('goScreen', 'repairs')"
+            >
+              افتح الصيانة
+            </button>
+          </div>
+          <div
+            v-for="ov in smartAlerts.overdueRepairs.slice(0, 4)"
+            :key="ov.ticket.id"
+            class="li"
+            data-smart-alert-overdue-row
+          >
+            <div style="min-width: 0; flex: 1">
+              <div>
+                <b>{{ ov.ticket.ticketNo }}</b> ·
+                <bdi dir="rtl">{{ ov.ticket.deviceName }}</bdi> ({{
+                  ov.ticket.customerName
+                }})
+              </div>
+              <small class="warn-t">{{ ov.reasonLabel }}</small>
+            </div>
+            <button
+              type="button"
+              class="btn sm ghost"
+              data-smart-alert-repair-wa
+              @click="
+                sendOverdueRepairWhatsApp(
+                  ov.ticket.customerName,
+                  ov.ticket.customerPhone,
+                  ov.ticket.deviceName,
+                  ov.ticket.ticketNo,
+                  ov.kind === 'ready_unclaimed',
+                )
+              "
+            >
+              <Icon name="message-circle" /> واتساب
+            </button>
+          </div>
+          <div v-if="smartAlerts.overdueRepairs.length === 0" class="muted">
+            مفيش تذاكر صيانة متأخرة عن ميعادها
+          </div>
+        </div>
+
+        <!-- 3. أصناف وأجهزة راكدة (+30 يوم) -->
+        <div class="card" data-smart-alert-stagnant>
+          <div class="card-h">
+            <h3>
+              <Icon name="boxes" /> أصناف راكدة (+30 يوم)
+              <span class="tag">{{ num(smartAlerts.stagnantProducts.length) }}</span>
+            </h3>
+            <span class="muted num" style="font-size: 0.8rem">
+              رأس مال مجمد: <b>{{ money(smartAlerts.totalStagnantCostMinor) }}</b>
+            </span>
+          </div>
+          <div
+            v-for="st in smartAlerts.stagnantProducts.slice(0, 4)"
+            :key="st.productId"
+            class="li"
+            data-smart-alert-stagnant-row
+          >
+            <div style="min-width: 0; flex: 1">
+              <bdi dir="rtl" class="ell">{{ st.name }}</bdi>
+              <small class="muted" style="display: block">
+                {{ pcsWord(st.onHand) }} في المخزن ·
+                {{
+                  st.daysSinceLastSale !== null
+                    ? `آخر بيع من ${num(st.daysSinceLastSale)} يوم`
+                    : 'ماتحركش في آخر 30 يوم'
+                }}
+              </small>
+            </div>
+            <b class="num">{{ money(st.frozenCostMinor) }}</b>
+          </div>
+          <div v-if="smartAlerts.stagnantProducts.length === 0" class="muted">
+            كل الأصناف المتاحة في المخزن اتحركت خلال آخر 30 يوم
+          </div>
         </div>
       </div>
 

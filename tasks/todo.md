@@ -265,10 +265,20 @@
     - طبقة الحسابات (`src/screens/sales/analytics.ts` و`analytics.test.ts`): `monthReport`, `todayReport`, `yearAgo`, `bySeller`, `byMethod`, `withChange`, `paySplit`, `kShortMinor`, `chgFormat`.
     - الشاشة والتنقل (`src/screens/reports/ReportsScreen.vue`, `src/shell/nav.ts`, `src/shell/AppShell.vue`, `src/screens/sales/SalesScreen.vue`)، وفحص المتصفح 217/217، و121 اختبار واجهة.
 
-## المراحل 3–4
+## المرحلة 3 — الموبايل المتصل والذكاء
+
+- [x] **3.1 التنبيهات الذكية وملخص اليوم على واتساب (`Smart Alerts & Daily WhatsApp Summary`)** (`docs/PLAN.md` §14 و§19، `ADR-016` #27)
+  - **البوابة:** بدون تعديل في قاعدة البيانات (تتحسب من الجداول الموجودة: `products`, `stock_levels`, `units`, `sales`/`sale_lines`, `shortages`, `repairs`, `wallets`, `shifts`).
+  - **القبول:** قسم **التنبيهات الذكية** في شاشة «التقارير» (تبويب «النهارده») بـ 3 كروت: (1) النواقص والعملاء المنتظرين ومقترحات المخزن مع زرار فتح النواقص؛ (2) صيانة متأخرة فعلاً (جاهزة من ≥24 ساعة ولم تُستلم، أو متأخرة في الورشة من ≥48 ساعة) مع زرار واتساب للعميل وزرار فتح الصيانة؛ (3) أصناف وأجهزة راكدة (+30 يوم بدون بيع) مع حساب **رأس المال المجمد** بالتكلفة الفعلية؛ وزرار **«ملخص اليوم واتساب للمالك»** يجهز رسالة واتساب شاملة فيها مبيعات اليوم، ربح البضاعة، **فلوس الصيانة لوحدها**، **فلوس السوفت وير لوحدها**، عمولات المحافظ، المفروض في الدرج، وملخص التنبيهات الذكية.
+  - **التصميم:** [`ADR-036`](../docs/decisions/ADR-036-smart-alerts-and-daily-whatsapp-summary.md).
+  - **اتعمل (2026-10-19):**
+    - طبقة التنبيهات وملخص واتساب (`src/screens/reports/smart-alerts.ts`, `smart-alerts.test.ts`): `computeStagnantProducts`, `computeOverdueRepairs`, `computeShortageAlerts`, `buildSmartAlertsBundle`, `formatDailyWhatsAppSummary`.
+    - الشاشة والربط (`src/screens/reports/ReportsScreen.vue`, `src/shell/AppShell.vue`)، وفحص المتصفح 219/219، و123 اختبار واجهة.
+- [ ] **3.2 خادم الشبكة المحلية وتطبيق الموبايل المساعد (`LAN Companion Server & Mobile Helper`)** (`docs/PLAN.md` §15 و§19، `ADR-016` #2)
+
+## المرحلة 4
 
 في `docs/PLAN.md` §19:
-- **المرحلة 3:** الموبايل المتصل.
 - **المرحلة 4:** الامتثال والوصول البعيد.
 
 ---

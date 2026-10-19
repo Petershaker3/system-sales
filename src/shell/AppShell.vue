@@ -415,6 +415,7 @@ async function switchTheme(): Promise<void> {
           :session="session"
           @open-sales-day="openSalesDayFromReports"
           @open-sales-month="openSalesMonthFromReports"
+          @go-screen="screen = $event"
         />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>

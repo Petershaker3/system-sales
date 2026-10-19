@@ -2380,6 +2380,34 @@ check(
   );
   await shot('59-reports-today');
 
+  // --- Phase 3 Item 3.1: Smart Alerts & Daily WhatsApp Summary (ADR-036) ---
+  check(
+    'Smart Alerts section in «النهارده» displays shortages, overdue repairs, and stagnant items (+30 days)',
+    (await count('[data-reports-smart-alerts]')) === 1 &&
+      (await count('[data-smart-alert-shortages]')) === 1 &&
+      (await count('[data-smart-alert-repairs]')) === 1 &&
+      (await count('[data-smart-alert-overdue-row]')) >= 1 &&
+      (await count('[data-smart-alert-stagnant]')) === 1 &&
+      (await count('[data-smart-alert-stagnant-row]')) >= 1 &&
+      (await text('[data-smart-alert-stagnant]')).includes('رأس مال مجمد')
+  );
+
+  await page.click('[data-reports-wa-summary]');
+  await page.waitForSelector('[data-reports-wa-preview]', { timeout: 3000 });
+  await sleep(200);
+  const waSummaryBody = await text('[data-reports-wa-preview]');
+  check(
+    'Clicking «ملخص اليوم واتساب للمالك» generates a structured Arabic summary with separate repair & software revenue, drawer cash, and smart alerts',
+    waSummaryBody.includes('ملخص اليوم') &&
+      waSummaryBody.includes('فلوس الصيانة لوحدها') &&
+      waSummaryBody.includes('فلوس السوفت وير لوحدها') &&
+      waSummaryBody.includes('المفروض في الدرج') &&
+      waSummaryBody.includes('التنبيهات الذكية') &&
+      (await text('#toasts')).includes('اتبعت ملخص اليوم على واتساب المالك'),
+    waSummaryBody.slice(0, 120)
+  );
+  await shot('61-smart-alerts-whatsapp');
+
   await page.click('[data-reports-open-month]');
   await page.waitForSelector('[data-reports-evaluation]', { timeout: 3000 });
   await sleep(250);

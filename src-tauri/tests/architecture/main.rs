@@ -3236,6 +3236,8 @@ const STOCK_COUNT_MODAL_VUE: &str =
     include_str!("../../../src/screens/store/StockCountModal.vue");
 const REPORTS_SCREEN_VUE: &str =
     include_str!("../../../src/screens/reports/ReportsScreen.vue");
+const SMART_ALERTS_TS: &str =
+    include_str!("../../../src/screens/reports/smart-alerts.ts");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3322,10 +3324,27 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
         "التقييم",
         "فلوس الصيانة لوحدها",
         "فلوس السوفت وير لوحدها",
+        "ملخص اليوم واتساب للمالك",
+        "النواقص والعملاء المنتظرين",
+        "صيانة متأخرة فعلاً",
+        "أصناف راكدة (+30 يوم)",
     ] {
         assert!(
             REPORTS_SCREEN_VUE.contains(marker),
             "ReportsScreen.vue must include `{marker}`"
+        );
+    }
+
+    for marker in [
+        "computeStagnantProducts",
+        "computeOverdueRepairs",
+        "formatDailyWhatsAppSummary",
+        "فلوس الصيانة لوحدها",
+        "فلوس السوفت وير لوحدها",
+    ] {
+        assert!(
+            SMART_ALERTS_TS.contains(marker),
+            "smart-alerts.ts must include `{marker}`"
         );
     }
 }
