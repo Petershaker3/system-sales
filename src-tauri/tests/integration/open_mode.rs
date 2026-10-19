@@ -351,7 +351,7 @@ async fn an_open_shop_can_still_hire_a_seller_and_stays_open() {
     assert_eq!(
         seller_session.authorize(Permission::ManageSettings),
         Err(DomainError::PermissionDenied),
-        "a seller is still a seller: the role gate answers first, and no open-mode \         breadth leaks through their session"
+        "a seller is still a seller: the role gate answers first, and no open-mode breadth leaks through their session"
     );
 }
 
