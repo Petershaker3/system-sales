@@ -357,27 +357,37 @@ async fn an_open_shop_can_still_hire_a_seller_and_stays_open() {
 
 #[tokio::test]
 async fn what_the_open_till_left_behind_does_not_survive_the_claim() {
-    // The open operator is a manager, so the manager powers that write a secret on
-    // another account work on the open row itself: `manager_set_pin` accepts four
-    // digits for it today, with no password anywhere in sight (`ADR-039`). None of
-    // what the open state leaves behind may outlive the claim, or the owner's new
-    // account would still open for whoever stood at the till before them.
+    // The open operator is a manager, which is what made the manager powers that
+    // write a secret reachable on the open row itself (`ADR-039`). They refuse it
+    // now — the case below — but the claim answers for more than the paths that
+    // happen to be closed today, so the values are planted straight in the row:
+    // whatever a till left behind must not outlive the claim, or the owner's new
+    // account would still open for whoever stood there before them.
     let (pool, tokens) = open_shop().await;
     let operator = session::resolve(&pool, tokens.as_ref())
         .await
         .expect("the open operator");
     let open_id = operator.user_id();
 
-    pin::manager_set_pin(&pool, &operator, open_id, "1111")
-        .await
-        .expect("an open till can be given a PIN");
-    let pinned: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM user_credentials WHERE pin_verifier IS NOT NULL",
+    sqlx::query(
+        "UPDATE user_credentials
+            SET pin_verifier = 'planted', recovery_verifier = 'planted',
+                recovery_created_at = 1, must_change_password = 1
+            WHERE user_id = ?1",
     )
-    .fetch_one(&pool)
+    .bind(open_id.as_str())
+    .execute(&pool)
     .await
-    .expect("read");
-    assert_eq!(pinned, 1, "the setup really did write a PIN verifier");
+    .expect("plant what an open till must not keep");
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT COUNT(*) FROM user_credentials WHERE pin_verifier IS NOT NULL"
+        )
+        .await,
+        1,
+        "the setup really did write a PIN verifier"
+    );
 
     open_mode::claim_open_account(&pool, tokens.as_ref(), "Peter", PASSWORD)
         .await
@@ -388,6 +398,16 @@ async fn what_the_open_till_left_behind_does_not_survive_the_claim() {
         Err(DomainError::PinNotSet),
         "the PIN typed before the claim does not open the owner's account"
     );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT COUNT(*) FROM user_credentials
+                WHERE pin_verifier IS NOT NULL OR recovery_verifier IS NOT NULL",
+        )
+        .await,
+        0,
+        "the PIN and the recovery code the till left behind are gone, not merely unused"
+    );
     let owed: i64 = sqlx::query_scalar("SELECT must_change_password FROM user_credentials")
         .fetch_one(&pool)
         .await
@@ -395,6 +415,78 @@ async fn what_the_open_till_left_behind_does_not_survive_the_claim() {
     assert_eq!(
         owed, 0,
         "and the owner is not sent into a forced change on top of the password they chose"
+    );
+}
+
+#[tokio::test]
+async fn the_open_till_is_not_an_account_somebody_can_act_on() {
+    // Every manager power that takes an id was asked what it can write on the open
+    // row (`ADR-039`). The lists hide the row, so no screen can name it, and no
+    // screen offers it as a target — but the commands are the ones that have to be
+    // sure. Each answers the way a missing id is answered, and none of them wrote.
+    let (pool, tokens) = open_shop().await;
+    let operator = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the open operator");
+    let open_id = operator.user_id();
+
+    assert_eq!(
+        pin::manager_set_pin(&pool, &operator, open_id, "1111").await,
+        Err(DomainError::UserNotFound),
+        "no PIN for the till, from whoever is standing at it"
+    );
+    assert_eq!(
+        users::change_role(&pool, &operator, open_id, Role::Sales).await,
+        Err(DomainError::UserNotFound),
+        "no demoting the shop's own row out of management"
+    );
+    assert_eq!(
+        users::disable_user(&pool, &operator, open_id).await,
+        Err(DomainError::CannotDisableSelf),
+        "disabling answers with the older rule first: a manager cannot sign out their own device"
+    );
+    assert_eq!(
+        users::enable_user(&pool, &operator, open_id).await,
+        Err(DomainError::UserNotFound),
+        "not even re-enabling"
+    );
+    assert_eq!(
+        users::set_username(&pool, &operator, open_id, "till").await,
+        Err(DomainError::UserNotFound),
+        "and its placeholder login name stays a placeholder"
+    );
+
+    assert!(
+        open_mode::open_account(&pool)
+            .await
+            .expect("read")
+            .is_some(),
+        "the refusals changed nothing: the shop is still open on that row"
+    );
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM users WHERE provisional = 1").await,
+        1,
+        "and it is still the one provisional row"
+    );
+
+    // Claimed, it is an account, and the same powers answer it like any other one —
+    // the rule is about `provisional`, never about an id.
+    open_mode::claim_open_account(&pool, tokens.as_ref(), "Peter", PASSWORD)
+        .await
+        .expect("the claim");
+    let owner = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the owner, signed in with the password they just chose");
+    let seller = users::create_user(&pool, &owner, "Sara", "sara", Role::Sales, SELLER_PASSWORD)
+        .await
+        .expect("a seller after the claim");
+    pin::manager_set_pin(&pool, &owner, seller, "4321")
+        .await
+        .expect("a seller's PIN is a normal thing to set");
+    assert_eq!(
+        users::set_username(&pool, &owner, open_id, "peter").await,
+        Ok(()),
+        "and the row that used to be the till takes a login name of its own"
     );
 }
 

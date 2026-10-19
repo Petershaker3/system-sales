@@ -277,6 +277,23 @@ pub struct AccountWithCredentials {
     pub provisional: bool,
 }
 
+/// Whether this id is the shop's own open till rather than an account (`ADR-039`).
+///
+/// Separate from [`find_by_id`] on purpose: the manager commands read a row as a
+/// `User` and must not have to learn about open mode to do it, while the column
+/// belongs here and not in the domain type every rule reads. A missing id answers
+/// `false` — the caller's own "no such user" is the better error for that.
+pub async fn is_provisional(
+    conn: &mut SqliteConnection,
+    id: UserId,
+) -> Result<bool, sqlx::Error> {
+    let flag: Option<i64> = sqlx::query_scalar("SELECT provisional FROM users WHERE id = ?1")
+        .bind(id.as_str())
+        .fetch_optional(conn)
+        .await?;
+    Ok(flag.unwrap_or(0) != 0)
+}
+
 /// Every account with its login identifier, for the picker and user management.
 ///
 /// `LEFT JOIN`, not `INNER JOIN`: an account missing its credentials row must still

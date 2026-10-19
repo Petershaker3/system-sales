@@ -33,7 +33,7 @@
 //! returns `None` and the device is back under the ordinary rules, with the
 //! lockout, the PIN and the owner approval all live again.
 
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 
 use crate::data::repositories::identity::audit;
 use crate::data::repositories::identity::credentials as credential_repo;
@@ -244,6 +244,33 @@ pub async fn session(pool: &SqlitePool) -> Result<Option<Session>, DomainError> 
     )?;
 
     Ok(Some(session))
+}
+
+/// Refuse to let a manager power treat the open till as an account (`ADR-039`).
+///
+/// The lists already hide the row, so no screen can name it — but these commands
+/// take an id, and each one is a power that writes: a role, a disabled flag, a
+/// login name, a PIN. In an open shop there is exactly one manager and that
+/// manager is the row itself, so every such call arrives with `target == actor`
+/// from whoever is standing at the counter. Answering [`DomainError::UserNotFound`]
+/// keeps the rule in the service layer instead of in the views: while a row is
+/// `provisional` there is nothing there to administer, and [`claim_open_account`]
+/// is the only command that writes to it.
+///
+/// The error is the same one a missing id gets, on purpose. Saying "that is the
+/// shop's own till, not an account" would be a truer message and a stranger one —
+/// and it would tell whoever typed the id that a row exists to be found.
+pub async fn ensure_is_account(
+    conn: &mut SqliteConnection,
+    target: UserId,
+) -> Result<(), DomainError> {
+    if user_repo::is_provisional(conn, target)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+    {
+        return Err(DomainError::UserNotFound);
+    }
+    Ok(())
 }
 
 /// Claim the open row: the owner's name and password, and from now on a sign-in

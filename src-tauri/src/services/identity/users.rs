@@ -5,7 +5,7 @@
 //! password. No caller can reach these without passing that gate, so the
 //! re-authentication requirement cannot be forgotten at a call site.
 //!
-//! Two rules shape the whole module:
+//! Three rules shape the whole module:
 //!
 //! * **No user is ever deleted.** `products.created_by` is `ON DELETE RESTRICT`,
 //!   so deleting an operator who ever catalogued something would fail at the
@@ -14,6 +14,11 @@
 //!   (`ADR-008`), so there is no second device and no backdoor to recover through.
 //!   Disabling the only manager would leave a device that can never be
 //!   administered again. This is refused, not merely discouraged.
+//! * **The open till is not a user.** A device running before it has an account holds
+//!   one `provisional` row (`ADR-039`) so that its sales have something to point at.
+//!   It is the shop, not somebody in it: every command here that takes an id refuses
+//!   it through [`open_mode::ensure_is_account`], and the card above the list —
+//!   claiming the row — is what turns it into an account.
 
 use sqlx::SqlitePool;
 
@@ -26,6 +31,7 @@ use crate::domain::identity::{
     password_is_acceptable,
 };
 use crate::services::identity::crypto;
+use crate::services::identity::open_mode;
 
 /// One account as the management screen sees it.
 ///
@@ -209,6 +215,10 @@ pub async fn change_role(
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(DomainError::UserNotFound)?;
 
+    // Not an account to act on while it is the till itself (`ADR-039`) — see
+    // [`open_mode::ensure_is_account`].
+    open_mode::ensure_is_account(&mut conn, target).await?;
+
     if target_user.role == new_role {
         return Ok(());
     }
@@ -284,6 +294,10 @@ pub async fn disable_user(
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(DomainError::UserNotFound)?;
 
+    // Not an account to act on while it is the till itself (`ADR-039`) — see
+    // [`open_mode::ensure_is_account`].
+    open_mode::ensure_is_account(&mut conn, target).await?;
+
     if target_user.role == Role::Manager {
         let active = user_repo::count_active_managers(&mut conn, now)
             .await
@@ -354,6 +368,10 @@ pub async fn enable_user(
         return Err(DomainError::UserNotFound);
     }
 
+    // Not an account to act on while it is the till itself (`ADR-039`) — see
+    // [`open_mode::ensure_is_account`].
+    open_mode::ensure_is_account(&mut conn, target).await?;
+
     // The pooled connection is released before the transaction opens. Holding it
     // while asking the pool for a second connection deadlocks a single-connection
     // pool, which is how the in-memory test database is configured.
@@ -408,6 +426,10 @@ pub async fn set_username(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(DomainError::UserNotFound)?;
+
+    // Not an account to act on while it is the till itself (`ADR-039`) — see
+    // [`open_mode::ensure_is_account`].
+    open_mode::ensure_is_account(&mut conn, target).await?;
 
     // The pooled connection is released before the transaction opens. Holding it
     // while asking the pool for a second connection deadlocks a single-connection

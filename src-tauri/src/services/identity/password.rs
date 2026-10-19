@@ -21,6 +21,7 @@ use crate::domain::identity::{
     password_is_acceptable,
 };
 use crate::services::identity::crypto;
+use crate::services::identity::open_mode;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as session_service;
 
@@ -152,6 +153,13 @@ pub async fn manager_reset_password(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(DomainError::UserNotFound)?;
+
+    // And a reset writes a temporary password plus a forced change, so the open till
+    // is refused here like everywhere else (`ADR-039`). The self-refusal above
+    // already blocks it today — an open shop has exactly one manager and it is that
+    // row — and the guard is what stops the second manager this module could one day
+    // grow from doing it instead.
+    open_mode::ensure_is_account(&mut conn, target).await?;
 
     // The pooled connection is released before the transaction opens. Holding it
     // while asking the pool for a second connection deadlocks a single-connection
