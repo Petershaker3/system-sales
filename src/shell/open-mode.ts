@@ -63,7 +63,10 @@ export function openModeHint(state: OpenModeState = openMode.value): string {
   // unconditionally then shows an empty space rather than a stale promise.
   if (!state.active) return '';
   const who = openOperatorName(state.displayName);
-  return `السيستم شغال من غير حساب باسم «${who}». اعمل حساب المالك من الإعدادات لما تحب، وهيفضل شغال من غير قفل ولا PIN.`;
+  // The sentence ends on an Arabic word on purpose: `PIN` is LTR inside RTL
+  // prose, and at 400px a line that closes with `…ولا PIN.` puts the token and
+  // its full stop alone on the last line, which reads like a glitch.
+  return `السيستم شغال من غير حساب باسم «${who}». اعمل حساب المالك من الإعدادات لما تحب، وهيفضل شغال من غير قفل ولا PIN لحد ما تعمله.`;
 }
 
 /**
