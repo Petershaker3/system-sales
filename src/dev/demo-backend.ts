@@ -1939,6 +1939,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const pin = str(args, 'pin');
     if (!/^\d{4,6}$/.test(pin)) fail('PIN_DOES_NOT_MEET_POLICY');
     const target = users.find((u) => u.id === str(args, 'userId')) ?? fail('INVALID_CREDENTIALS');
+    // The open till is not an account to act on (`ADR-039`): no list names it, and
+    // the only manager who could is the row itself. `INVALID_CREDENTIALS` is what a
+    // missing id answers too (`ADR-017`: the two share a code so the response never
+    // discloses which identifiers exist), so this is Rust's answer, not a softer one.
+    if (target === openOwner && !claimed) fail('INVALID_CREDENTIALS');
     target.pin = pin;
   },
   // The owner's PIN approval (ADR-017 §3): any session may ask, only an active
