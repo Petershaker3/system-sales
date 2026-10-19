@@ -112,9 +112,18 @@ function drawCode(): string {
 //
 // The decision itself is Rust's (`services/identity/open_mode.rs`); this is the same
 // shape, so the flow (banner → card → claim) can be tried without a database.
+// `?empty=1` is the third demo, and the state nobody wants: the device has no rows at
+// all and the start-up that prepares the shop did not run. It exists because
+// `ADR-039` deleted the form that used to open there, so what is left must be readable
+// — the lock card with nobody in it is the whole program's worst screen, and the only
+// one worth rehearsing is the one that tells the owner what to do.
+const emptyDevice =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('empty');
 const seededShop =
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('shop');
-const openShop = !seededShop;
+  !emptyDevice &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('shop');
+const openShop = !seededShop && !emptyDevice;
 
 /** The open operator: a manager row with no password anybody knows and no PIN. */
 const openOwner: DemoUser = {
@@ -139,6 +148,8 @@ const users: DemoUser[] = openShop
       { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
       { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
     ];
+
+if (emptyDevice) users.length = 0;
 
 const cat = (id: string, name: string, parentId: string | null, kind: DemoCategory['kind'], icon: string, sortOrder: number, isDefault = true): DemoCategory => ({
   id,
@@ -1879,9 +1890,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
   // Three accounts exist in the demo data, so the shop is never open in the sense
   // of `ADR-039`, and the claim has nothing to claim. Answered the way Rust answers a
   // shop that already has an account, so the card in الإعدادات shows the same line a
-  // real second attempt would.
+  // real second attempt would. `?empty=1` answers the way Rust answers a database with
+  // nothing in it and no open row: `needsSetup` true, `openMode` false — no screen
+  // opens on the first number any more, which is exactly the point of the line the
+  // lock card shows.
   bootstrap_status: () => ({
-    needsSetup: false,
+    needsSetup: emptyDevice,
     openMode: !claimed,
     openDisplayName: claimed ? null : openOwner.displayName,
   }),

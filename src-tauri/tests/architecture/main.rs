@@ -292,6 +292,23 @@ fn the_frontend_contains_no_session_token_handling() {
 }
 
 #[test]
+fn the_lock_card_says_what_to_do_when_the_device_has_no_accounts() {
+    // `ADR-039` deleted the first-run form, so a device with no accounts and no open
+    // operator has nothing to sign in with. That is only honest while the card names
+    // the repair (another start-up, which is when the shop gets prepared) and names the
+    // files to copy before anybody reaches for delete. If this fails, the deletion left
+    // a dead end at the front door.
+    assert!(
+        FRONTEND_APP.contains("usersLoaded && users.length === 0"),
+        "the login view must offer its one line when the device has no accounts"
+    );
+    assert!(
+        FRONTEND_APP.contains("shop.db-wal"),
+        "the line must name the WAL file too, or copying `shop.db` alone hands over stale data"
+    );
+}
+
+#[test]
 fn the_token_is_read_from_the_os_store_not_supplied_by_a_caller() {
     let code = code_only(SERVICES_SESSION);
     assert!(

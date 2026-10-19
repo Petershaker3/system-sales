@@ -208,10 +208,11 @@ pub fn run() {
             // instead of on a setup form. The account is the owner's to make later,
             // from الإعدادات ← المستخدمين والصلاحيات.
             //
-            // Not best effort in the usual sense: if it fails, there is no operator
-            // for the first sale to belong to, and the front end falls back to the
-            // setup form it would otherwise never show. Either way the shop is told
-            // what happened rather than left guessing.
+            // Not best effort in the usual sense: if it fails there is no operator for
+            // the first sale to belong to, and the lock card says out loud that this
+            // device has no accounts. There is no setup form to fall back to any more
+            // (`ADR-039`), and this line is the reason that is survivable: it runs on
+            // every launch, so starting the program again is the repair.
             let opening =
                 tauri::async_runtime::block_on(services::identity::open_mode::ensure_open_account(
                     &pool,

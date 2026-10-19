@@ -200,6 +200,20 @@ clears the flag in one `UPDATE … WHERE provisional = 1`, so a double submit is
 same row. Hiding the lock, the PIN and the sign-out in this state is presentation in
 `src/shell/open-mode.ts`; authority is not decided there.
 
+Installing a build does not reset a device, and neither does uninstalling one: the
+database at `%LOCALAPPDATA%\com.mshop.system` belongs to the machine, not to the
+installer. So a shop that ran any build from before 2026-10-19 — the day the demo
+account stopped being seeded — still opens on the lock card with that account in its
+list, and that is the correct answer rather than a leftover: accounts exist, nobody is
+signed in, the till is locked. Sign in with the old account, make your own from
+الإعدادات ← المستخدمين والصلاحيات, then disable the old one. There is **no factory-reset
+command in the app and no script that clears a shop's data**, because deleting the
+database is the owner's decision and not a side effect of an install; moving
+`shop.db`, `shop.db-shm` and `shop.db-wal` aside yourself is the only way to see the
+fresh-device state on a machine that already sold something. The same holds on the
+phone, where the file is `/data/user/0/com.mshop.system/shop.db` and a reinstall over an
+APK keeps it.
+
 > **Threat model.** As recorded in `ADR-003` and `spec:55`: this does not protect
 > the database file from someone who can read it directly, and does not claim to.
 > The token digest is stored unencrypted for that reason. It does mean a stolen

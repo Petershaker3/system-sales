@@ -2630,6 +2630,31 @@ check(
 );
 await shot('64-system-guide');
 
+// --- The device with no accounts at all (`?empty=1`) ------------------------------
+// `ADR-039` deleted the first-run form, so this is the one state where the program can
+// leave a person at the lock card with nobody to sign in as. It has to say something.
+{
+  const dead = await browser.newPage();
+  await dead.setViewport({ width: 1366, height: 800 });
+  await dead.goto(`${BASE}${BASE.includes('?') ? '&' : '?'}empty=1`, {
+    waitUntil: 'networkidle0',
+  });
+  await sleep(400);
+  const noteText = await dead
+    .$$eval('.empty-device', (els) => els.map((el) => (el.textContent ?? '').trim()).join(' '))
+    .then((v) => v.replace(/\s+/g, ' ').trim())
+    .catch(() => '');
+  check(
+    'a device with no accounts says what to do instead of offering an empty picker',
+    noteText.includes('مفيش على الجهاز ده أي حساب') &&
+      noteText.includes('shop.db-wal') &&
+      (await dead.$$('.user-card')).length === 0,
+    noteText.slice(0, 80),
+  );
+  await dead.screenshot({ path: path.join(OUT, '65-lock-no-accounts.png') });
+  await dead.close();
+}
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

@@ -9,7 +9,10 @@
 // There is no third state for "this device has no account". `ADR-039` removed the
 // first-run form: the shop opens on its own operator and sells, and the owner account
 // is made afterwards from الإعدادات ← المستخدمين والصلاحيات — the one place an account
-// is created, on a fresh device and on a broken one alike.
+// is created. So the lock card is never asked to double as a repair screen: if a
+// start-up failed to prepare the shop and there is nobody to sign in as, it says so
+// and sends the owner to start the program again, because preparing the shop is what
+// a start-up does.
 //
 // Signing in wears the mockup's lock card (LockCard): pick who is working, then
 // their PIN, or the password for an account with no PIN yet (ADR-017 §2).
@@ -44,6 +47,8 @@ type View = 'loading' | 'login' | 'forced-change' | 'shell';
 const view = ref<View>('loading');
 const session = ref<Session | null>(null);
 const users = ref<UserSummary[]>([]);
+/** Whether the list was read once. «nobody on this device» is only a fact after that. */
+const usersLoaded = ref(false);
 const error = ref<string>('');
 
 const busy = ref(false);
@@ -109,6 +114,8 @@ async function loadUsers(): Promise<void> {
     users.value = await api.listUsers();
   } catch (err) {
     report(err);
+  } finally {
+    usersLoaded.value = true;
   }
 }
 
@@ -242,9 +249,16 @@ function settleApproval(approved: boolean): void {
   pendingApproval.value?.settle(approved);
 }
 
-/** The browser demo's sign-in hint; an empty string (and no text) in real builds. */
+/**
+ * The browser demo's sign-in hint; an empty string (and no text) in real builds.
+ *
+ * `?empty=1` gets no hint either: that demo is a device with no accounts, and a card
+ * naming four passwords under a line that says there is nobody on the device is a bug
+ * in the demo, not a joke.
+ */
 const demoHint =
-  import.meta.env.VITE_DEMO === '1'
+  import.meta.env.VITE_DEMO === '1' &&
+  !new URLSearchParams(window.location.search).has('empty')
     ? 'للتجربة بس: الـ PIN بيتر 1111، يوسف 2222، مارينا 3333، وكلمة السر لكل الحسابات 1234. كود استرجاع بيتر 2345-6789-ABCD-EFGH-JKMN. البيانات وهمية ومش بتتحفظ.'
     : '';
 
@@ -292,6 +306,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
   <div v-else-if="view === 'login'" class="lock">
     <div class="stack-center">
       <LockCard :users="users" :hint="demoHint" @signed-in="onSignedIn" />
+      <!--
+        The dead end, said out loud. `ADR-039` deleted the first-run form, so a device
+        with no accounts and no open operator has nothing to sign in with — and the one
+        repair that does not open a second door is the next start-up, which runs
+        `ensure_open_account` again. Telling the owner that is what makes the state
+        survivable; telling them which files to copy is what makes the next step
+        (deleting the database) not the first thing they try.
+      -->
+      <div v-if="usersLoaded && users.length === 0" class="lock-card muted empty-device" role="status">
+        مفيش على الجهاز ده أي حساب، والبرنامج فتح من غير ما يجهّز المحل. اقفل البرنامج
+        وافتحه تاني — كل تشغيل بيجهّز المحل من غير حساب. لو لسه نفس الشاشة، خد نسخة من
+        <code dir="ltr">shop.db</code>
+        و
+        <code dir="ltr">shop.db-wal</code>
+        الأول، ومتمسحش حاجة لحد ما حد يبص عليها.
+      </div>
       <p v-if="error" class="err-msg auth-error" role="alert">{{ error }}</p>
     </div>
   </div>
@@ -337,6 +367,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
 </template>
 
 <style scoped>
+/*
+ * The empty-device note is its own card under the lock card and in the card's voice:
+ * muted, not red. Nothing on this screen is the owner's fault, and `role="status"`
+ * says so to a screen reader too.
+ */
+.empty-device {
+  padding: 18px 22px;
+  line-height: 1.85;
+}
+.empty-device code {
+  font-size: 0.85em;
+}
 .auth-form {
   text-align: start;
   margin-top: 16px;
