@@ -12,9 +12,8 @@ use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::domain::wallet::{
     validate_non_negative_minor, validate_optional_note, validate_void_reason,
     validate_wallet_color, validate_wallet_company, validate_wallet_number, ServicesWindowTotals,
-    WalletError, WalletId,
-    WalletName, WalletOpId, WalletOpKind, WalletOpRecord, WalletPayMethod, WalletRecord,
-    WalletSummary, WalletVia, MAX_SERVICE_REFERENCE_CHARS, MAX_SERVICE_TYPE_CHARS,
+    WalletError, WalletId, WalletName, WalletOpId, WalletOpKind, WalletOpRecord, WalletPayMethod,
+    WalletRecord, WalletSummary, WalletVia, MAX_SERVICE_REFERENCE_CHARS, MAX_SERVICE_TYPE_CHARS,
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;

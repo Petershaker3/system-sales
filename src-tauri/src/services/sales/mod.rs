@@ -559,6 +559,11 @@ pub async fn record_sale_with_discounts(
 
     let mut credit_minor: i64 = 0;
     for (idx, p) in validated_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -566,9 +571,7 @@ pub async fn record_sale_with_discounts(
                 sale_id: sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
-                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?,
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -1530,6 +1533,11 @@ async fn execute_return_core_in_tx(
 
     let mut reversed_credit_minor: i64 = 0;
     for (idx, p) in validated_refund_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -1537,9 +1545,7 @@ async fn execute_return_core_in_tx(
                 sale_id: return_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
-                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?,
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -2143,6 +2149,11 @@ pub async fn record_sale_exchange(
 
     let mut credit_minor: i64 = 0;
     for (idx, p) in validated_new_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -2150,9 +2161,7 @@ pub async fn record_sale_exchange(
                 sale_id: new_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
-                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
-                    .await
-                    .map_err(|_| DomainError::StorageUnavailable)?,
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
