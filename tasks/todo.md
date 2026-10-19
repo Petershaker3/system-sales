@@ -288,6 +288,9 @@
   - **البوابة:** بدون تعديل في قاعدة البيانات (تستخدم `companion.remote_enabled` و`companion.remote_code` في `app_settings`، وإعدادات الضرائب الافتراضية المخفية في `SettingsSnapshot`).
   - **القبول:** تفعيل وإيقاف «المتابعة من برّه المحل (للمالك)» في `الأجهزة والطابعة` (`set_companion_remote` للمالك فقط) مع كود QR للربط البعيد (`MSHOP-REMOTE|v1|...`)؛ ووضع «من برّه المحل (للمالك)» في شاشة «تطبيق الموبايل» يعرض مبيعات اللحظة والربح و**فلوس الصيانة لوحدها** و**فلوس السوفت وير لوحدها** والمفروض في الدرج وأرصدة المحافظ (قراءة فقط مشفّرة)؛ ومولّد مسودة الإيصال الإلكتروني القياسي (`build_eta_ereceipt_draft` v1.2 + بصمة `SHA-256`) جاهز لبيئة المصلحة التجريبية عند الإلزام مع بقاء الإعدادات الضريبية مخفية عن الواجهة اليومية.
   - **التصميم:** [`ADR-038`](../docs/decisions/ADR-038-remote-owner-followup-and-eta-ereceipt.md).
+  - **اتعمل (2026-10-19):**
+    - الباك إند (`domain/companion.rs`, `services/companion.rs`, `commands/companion.rs`, `lib.rs`, `tests/integration/companion.rs`, `tests/architecture/main.rs`): `COMPANION_REMOTE_ENABLED_KEY`, `COMPANION_REMOTE_CODE_KEY`, `format_remote_payload`, `parse_remote_payload`, `set_remote_follow_up` (`set_companion_remote`), و`build_eta_ereceipt_draft` (الإيصال الإلكتروني v1.2 ببصمة `SHA-256`).
+    - الواجهة (`src/api/companion.ts`, `src/screens/mobile/companion.ts`, `companion.test.ts`, `MobileCompanionScreen.vue`, `DevicesPrinterCard.vue`)، وفحص المتصفح 224/224، و126 اختبار واجهة، و`npm run build` نظيف (تشغيل GitHub Actions `39220253366` لم يبدأ بسبب حد فوترة دقائق GitHub Actions على الحساب).
 
 ---
 
