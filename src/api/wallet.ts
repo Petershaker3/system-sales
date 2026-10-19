@@ -22,6 +22,8 @@ export type WalletVia = 'drawer' | 'out';
 export interface WalletRecord {
   readonly id: string;
   readonly name: string;
+  /** The company several wallet numbers are filed under (`ADR-040`). */
+  readonly company: string | null;
   readonly number: string;
   readonly color: string;
   readonly openingBalanceMinor: number;
@@ -98,6 +100,7 @@ export interface UpdateWalletPayload {
   readonly maxLimitMinor: number;
   readonly dailyLimitMinor: number;
   readonly payMethod: WalletPayMethod | null;
+  readonly company: string | null;
   readonly sort: number;
   readonly hidden: boolean;
 }
@@ -191,9 +194,10 @@ export function voidWalletOp(opId: string, reason: string): Promise<WalletOp> {
 export function createWallet(
   name: string,
   color: string,
-  number: string | null = null
+  number: string | null = null,
+  company: string | null = null
 ): Promise<WalletRecord> {
-  return invoke<WalletRecord>('create_wallet', { name, color, number });
+  return invoke<WalletRecord>('create_wallet', { name, color, number, company });
 }
 
 export function updateWallet(payload: UpdateWalletPayload): Promise<WalletRecord> {

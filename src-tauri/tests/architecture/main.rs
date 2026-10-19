@@ -2839,6 +2839,7 @@ fn shift_slice_preserves_layer_and_schema_invariants() {
 
 const WALLETS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0024_wallets_and_services.sql");
+const WALLET_REPOSITORY: &str = include_str!("../../src/data/repositories/wallet.rs");
 const WALLET_DOMAIN: &str = include_str!("../../src/domain/wallet.rs");
 const WALLET_SERVICE: &str = include_str!("../../src/services/wallet.rs");
 const WALLET_COMMANDS: &str = include_str!("../../src/commands/wallet.rs");
@@ -3441,11 +3442,68 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
     );
 }
 
+/// `ADR-040`: several numbers of one company, and the wallet a payment landed in.
+const WALLET_GROUPS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0030_wallet_groups_and_payment_attribution.sql");
 
+#[test]
+fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_ledger_rules() {
+    let sql = sql_only(WALLET_GROUPS_MIGRATION);
+    for required in [
+        "add column company text null",
+        "create index idx_wallets_company on wallets (company, sort asc, id asc);",
+        "alter table sale_payments add column wallet_id text null references wallets (id);",
+        "drop index idx_wallets_pay_method;",
+        "sale_payments.wallet_id must name a wallet that receives this method",
+        "sale_payments is append-only",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0030 must contain `{required}`"
+        );
+    }
 
+    // The backfill is the one writer `sale_payments` tolerates, so the append-only trigger is
+    // taken down for it and put back afterwards — in that order, or history cannot be repaired.
+    let drop_at = sql
+        .find("drop trigger sale_payments_no_update;")
+        .expect("the trigger must come down for the backfill");
+    let backfill_at = sql
+        .find("update sale_payments")
+        .expect("the payments must be given their wallet");
+    let restore_at = sql
+        .rfind("create trigger sale_payments_no_update")
+        .expect("the trigger must go back up");
+    assert!(
+        drop_at < backfill_at && backfill_at < restore_at,
+        "0030 must drop the trigger, backfill, then re-create the trigger"
+    );
 
+    let repo = code_only(WALLET_REPOSITORY);
+    for required in [
+        "pub async fn list_payment_wallets",
+        "pub async fn primary_payment_wallet",
+        "sp.wallet_id = ?1",
+    ] {
+        assert!(
+            repo.contains(required),
+            "repositories/wallet.rs must contain `{required}` (`ADR-040`)"
+        );
+    }
+    assert!(
+        !repo.contains("clear_pay_method_on_other_wallets"),
+        "the one-wallet-per-method rule is retired: no repository code may clear the link elsewhere"
+    );
 
+    let service = code_only(WALLET_SERVICE);
+    assert!(
+        !service.contains("clear_pay_method_on_other_wallets"),
+        "updating a wallet must not move a payment method off another one"
+    );
 
-
-
-
+    let sales = code_only(SALES_SERVICE);
+    assert!(
+        sales.contains("sale_payee_wallet_id("),
+        "a sale payment must name the wallet that collected it (`ADR-040`)"
+    );
+}

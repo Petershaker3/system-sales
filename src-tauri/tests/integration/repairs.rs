@@ -300,6 +300,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             max_limit_minor: 90_000_00,
             daily_limit_minor: 60_000_00,
             pay_method: Some("vf".to_owned()),
+            company: None,
             sort: 1,
             hidden: false,
         },

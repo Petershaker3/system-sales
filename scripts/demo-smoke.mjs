@@ -2765,6 +2765,64 @@ await shot('64-system-guide');
   await dead.close();
 }
 
+// --- `ADR-040`: two numbers of one company, each with its own money ---
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+const vfBalBefore = await text('[data-wal-balance="vf"]');
+const walletCardsBefore = await count('[data-wal-card]');
+
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
+await sleep(250);
+await page.type('[data-wal-new-name]', 'فودافون كاش ٢');
+await page.type('[data-wal-new-number]', '01009999999');
+await page.type('[data-wal-new-company]', 'فودافون كاش');
+await page.click('[data-wal-add-submit]');
+await sleep(400);
+check(
+  'a second wallet number of the same company is created and filed under the company name',
+  (await count('[data-wal-settings-row]')) === walletCardsBefore + 1 &&
+    (await count('[data-wal-group]')) === 1 &&
+    (await text('[data-wal-group]')).includes('فودافون كاش'),
+  `rows=${await count('[data-wal-settings-row]')} header=${(await text('[data-wal-group]')).slice(0, 40)}`
+);
+
+// The second number is the second row of the group; link it to the method it sits under.
+const paySelects = await page.$$('[data-wal-set-pay]');
+if (paySelects[1]) await paySelects[1].select('vf');
+await sleep(450);
+const payValues = await page.$$eval('[data-wal-set-pay]', (els) =>
+  els.map((el) => el.value)
+);
+check(
+  'two numbers receive the same method — the first keeps it, so nothing moves by itself',
+  payValues.filter((v) => v === 'vf').length === 2 &&
+    (await count('[data-wal-settings-row]')) === walletCardsBefore + 1,
+  payValues.join(',')
+);
+check(
+  'a shared method says out loud where a sale lands until the cashier picks a number',
+  (await count('[data-wal-shared-note]')) === 1 &&
+    (await text('[data-wal-shared-note]')).includes('لحد ما الكاشير يختار')
+);
+
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+check(
+  'the wallets screen shows the new number and marks it with its company',
+  (await count('[data-wal-card]')) === walletCardsBefore + 1 &&
+    (await count('[data-wal-card-company]')) === 1 &&
+    (await text('[data-wal-card-company]')).includes('فودافون كاش')
+);
+check(
+  'linking a second number neither moves nor doubles the money of the first one',
+  (await text('[data-wal-balance="vf"]')) === vfBalBefore && vfBalBefore.length > 0,
+  `vf balance ${vfBalBefore}`
+);
+await shot('67-two-numbers-one-company');
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

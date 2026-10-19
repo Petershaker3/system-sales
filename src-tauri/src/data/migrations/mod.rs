@@ -140,3 +140,9 @@ pub const USED_PHONE_DETAILS: &str = include_str!("0028_used_phone_details.sql")
 /// `0029`: one column, `users.provisional`, marking the row that stands for a
 /// shop that is running before it has an account (ADR-039).
 pub const OPEN_OWNER_ACCOUNT: &str = include_str!("0029_open_owner_account.sql");
+
+/// `0030`: `wallets.company` (numbers of one company grouped in the UI) and
+/// `sale_payments.wallet_id` (which wallet a payment was collected into), with the
+/// one-wallet-per-method index dropped and the history backfilled (ADR-040).
+pub const WALLET_GROUPS_AND_PAYMENT_ATTRIBUTION: &str =
+    include_str!("0030_wallet_groups_and_payment_attribution.sql");

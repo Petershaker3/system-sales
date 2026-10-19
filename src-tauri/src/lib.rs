@@ -144,6 +144,7 @@ pub fn run() {
             commands::wallet::record_wallet_movement,
             commands::wallet::reconcile_wallet,
             commands::wallet::void_wallet_op,
+            commands::wallet::payment_wallet_candidates,
             commands::wallet::create_wallet,
             commands::wallet::update_wallet,
             commands::wallet::delete_wallet,

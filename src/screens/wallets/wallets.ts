@@ -7,12 +7,17 @@ import type { WalletAlertState, WalletOp, WalletPayMethod } from '../../api/wall
 import type { ServiceFeeMode } from '../../ui/appearance.ts';
 import { parseMoney } from '../../ui/format.ts';
 
+/**
+ * Quick names for the «ضيف محفظة تانية» row. `company` is the group the number is filed under
+ * (`ADR-040`): a second Vodafone line picked from here lands beside the first one instead of
+ * standing alone at the end of the list.
+ */
 export const WALLET_PRESETS = [
-  { name: 'فودافون كاش', color: '#e60000' },
-  { name: 'اتصالات كاش', color: '#5cb85c' },
-  { name: 'أورنج كاش', color: '#ff7900' },
-  { name: 'وي باي', color: '#6b2fb5' },
-  { name: 'إنستاباي', color: '#6b3fa0' },
+  { name: 'فودافون كاش', color: '#e60000', company: 'فودافون كاش' },
+  { name: 'اتصالات كاش', color: '#5cb85c', company: 'اتصالات كاش' },
+  { name: 'أورنج كاش', color: '#ff7900', company: 'أورنج كاش' },
+  { name: 'وي باي', color: '#6b2fb5', company: 'وي باي' },
+  { name: 'إنستاباي', color: '#6b3fa0', company: 'إنستاباي' },
   { name: 'حساب بنك', color: '#1d4f91' },
   { name: 'محفظة تانية', color: '#0d7377' },
 ] as const;

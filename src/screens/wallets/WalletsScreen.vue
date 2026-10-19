@@ -538,6 +538,15 @@ onBeforeUnmount(() => {
           {{ ws.wallet.number || 'بدون رقم' }}
         </div>
 
+        <!-- Several numbers of one company read as a set here too (`ADR-040`). -->
+        <div
+          v-if="ws.wallet.company && ws.wallet.company !== ws.wallet.name"
+          class="wl-company muted"
+          :data-wal-card-company="ws.wallet.id"
+        >
+          شركة: <bdi dir="auto">{{ ws.wallet.company }}</bdi>
+        </div>
+
         <div class="wl-stats">
           <span>
             النهارده: <b class="num">{{ num(ws.today.opsCount) }}</b> عملية ·

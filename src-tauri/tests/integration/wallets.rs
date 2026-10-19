@@ -10,6 +10,7 @@ use mobile_shop_system_lib::data::repositories::identity::audit;
 use mobile_shop_system_lib::domain::catalog::Disposition;
 use mobile_shop_system_lib::domain::identity::{Role, Sensitivity, UserId};
 use mobile_shop_system_lib::domain::sales::SalePaymentInput;
+use mobile_shop_system_lib::domain::wallet::{WalletPayMethod, MAX_WALLET_COMPANY_CHARS};
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
@@ -113,6 +114,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
             max_limit_minor: 9_000_000,
             daily_limit_minor: 6_000_000,
             pay_method: Some("vf".to_owned()),
+            company: None,
             sort: 1,
             hidden: false,
         },
@@ -343,4 +345,115 @@ async fn wallet_reconciliation_custom_wallet_lifecycle_and_immutability_triggers
         .execute(&pool)
         .await;
     assert!(del_op.is_err(), "wallet_ops must be append-only");
+}
+
+/// `ADR-040`: one company, two numbers. The second must not take the payment method away from
+/// the first, and the money of a sale must land on exactly one of them.
+#[tokio::test]
+async fn two_numbers_of_one_company_keep_their_own_money() {
+    let (pool, tokens, _manager_uid, _seller_uid, product_id) = setup_shop().await;
+
+    let second = wallet_service::create_wallet(
+        &pool,
+        tokens.as_ref(),
+        "فودافون كاش ٢",
+        "#e60000",
+        Some("01009999999"),
+        Some("  فودافون كاش  "),
+    )
+    .await
+    .expect("a second number of the same company");
+    assert_eq!(
+        second.company.as_deref(),
+        Some("فودافون كاش"),
+        "the company label is trimmed as it is stored"
+    );
+
+    let overview = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50)
+        .await
+        .expect("overview");
+    let vf = overview
+        .wallets
+        .iter()
+        .find(|s| s.wallet.id.as_str() == "vf")
+        .expect("the seeded Vodafone wallet");
+    assert_eq!(
+        vf.wallet.pay_method,
+        Some(WalletPayMethod::Vf),
+        "creating another number of the same company must leave the first one linked"
+    );
+
+    sales::record_sale_with_payments(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineWithUnitInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
+            imei: None,
+        }],
+        None,
+        Some(&[SalePaymentInput {
+            method: "vf".to_owned(),
+            amount_minor: 20_000,
+            reference: None,
+        }]),
+        None,
+    )
+    .await
+    .expect("a sale paid to Vodafone Cash");
+
+    let after = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50)
+        .await
+        .expect("overview after the sale");
+    let first_now = after
+        .wallets
+        .iter()
+        .find(|s| s.wallet.id.as_str() == "vf")
+        .expect("the seeded Vodafone wallet");
+    let second_now = after
+        .wallets
+        .iter()
+        .find(|s| s.wallet.id.as_str() == second.id.as_str())
+        .expect("the second number");
+    assert_eq!(
+        first_now.balance_minor - vf.balance_minor,
+        20_000,
+        "the primary number of the method is where the sale's money went"
+    );
+    assert_eq!(
+        second_now.balance_minor, 0,
+        "the other number took none of it — nothing is counted twice"
+    );
+
+    let named: String = sqlx::query_scalar(
+        "SELECT sp.wallet_id
+         FROM sale_payments sp
+         INNER JOIN sales s ON s.id = sp.sale_id
+         LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the payment row must name a wallet");
+    assert_eq!(named, "vf", "the payment records the wallet that collected it");
+
+    let candidates = wallet_service::payment_wallet_candidates(&pool, tokens.as_ref(), "vf")
+        .await
+        .expect("the numbers that receive vf sales");
+    assert_eq!(candidates.len(), 2, "both numbers receive this method");
+    assert_eq!(
+        candidates.first().map(|w| w.id.as_str()),
+        Some("vf"),
+        "the shop's own listing order decides the default"
+    );
+
+    // A group nobody can name is worse than no group: blank clears, and the field has a ceiling.
+    let too_long = "ش".repeat(MAX_WALLET_COMPANY_CHARS + 1);
+    assert!(
+        wallet_service::create_wallet(&pool, tokens.as_ref(), "محفظة طويلة", "#0d7377", None, Some(&too_long))
+            .await
+            .is_err(),
+        "a company label past the ceiling is refused, not truncated"
+    );
 }

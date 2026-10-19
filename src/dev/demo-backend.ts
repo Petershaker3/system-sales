@@ -458,7 +458,13 @@ interface DemoSale {
   customerId: string | null;
   isCancelled: boolean;
   occurredAt: number;
-  payments: { method: string; amountMinor: number; reference: string | null }[];
+  payments: {
+    method: string;
+    amountMinor: number;
+    reference: string | null;
+    /** The shop wallet this money was collected into (`ADR-040`). */
+    walletId: string | null;
+  }[];
   lines: DemoSaleLine[];
 }
 
@@ -511,7 +517,9 @@ function buildDemoHistoricalSales(): DemoSale[] {
       customerId: null,
       isCancelled: false,
       occurredAt: dt.getTime(),
-      payments: [{ method, amountMinor: total, reference: null }],
+      // Money that predates the wallet being named on the payment: the primary wallet of the
+      // method takes it, exactly as the `0030` backfill leaves it in a real ledger.
+      payments: [{ method, amountMinor: total, reference: null, walletId: null }],
       lines: items.map((it, lIdx) => ({
         id: `hist-line-${idx}-${lIdx + 1}`,
         lineNo: lIdx + 1,
@@ -807,6 +815,8 @@ const cashMovements: DemoCashMovement[] = [];
 interface DemoWallet {
   id: string;
   name: string;
+  /** The company several numbers are filed under, `null` when it stands alone (`ADR-040`). */
+  company: string | null;
   number: string;
   color: string;
   openingBalanceMinor: number;
@@ -851,6 +861,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'vf',
     name: 'فودافون كاش',
+    company: null,
     number: '01001234567',
     color: '#e60000',
     openingBalanceMinor: 1_500_000,
@@ -866,6 +877,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'et',
     name: 'اتصالات كاش',
+    company: null,
     number: '01112345678',
     color: '#5cb85c',
     openingBalanceMinor: 500_000,
@@ -881,6 +893,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'or',
     name: 'أورنج كاش',
+    company: null,
     number: '01223456789',
     color: '#ff7900',
     openingBalanceMinor: 600_000,
@@ -896,6 +909,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'we',
     name: 'وي باي',
+    company: null,
     number: '01554567890',
     color: '#6b2fb5',
     openingBalanceMinor: 250_000,
@@ -911,6 +925,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'ip',
     name: 'إنستاباي',
+    company: null,
     number: 'alnoor@instapay',
     color: '#6b3fa0',
     openingBalanceMinor: 2_000_000,
@@ -1167,6 +1182,24 @@ const demoRepairs: DemoRepair[] = [
   },
 ];
 
+/** The first wallet that receives `method`, hidden ones only as a last resort. */
+function demoSalePayeeWalletId(method: string): string | null {
+  const takers = demoWallets
+    .filter((x) => x.payMethod === method)
+    .sort(
+      (a, b) =>
+        Number(a.hidden) - Number(b.hidden) ||
+        a.sort - b.sort ||
+        (a.id < b.id ? -1 : 1)
+    );
+  return takers[0]?.id ?? null;
+}
+
+function demoIsPrimaryWalletForMethod(w: DemoWallet): boolean {
+  if (!w.payMethod) return false;
+  return demoSalePayeeWalletId(w.payMethod) === w.id;
+}
+
 function demoComputeWalletBalanceMinor(w: DemoWallet): number {
   let bal = w.openingBalanceMinor;
   for (const op of demoWalletOps) {
@@ -1182,15 +1215,26 @@ function demoComputeWalletBalanceMinor(w: DemoWallet): number {
       bal += op.amountMinor;
     }
   }
-  if (w.payMethod) {
-    for (const s of sales) {
-      const sign = s.kind === 'reversal' ? -1 : 1;
-      for (const p of s.payments) {
-        if (p.method === w.payMethod) {
-          bal += sign * p.amountMinor;
-        }
+  for (const s of sales) {
+    const sign = s.kind === 'reversal' ? -1 : 1;
+    for (const p of s.payments) {
+      // A payment is this wallet's money when it names this wallet. A payment that names no
+      // wallet — written before `0030`, or for a method no wallet receives — belongs to the
+      // primary wallet of its method and to no other (`ADR-040`).
+      if (p.walletId === w.id) {
+        bal += sign * p.amountMinor;
+      } else if (
+        p.walletId === null &&
+        p.method === w.payMethod &&
+        demoIsPrimaryWalletForMethod(w)
+      ) {
+        bal += sign * p.amountMinor;
       }
     }
+  }
+  if (w.payMethod && demoIsPrimaryWalletForMethod(w)) {
+    // A customer settling a debt names a method, never a wallet: the primary takes it, so
+    // two numbers of one company never count the same deposit twice.
     for (const entry of customerLedger) {
       if (entry.kind === 'payment' && entry.method === w.payMethod) {
         bal += Math.abs(entry.amountMinor);
@@ -2286,6 +2330,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       method: string;
       amountMinor: number;
       reference: string | null;
+      walletId: string | null;
     }[] = [];
     for (const p of rawPayments) {
       const m = (p.method ?? '').trim();
@@ -2299,7 +2344,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
       if (m === 'credit' && linkedCustomer === null) fail('SALE_CREDIT_REQUIRES_CUSTOMER');
       paySum += p.amountMinor;
       if (m === 'credit') creditSum += p.amountMinor;
-      cleanPayments.push({ method: m, amountMinor: p.amountMinor, reference: ref });
+      cleanPayments.push({
+        method: m,
+        amountMinor: p.amountMinor,
+        reference: ref,
+        walletId: demoSalePayeeWalletId(m),
+      });
     }
     if (paySum !== total) fail('SALE_PAYMENT_TOTAL_MISMATCH');
 
@@ -2849,6 +2899,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       method: string;
       amountMinor: number;
       reference: string | null;
+      walletId: string | null;
     }[] = [];
     if (rawRefundPayments && rawRefundPayments.length > 0) {
       let sum = 0;
@@ -2858,6 +2909,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
           method: p.method,
           amountMinor: p.amountMinor,
           reference: p.reference ?? null,
+          // A refund is not asked which number it leaves from: it goes back out of the
+          // primary wallet of the method, as it does in the real service (`ADR-040`).
+          walletId: demoSalePayeeWalletId(p.method),
         });
       }
       if (sum !== refundMinor) fail('SALE_PAYMENT_TOTAL_MISMATCH');
@@ -2871,6 +2925,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
             method: p.method,
             amountMinor: take,
             reference: p.reference,
+            walletId: p.walletId ?? demoSalePayeeWalletId(p.method),
           });
           remaining -= take;
         }
@@ -2880,10 +2935,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
           method: 'cash',
           amountMinor: remaining,
           reference: null,
+          walletId: null,
         });
       }
     } else {
-      cleanRefundPayments = [{ method: 'cash', amountMinor: 0, reference: null }];
+      cleanRefundPayments = [
+        { method: 'cash', amountMinor: 0, reference: null, walletId: null },
+      ];
     }
 
     const occurredAt = now();
@@ -4360,10 +4418,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (demoWallets.some((w) => w.name === name)) fail('WALLET_NAME_DUPLICATE');
     const color = str(args, 'color').trim().toLowerCase() || '#0d7377';
     const number = str(args, 'number').trim();
+    const company = str(args, 'company').trim();
+    if (company.length > 80) fail('WALLET_COMPANY_INVALID');
     const maxSort = demoWallets.reduce((m, w) => Math.max(m, w.sort), 0);
     const wallet: DemoWallet = {
       id: newId('wal'),
       name,
+      company: company || null,
       number,
       color,
       openingBalanceMinor: 0,
@@ -4391,13 +4452,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const rawPay = str(args, 'payMethod').trim();
     const payMethod =
       rawPay === 'vf' || rawPay === 'instapay' ? rawPay : null;
-    if (payMethod) {
-      for (const other of demoWallets) {
-        if (other.id !== w.id && other.payMethod === payMethod) {
-          other.payMethod = null;
-        }
-      }
-    }
+    // Since `ADR-040` a method may be received by more than one number, so editing this
+    // wallet never clears the link on another one.
+    const company = str(args, 'company').trim();
+    if (company.length > 80) fail('WALLET_COMPANY_INVALID');
     w.name = name;
     w.number = str(args, 'number').trim();
     w.color = str(args, 'color').trim().toLowerCase() || w.color;
@@ -4406,6 +4464,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     w.maxLimitMinor = Math.max(0, numArg(args, 'maxLimitMinor'));
     w.dailyLimitMinor = Math.max(0, numArg(args, 'dailyLimitMinor'));
     w.payMethod = payMethod;
+    w.company = company || null;
     w.sort = numArg(args, 'sort');
     w.hidden = Boolean(args?.['hidden']);
     return { ...w };

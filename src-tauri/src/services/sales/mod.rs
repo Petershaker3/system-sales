@@ -24,6 +24,7 @@ use crate::data::repositories::sales::{
     MovementRecord, SaleLineRecord, SalePaymentRecord, SaleRecord,
 };
 use crate::data::repositories::settings::app_settings as settings_repo;
+use crate::data::repositories::wallet as wallet_repo;
 use crate::domain::catalog::{CatalogError, Disposition, ProductId, ProductStatus};
 use crate::domain::costing::CostError;
 use crate::domain::customer::{CustomerError, CustomerLedgerEntry, NewCustomer};
@@ -37,10 +38,33 @@ use crate::domain::sales::{
     SaleReturnLineInput, WarrantyDate,
 };
 use crate::domain::unit::{Imei, UnitError};
+use crate::domain::wallet::WalletPayMethod;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::identity::approval as approval_service;
 use crate::services::inventory::stock as inventory;
+
+/// The shop wallet the money of a payment of this method lands in (`ADR-040`).
+///
+/// A sale names a method; the wallet that takes the money is the first visible one receiving
+/// that method, which is the only answer a shop with one number per method can have. Where a
+/// company holds several numbers the operator names one and that name arrives here as the
+/// caller's choice — until then, and for every refund or exchange, the primary takes it.
+/// `None` for a method no wallet receives: cash stays in the drawer.
+async fn sale_payee_wallet_id(
+    conn: &mut sqlx::SqliteConnection,
+    method: PaymentMethod,
+) -> Result<Option<String>, sqlx::Error> {
+    let wallet_method = match method {
+        PaymentMethod::Vf => WalletPayMethod::Vf,
+        PaymentMethod::Instapay => WalletPayMethod::Instapay,
+        _ => return Ok(None),
+    };
+
+    Ok(wallet_repo::primary_payment_wallet(conn, wallet_method)
+        .await?
+        .map(|wallet| wallet.id.as_str().to_owned()))
+}
 
 /// What one line of a sale names: a product and how many of it.
 ///
@@ -542,6 +566,9 @@ pub async fn record_sale_with_discounts(
                 sale_id: sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
+                    .await
+                    .map_err(|_| DomainError::StorageUnavailable)?,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -766,6 +793,7 @@ pub async fn cancel_sale(
                 sale_id: reversal_id.clone(),
                 payment_no: orig_p.payment_no,
                 method: orig_p.method.clone(),
+                wallet_id: orig_p.wallet_id.clone(),
                 amount_minor: orig_p.amount_minor,
                 reference: orig_p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -1509,6 +1537,9 @@ async fn execute_return_core_in_tx(
                 sale_id: return_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
+                    .await
+                    .map_err(|_| DomainError::StorageUnavailable)?,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -2119,6 +2150,9 @@ pub async fn record_sale_exchange(
                 sale_id: new_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: sale_payee_wallet_id(&mut *tx, p.method)
+                    .await
+                    .map_err(|_| DomainError::StorageUnavailable)?,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),

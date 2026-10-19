@@ -224,6 +224,12 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .wm-wal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .wm-wal-grid .lbl { font-size: .78rem; }
 .wm-wal-grid .in { height: 38px; }
+/* Numbers of one company, filed under its name (`ADR-040`). The wrapper div is
+   `display: contents`, so the header is a grid item of `.wm-wallets` next to its rows. */
+.wm-wal-grp { display: flex; align-items: baseline; gap: 8px; padding: 2px 4px 0; font-size: .84rem; color: var(--text-2); }
+.wm-wal-grp b { color: var(--text); font-size: .95rem; }
+.wl-company { font-size: .78rem; margin-top: -2px; }
+
 
 /* ===== المبيعات: الأيام والفلترة والعرض (docs/ui/SALES-SHORTAGES.md, Plan 1.14 / ADR-029) ===== */
 .sv-bar, .sv-filters, .sv-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

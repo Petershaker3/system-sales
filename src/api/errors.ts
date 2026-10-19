@@ -226,6 +226,7 @@ export const ErrorCode = {
   WALLET_NAME_INVALID: 'WALLET_NAME_INVALID',
   WALLET_NAME_DUPLICATE: 'WALLET_NAME_DUPLICATE',
   WALLET_NUMBER_INVALID: 'WALLET_NUMBER_INVALID',
+  WALLET_COMPANY_INVALID: 'WALLET_COMPANY_INVALID',
   WALLET_COLOR_INVALID: 'WALLET_COLOR_INVALID',
   WALLET_LIMIT_INVALID: 'WALLET_LIMIT_INVALID',
   WALLET_PAY_METHOD_INVALID: 'WALLET_PAY_METHOD_INVALID',
@@ -589,6 +590,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'فيه محفظة بالاسم ده بالفعل.',
   [ErrorCode.WALLET_NUMBER_INVALID]:
     'رقم المحفظة طويل زيادة عن اللزوم.',
+  [ErrorCode.WALLET_COMPANY_INVALID]:
+    'اسم الشركة طويل زيادة عن اللزوم.',
   [ErrorCode.WALLET_COLOR_INVALID]:
     'لون المحفظة غير صالح.',
   [ErrorCode.WALLET_LIMIT_INVALID]:

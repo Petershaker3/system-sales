@@ -11,7 +11,8 @@ use crate::data::repositories::wallet as repo;
 use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::domain::wallet::{
     validate_non_negative_minor, validate_optional_note, validate_void_reason,
-    validate_wallet_color, validate_wallet_number, ServicesWindowTotals, WalletError, WalletId,
+    validate_wallet_color, validate_wallet_company, validate_wallet_number, ServicesWindowTotals,
+    WalletError, WalletId,
     WalletName, WalletOpId, WalletOpKind, WalletOpRecord, WalletPayMethod, WalletRecord,
     WalletSummary, WalletVia, MAX_SERVICE_REFERENCE_CHARS, MAX_SERVICE_TYPE_CHARS,
 };
@@ -38,6 +39,8 @@ pub struct UpdateWalletInput {
     pub max_limit_minor: i64,
     pub daily_limit_minor: i64,
     pub pay_method: Option<String>,
+    /// The company this number belongs to (`ADR-040`). Blank clears the grouping.
+    pub company: Option<String>,
     pub sort: i64,
     pub hidden: bool,
 }
@@ -603,6 +606,7 @@ pub async fn create_wallet(
     name_raw: &str,
     color_raw: &str,
     number_raw: Option<&str>,
+    company_raw: Option<&str>,
 ) -> Result<WalletRecord, WalletServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageCatalog)?;
@@ -610,6 +614,7 @@ pub async fn create_wallet(
     let name = WalletName::new(name_raw)?;
     let color = validate_wallet_color(color_raw)?;
     let number = validate_wallet_number(number_raw.unwrap_or(""))?;
+    let company = validate_wallet_company(company_raw)?;
     let actor = session.user_id();
     let now = Timestamp::now();
 
@@ -633,6 +638,7 @@ pub async fn create_wallet(
     let wallet = WalletRecord {
         id: WalletId::generate(),
         name,
+        company,
         number,
         color,
         opening_balance_minor: 0,
@@ -662,6 +668,34 @@ pub async fn create_wallet(
     Ok(wallet)
 }
 
+/// The wallet numbers that can receive a sale paid with `method` (`ADR-040`).
+///
+/// A seller may read this: it is the choice the pay screen offers when one company holds more
+/// than one number. Deliberately not `wallets_overview` — the POS hot path must not pull every
+/// wallet's balances and period stats to name a number, so no totals are computed here.
+pub async fn payment_wallet_candidates(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    method_raw: &str,
+) -> Result<Vec<WalletRecord>, WalletServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+
+    let method = WalletPayMethod::parse_optional(Some(method_raw))?
+        .ok_or(WalletError::WalletPayMethodInvalid)?;
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let wallets = repo::list_payment_wallets(&mut conn, method)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(wallets)
+}
+
 /// Update an existing shop wallet's configuration (owner only).
 pub async fn update_wallet(
     pool: &SqlitePool,
@@ -679,6 +713,7 @@ pub async fn update_wallet(
     let max_limit_minor = validate_non_negative_minor(input.max_limit_minor)?;
     let daily_limit_minor = validate_non_negative_minor(input.daily_limit_minor)?;
     let pay_method = WalletPayMethod::parse_optional(input.pay_method.as_deref())?;
+    let company = validate_wallet_company(input.company.as_deref())?;
     let actor = session.user_id();
     let now = Timestamp::now();
 
@@ -701,12 +736,9 @@ pub async fn update_wallet(
         }
     }
 
-    if let Some(pm) = pay_method {
-        repo::clear_pay_method_on_other_wallets(&mut tx, pm, existing.id.as_str())
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-    }
-
+    // No `pay_method` is taken away from another wallet here. Several numbers of one company
+    // may receive the same method since `ADR-040`; clearing the link elsewhere would silently
+    // re-point where tomorrow's money lands because someone edited an unrelated number.
     existing.name = name;
     existing.number = number;
     existing.color = color;
@@ -715,6 +747,7 @@ pub async fn update_wallet(
     existing.max_limit_minor = max_limit_minor;
     existing.daily_limit_minor = daily_limit_minor;
     existing.pay_method = pay_method;
+    existing.company = company;
     existing.sort = input.sort;
     existing.hidden = input.hidden;
 
