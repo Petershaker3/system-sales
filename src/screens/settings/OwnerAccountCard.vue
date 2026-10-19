@@ -13,7 +13,7 @@
 // the claim may happen at all is decided in Rust (`services/identity/open_mode.rs`);
 // a shop that already has an account is answered `BOOTSTRAP_ALREADY_COMPLETED`, and
 // the card does not try to know better.
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 import * as api from '../../api/identity';
 import { describeError } from '../../api/errors';
@@ -23,7 +23,12 @@ import { openMode, readOpenMode } from '../../shell/open-mode';
 import { toast } from '../../ui/toast';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
-import { accountStateLine, ownerAccountProblem } from './account';
+import {
+  accountStateLine,
+  managerAccountsWhileOpen,
+  managersNotice,
+  ownerAccountProblem,
+} from './account';
 
 const open = computed(() => openMode.value.active);
 const stateLine = computed(() => accountStateLine(open.value, openMode.value.displayName));
@@ -36,6 +41,25 @@ const error = ref('');
 const busy = ref(false);
 /** The code the claim offers to make, shown once (`ADR-017` §4). */
 const code = ref<string | null>(null);
+/**
+ * Manager accounts that appeared while the shop was open (`ADR-039`) — see
+ * `managerAccountsWhileOpen` for why making one is reachable from an open till and
+ * why the answer is to show it, not to delete it.
+ */
+const managers = ref<readonly string[]>([]);
+const managersLine = computed(() => managersNotice(managers.value));
+
+async function lookForManagers(): Promise<void> {
+  if (!open.value) return;
+  try {
+    managers.value = managerAccountsWhileOpen(await lifecycle.listUsersForManagement());
+  } catch {
+    // A failed read says nothing about whether such an account exists, so the claim
+    // is not blocked on it. The list under the card is the real answer.
+  }
+}
+
+onMounted(lookForManagers);
 
 const problem = computed(() =>
   ownerAccountProblem({ displayName: name.value, password: password.value, confirm: confirm.value }, busy.value),
@@ -126,6 +150,10 @@ async function afterShown(): Promise<void> {
         الحساب هو قفل الشاشة، وPIN للبائع، وكود استرجاع كلمة السر، وتحديد مين يشوف إيه.
       </span>
     </div>
+    <div v-if="open && managersLine !== null" class="note warn" data-owner-managers-notice>
+      <Icon name="info" />
+      <span>{{ managersLine }}</span>
+    </div>
     <p v-if="error !== '' && !asking" class="err-msg" role="alert">{{ error }}</p>
   </section>
 
@@ -144,6 +172,9 @@ async function afterShown(): Promise<void> {
         <input id="oa-confirm" v-model="confirm" type="password" autocomplete="new-password" minlength="8" />
       </div>
       <span class="hint">ثمانية حروف على الأقل. بعدها هيظهر كود استرجاع تكتبه على ورقة.</span>
+      <div v-if="managersLine !== null" class="note warn" data-owner-managers-notice-modal>
+        {{ managersLine }}
+      </div>
       <div class="err-msg" role="alert">{{ line }}</div>
       <button type="submit" class="btn primary block" :disabled="busy || problem !== null">
         اعمل الحساب <kbd>Enter</kbd>

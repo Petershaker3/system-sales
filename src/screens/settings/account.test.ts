@@ -5,7 +5,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { accountStateLine, MIN_PASSWORD_LEN, ownerAccountProblem } from './account.ts';
+import {
+  accountStateLine,
+  managerAccountsWhileOpen,
+  managersNotice,
+  MIN_PASSWORD_LEN,
+  ownerAccountProblem,
+} from './account.ts';
 
 const FORM = {
   displayName: 'بيتر',
@@ -58,6 +64,37 @@ test('the card describes an open shop as running, not as broken', () => {
 
 test('a row with no name of its own is still called something', () => {
   assert.match(accountStateLine(true, '  '), /«صاحب المحل»/);
+});
+
+test('a manager made while the till was open is named, a seller is not', () => {
+  const names = managerAccountsWhileOpen([
+    { displayName: 'المالك', role: 'manager', disabled: false },
+    { displayName: 'سارة', role: 'sales', disabled: false },
+    { displayName: 'يوسف', role: 'manager', disabled: true },
+    { displayName: 'مراد', role: 'manager', disabled: false },
+  ]);
+  assert.deepEqual(names, ['المالك', 'مراد']);
+});
+
+test('an open shop with nobody else has nothing to warn about', () => {
+  assert.equal(managersNotice([]), null);
+  assert.equal(managersNotice(managerAccountsWhileOpen([{ displayName: 'سارة', role: 'sales', disabled: false }])), null);
+});
+
+test('the notice says the account survives the claim and where to turn it off', () => {
+  const line = managersNotice(['مراد']) ?? '';
+  assert.match(line, /اتعمل وقت ما المحل كان شغال من غير حساب/);
+  assert.match(line, /هيفضل شغال بعد ما تعمل حسابك/);
+  assert.match(line, /«مراد»/);
+  assert.match(line, /عطّله/);
+  assert.doesNotMatch(line, /خطأ|مرفوض|ما تقدرش/);
+});
+
+test('more than one account is counted, not summarised away', () => {
+  const line = managersNotice(['مراد', 'حسن', 'سارة']) ?? '';
+  assert.match(line, /3 حسابات مدير/);
+  assert.match(line, /«مراد»، «حسن»، «سارة»/);
+  assert.match(line, /راجعهم/);
 });
 
 test('after the claim the card stops offering the form it just used', () => {

@@ -4412,7 +4412,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (key === 'invoice_prefix') settings.invoicePrefix = str(args, 'value');
   },
   list_users_for_management: () => {
-    requireManager(true);
+    // While the row is unclaimed the operator is the till itself, and Rust resolves
+    // that as a manager session with a fresh assurance (`open_mode::session`), so
+    // the gate is satisfied by construction — not skipped. Claimed, the ordinary
+    // "manager, password just proven" rule applies.
+    if (claimed) requireManager(true);
     // Every row here can be disabled, re-roled, or given a temporary password, and
     // the open row is not that kind of row (`ADR-039`, as in `users::list_managed`).
     return users
@@ -4424,7 +4428,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       role: u.role,
       disabled: u.disabled,
       mustChangePassword: false,
-      credentialsMissing: false,
+      integrityFault: false,
     }));
   },
 
