@@ -93,7 +93,7 @@ pub struct SalePaymentRecord {
     /// The shop wallet this money was collected into (`0030`). `None` for a method no wallet
     /// receives, and for the money of a shop that had no wallet linked to the method.
     pub wallet_id: Option<String>,
-    pub amount_minor: i64,,
+    pub amount_minor: i64,
     pub reference: Option<String>,
     pub occurred_at: i64,
 }
