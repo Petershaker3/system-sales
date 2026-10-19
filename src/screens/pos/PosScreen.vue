@@ -24,6 +24,7 @@ import type { PosCatalog, PosProduct } from '../../api/pos';
 import * as salesApi from '../../api/sales';
 import type { SaleExchangeOutcome, SaleLine, SaleOutcome, SaleReturnOutcome } from '../../api/sales';
 import { addShortage } from '../../api/shortages';
+import { consumeCompanionScans } from '../../api/companion';
 import { withOwnerApproval } from '../../shell/approval';
 import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/appearance';
 import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/format';
@@ -845,6 +846,32 @@ async function addProductToShortages(p: PosProduct): Promise<void> {
 onMounted(async () => {
   window.addEventListener('keydown', onKey);
   await load();
+  try {
+    const mobileScans = await consumeCompanionScans('pos');
+    const allUnits = catalogue.value?.units ?? [];
+    const allProds = catalogue.value?.products ?? [];
+    for (const scan of mobileScans) {
+      const unit = allUnits.find((u) => u.imei === scan.code);
+      if (unit) {
+        const prod = allProds.find((p) => p.id === unit.productId);
+        if (prod) {
+          pick(prod, 1, unit.imei);
+          continue;
+        }
+      }
+      const prod =
+        allProds.find((p) => p.id === scan.productId) ??
+        allProds.find((p) => p.barcode === scan.code);
+      if (prod) {
+        pick(prod, 1, null);
+      }
+    }
+    if (mobileScans.length > 0) {
+      toast(`نزل ${pcsWord(mobileScans.length)} من ماسح الموبايل في الفاتورة`, 'ok');
+    }
+  } catch {
+    // Non-blocking if companion queue is empty or unavailable
+  }
   focusSearch();
 });
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey));

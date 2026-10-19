@@ -5,6 +5,7 @@
 
 pub mod backup;
 pub mod catalog;
+pub mod companion;
 pub mod customer;
 pub mod identity;
 pub mod inventory;

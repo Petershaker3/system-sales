@@ -274,7 +274,13 @@
   - **اتعمل (2026-10-19):**
     - طبقة التنبيهات وملخص واتساب (`src/screens/reports/smart-alerts.ts`, `smart-alerts.test.ts`): `computeStagnantProducts`, `computeOverdueRepairs`, `computeShortageAlerts`, `buildSmartAlertsBundle`, `formatDailyWhatsAppSummary`.
     - الشاشة والربط (`src/screens/reports/ReportsScreen.vue`, `src/shell/AppShell.vue`)، وفحص المتصفح 219/219، و123 اختبار واجهة.
-- [ ] **3.2 خادم الشبكة المحلية وتطبيق الموبايل المساعد (`LAN Companion Server & Mobile Helper`)** (`docs/PLAN.md` §15 و§19، `ADR-016` #2)
+- [x] **3.2 خادم الشبكة المحلية وتطبيق الموبايل المساعد (`LAN Companion Server & Mobile Helper`)** (`docs/PLAN.md` §15 و§16 و§19، `ADR-016` #2)
+  - **البوابة:** بدون تعديل في قاعدة البيانات وصفر قاعدة بيانات على الموبايل (يستخدم مفاتيح `companion.*` في `app_settings` والعمليات الحالية في `sales` و`inventory` و`catalog`).
+  - **القبول:** مستمع الشبكة المحلية (`0.0.0.0:8787`)؛ كارت «الموبايلات المتوصلة وتوصيل موبايل جديد» في `الأجهزة والطابعة` بـ QR التوصيل وعنوان السيرفر وفصل/إقران الأجهزة؛ ومؤشر الأجهزة المتصلة في الشريط العلوي؛ وشاشة **«الموبايل»** بـ 4 شاشات مساعدة: (1) مبيعات النهارده لحظة بلحظة (للمالك الإجمالي والربح والبيّاعين والمحافظ، وللبيّاع مبيعاته هو بس من غير ربح)؛ (2) ماسح للكاشير (باركود أو IMEI ينزل في فاتورة البيع على الكمبيوتر)؛ (3) سعر ومخزون فوري؛ (4) استلام بضاعة وتصوير بنفس قواعد الكمبيوتر؛ مع منع البيع من الموبايل في V1.
+  - **التصميم:** [`ADR-037`](../docs/decisions/ADR-037-lan-companion-and-mobile-helper.md).
+  - **اتعمل (2026-10-19):**
+    - الباك إند (`domain/companion.rs`, `services/companion.rs`, `commands/companion.rs`, `lib.rs`): `spawn_lan_companion_listener`, `companion_overview`, `pair_companion_device`, `unpair_companion_device`, `push_companion_scan`, `consume_companion_scans` مع اختبارات الوحدة والتكامل والمعمارية.
+    - الواجهة (`src/api/companion.ts`, `src/screens/mobile/companion.ts`, `companion.test.ts`, `MobileCompanionScreen.vue`, `DevicesPrinterCard.vue`, `AppShell.vue`, `PosScreen.vue`).
 
 ## المرحلة 4
 

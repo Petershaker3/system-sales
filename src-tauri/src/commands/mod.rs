@@ -10,6 +10,7 @@ pub mod brands;
 pub mod catalog;
 /// The category tree (ADR-018 §1). Replaces the department commands of SP-1b.
 pub mod categories;
+pub mod companion;
 pub mod customer;
 pub mod identity;
 pub mod identity_lifecycle;

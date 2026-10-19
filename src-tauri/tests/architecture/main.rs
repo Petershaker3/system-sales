@@ -3238,6 +3238,13 @@ const REPORTS_SCREEN_VUE: &str =
     include_str!("../../../src/screens/reports/ReportsScreen.vue");
 const SMART_ALERTS_TS: &str =
     include_str!("../../../src/screens/reports/smart-alerts.ts");
+const COMPANION_DOMAIN: &str = include_str!("../../src/domain/companion.rs");
+const COMPANION_SERVICE: &str = include_str!("../../src/services/companion.rs");
+const COMPANION_COMMANDS: &str = include_str!("../../src/commands/companion.rs");
+const MOBILE_COMPANION_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/mobile/MobileCompanionScreen.vue");
+const DEVICES_PRINTER_CARD_VUE: &str =
+    include_str!("../../../src/screens/settings/DevicesPrinterCard.vue");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3347,6 +3354,62 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
             "smart-alerts.ts must include `{marker}`"
         );
     }
+
+    let comp_domain = code_only(COMPANION_DOMAIN);
+    for forbidden in ["sqlx", "tauri", "SqlitePool"] {
+        assert!(
+            !comp_domain.contains(forbidden),
+            "domain/companion.rs must stay pure domain (`{forbidden}`)"
+        );
+    }
+
+    let comp_service = code_only(COMPANION_SERVICE);
+    for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !comp_service.contains(forbidden),
+            "services/companion.rs must not write raw SQL (`{forbidden}`)"
+        );
+    }
+
+    let comp_cmds = code_only(COMPANION_COMMANDS);
+    for forbidden in ["sqlx::", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !comp_cmds.contains(forbidden),
+            "commands/companion.rs must not touch SQL (`{forbidden}`)"
+        );
+    }
+    assert!(
+        !command_parameters(COMPANION_COMMANDS).iter().any(|p| {
+            let lower = p.to_lowercase();
+            ["token", "user_id", "userid", "role", "created_by", "actor", "session"]
+                .iter()
+                .any(|f| lower.contains(f))
+        }),
+        "companion commands must never accept identity/session parameters from the caller"
+    );
+
+    assert!(
+        SHELL_NAV_TS.contains("id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false"),
+        "src/shell/nav.ts must expose «الموبايل» on the rail"
+    );
+
+    for marker in [
+        "مبيعات النهارده",
+        "ماسح للكاشير",
+        "سعر ومخزون",
+        "استلام وتصوير",
+        "مفيش قاعدة بيانات على الموبايل",
+    ] {
+        assert!(
+            MOBILE_COMPANION_SCREEN_VUE.contains(marker),
+            "MobileCompanionScreen.vue must include `{marker}`"
+        );
+    }
+
+    assert!(
+        DEVICES_PRINTER_CARD_VUE.contains("الموبايلات المتوصلة وتوصيل موبايل جديد"),
+        "DevicesPrinterCard.vue must include paired phones section"
+    );
 }
 
 

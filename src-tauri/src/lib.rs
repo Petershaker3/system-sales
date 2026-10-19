@@ -154,6 +154,11 @@ pub fn run() {
             commands::backup::copy_latest_backup_to_usb,
             commands::backup::restore_saved_backup,
             commands::backup::run_periodic_backup_tick,
+            commands::companion::companion_overview,
+            commands::companion::pair_companion_device,
+            commands::companion::unpair_companion_device,
+            commands::companion::push_companion_scan,
+            commands::companion::consume_companion_scans,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
@@ -205,6 +210,11 @@ pub fn run() {
             // The default phone companies (ADR-018 §2), the same way.
             let _ = tauri::async_runtime::block_on(
                 services::catalog::brands::add_default_brands(&pool),
+            );
+
+            // Start the stateless shop Wi-Fi companion listener on 0.0.0.0:8787 (ADR-037).
+            services::companion::spawn_lan_companion_listener(
+                domain::companion::DEFAULT_COMPANION_PORT,
             );
 
             app.manage(IdentityContext::new(pool.clone(), tokens.clone()));

@@ -635,6 +635,62 @@ interface DemoDamagedStockItem {
 }
 const demoDamagedStock: DemoDamagedStockItem[] = [];
 
+interface DemoPairedDevice {
+  id: string;
+  name: string;
+  model: string;
+  pairedAt: number;
+  lastSeenAt: number;
+  online: boolean;
+}
+
+const demoPairedDevices: DemoPairedDevice[] = [
+  {
+    id: 'dev-owner-1',
+    name: 'موبايل بيتر',
+    model: 'iPhone 15 Pro',
+    pairedAt: Date.now() - 7 * 86_400_000,
+    lastSeenAt: Date.now(),
+    online: true,
+  },
+  {
+    id: 'dev-seller-1',
+    name: 'موبايل يوسف',
+    model: 'Redmi Note 13',
+    pairedAt: Date.now() - 3 * 86_400_000,
+    lastSeenAt: Date.now() - 300_000,
+    online: true,
+  },
+];
+
+interface DemoCompanionScan {
+  id: string;
+  target: 'pos' | 'receive';
+  code: string;
+  productId: string | null;
+  productName: string | null;
+  deviceName: string;
+  scannedAt: number;
+}
+
+let demoCompanionScans: DemoCompanionScan[] = [];
+
+function demoCompanionStatusDto() {
+  const shopName = appearance.shopName || 'موبايل ستور';
+  const hostIp = '192.168.1.10';
+  const port = 8787;
+  const pairCode = 'PAIR-8787';
+  return {
+    hostIp,
+    port,
+    pairCode,
+    pairPayload: `MSHOP-PAIR|v1|${shopName}|${hostIp}:${port}|${pairCode}`,
+    running: true,
+    pairedDevices: demoPairedDevices.map((d) => ({ ...d })),
+    pendingScans: demoCompanionScans.map((s) => ({ ...s })),
+  };
+}
+
 interface DemoShift {
   id: string;
   shiftNumber: number;
@@ -4591,6 +4647,68 @@ const handlers: Record<string, (args: Args) => unknown> = {
       rep.note = args['note'].trim();
     }
     return repairTicketDto(rep, u.role === 'manager');
+  },
+  companion_overview: () => {
+    requireUser();
+    return demoCompanionStatusDto();
+  },
+  pair_companion_device: (args) => {
+    requireManager();
+    const name = str(args, 'name').trim() || 'موبايل المحل';
+    const model = str(args, 'model').trim() || 'Android Wi-Fi';
+    demoPairedDevices.push({
+      id: `dev-${Date.now()}-${demoPairedDevices.length + 1}`,
+      name,
+      model,
+      pairedAt: now(),
+      lastSeenAt: now(),
+      online: true,
+    });
+    return demoCompanionStatusDto();
+  },
+  unpair_companion_device: (args) => {
+    requireManager();
+    const deviceId = str(args, 'deviceId').trim();
+    const idx = demoPairedDevices.findIndex((d) => d.id === deviceId);
+    if (idx !== -1) {
+      demoPairedDevices.splice(idx, 1);
+    }
+    return demoCompanionStatusDto();
+  },
+  push_companion_scan: (args) => {
+    requireUser();
+    const targetRaw = str(args, 'target').trim();
+    const target: 'pos' | 'receive' = targetRaw === 'receive' ? 'receive' : 'pos';
+    const code = str(args, 'code').trim();
+    const productId =
+      typeof args?.['productId'] === 'string' && args['productId'].trim()
+        ? args['productId'].trim()
+        : null;
+    const productName =
+      typeof args?.['productName'] === 'string' && args['productName'].trim()
+        ? args['productName'].trim()
+        : null;
+    const deviceName =
+      typeof args?.['deviceName'] === 'string' && args['deviceName'].trim()
+        ? args['deviceName'].trim()
+        : 'موبايل المحل';
+    demoCompanionScans.push({
+      id: `scan-${Date.now()}-${demoCompanionScans.length + 1}`,
+      target,
+      code,
+      productId,
+      productName,
+      deviceName,
+      scannedAt: now(),
+    });
+    return demoCompanionStatusDto();
+  },
+  consume_companion_scans: (args) => {
+    requireUser();
+    const targetRaw = str(args, 'target').trim();
+    const matched = demoCompanionScans.filter((s) => s.target === targetRaw);
+    demoCompanionScans = demoCompanionScans.filter((s) => s.target !== targetRaw);
+    return matched;
   },
 };
 

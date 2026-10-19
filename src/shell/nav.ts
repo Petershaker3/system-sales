@@ -14,6 +14,7 @@ export type ScreenId =
   | 'repairs'
   | 'store'
   | 'reports'
+  | 'mobile'
   | 'settings';
 
 export interface NavItem {
@@ -31,6 +32,7 @@ export const NAV: readonly NavItem[] = [
   { id: 'repairs', label: 'الصيانة', icon: 'wrench', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true },
+  { id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },
 ];
 
@@ -41,6 +43,7 @@ export const TITLES: Record<ScreenId, string> = {
   repairs: 'الصيانة والسوفت وير',
   store: 'المخزن',
   reports: 'التقارير',
+  mobile: 'تطبيق الموبايل',
   settings: 'الإعدادات',
 };
 

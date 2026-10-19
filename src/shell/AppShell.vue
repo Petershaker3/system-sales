@@ -35,6 +35,7 @@ import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
+import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import ShiftModal from './ShiftModal.vue';
@@ -416,6 +417,12 @@ async function switchTheme(): Promise<void> {
           @open-sales-day="openSalesDayFromReports"
           @open-sales-month="openSalesMonthFromReports"
           @go-screen="screen = $event"
+        />
+        <MobileCompanionScreen
+          v-else-if="screen === 'mobile'"
+          :session="session"
+          @go-screen="screen = $event"
+          @changed="refreshShiftState"
         />
         <SettingsScreen v-else-if="screen === 'settings'" />
       </div>

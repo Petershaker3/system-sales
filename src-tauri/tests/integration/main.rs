@@ -835,6 +835,11 @@ mod shortages;
 // and customer credit repayment wallet balance sync.
 mod repairs;
 
+// Plan item 3.2 (ADR-037): local Wi-Fi companion server, paired phones, QR
+// pairing payload, and POS / receiving scan queue.
+mod companion;
+
+
 
 
 

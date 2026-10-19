@@ -342,6 +342,45 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
   .sh-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ===== معاينة وتطبيق الموبايل المساعد (Plan §15 & 3.2 / ADR-037) ===== */
+.phones { display: flex; gap: 26px; justify-content: center; flex-wrap: wrap; }
+.phone-wrap { display: grid; gap: 10px; justify-items: center; }
+.phone-wrap .cap { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.phone-wrap .cap-s { color: var(--muted); font-size: .82rem; max-width: 290px; text-align: center; }
+.phone { width: 288px; height: 548px; border-radius: 44px; background: #141517; padding: 11px; box-shadow: var(--shadow); flex: none; }
+.phone .screen { width: 100%; height: 100%; border-radius: 34px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; position: relative; }
+.ph-status { height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: .8rem; font-weight: 700; color: var(--text-2); flex: none; direction: ltr; }
+.ph-status svg.i { width: 13px; height: 13px; }
+.ph-head { padding: 4px 14px 10px; display: flex; align-items: center; gap: 8px; flex: none; }
+.ph-head b { flex: 1; font-size: 1rem; }
+.ph-body { flex: 1; min-height: 0; overflow: auto; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.ph-body .inline-search { min-width: 0; height: 40px; flex: none; }
+.viewfinder { height: 180px; border-radius: var(--r-l); background: #1c1e22; position: relative; display: grid; place-items: center; overflow: hidden; flex: none; }
+.viewfinder .box-art { position: absolute; width: 190px; height: 120px; border-radius: var(--r-s); background: #e5e7eb; opacity: .14; transform: rotate(-4deg); }
+.scan-frame { width: 210px; height: 92px; border: 3px solid rgba(255, 255, 255, .9); border-radius: var(--r-m); position: relative; overflow: hidden; }
+.scan-line { position: absolute; inset-inline: 6px; height: 2px; background: var(--accent-fill); animation: scan 2s ease-in-out infinite; }
+@keyframes scan { 0%, 100% { top: 10%; } 50% { top: 86%; } }
+.viewfinder .vf-cap { position: absolute; bottom: 10px; color: #e6e7e9; font-size: .8rem; }
+.ph-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); padding: 10px 12px; display: grid; gap: 4px; flex: none; }
+.ph-card .r { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ph-prod { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ph-thumb { width: 40px; height: 40px; border-radius: var(--r-s); object-fit: cover; flex: none; border: 1px solid var(--border); }
+.ph-list { display: grid; gap: 6px; }
+.ph-item { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); padding: 8px 10px; font-size: .82rem; }
+.ph-total .big { font-size: 1.55rem; line-height: 1.2; }
+.ph-total .r { font-size: .8rem; }
+.ph-total .r svg.i { width: 14px; height: 14px; vertical-align: -2px; }
+.seller-bar { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: .8rem; }
+.bar-track { height: 8px; background: var(--surface-3); border-radius: var(--r-s); overflow: hidden; }
+.bar-track i { display: block; height: 100%; border-radius: var(--r-s); }
+.ph-sale { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); padding: 7px 10px; display: grid; gap: 2px; font-size: .8rem; }
+.ph-sale .r { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ph-sale.fresh { border-color: var(--accent-text); background: var(--accent-weak); }
+.ph-seg { display: grid; grid-template-columns: 1fr 1fr; flex: none; }
+.ph-seg button { justify-content: center; font-size: .84rem; }
+.phones-note { max-width: 820px; margin: 4px auto 0; }
+
+
 
 
 

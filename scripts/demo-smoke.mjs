@@ -1791,6 +1791,12 @@ check(
   paper58PrinterCard
 );
 await shot('49-settings-eight-tabs-devices-printer');
+check(
+  '«الأجهزة والطابعة» displays paired mobile phones, pairing QR code, and local LAN server address',
+  (await count('[data-paired-devices-card]')) === 1 &&
+    (await count('[data-companion-qr]')) === 1 &&
+    (await text('[data-companion-host-address]')).includes(':8787')
+);
 
 // Restore printerEnabled to off and switch back to all settings sections
 await page.click('[data-devices-printer-toggle]');
@@ -2441,6 +2447,32 @@ check(
     'Clicking «فواتير الشهر» in Reports opens the Sales screen filtered to that month',
     (await text('.topbar h1')) === 'المبيعات' &&
       (await count('[data-sales-inv-row]')) >= 1
+  );
+
+  // --- Phase 3 Item 3.2 (ADR-037): LAN Companion Server & Mobile Helper -----
+  await clickText('.rail .nav-btn', 'الموبايل');
+  await page.waitForSelector('[data-mobile-screen]', { timeout: 3000 });
+  await sleep(250);
+  check(
+    'Mobile Companion screen renders all 4 helper phones and the stateless LAN note',
+    (await text('.topbar h1')) === 'تطبيق الموبايل' &&
+      (await count('[data-mobile-frame="sales"]')) === 1 &&
+      (await count('[data-mobile-frame="scan"]')) === 1 &&
+      (await count('[data-mobile-frame="lookup"]')) === 1 &&
+      (await count('[data-mobile-frame="receive"]')) === 1 &&
+      (await text('[data-mobile-screen]')).includes('مفيش قاعدة بيانات على الموبايل')
+  );
+  await shot('62-mobile-companion');
+
+  await page.click('[data-mobile-scan-acc]');
+  await sleep(250);
+  await page.click('[data-mobile-go-pos]');
+  await page.waitForSelector('.pos', { timeout: 3000 });
+  await sleep(300);
+  check(
+    'Scanning on the mobile helper and jumping to POS delivers the scanned item to the open invoice',
+    (await text('.topbar h1')) === 'البيع' &&
+      (await count('.pos .line')) >= 1
   );
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------

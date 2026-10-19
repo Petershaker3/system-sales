@@ -81,9 +81,12 @@ pub async fn load_snapshot(
     let rows = read_all(conn).await?;
     let mut snapshot = SettingsSnapshot::default();
     for (key, value) in rows {
-        // Rows the snapshot does not own: the retired Pattern flag, and the display choices
-        // (`ui.*`), which must never be able to fail a sale's snapshot read.
-        if key == crate::domain::settings::PATTERN_REQUIRED || key.starts_with(APPEARANCE_PREFIX) {
+        // Rows the snapshot does not own: the retired Pattern flag, the display choices
+        // (`ui.*`), and local companion state (`companion.*`), which must never fail a snapshot read.
+        if key == crate::domain::settings::PATTERN_REQUIRED
+            || key.starts_with(APPEARANCE_PREFIX)
+            || key.starts_with(crate::domain::companion::COMPANION_PREFIX)
+        {
             continue;
         }
         snapshot
