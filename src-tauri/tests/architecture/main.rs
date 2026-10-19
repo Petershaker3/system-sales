@@ -362,8 +362,10 @@ fn every_registered_command_is_a_named_function() {
         // `ADR-039`: the only way an account is made on a device that never had
         // one. If this registration is ever dropped, the settings card that owns
         // the claim starts failing with "command not found", so it is pinned here.
+        // `create_first_manager` used to sit next to it as the first-run form's
+        // command; the form is gone, the claim answers an empty device by calling the
+        // same service, and this list is where a re-added door would be noticed.
         "claim_open_account",
-        "create_first_manager",
         "list_users_for_picker",
         "login",
         "login_with_pin",

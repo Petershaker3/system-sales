@@ -49,7 +49,10 @@ export interface UserSummary {
 
 export interface BootstrapStatus {
   /**
-   * The database has no accounts at all — the fallback a broken start-up shows.
+   * The database has no accounts at all. Nothing is shown for it any more (`ADR-039`):
+   * the card in الإعدادات claims the open row, and the claim creates the owner account
+   * itself when the device is empty — so a `true` here means `ensure_open_account` could
+   * not make the row, which is a broken file, and worth telling apart from `openMode`.
    *
    * A first launch is *not* in this state any more: it opens on the shop's own
    * operator (`ADR-039`), and the account is made afterwards from الإعدادات.
@@ -69,13 +72,6 @@ export interface BootstrapStatus {
 
 export function bootstrapStatus(): Promise<BootstrapStatus> {
   return invoke<BootstrapStatus>('bootstrap_status');
-}
-
-export function createFirstManager(
-  displayName: string,
-  password: string,
-): Promise<Session> {
-  return invoke<Session>('create_first_manager', { displayName, password });
 }
 
 /**

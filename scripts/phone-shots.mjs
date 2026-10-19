@@ -4,7 +4,7 @@
 // The Android app is this same build in a 400×800 window, so the questions the owner
 // asked — «تطبيق الاندرويد بيعرض واجهه الكمبيوتر» — are answerable here: does the shell
 // reflow, does anything stick out past the edge of the screen, and does the till open on
-// the till. The script signs nothing in: it starts in the open-shop demo (`?openShop=1`,
+// the till. The script signs nothing in: the demo itself starts that way now (`ADR-039`
 // `ADR-039`) and walks it through making the owner account.
 //
 //   npm run demo            # the browser demo on :5173
@@ -93,7 +93,7 @@ const overflow = () =>
     { w: PHONE.width }
   );
 
-await page.goto(`${URL}?openShop=1`, { waitUntil: 'networkidle0' });
+await page.goto(URL, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.shell', { timeout: 10_000 });
 
 const device = await page.$eval('html', (h) => h.dataset.device ?? '');

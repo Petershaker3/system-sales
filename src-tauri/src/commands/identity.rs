@@ -118,15 +118,18 @@ pub struct BootstrapStatusDto {
     open_display_name: Option<String>,
 }
 
-/// Does the application need the first-run setup screen?
+/// Does this device have no account yet?
 ///
-/// Advisory only. The real gate is the transactional check inside
-/// `create_first_manager`, so hiding this screen cannot bypass it.
+/// Advisory only, and since `ADR-039` it opens no screen: a fresh device runs on the
+/// open owner row, `needsSetup` is `true` only when that row could not be made (a
+/// broken database, not a first run), and the account itself is made by
+/// `claim_open_account` from الإعدادات. The real gate is the transactional check
+/// inside [`crate::services::identity::open_mode::claim_open_account`], so no screen
+/// being shown or hidden can bypass it.
 ///
-/// Since `ADR-039` the answer is normally `false` on a fresh device, because a
-/// fresh device now opens on the open owner row instead of on a setup form;
-/// `needsSetup` is `true` only when that row could not be made, which is a broken
-/// database rather than a first run.
+/// The field is reported anyway because it is the one number that says the open row
+/// is missing: a shop that sees `needsSetup: true` has a broken file, and the
+/// technician reading a log wants that distinguishable from `openMode: false`.
 #[tauri::command]
 pub async fn bootstrap_status(ctx: Ctx<'_>) -> Result<BootstrapStatusDto, CommandError> {
     let needs_setup = bootstrap::bootstrap_needed(&ctx.pool)
@@ -161,39 +164,6 @@ pub async fn claim_open_account(
         &ctx.pool,
         ctx.tokens.as_ref(),
         &display_name,
-        &password,
-    )
-    .await
-    .map_err(CommandError::from)?;
-
-    Ok(to_session_dto(&signed_in))
-}
-
-
-/// Create the first manager. Succeeds exactly once, ever.
-#[tauri::command]
-pub async fn create_first_manager(
-    ctx: Ctx<'_>,
-    display_name: String,
-    password: String,
-) -> Result<SessionDto, CommandError> {
-    let created = bootstrap::create_first_manager(&ctx.pool, &display_name, &password)
-        .await
-        .map_err(CommandError::from)?;
-
-    // The default category tree (ADR-018 §1), attributed to the new manager.
-    // Best effort: if it fails, the next start-up adds what is missing, and the
-    // shop is usable meanwhile.
-    let _ = crate::services::organisation::categories::add_default_categories(&ctx.pool).await;
-    // And the default phone companies (ADR-018 §2), the same way.
-    let _ = crate::services::catalog::brands::add_default_brands(&ctx.pool).await;
-
-    // The setup screen signs the new manager straight in, so the operator is not
-    // asked to type the password twice on the one occasion the account is made.
-    let signed_in = auth::login(
-        &ctx.pool,
-        ctx.tokens.as_ref(),
-        created.user_id,
         &password,
     )
     .await

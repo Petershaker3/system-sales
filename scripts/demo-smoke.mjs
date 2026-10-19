@@ -19,6 +19,10 @@ import path from 'node:path';
 import { launch } from '../docs/ui/mockup-v1/tools/launch.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173/';
+// The demo opens on a shop with no account (`ADR-039`). This suite is the fake-data
+// shop — three accounts, a lock card, stock — because most of its flows sign somebody
+// in, and `?shop=1` is the flag that still has people in it.
+const BASE = `${URL}${URL.includes('?') ? '&' : '?'}shop=1`;
 const OUT = process.argv[3] || '/tmp/demo-shots';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -74,7 +78,7 @@ async function signIn(name, pin) {
 }
 const chipName = () => text('.user-chip .who');
 
-await page.goto(URL, { waitUntil: 'networkidle0' });
+await page.goto(BASE, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.lock-card');
 check('sign-in card shows the three demo accounts', (await count('.user-card')) === 3);
 check('demo hint is shown on the sign-in card', (await text('.demo-hint')).includes('1111'));

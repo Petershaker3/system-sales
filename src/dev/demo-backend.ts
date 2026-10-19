@@ -101,14 +101,20 @@ function drawCode(): string {
   return code;
 }
 
-// `ADR-039` in the browser demo: `npm run demo` + `?openShop=1` starts the way a
-// fresh device starts — the shop running on its own operator, no account claimed yet,
-// and the till already open. The decision is Rust's (`services/identity/open_mode.rs`);
-// this is the same shape, so the flow (banner → card → claim) can be tried without a
-// database. Without the query flag the demo is what it always was: three accounts and
-// a lock card.
-const openShop =
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('openShop');
+// The demo starts the way a fresh device does — the shop running on its own
+// operator, no account claimed yet, the till already open (`ADR-039`). That is the
+// default now, on purpose: what an owner sees when they run the program for the first
+// time should be what the demo shows, not the state after somebody made an account.
+//
+// `?shop=1` is the other demo: three accounts, a lock card, and the fake-data shop the
+// browser suites walk through (their flows sign people in, so they need people).
+// `?openShop=1` is still accepted and means nothing — it is what happens with no flag.
+//
+// The decision itself is Rust's (`services/identity/open_mode.rs`); this is the same
+// shape, so the flow (banner → card → claim) can be tried without a database.
+const seededShop =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('shop');
+const openShop = !seededShop;
 
 /** The open operator: a manager row with no password anybody knows and no PIN. */
 const openOwner: DemoUser = {

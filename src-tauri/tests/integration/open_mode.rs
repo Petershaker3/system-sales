@@ -635,3 +635,50 @@ async fn the_setup_gate_off_is_the_open_row_not_a_forgotten_form() {
         "and once the shop is open the gate is off: `ADR-039` replaced the form"
     );
 }
+
+#[tokio::test]
+async fn a_device_with_nothing_on_it_is_claimed_from_the_same_place() {
+    // The first-run form used to be the only door to an owner account on a device with
+    // no rows at all. The form is gone (`ADR-039`), and the claim answers that device
+    // too — which is what makes the card in الإعدادات the whole story instead of one of
+    // two doors that can drift apart. A shop that already has accounts is still refused,
+    // so this is not a way to take over somebody else's till.
+    let (pool, tokens) = fresh().await;
+    assert_eq!(count(&pool, "SELECT COUNT(*) FROM users").await, 0);
+    assert!(
+        bootstrap::bootstrap_needed(&pool).await.expect("ask"),
+        "this is the state the setup screen used to open on"
+    );
+
+    let signed_in = open_mode::claim_open_account(&pool, tokens.as_ref(), "Abu Karim", PASSWORD)
+        .await
+        .expect("an empty device is claimed by the same command");
+    assert_eq!(signed_in.role, Role::Manager, "the shop gets a manager");
+    assert!(
+        !bootstrap::bootstrap_needed(&pool).await.expect("ask"),
+        "and the gate the screen used to check is off"
+    );
+
+    let session = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the owner is signed in with the password they chose");
+    assert!(
+        !session.is_open_mode(),
+        "an account was made, so the ordinary rules are on"
+    );
+    assert!(
+        !open_mode::is_open(&pool).await.expect("ask"),
+        "no open row was ever made on this device, and none is needed"
+    );
+
+    assert_eq!(
+        open_mode::claim_open_account(&pool, tokens.as_ref(), "Someone Else", PASSWORD).await,
+        Err(DomainError::BootstrapAlreadyCompleted),
+        "one account, one shot — the same refusal the open row gives a double submit"
+    );
+    assert_eq!(
+        count(&pool, "SELECT COUNT(*) FROM users").await,
+        1,
+        "and the second submit wrote nothing"
+    );
+}

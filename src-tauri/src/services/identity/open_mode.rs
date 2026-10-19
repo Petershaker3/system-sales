@@ -43,6 +43,7 @@ use crate::domain::identity::{
     SessionFacts, Timestamp, UserId, User, Username, ABSOLUTE_LIFETIME_MS,
 };
 use crate::services::identity::auth::{self, AuthenticatedUser};
+use crate::services::identity::bootstrap;
 use crate::services::identity::crypto;
 use crate::services::identity::secure_store::SecureTokenStore;
 
@@ -311,11 +312,39 @@ pub async fn claim_open_account(
             .acquire()
             .await
             .map_err(|_| DomainError::StorageUnavailable)?;
-        user_repo::find_open(&mut conn)
+        match user_repo::find_open(&mut conn)
             .await
             .map_err(|_| DomainError::StorageUnavailable)?
-            .ok_or(DomainError::BootstrapAlreadyCompleted)?
+        {
+            Some(open) => Some(open),
+            None => {
+                // No open row. Two devices look like this: one that already has its
+                // accounts, answered the plain refusal it has always been, and one
+                // with nothing at all — the state the first-run form used to open on,
+                // which `ensure_open_account` normally makes impossible and a broken
+                // database can still produce. Both are answered from this command
+                // alone now (`ADR-039`): on an empty device the owner account is
+                // created here, so الإعدادات is the only place an account is ever
+                // made, and there is no second screen to hide, to bypass, or to
+                // drift out of sync with this one. The bootstrap write brings its own
+                // audit event, and there is nothing to clear: the row is new.
+                let empty = user_repo::count_all(&mut conn)
+                    .await
+                    .map_err(|_| DomainError::StorageUnavailable)?
+                    == 0;
+                // Released before the next call: asking the pool for a second
+                // connection while this one is held deadlocks the single-connection
+                // in-memory pool the tests run on.
+                drop(conn);
+                if empty {
+                    let created = bootstrap::create_first_manager(pool, display_name, password).await?;
+                    return auth::login(pool, tokens, created.user_id, password).await;
+                }
+                None
+            }
+        }
     };
+    let open = open.ok_or(DomainError::BootstrapAlreadyCompleted)?;
 
     let now = Timestamp::now();
     let mut tx = pool

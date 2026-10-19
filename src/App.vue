@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // Root component.
 //
-// Three states, decided once at start-up and never guessed:
-//   1. first-run setup  — the database has no accounts
-//   2. login            — accounts exist, nobody is signed in
-//   3. shell            — an operator is signed in (AppShell: rail, top bar,
+// Two states an operator can be in, decided once at start-up and never guessed:
+//   1. login            — accounts exist, nobody is signed in
+//   2. shell            — an operator is signed in (AppShell: rail, top bar,
 //                         and the screens of the approved mockup)
+//
+// There is no third state for "this device has no account". `ADR-039` removed the
+// first-run form: the shop opens on its own operator and sells, and the owner account
+// is made afterwards from الإعدادات ← المستخدمين والصلاحيات — the one place an account
+// is created, on a fresh device and on a broken one alike.
 //
 // Signing in wears the mockup's lock card (LockCard): pick who is working, then
 // their PIN, or the password for an account with no PIN yet (ADR-017 §2).
@@ -32,24 +36,16 @@ import { dismissApproval, pendingApproval } from './shell/approval';
 import LockCard from './shell/LockCard.vue';
 import { openMode, readOpenMode } from './shell/open-mode';
 import PinSetup from './shell/PinSetup.vue';
-import RecoveryCodeShow from './shell/RecoveryCodeShow.vue';
 import Toasts from './ui/Toasts.vue';
 import { clearToasts, toast } from './ui/toast';
 
-// State 1 is no longer a gate. A shop with no account opens on its own operator
-// (`ADR-039`), so `decideView` never stops for a form on a first launch; the
-// account is made afterwards, from الإعدادات ← المستخدمين والصلاحيات. The `setup`
-// view remains as the fallback for the one start-up where the open account could
-// not be made at all, which is an error state and not a welcome screen.
-type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
+type View = 'loading' | 'login' | 'forced-change' | 'shell';
 
 const view = ref<View>('loading');
 const session = ref<Session | null>(null);
 const users = ref<UserSummary[]>([]);
 const error = ref<string>('');
 
-const displayName = ref('');
-const password = ref('');
 const busy = ref(false);
 /**
  * Whether the backend says this account must change its password.
@@ -65,8 +61,6 @@ const locked = ref(false);
 const lockCard = ref<InstanceType<typeof LockCard> | null>(null);
 /** The «اعمل PIN» / «غيّر الـ PIN» window, when open. */
 const pinSetup = ref<{ first: boolean; offered: boolean } | null>(null);
-/** The first recovery code, made with the owner's account and shown once (ADR-017 §4). */
-const firstCode = ref<string | null>(null);
 
 // Rust sends a stable code, never prose. Rendering happens here so the Arabic
 // wording lives in one reviewable file (`api/errors.ts`) rather than in domain
@@ -77,12 +71,10 @@ function report(err: unknown): void {
 
 async function decideView(): Promise<void> {
   try {
-    const status = await api.bootstrapStatus();
-    readOpenMode(status);
-    if (status.needsSetup) {
-      view.value = 'setup';
-      return;
-    }
+    // `needsSetup` is read and dropped on purpose: no screen opens on it (`ADR-039`).
+    // The shop runs, the card in الإعدادات carries the one way to make the account,
+    // and a device with nothing on it is claimed by the same command.
+    readOpenMode(await api.bootstrapStatus());
   } catch (err) {
     report(err);
     view.value = 'login';
@@ -144,34 +136,6 @@ watch(openMode, (next, previous) => {
   if (previous.active && !next.active) void reloadAfterClaim();
 });
 
-async function submitSetup(): Promise<void> {
-  busy.value = true;
-  error.value = '';
-  const chosen = password.value;
-  try {
-    session.value = await api.createFirstManager(displayName.value, chosen);
-    password.value = '';
-    // The way back in if the password is ever forgotten, made now while the
-    // password is in hand, and shown once before anything else.
-    try {
-      firstCode.value = (await lifecycle.createRecoveryCode(chosen)).code;
-    } catch {
-      toast('كود الاسترجاع ماتعملش. اعمله من الإعدادات.', 'err');
-    }
-    if (firstCode.value === null) await afterSignIn('password');
-  } catch (err) {
-    report(err);
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** The first recovery code is written down: carry on into the shop. */
-async function afterFirstCode(): Promise<void> {
-  firstCode.value = null;
-  await afterSignIn('password');
-}
-
 /** Someone signed in on the lock card: the first sign-in, or after a lock. */
 async function onSignedIn(next: Session, method: 'pin' | 'password'): Promise<void> {
   session.value = next;
@@ -230,7 +194,6 @@ async function signOut(): Promise<void> {
   try {
     await api.logout();
     session.value = null;
-    password.value = '';
     mustChangePassword.value = false;
     locked.value = false;
     pinSetup.value = null;
@@ -340,20 +303,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
 
       <p v-if="view === 'loading'" class="muted">لحظة واحدة…</p>
 
-      <!-- State 1: no accounts exist yet. One-time only; Rust enforces that. -->
-      <form v-else-if="view === 'setup'" class="stack auth-form" @submit.prevent="submitSetup">
-        <div class="muted">أول تشغيل على الجهاز ده: اعمل حساب المالك.</div>
-        <div class="field">
-          <label for="setup-name">اسم المالك</label>
-          <input id="setup-name" v-model="displayName" autocomplete="off" required />
-        </div>
-        <div class="field">
-          <label for="setup-pass">كلمة السر</label>
-          <input id="setup-pass" v-model="password" type="password" autocomplete="new-password" required minlength="8" />
-          <span class="hint">ثمانية حروف على الأقل. بعدها هيظهر كود استرجاع تكتبه على ورقة، وتعمل PIN للدخول اليومي.</span>
-        </div>
-        <button type="submit" class="btn primary lg block" :disabled="busy">اعمل الحساب وادخل</button>
-      </form>
 
       <!--
         State 3: signed in, but the backend requires a password change first. The
@@ -374,14 +323,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKey, true));
     :offered="pinSetup.offered"
     @close="pinSetup = null"
     @saved="afterPinSaved"
-  />
-
-  <!-- The first recovery code, right after the owner's account (ADR-017 §4). -->
-  <RecoveryCodeShow
-    v-if="firstCode"
-    :code="firstCode"
-    sub="ده طريقك الوحيد لو نسيت كلمة السر"
-    @done="afterFirstCode"
   />
 
   <!-- The owner's PIN for one sensitive operation (ADR-017 §3). -->

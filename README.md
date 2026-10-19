@@ -335,7 +335,8 @@ cross-build is already sensitive to added build steps.
 
 Implemented and tested:
 
-- First-run setup creating the first manager, once, enforced transactionally
+- The owner's account, made from الإعدادات ← المستخدمين والصلاحيات (`ADR-039`) — once,
+  enforced transactionally, and the same command answers a device with no rows at all
 - Login by user picker plus password
 - Sessions with idle and absolute expiry, resolved from the OS credential store
 - Re-authentication to raise the assurance level
@@ -405,7 +406,8 @@ Implemented and tested:
   transaction, and is audited (`owner_approval_granted`, and `approved_by` on the
   operation). Changing that PIN, disabling or demoting the owner withdraws it
 - The owner's recovery code (phase 1.1, `ADR-017` §4), replacing the `recovery`
-  build: 20 symbols without 0/O/1/I/L, shown once at setup and from Settings, kept
+  build: 20 symbols without 0/O/1/I/L, shown once when the account is made and from
+  Settings, kept
   only as an Argon2id verifier. «نسيت كلمة السر؟» on the owner's lock card sets a new
   password with it, ends every session and burns the code for a new one; a wrong
   code counts against the shared lockout
@@ -718,8 +720,10 @@ No secret appears in this document, and none is to be added to it.
 
 **The rules**
 
-1. The first Manager password is created by the operator during first-run setup.
-   It is never generated, seeded or chosen by the build.
+1. The first Manager password is typed by the operator when they make the account from
+   الإعدادات ← المستخدمين والصلاحيات (`ADR-039`). It is never generated, seeded or chosen
+   by the build, and there is no first-run screen in front of it: the shop is already
+   selling while the owner decides to.
 2. A Manager password is **never stored in this repository**, in a plan, in a
    script, in a log or in a commit. Only its Argon2id verifier ever reaches
    storage, and that verifier does not leave the device's SQLite file.
@@ -744,10 +748,10 @@ No secret appears in this document, and none is to be added to it.
 A manager reset needs a manager session, and a manager session needs the
 password, so the reset alone cannot help the owner who forgot it. Since phase 1.1
 the recovery code can: «نسيت كلمة السر؟» on the owner's lock card takes the code
-written on paper at setup and sets a new password. It is the only unauthenticated
+written on paper when the account was made and sets a new password. It is the only unauthenticated
 entry point, and it is deliberate - a secret of about 99 bits that the owner holds
 offline, not a backdoor in the software. An owner who never wrote a code down is
-still locked out of the owner's screens; that is why setup shows the first code
+still locked out of the owner's screens; that is why making the account shows the first code
 and Settings → «كود الاسترجاع» makes a new one.
 
 The gap this section closes is a **testing and operations gap**, not an

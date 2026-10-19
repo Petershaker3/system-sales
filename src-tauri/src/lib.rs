@@ -39,7 +39,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::identity::bootstrap_status,
             commands::identity::claim_open_account,
-            commands::identity::create_first_manager,
             commands::identity::list_users_for_picker,
             commands::identity::login,
             commands::identity::login_with_pin,
