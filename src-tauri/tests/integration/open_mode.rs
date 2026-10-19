@@ -144,6 +144,8 @@ async fn an_open_shop_reaches_the_screens_that_ask_for_a_fresh_password() {
         .await
         .expect("and changes one");
 
+    // Compared as `Option<String>`, not `.as_deref()`: `UserId::as_str` builds a
+    // `String` (the id is a `uuid::Uuid` inside), so there is no borrow to deref to.
     let attributed: Option<String> = sqlx::query_scalar(
         "SELECT updated_by FROM app_settings WHERE key = 'invoice_prefix'",
     )
@@ -151,7 +153,7 @@ async fn an_open_shop_reaches_the_screens_that_ask_for_a_fresh_password() {
     .await
     .expect("the row the settings service wrote");
     assert_eq!(
-        attributed.as_deref(),
+        attributed,
         Some(operator.user_id().as_str()),
         "the write is attributed to the open row, so the audit trail stays complete"
     );
@@ -324,7 +326,7 @@ async fn an_open_shop_can_still_hire_a_seller_and_stays_open() {
             .await
             .expect("the audit row");
     assert_eq!(
-        actor.as_deref(),
+        actor,
         Some(open_id.as_str()),
         "the open row is the actor the trail records"
     );
