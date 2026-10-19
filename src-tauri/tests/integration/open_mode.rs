@@ -474,9 +474,16 @@ async fn the_open_till_is_not_an_account_somebody_can_act_on() {
     open_mode::claim_open_account(&pool, tokens.as_ref(), "Peter", PASSWORD)
         .await
         .expect("the claim");
+    // The claim hands back the session `auth::login` made, and a login is
+    // `Normal`: the guard above is about `provisional`, and everything else about
+    // the ordinary rules is still in force — including that a manager proving
+    // themselves for `ManageUsers` types the password they just chose.
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("the owner proves the password");
     let owner = session::resolve(&pool, tokens.as_ref())
         .await
-        .expect("the owner, signed in with the password they just chose");
+        .expect("the owner, freshly proven");
     let seller = users::create_user(&pool, &owner, "Sara", "sara", Role::Sales, SELLER_PASSWORD)
         .await
         .expect("a seller after the claim");
