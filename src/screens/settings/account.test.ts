@@ -51,7 +51,7 @@ test('a submit while the previous one is in flight is refused with a waiting lin
 
 test('the card describes an open shop as running, not as broken', () => {
   const line = accountStateLine(true, 'المالك');
-  assert.match(line, /لسه مفيش حساب/);
+  assert.match(line, /لسه ما عملتش حساب/);
   assert.match(line, /شغال باسم «المالك»/);
   assert.doesNotMatch(line, /خطأ|فشل/);
 });

@@ -86,7 +86,7 @@ async function claim(): Promise<void> {
     try {
       code.value = (await lifecycle.createRecoveryCode(chosen)).code;
     } catch {
-      toast('كود الاسترجاع ماتعملش. اعمله من الكارت اللي تحت.', 'err');
+      toast('ما قدرناش نعمل كود الاسترجاع. اعمله من الكارت اللي تحت.', 'err');
     }
   } catch (err) {
     error.value = describeError(err);
@@ -122,7 +122,7 @@ async function afterShown(): Promise<void> {
     <div v-if="open" class="note">
       <Icon name="info" />
       <span>
-        الحساب مش لازم دلوقتي: البيع والفواتير والمخزن شغالين، ومفيش قفل ولا PIN. اللي بيضيفه
+        الحساب مش لازم دلوقتي: البيع والفواتير والمخزن شغالين من غير قفل ولا PIN. اللي بيضيفه
         الحساب هو قفل الشاشة، وPIN للبائع، وكود استرجاع كلمة السر، وتحديد مين يشوف إيه.
       </span>
     </div>
@@ -156,7 +156,7 @@ async function afterShown(): Promise<void> {
     v-if="code"
     :code="code"
     title="كود استرجاع كلمة السر"
-    sub="ده طريقك الوحيد لو نسيت كلمة السر"
+    sub="طريقك الوحيد لو نسيت كلمة السر"
     @done="afterShown"
   />
 </template>

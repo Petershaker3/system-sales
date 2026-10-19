@@ -42,8 +42,8 @@ export function ownerAccountProblem(form: OwnerAccountForm, busy = false): strin
  */
 export function accountStateLine(open: boolean, displayName: string): string {
   if (open) {
-    return `لسه مفيش حساب على الجهاز ده. السيستم شغال باسم «${openOperatorName(displayName)}» من غير قفل ولا PIN.`;
+    return `لسه ما عملتش حساب على الجهاز. السيستم شغال باسم «${openOperatorName(displayName)}» من غير قفل ولا PIN.`;
   }
-  return 'في حساب على الجهاز ده، وهو اللي السيستم شغال بيه. كل الحسابات والصلاحيات في القايمة هنا تحت.';
+  return 'الحساب موجود على الجهاز، وهو اللي السيستم شغال بيه. كل الحسابات والصلاحيات في القايمة هنا تحت.';
 }
 
