@@ -3405,7 +3405,8 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
     }
 
     assert!(
-        DEVICES_PRINTER_CARD_VUE.contains("الموبايلات المتوصلة وتوصيل موبايل جديد"),
+        DEVICES_PRINTER_CARD_VUE.contains("الموبايلات المتوصلة")
+            && DEVICES_PRINTER_CARD_VUE.contains("توصيل موبايل جديد"),
         "DevicesPrinterCard.vue must include paired phones section"
     );
 }
