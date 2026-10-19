@@ -302,12 +302,25 @@ pub async fn claim_open_account(
         return Err(DomainError::BootstrapAlreadyCompleted);
     }
 
+    // The row's secondary secrets go with the claim (`ADR-039`): see
+    // [`credential_repo::clear_secondary_secrets`] for why an open till can have a
+    // PIN at all. Their absence is not a failure of the claim — a row that had no
+    // credentials row had nothing to clear — but it is recorded, because an account
+    // whose credential row is missing is a broken database and someone should be
+    // able to find that out afterwards.
+    let cleared = credential_repo::clear_secondary_secrets(&mut tx, open.id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
     audit::append(
         &mut tx,
         open.id,
         audit::event::OPEN_ACCOUNT_CLAIMED,
         now,
-        Some(r#"{"role":"manager"}"#.to_string()),
+        Some(format!(
+            r#"{{"role":"manager","secondary_secrets_cleared":{}}}"#,
+            cleared == 1
+        )),
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;

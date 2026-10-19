@@ -1888,13 +1888,22 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (password.length < 8) fail('PASSWORD_DOES_NOT_MEET_POLICY');
     openOwner.displayName = name;
     openOwner.password = password;
+    // `ADR-039`: `clear_secondary_secrets`. The open operator is a manager, so a PIN
+    // could be set on this row before anybody owned it; the owner's password is the
+    // only secret that survives the claim.
+    openOwner.pin = null;
     claimed = true;
     freshUntil = 0;
     return session();
   },
   whoami: () => session(),
+  // The open owner row is not an account anybody can sign in to, so it is not
+  // offered to sign in to either (`ADR-039`, as in `auth::list_users`). The
+  // «حساب المالك» card is where it is spoken about, until it is claimed.
   list_users_for_picker: () =>
-    users.map((u) => ({
+    users
+      .filter((u) => claimed || u !== openOwner)
+      .map((u) => ({
       id: u.id,
       displayName: u.displayName,
       username: u.username,
@@ -4399,7 +4408,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   list_users_for_management: () => {
     requireManager(true);
-    return users.map((u) => ({
+    // Every row here can be disabled, re-roled, or given a temporary password, and
+    // the open row is not that kind of row (`ADR-039`, as in `users::list_managed`).
+    return users
+      .filter((u) => claimed || u !== openOwner)
+      .map((u) => ({
       userId: u.id,
       displayName: u.displayName,
       username: u.username,

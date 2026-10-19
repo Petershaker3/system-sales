@@ -234,6 +234,36 @@ pub async fn set_recovery_verifier(
     Ok(done.rows_affected())
 }
 
+/// Wipe the secondary secrets and the owed-password flag off one account, in
+/// one statement (`ADR-039`).
+///
+/// Written for the claim of the open owner row, and for nothing else. That row can
+/// be handed secrets before anybody owns it: the open operator is a manager, so
+/// `manager_set_pin` accepts a PIN for it, and an old restore could hand back a
+/// recovery code nobody remembers. A claimed account that still opens for four
+/// digits typed by whoever stood at the till, or for a code written on a scrap of
+/// paper before the shop had an owner, would be worse than no claim at all — so the
+/// owner's password is the only secret that survives, and the flag that would send
+/// them into a forced change is cleared with the rest.
+///
+/// Returns how many rows changed; `0` means the account has no credentials row,
+/// which the caller reports rather than treating as a failure of the claim.
+pub async fn clear_secondary_secrets(
+    conn: &mut SqliteConnection,
+    user_id: UserId,
+) -> Result<u64, sqlx::Error> {
+    let done = sqlx::query(
+        "UPDATE user_credentials
+            SET pin_verifier = NULL, recovery_verifier = NULL,
+                recovery_created_at = NULL, must_change_password = 0
+          WHERE user_id = ?1",
+    )
+    .bind(user_id.as_str())
+    .execute(&mut *conn)
+    .await?;
+    Ok(done.rows_affected())
+}
+
 /// Count accounts, used by tests to prove a refusal wrote nothing.
 pub async fn count_all(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_credentials")

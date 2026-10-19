@@ -67,6 +67,12 @@ pub async fn list_managed(
 
     Ok(rows
         .into_iter()
+        // The open owner row stays out of user management (`ADR-039`), and not to
+        // hide it: every row in this list is a row somebody can disable, re-role,
+        // or hand a temporary password to, and the open row is not an account of
+        // that kind — it is the shop's own till, and the card right above this list
+        // is what turns it into an account.
+        .filter(|row| !row.provisional)
         .map(|row| {
             let integrity_fault = row.username.is_none();
             ManagedUser {

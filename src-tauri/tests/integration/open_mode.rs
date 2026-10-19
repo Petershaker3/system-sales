@@ -14,7 +14,7 @@ use mobile_shop_system_lib::data::db;
 use mobile_shop_system_lib::domain::identity::{Assurance, DomainError, Permission, Role};
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{
-    auth, bootstrap, open_mode, session, users,
+    auth, bootstrap, open_mode, pin, session, users,
 };
 use mobile_shop_system_lib::services::settings;
 use sqlx::SqlitePool;
@@ -353,6 +353,104 @@ async fn an_open_shop_can_still_hire_a_seller_and_stays_open() {
         Err(DomainError::PermissionDenied),
         "a seller is still a seller: the role gate answers first, and no open-mode breadth leaks through their session"
     );
+}
+
+#[tokio::test]
+async fn what_the_open_till_left_behind_does_not_survive_the_claim() {
+    // The open operator is a manager, so the manager powers that write a secret on
+    // another account work on the open row itself: `manager_set_pin` accepts four
+    // digits for it today, with no password anywhere in sight (`ADR-039`). None of
+    // what the open state leaves behind may outlive the claim, or the owner's new
+    // account would still open for whoever stood at the till before them.
+    let (pool, tokens) = open_shop().await;
+    let operator = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the open operator");
+    let open_id = operator.user_id();
+
+    pin::manager_set_pin(&pool, &operator, open_id, "1111")
+        .await
+        .expect("an open till can be given a PIN");
+    let pinned: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM user_credentials WHERE pin_verifier IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("read");
+    assert_eq!(pinned, 1, "the setup really did write a PIN verifier");
+
+    open_mode::claim_open_account(&pool, tokens.as_ref(), "Peter", PASSWORD)
+        .await
+        .expect("the owner claims the account");
+
+    assert_eq!(
+        auth::login_with_pin(&pool, tokens.as_ref(), open_id, "1111").await,
+        Err(DomainError::PinNotSet),
+        "the PIN typed before the claim does not open the owner's account"
+    );
+    let owed: i64 = sqlx::query_scalar("SELECT must_change_password FROM user_credentials")
+        .fetch_one(&pool)
+        .await
+        .expect("the credentials row");
+    assert_eq!(
+        owed, 0,
+        "and the owner is not sent into a forced change on top of the password they chose"
+    );
+}
+
+#[tokio::test]
+async fn the_open_row_is_listed_nowhere_until_it_is_an_account() {
+    // Both account lists answer "which account do you mean": the login picker and
+    // user management (`ADR-039`). The open row is in neither while it is open —
+    // there is nothing to sign in with, and every row in the management list is a
+    // row somebody can disable or re-role — and both of them show it as soon as the
+    // owner claims it, because from then on it is an ordinary account.
+    let (pool, tokens) = open_shop().await;
+    let operator = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the open operator");
+
+    assert!(
+        auth::list_users(&pool).await.expect("read").is_empty(),
+        "the picker offers nobody to sign in as"
+    );
+    assert!(
+        users::list_managed(&pool, &operator)
+            .await
+            .expect("the open operator reads the list")
+            .is_empty(),
+        "and management has no row to disable"
+    );
+
+    let open_id = open_mode::open_account(&pool)
+        .await
+        .expect("read")
+        .expect("the open row")
+        .id;
+    assert_eq!(
+        open_id,
+        operator.user_id(),
+        "while the row itself stays exactly where it was, selling"
+    );
+
+    open_mode::claim_open_account(&pool, tokens.as_ref(), "Peter", PASSWORD)
+        .await
+        .expect("the claim");
+    let picker = auth::list_users(&pool).await.expect("read");
+    assert_eq!(picker.len(), 1, "claimed, it is a sign-in like any other");
+    assert_eq!(picker[0].id, open_id, "the same account, not a new one");
+
+    session::reauthenticate(&pool, tokens.as_ref(), PASSWORD)
+        .await
+        .expect("the owner proves the password");
+    let owner = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("the claimed session");
+    let managed = users::list_managed(&pool, &owner)
+        .await
+        .expect("the owner reads the list");
+    assert_eq!(managed.len(), 1);
+    assert_eq!(managed[0].display_name, "Peter");
 }
 
 #[tokio::test]

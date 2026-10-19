@@ -270,6 +270,11 @@ pub struct AccountWithCredentials {
     pub username: Option<Username>,
     pub must_change_password: Option<bool>,
     pub disabled_at: Option<Timestamp>,
+    /// Whether this is the open owner row (`ADR-039`, migration `0029`) rather than
+    /// an account somebody made. Carried here rather than filtered in SQL because
+    /// both readers of this query decide differently — see the two services — and a
+    /// repository that silently shortened the list would take that decision away.
+    pub provisional: bool,
 }
 
 /// Every account with its login identifier, for the picker and user management.
@@ -285,7 +290,8 @@ pub async fn list_with_usernames(
 ) -> Result<Vec<AccountWithCredentials>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT u.id, u.display_name, u.role, u.verifier, u.failed_attempts,
-                u.locked_until, u.disabled_at, c.username, c.must_change_password
+                u.locked_until, u.disabled_at, u.provisional,
+                c.username, c.must_change_password
          FROM users u
          LEFT JOIN user_credentials c ON c.user_id = u.id
          ORDER BY u.display_name COLLATE NOCASE ASC",
@@ -316,6 +322,7 @@ pub async fn list_with_usernames(
             username,
             must_change_password,
             disabled_at: disabled_at.map(Timestamp::from_millis),
+            provisional: row.get::<i64, _>("provisional") != 0,
         });
     }
     Ok(out)
