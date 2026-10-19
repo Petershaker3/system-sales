@@ -359,6 +359,10 @@ fn every_registered_command_is_a_named_function() {
     let code = code_only(LIB);
     for command in [
         "bootstrap_status",
+        // `ADR-039`: the only way an account is made on a device that never had
+        // one. If this registration is ever dropped, the settings card that owns
+        // the claim starts failing with "command not found", so it is pinned here.
+        "claim_open_account",
         "create_first_manager",
         "list_users_for_picker",
         "login",

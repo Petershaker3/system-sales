@@ -49,8 +49,16 @@ export const TITLES: Record<ScreenId, string> = {
   guide: 'دليل السيستم الشامل',
 };
 
-export function navFor(role: Role): NavItem[] {
-  return NAV.filter((item) => !item.ownerOnly || role === 'manager');
+/**
+ * The rail for one person on one kind of screen.
+ *
+ * The role decides who may see a screen at all; the device removes «الموبايل» on a
+ * phone, because that screen is the desktop's preview of the phone helper (`ADR-037`)
+ * and a phone has no reason to look at a picture of itself. Removing a rail button is
+ * presentation: the screens behind it are still guarded in Rust (`spec:210`).
+ */
+export function navFor(role: Role, phone: boolean = false): NavItem[] {
+  return NAV.filter((item) => (!item.ownerOnly || role === 'manager') && !(phone && item.id === 'mobile'));
 }
 
 /** «المالك» for the manager role, «بيّاع» for sales — the owner's own words. */

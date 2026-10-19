@@ -304,6 +304,10 @@ async fn sign_in(
         // A new session holds no owner approval. Signing in proves who the
         // operator is; the owner's PIN approves one sensitive action at a time.
         owner_approval: None,
+        // A session reached by a password or a PIN belongs to an account, so it
+        // is not the open operator: an open row has no credential to sign in with
+        // (`ADR-039`).
+        open_mode: false,
     };
 
     // Release the pooled connection before opening a transaction. Holding a

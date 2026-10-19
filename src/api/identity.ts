@@ -48,7 +48,23 @@ export interface UserSummary {
 }
 
 export interface BootstrapStatus {
+  /**
+   * The database has no accounts at all — the fallback a broken start-up shows.
+   *
+   * A first launch is *not* in this state any more: it opens on the shop's own
+   * operator (`ADR-039`), and the account is made afterwards from الإعدادات.
+   */
   readonly needsSetup: boolean;
+  /**
+   * The shop is running without an account (`ADR-039`).
+   *
+   * Decided by Rust, not inferred here: a missing session is also a lock, a
+   * sign-out or an expired day, and every one of those must still show the lock
+   * card. Only the backend knows which of them this is.
+   */
+  readonly openMode: boolean;
+  /** What the open operator is called, so the banner and the card say the same name the chip says. */
+  readonly openDisplayName: string | null;
 }
 
 export function bootstrapStatus(): Promise<BootstrapStatus> {
@@ -60,6 +76,18 @@ export function createFirstManager(
   password: string,
 ): Promise<Session> {
   return invoke<Session>('create_first_manager', { displayName, password });
+}
+
+/**
+ * Claim the shop's open operator as a real account (`ADR-039`).
+ *
+ * The replacement for the old first-run form, now that the account is made from
+ * الإعدادات ← المستخدمين والصلاحيات while the shop is already selling. It answers
+ * with the session the new password just opened, so the till does not stop at a
+ * lock card for having finished the setup.
+ */
+export function claimOpenAccount(displayName: string, password: string): Promise<Session> {
+  return invoke<Session>('claim_open_account', { displayName, password });
 }
 
 export function listUsers(): Promise<UserSummary[]> {

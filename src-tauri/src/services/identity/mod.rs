@@ -7,6 +7,9 @@ pub mod approval;
 pub mod auth;
 pub mod bootstrap;
 pub mod crypto;
+/// Running the shop before it has an account: the open owner row, its session,
+/// and the claim that turns it into the owner's account (`ADR-039`).
+pub mod open_mode;
 pub mod password;
 pub mod pin;
 /// The owner's recovery code (ADR-017 §4): make one, and replace a forgotten

@@ -38,6 +38,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::identity::bootstrap_status,
+            commands::identity::claim_open_account,
             commands::identity::create_first_manager,
             commands::identity::list_users_for_picker,
             commands::identity::login,
@@ -200,6 +201,25 @@ pub fn run() {
             // Clear sessions that expired while the device was off. Housekeeping
             // only: no decision depends on it.
             let _ = tauri::async_runtime::block_on(services::identity::session::purge_expired(&pool));
+
+            // A shop that has never made an account runs without one (`ADR-039`).
+            // The open owner row is written here, before the defaults below, so the
+            // default categories and phone companies are attributed to it like they
+            // are to a manager, and so a first launch opens on the sales screen
+            // instead of on a setup form. The account is the owner's to make later,
+            // from الإعدادات ← المستخدمين والصلاحيات.
+            //
+            // Not best effort in the usual sense: if it fails, there is no operator
+            // for the first sale to belong to, and the front end falls back to the
+            // setup form it would otherwise never show. Either way the shop is told
+            // what happened rather than left guessing.
+            let opening =
+                tauri::async_runtime::block_on(services::identity::open_mode::ensure_open_account(
+                    &pool,
+                ));
+            if let Err(error) = &opening {
+                eprintln!("could not open the shop without an account: {error:?}");
+            }
 
             // The default categories, for a database made before the tree
             // (ADR-018 §1). Added once, by fixed id; on a device with no manager

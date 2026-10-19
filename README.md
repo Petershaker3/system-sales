@@ -183,9 +183,22 @@ never modified.
 | Account enumeration | Unknown account and wrong password return the same error and cost the same Argon2 work |
 | Wholesale data | Requires the `Manager` role **and** a `reauthenticated` session |
 | Credential store down | **Fail closed.** No fallback exists by design |
+| Shop with no account yet | Runs on one `users` row marked `provisional` (`ADR-039`). Still resolved in Rust, still audited by that row's id; no password and no PIN exist for it |
 
 The frontend receives `{ userId, displayName, role, assurance }` after login and
 nothing else. Every later command resolves the session internally.
+
+**Open mode (`ADR-039`).** A fresh device is not gated on a setup form: `lib.rs`
+creates the open owner row, and `services::identity::session::resolve` — the single
+place all commands ask who is operating — answers with that row's manager session when
+there is no token. Owner approval for sensitive operations is minted for the session
+and consumed without a database row, because the approval exists to protect the till
+from a second user and an open shop has none. The account is claimed afterwards from
+الإعدادات ← المستخدمين والصلاحيات: `claim_open_account` overwrites the verifier and
+clears the flag in one `UPDATE … WHERE provisional = 1`, so a double submit is
+`BOOTSTRAP_ALREADY_COMPLETED` and the shop's existing history stays attributed to the
+same row. Hiding the lock, the PIN and the sign-out in this state is presentation in
+`src/shell/open-mode.ts`; authority is not decided there.
 
 > **Threat model.** As recorded in `ADR-003` and `spec:55`: this does not protect
 > the database file from someone who can read it directly, and does not claim to.

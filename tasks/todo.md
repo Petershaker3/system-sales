@@ -297,6 +297,19 @@
     - كتابة تقرير المراجعة الشاملة ودليل التثبيت الكامل في `docs/SYSTEM-REVIEW-AND-GUIDE.md` وتحديث `docs/TRY-THE-APP.md`.
     - التحقق النهائي: **129 / 129** اختبار وحدة للواجهة (`npm run test:unit`)، و**225 / 225** فحص متصفح (`scripts/demo-smoke.mjs`، اللقطة `64-system-guide.png`)، وتجهيز ملفات التشغيل الفوري المستقلة للكمبيوتر والأندرويد في `releases/`.
 
+## طلب خارج الترتيب — 2026-10-19 (المالك)
+
+- [x] **أول تشغيل من غير حساب، والحساب يتعمل من الإعدادات** + **تصحيح عرض نسخة الأندرويد**
+  - **البوابة:** ترحيلة واحدة مضافة `0029_open_owner_account.sql` (عمود `users.provisional` بس). مفيش حذف لمهاجر، ومفيش سطر في `app_settings`.
+  - **القبول:** جهاز جديد يفتح على شاشة البيع من غير أي شاشة تأسيس؛ شريط «السيستم شغال من غير حساب» وزرار «اعمل حساب المالك»؛ الكارت في **الإعدادات ← المستخدمين والصلاحيات** بيعمل الاسم وكلمة السر ويوري كود الاسترجاع مرة واحدة؛ الفواتير اللي قبل الحساب بتفضل منسوبة لنفس الصف؛ القفل والـPIN وتسجيل الخروج بترجع بعد عمل الحساب؛ ومفيش أي قرار صلاحية في الواجهة — كل حاجة في Rust. وعلى الموبايل: شريط تحت، بحث متثبّت فوق، فاتورة تحت الأصناف، زرار ادفع لازق، ونوافذ بعرض الشاشة، ومفيش حاجة طالعة بره 400px.
+  - **التصميم:** [`ADR-039`](../docs/decisions/ADR-039-open-start-and-phone-layout.md) — **في انتظار توقيع المالك.**
+  - **اتعمل (2026-10-19):**
+    - الدومين والسيرفس (`domain/identity/{session,sensitivity}.rs`, `services/identity/{open_mode,session,approval,auth}.rs`, `data/repositories/identity/{user,audit,session}.rs`, `commands/identity.rs`, `lib.rs`): `ensure_open_account`، `session::resolve` بيفضّل جلسة المحل المفتوح، `require_sensitivity` بيوقّع نفس الصف، `consume_in_tx` بيتخطى في الوضع المفتوح، `reauthenticate` بيأكد بدل ما يطلب، و`claim_open_account` في `UPDATE … WHERE provisional = 1` واحد.
+    - الاختبار: `tests/integration/open_mode.rs` (10 حالات)، 3 حالات دومين في `tests/unit/main.rs`، وتحديث مخطط الترحيلات لـ `0029` في `products_profile_migration` و`migration_backward_compat` (3 مواضع). **الـ Rust اتكتب في البيئة دي من غير `cargo`: التأكيد على CI.**
+    - الواجهة (`src/shell/open-mode.ts` + `open-mode.test.ts`، `src/screens/settings/{OwnerAccountCard.vue,account.ts,account.test.ts,SettingsScreen.vue}`، `src/api/identity.ts`، `src/App.vue`، `src/shell/AppShell.vue`، `src/components/{UserManagement,SettingsPanel,StockPanel}.vue` بتخطي طلب كلمة السر في الوضع المفتوح، `src/dev/demo-backend.ts` بـ `?openShop=1`).
+    - الموبايل (`src/shell/device.ts` + `device.test.ts`، `src/shell/nav.ts` + `nav.test.ts`، `src/styles/mobile.css`، `index.html` بـ `viewport-fit=cover`، `src/main.ts`)، وفحص `scripts/phone-shots.mjs` **17/17**، و`scripts/demo-smoke.mjs` **225/225**، و**148** اختبار وحدة، و`npm run build` نظيف.
+  - **فاضل:** توقيع المالك على `ADR-039`، وتشغيل `scripts/android-build.ps1 -Apk -Device` على الموبايل (الـ APK بيتبني على جهازه؛ التعديل في الواجهة والتخطيط، ومفيش `gen/android` في المستودع)، وتجربة أول تشغيل على كمبيوتر جديد.
+
 ---
 
 ## ملاحظات تقنية منقولة (حتى لا تضيع)
@@ -305,6 +318,6 @@
   - SQLx يسجّل checksum، و`.gitattributes` يثبّت `*.sql eol=lf`.
   - أي تغيير في المخطط = ترحيلة جديدة.
 - **أسطر مرقّمة في الكود:** الكود يشير إلى أسطر `spec` و`plan` و`ADR-008` و`ADR-013` بأرقامها. لا تعيد كتابة أجسام هذه الملفات؛ عدّل في نفس السطر أو أضف في الآخر.
-- **Android:** التطبيق الحالي نقطة بيع بقاعدة مستقلة، ويتحول إلى مساعد بلا قاعدة في المرحلة 3.
+- **Android:** نسخة الـ APK لسه نقطة بيع بقاعدة مستقلة على الجهاز (`ADR-039` غيّر أول تشغيل وتخطيط العرض بس)؛ مساعد الـ Wi-Fi بلا قاعدة هو شاشة «الموبايل» والسيرفر المحلي (`ADR-037`)، والاتنين في المستودع. مفيش مزامنة بين نسخة الموبايل وكمبيوتر المحل.
   - مشكلة checksum الترحيلة `0005` على جهاز الاختبار القديم لم تعد مانعة، والتفاصيل في القائمة المؤرشفة.
 - **المعاينة:** بعد أي تعديل في ملفاتها، شغّل `node build-offline.mjs` ثم `node qa.mjs` من `docs/ui/mockup-v1/tools/`.

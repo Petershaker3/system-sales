@@ -40,6 +40,7 @@ import { shortagesOverview } from '../api/shortages';
 import { imeiLuhn, normalizeImeiDigits } from '../screens/pos/imei';
 import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
+import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
 import Icon from '../ui/Icon.vue';
 import { toast } from '../ui/toast';
@@ -121,6 +122,15 @@ const reauthPassword = ref('');
  * once, the operation runs, and the field is cleared either way.
  */
 async function withReauth(action: () => Promise<void>): Promise<void> {
+  if (skipsPasswordReauth()) {
+    // `ADR-039`: a shop that has not claimed an account has no password to prove,
+    // and its session already stands at the assurance this modal exists to reach.
+    // Rust decides that; this only keeps the cost column from demanding a secret the
+    // shop has not got — and from refusing the read when the operator has nothing to
+    // type into it.
+    await action();
+    return;
+  }
   reauthPassword.value = '';
   error.value = '';
   showReauth.value = true;

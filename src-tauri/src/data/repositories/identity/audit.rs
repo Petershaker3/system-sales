@@ -16,6 +16,14 @@ use crate::domain::identity::Timestamp;
 /// category that no query ever matches.
 pub mod event {
     pub const FIRST_MANAGER_CREATED: &str = "first_manager_created";
+    /// A shop started with no account at all, so the open owner row was made to
+    /// carry its work until one is claimed (`ADR-039`). The detail says the role;
+    /// there is no name worth recording, because the row has none of its own yet.
+    pub const OPEN_ACCOUNT_STARTED: &str = "open_account_started";
+    /// The owner made the account from الإعدادات ← المستخدمين والصلاحيات, so the
+    /// open row became a real one and the shop is back under sign-in
+    /// (`ADR-039`). Never the password and never the name: the name is on the row.
+    pub const OPEN_ACCOUNT_CLAIMED: &str = "open_account_claimed";
     pub const LOGIN_SUCCEEDED: &str = "login_succeeded";
     pub const LOGIN_FAILED: &str = "login_failed";
     pub const ACCOUNT_LOCKED: &str = "account_locked";

@@ -158,6 +158,10 @@ let row = sqlx::query(
                 }),
                 _ => None,
             },
+            // A row in `sessions` was written by a sign-in, and a sign-in needs a
+            // credential; the open owner row has none, so nothing read from here is
+            // ever the open operator (`ADR-039`).
+            open_mode: false,
         },
     }))
 }

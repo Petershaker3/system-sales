@@ -137,11 +137,6 @@ pub const REPAIRS_AND_SOFTWARE: &str = include_str!("0027_repairs_and_software.s
 /// `intake_note` on `units`) for Plan item 2.2 (ADR-032).
 pub const USED_PHONE_DETAILS: &str = include_str!("0028_used_phone_details.sql");
 
-
-
-
-
-
-
-
-
+/// `0029`: one column, `users.provisional`, marking the row that stands for a
+/// shop that is running before it has an account (ADR-039).
+pub const OPEN_OWNER_ACCOUNT: &str = include_str!("0029_open_owner_account.sql");

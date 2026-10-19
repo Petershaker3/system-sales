@@ -92,6 +92,14 @@ impl Session {
     /// a fresh approval it is refused with
     /// [`DomainError::OwnerApprovalRequired`], whose remedy is always the same
     /// — the owner enters the PIN.
+    ///
+    /// The one exception is the open shop (`ADR-039`): while the device has no
+    /// account, the approval has nothing to protect. It exists so a seller left
+    /// at an unattended till cannot cancel a sale or move stock; in an open shop
+    /// there is no seller, no second account and no PIN to type — only the owner,
+    /// standing at their own counter, who is already this session. So a sensitive
+    /// operation carries its own approval, and the audit names the open row as
+    /// both operator and approver, which is the truth.
     pub fn require_sensitivity(
         &self,
         sensitivity: Sensitivity,
@@ -99,6 +107,9 @@ impl Session {
     ) -> Result<Option<OwnerApproval>, DomainError> {
         match sensitivity {
             Sensitivity::Routine => Ok(None),
+            Sensitivity::Sensitive if self.is_open_mode() => {
+                Ok(Some(OwnerApproval::granted(self.user_id(), now)))
+            }
             Sensitivity::Sensitive => match self.owner_approval() {
                 Some(approval) if approval.is_fresh(now, OWNER_APPROVAL_TTL_MS) => {
                     Ok(Some(approval))

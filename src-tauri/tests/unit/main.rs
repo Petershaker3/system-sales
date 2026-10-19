@@ -69,7 +69,26 @@ fn facts() -> SessionFacts {
         must_change_password: false,
         disabled_at: None,
         owner_approval: None,
+        open_mode: false,
     }
+}
+
+/// The operator of a shop that has not claimed an account yet (`ADR-039`).
+///
+/// The `open_mode` flag is the whole difference between this and `facts()`: the
+/// row behind it is a real `users` row, and the flag is what lets the two approval
+/// axes answer for a device with no secret to prove.
+fn open_mode_facts() -> SessionFacts {
+    SessionFacts {
+        open_mode: true,
+        role: Role::Manager,
+        assurance: Assurance::Reauthenticated,
+        ..facts()
+    }
+}
+
+fn open_mode_session() -> Session {
+    Session::open(open_mode_facts(), at(0)).expect("an open session never expires on its own")
 }
 
 // ---------------------------------------------------------------------------
@@ -1580,6 +1599,61 @@ fn a_fresh_approval_is_handed_to_the_operation_that_will_spend_it() {
         .expect("a one-minute-old approval is fresh");
     assert_eq!(granted, Some(approval));
     assert_eq!(granted.map(|spent| spent.approved_by()), Some(owner));
+}
+
+#[test]
+fn an_open_shop_carries_its_own_approval_for_sensitive_work() {
+    // `ADR-039`: the owner-PIN approval protects the shop from a seller at an
+    // unattended till. A shop with no account has no seller and no PIN, so the
+    // approval is the session itself, and the audit names the open row on both
+    // sides — which is the truth rather than a gap.
+    let session = open_mode_session();
+    let granted = session
+        .require_sensitivity(Sensitivity::Sensitive, at(0))
+        .expect("a shop with no account is not kept from its own stock");
+    assert_eq!(
+        granted.map(|approval| approval.approved_by()),
+        Some(session.user_id()),
+        "the approver of an open shop is the open row itself"
+    );
+}
+
+#[test]
+fn an_open_shop_still_refuses_nothing_it_would_refuse_signed_in() {
+    // Routine work is unaffected: the open session must not claim an approval that
+    // was never asked for, or a sale would spend the shop's patience for nothing.
+    let session = open_mode_session();
+    assert_eq!(
+        session.require_sensitivity(Sensitivity::Routine, at(0)),
+        Ok(None)
+    );
+}
+
+#[test]
+fn an_open_session_authorizes_the_owner_screens_and_a_seller_s_one_still_needs_a_row() {
+    // The open row is a manager, so the screens a manager holds are open to it —
+    // including the three that ask for a freshly proven password, which is exactly
+    // why `open_mode` carries `Reauthenticated`: there is no password to prove yet.
+    let session = open_mode_session();
+    for permission in [
+        Permission::ManageSettings,
+        Permission::ManageUsers,
+        Permission::ViewCostAndProfit,
+        Permission::Sell,
+    ] {
+        assert_eq!(
+            session.authorize(permission),
+            Ok(()),
+            "an open shop must reach {permission:?}"
+        );
+    }
+    // The flag alone is not a role: a session that is not open and has not
+    // reauthenticated is still refused.
+    let signed_in = session_with(Assurance::Normal, None);
+    assert_eq!(
+        signed_in.authorize(Permission::ManageSettings),
+        Err(DomainError::ReauthenticationRequired)
+    );
 }
 
 #[test]

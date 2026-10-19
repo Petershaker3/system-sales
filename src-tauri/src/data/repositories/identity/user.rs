@@ -13,6 +13,9 @@ use crate::domain::identity::Timestamp;
 use crate::domain::identity::{CredentialVerifier, User, Username};
 
 /// How many accounts exist. The first-run gate is `count == 0`.
+///
+/// The open owner row of `ADR-039` counts here, because it is a row; the gate
+/// that asks "has anybody made an account" is [`count_claimed`].
 pub async fn count_all(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(conn)
@@ -64,6 +67,57 @@ pub async fn first_active_manager(
     }
 }
 
+/// The row that stands for a shop that is running before it has an account
+/// (`ADR-039`, migration `0029`).
+///
+/// There is at most one: it is written only when `users` is empty, and
+/// [`claim_open`] retires the flag for good. The display name travels with it so
+/// the top bar and the banner can name the operator without a second query.
+pub struct OpenRow {
+    pub id: UserId,
+    pub display_name: String,
+}
+
+/// The open account, or `None` once the shop has claimed it (or never had one).
+///
+/// `disabled_at IS NULL` belongs in the read rather than in the caller: a shop
+/// that disabled the open row by hand made an administrative decision, and
+/// answering "still open" would undo that decision on every later command.
+pub async fn find_open(conn: &mut SqliteConnection) -> Result<Option<OpenRow>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT id, display_name FROM users
+          WHERE provisional = 1 AND disabled_at IS NULL
+          ORDER BY created_at ASC, id ASC
+          LIMIT 1",
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    let Some(row) = row else { return Ok(None) };
+    let raw_id: String = row.get("id");
+    Ok(Some(OpenRow {
+        id: UserId::from_uuid(
+            raw_id
+                .parse()
+                .map_err(|_| sqlx::Error::Protocol("malformed user id in users".to_string()))?,
+        ),
+        display_name: row.get("display_name"),
+    }))
+}
+
+/// How many accounts somebody can sign in to: every account but the open row.
+///
+/// [`count_all`] counts rows, and the open row is a row. This is the count the
+/// lock screen and the setup gate ask about, because an account nobody can sign in
+/// with is not an account to the person standing at the counter.
+pub async fn count_claimed(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE provisional = 0")
+            .fetch_one(conn)
+            .await?;
+    Ok(count)
+}
+
 /// Map one `users` row onto the domain.
 ///
 /// Extracted because `find_by_id` and `list` were duplicating this exact parsing,
@@ -106,6 +160,34 @@ pub async fn insert(
     sqlx::query(
         "INSERT INTO users (id, display_name, role, verifier, failed_attempts, locked_until, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+    )
+    .bind(user.id.as_str())
+    .bind(&user.display_name)
+    .bind(user.role.as_str())
+    .bind(user.verifier.expose())
+    .bind(user.failed_attempts)
+    .bind(user.locked_until.map(|t| t.as_millis()))
+    .bind(now.as_millis())
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// Insert the open owner row (`ADR-039`).
+///
+/// Separate from [`insert`] because this is the only write permitted to set
+/// `provisional`: an account a person made, with a password they chose, is never
+/// open, and an open row is never anything else. Two INSERTs state that as a fact
+/// of the code; one INSERT with a flag parameter leaves it as a convention that a
+/// later caller can forget.
+pub async fn insert_open(
+    conn: &mut SqliteConnection,
+    user: &User,
+    now: Timestamp,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO users (id, display_name, role, verifier, failed_attempts, locked_until, created_at, updated_at, provisional)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1)",
     )
     .bind(user.id.as_str())
     .bind(&user.display_name)
@@ -311,6 +393,42 @@ pub async fn update_display_name(
         .execute(conn)
         .await?;
     Ok(())
+}
+
+/// Claim the open row (`ADR-039`): the name and password the owner typed, and
+/// the flag off, in one UPDATE.
+///
+/// One statement rather than three, because the intermediate states are all
+/// wrong: a row with a password that is still open could sign in *and* be treated
+/// as the open operator; a row that stopped being open before its verifier landed
+/// would leave the shop with an account nobody knows the password of.
+///
+/// `WHERE provisional = 1` is the gate. A second claim — another window, or a
+/// restore that raced the first — matches no row, and the caller reports that
+/// rather than overwriting an account that is already somebody's. The lockout
+/// counters are cleared in the same statement: attempts recorded against an open
+/// row were attempts at a password nobody could know, and carrying them into the
+/// claimed account would let a stranger's guesses lock the owner out on day one.
+pub async fn claim_open(
+    conn: &mut SqliteConnection,
+    id: UserId,
+    display_name: &str,
+    verifier: &CredentialVerifier,
+    now: Timestamp,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE users
+            SET display_name = ?2, verifier = ?3, provisional = 0,
+                failed_attempts = 0, locked_until = NULL, updated_at = ?4
+          WHERE id = ?1 AND provisional = 1",
+    )
+    .bind(id.as_str())
+    .bind(display_name)
+    .bind(verifier.expose())
+    .bind(now.as_millis())
+    .execute(conn)
+    .await?;
+    Ok(result.rows_affected() == 1)
 }
 
 /// Disable or re-enable an account.

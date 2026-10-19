@@ -30,6 +30,7 @@ import CategoriesCard from './CategoriesCard.vue';
 import DevicesPrinterCard from './DevicesPrinterCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
+import OwnerAccountCard from './OwnerAccountCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
@@ -53,6 +54,19 @@ function onPickTab(tab: SettingsViewTab): void {
 function showSection(tab: SettingsTabId): boolean {
   return isTabSectionVisible(activeTab.value, tab);
 }
+
+/**
+ * Jump to one tab (`ADR-039`).
+ *
+ * The shell's open-shop banner asks for الإعدادات ← المستخدمين والصلاحيات, where the
+ * owner account is made; a screen the shell already mounted has to be told, and a
+ * prop would be re-read on every render for a single tap.
+ */
+function openTab(tab: SettingsTabId): void {
+  activeTab.value = tab;
+}
+
+defineExpose({ openTab });
 
 async function onResetSettings(): Promise<void> {
   const catalogDefaults: Partial<Appearance> = {
@@ -174,6 +188,9 @@ async function onResetSettings(): Promise<void> {
 
         <!-- 4. المستخدمين والصلاحيات -->
         <div v-show="showSection('users')" class="s-sec" data-settings-panel="users">
+          <!-- First, because on a shop that has no account yet this is the only
+               thing here the owner came for (`ADR-039`). -->
+          <OwnerAccountCard />
           <DiscountLimitCard />
           <RecoveryCodeCard />
           <section class="card legacy-panel"><UserManagement /></section>

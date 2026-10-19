@@ -149,6 +149,14 @@ pub struct SessionFacts {
     /// when the operation is authorized, and one use — by a manager who is
     /// still active — when the operation commits.
     pub owner_approval: Option<OwnerApproval>,
+    /// Whether this session stands for a shop that has not claimed an account yet
+    /// (`ADR-039`).
+    ///
+    /// Not a persisted column: the `sessions` table has no such flag, because an
+    /// open shop has no session row to put it on. The one place that resolves the
+    /// open operator sets it, and it is what lets the two approval axes answer
+    /// for a device whose whole proof is "this is the shop's own computer".
+    pub open_mode: bool,
 }
 
 /// Policy constants, fixed by Product Owner decision on 2026-10-03.
@@ -170,6 +178,10 @@ pub struct Session {
     /// Private with an accessor, exactly as every other session field: a
     /// caller must not be able to declare itself approved.
     owner_approval: Option<OwnerApproval>,
+    /// The same rule as `owner_approval`: a session cannot claim to be open by
+    /// setting a flag. Only the facts handed to [`Session::open`] decide it, and
+    /// those facts are read from the database by a service (`ADR-039`).
+    open_mode: bool,
 }
 
 impl Session {
@@ -205,7 +217,17 @@ impl Session {
             absolute_expires_at: facts.absolute_expires_at,
             must_change_password: facts.must_change_password,
             owner_approval: facts.owner_approval,
+            open_mode: facts.open_mode,
         })
+    }
+
+    /// Whether this session is the open operator of a shop that has not claimed
+    /// an account yet (`ADR-039`).
+    ///
+    /// Read-only, like every other session fact: it is answered from the row a
+    /// service read, never from a flag a caller can raise.
+    pub fn is_open_mode(&self) -> bool {
+        self.open_mode
     }
 
     pub fn user_id(&self) -> UserId {

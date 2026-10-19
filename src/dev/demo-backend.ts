@@ -101,11 +101,38 @@ function drawCode(): string {
   return code;
 }
 
-const users: DemoUser[] = [
-  { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
-  { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
-  { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
-];
+// `ADR-039` in the browser demo: `npm run demo` + `?openShop=1` starts the way a
+// fresh device starts — the shop running on its own operator, no account claimed yet,
+// and the till already open. The decision is Rust's (`services/identity/open_mode.rs`);
+// this is the same shape, so the flow (banner → card → claim) can be tried without a
+// database. Without the query flag the demo is what it always was: three accounts and
+// a lock card.
+const openShop =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('openShop');
+
+/** The open operator: a manager row with no password anybody knows and no PIN. */
+const openOwner: DemoUser = {
+  id: 'u-open',
+  displayName: 'المالك',
+  username: 'user-open',
+  role: 'manager',
+  // Stands for the random secret the real row hashes: it exists so the row is an
+  // ordinary account, and no password a person types matches it.
+  password: 'no-password-is-known-for-the-open-row',
+  pin: null,
+  disabled: false,
+};
+
+/** False only in the open-shop demo, and only until the owner claims the row. */
+let claimed = !openShop;
+
+const users: DemoUser[] = openShop
+  ? [openOwner]
+  : [
+      { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
+      { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
+      { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
+    ];
 
 const cat = (id: string, name: string, parentId: string | null, kind: DemoCategory['kind'], icon: string, sortOrder: number, isDefault = true): DemoCategory => ({
   id,
@@ -338,6 +365,15 @@ function demoLuhn(imei: string): boolean {
   return sum % 10 === 0;
 }
 let approvedOnce = false;
+
+/**
+ * Whether a sensitive command may run without a fresh owner PIN.
+ *
+ * `ADR-039`: in the open-shop demo the operator is the owner, and Rust mints the
+ * approval for the open session itself, so nothing here waits for a PIN no account
+ * has. Everywhere else the shipped rule stands: one approval, spent once.
+ */
+const ownerApprovalHolds = () => approvedOnce || !claimed;
 interface DemoProductImage {
   productId: string;
   file: string;
@@ -1403,7 +1439,9 @@ const settings = {
   maxDiscountValue: 0,
 };
 
-let current: DemoUser | null = null;
+// An open shop has no sign-in to wait for: the shell opens on its own operator,
+// which is what `session::resolve` answers in Rust when there is no token.
+let current: DemoUser | null = openShop ? openOwner : null;
 let freshUntil = 0;
 
 const session = () =>
@@ -1832,7 +1870,28 @@ function buildDemoShortagesOverview() {
 
 const handlers: Record<string, (args: Args) => unknown> = {
   // identity
-  bootstrap_status: () => ({ needsSetup: false }),
+  // Three accounts exist in the demo data, so the shop is never open in the sense
+  // of `ADR-039`, and the claim has nothing to claim. Answered the way Rust answers a
+  // shop that already has an account, so the card in الإعدادات shows the same line a
+  // real second attempt would.
+  bootstrap_status: () => ({
+    needsSetup: false,
+    openMode: !claimed,
+    openDisplayName: claimed ? null : openOwner.displayName,
+  }),
+  // The claim in `ADR-039`: the same row, with a name and a password of its own.
+  claim_open_account: (args) => {
+    if (claimed) fail('BOOTSTRAP_ALREADY_COMPLETED');
+    const name = str(args, 'displayName').trim();
+    const password = str(args, 'password');
+    if (name === '') fail('DISPLAY_NAME_REQUIRED');
+    if (password.length < 8) fail('PASSWORD_DOES_NOT_MEET_POLICY');
+    openOwner.displayName = name;
+    openOwner.password = password;
+    claimed = true;
+    freshUntil = 0;
+    return session();
+  },
   whoami: () => session(),
   list_users_for_picker: () =>
     users.map((u) => ({
@@ -1918,6 +1977,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
   password_change_required: () => false,
   reauthenticate: (args) => {
     const user = requireUser();
+    // `ADR-039`: an open shop has no password to prove, and its session already holds
+    // the level this call exists to grant. Rust answers the same way.
+    if (!claimed) return 'reauthenticated';
     if (user.password !== str(args, 'password')) fail('INVALID_CREDENTIALS');
     freshUntil = now() + 5 * 60_000;
     return 'reauthenticated';
@@ -2156,7 +2218,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
 
     const limitPct = Number(appearance.discountLimitPct ?? '5');
     if (totalDiscount > 0 && totalDiscount * 100 > grossSubtotal * limitPct) {
-      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
       approvedOnce = false;
     }
 
@@ -2336,7 +2398,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   cancel_sale: (args) => {
     const user = requireManager(false);
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
 
     const saleId = str(args, 'saleId').trim();
@@ -2640,7 +2702,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   record_sale_return: (args) => {
     const user = requireUser();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
 
     const saleId = (str(args, 'originalSaleId') || str(args, 'saleId')).trim();
@@ -2949,7 +3011,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   record_sale_exchange: (args) => {
     requireUser();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     // Keep approvedOnce = true for the inner record_sale_return call, and also allow any discount in the new sale
     const returnOutcome = handlers['record_sale_return']!({
       saleId: args?.['originalSaleId'],
@@ -3317,7 +3379,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   receive_opening_stock: (args) => {
     requireManager();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     return handlers['receive_stock']!(args);
   },
@@ -3369,7 +3431,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   reconcile_stock_count: (args) => {
     requireManager();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     const rawItems = Array.isArray(args?.['items']) ? (args['items'] as Record<string, unknown>[]) : [];
     let adjustedProducts = 0;
@@ -3591,7 +3653,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const payoutFromDrawer = Boolean(args?.['payoutFromDrawer']);
     if (isOpeningStock) {
       requireManager();
-      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
       approvedOnce = false;
     }
     const category =
@@ -4368,7 +4430,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   restore_saved_backup: (args) => {
     requireManager(false);
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     const backupId = str(args, 'backupId').trim();
     const found =

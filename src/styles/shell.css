@@ -42,6 +42,19 @@
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; display: inline-block; }
 .content { flex: 1; min-height: 0; overflow: auto; }
 
+/* ===== المحل شغال من غير حساب (ADR-039) =====
+   Under the top bar, above the screen: a line and one button. It never covers the
+   till and never repeats — the owner dismisses it by making the account. */
+.open-note {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 16px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
+  color: var(--text-2); font-size: .84rem; line-height: 1.4;
+}
+.open-note svg.i { width: 17px; height: 17px; flex: none; color: var(--warn); }
+.open-note .t { min-width: 0; }
+.open-note .btn { margin-inline-start: auto; flex: none; }
+
 /* المستخدم فوق + قايمة التبديل */
 .user-switch { position: relative; flex: none; }
 .user-chip {

@@ -20,7 +20,7 @@
 // The frontend never decides *authorisation*; it only reflects what Rust
 // reports. Hiding a screen is presentation, not security (`spec:210`).
 
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import * as api from './api/identity';
 import { describeError } from './api/errors';
 import type { Session, UserSummary } from './api/identity';
@@ -30,11 +30,17 @@ import AppShell from './shell/AppShell.vue';
 import ApprovalPrompt from './shell/ApprovalPrompt.vue';
 import { dismissApproval, pendingApproval } from './shell/approval';
 import LockCard from './shell/LockCard.vue';
+import { openMode, readOpenMode } from './shell/open-mode';
 import PinSetup from './shell/PinSetup.vue';
 import RecoveryCodeShow from './shell/RecoveryCodeShow.vue';
 import Toasts from './ui/Toasts.vue';
 import { clearToasts, toast } from './ui/toast';
 
+// State 1 is no longer a gate. A shop with no account opens on its own operator
+// (`ADR-039`), so `decideView` never stops for a form on a first launch; the
+// account is made afterwards, from الإعدادات ← المستخدمين والصلاحيات. The `setup`
+// view remains as the fallback for the one start-up where the open account could
+// not be made at all, which is an error state and not a welcome screen.
 type View = 'loading' | 'setup' | 'login' | 'forced-change' | 'shell';
 
 const view = ref<View>('loading');
@@ -72,6 +78,7 @@ function report(err: unknown): void {
 async function decideView(): Promise<void> {
   try {
     const status = await api.bootstrapStatus();
+    readOpenMode(status);
     if (status.needsSetup) {
       view.value = 'setup';
       return;
@@ -112,6 +119,30 @@ async function loadUsers(): Promise<void> {
     report(err);
   }
 }
+
+/**
+ * Read the operator again after open mode ended (`ADR-039`).
+ *
+ * Claiming the open row signs the owner in with their new password, so the
+ * session the shell is holding has been replaced underneath it: the name on the
+ * chip and the list on the lock card are the ones to refresh. Nothing here
+ * grants anything — `whoami` asks Rust, as always.
+ */
+async function reloadAfterClaim(): Promise<void> {
+  try {
+    const current = await api.whoami();
+    if (current !== null) session.value = current;
+  } catch {
+    // The claim succeeded even if the re-read failed; the next sign-in settles it.
+  }
+  await loadUsers();
+}
+
+// The card in الإعدادات flips the flag when it claims the account; the shell's
+// chip and lock affordances follow that, rather than the card reaching up to them.
+watch(openMode, (next, previous) => {
+  if (previous.active && !next.active) void reloadAfterClaim();
+});
 
 async function submitSetup(): Promise<void> {
   busy.value = true;
@@ -169,7 +200,10 @@ async function afterSignIn(method: 'pin' | 'password'): Promise<void> {
 
 /** Lock the screen: cover it first, then end the session. */
 async function lockScreen(): Promise<void> {
-  if (locked.value || view.value !== 'shell') return;
+  // Nothing to lock while the shop runs without an account (`ADR-039`): the lock
+  // ends a session, and there is no session row to end — the card would open on a
+  // list of accounts that signs nobody in.
+  if (locked.value || view.value !== 'shell' || openMode.value.active) return;
   locked.value = true;
   pinSetup.value = null;
   dismissApproval();
@@ -190,6 +224,7 @@ async function lockFor(userId: string): Promise<void> {
 }
 
 async function signOut(): Promise<void> {
+  if (openMode.value.active) return;
   busy.value = true;
   error.value = '';
   try {
@@ -257,7 +292,7 @@ async function afterSignOut(): Promise<void> {
 
 /** Ctrl+L locks from anywhere in the shell (the mockup's shortcut). */
 function onGlobalKey(event: KeyboardEvent): void {
-  if (view.value !== 'shell' || locked.value) return;
+  if (view.value !== 'shell' || locked.value || openMode.value.active) return;
   if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === 'KeyL') {
     event.preventDefault();
     event.stopPropagation();

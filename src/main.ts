@@ -22,11 +22,17 @@ import './styles/lock.css';
 import './styles/toast.css';
 import './styles/legacy.css';
 import './styles/motion.css';
+import './styles/mobile.css';
 
 import App from './App.vue';
+import { markDevice } from './shell/device';
 import { startAppearance } from './ui/appearance';
 
 async function boot(): Promise<void> {
+  // Before the first frame: the shell asks which screen to open on, and a layout
+  // that changed after mount would be a visible jump.
+  markDevice();
+
   if (import.meta.env.VITE_DEMO === '1') {
     const demo = await import('./dev/demo-backend');
     demo.install();

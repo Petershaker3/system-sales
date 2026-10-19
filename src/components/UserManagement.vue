@@ -15,6 +15,7 @@ import * as lifecycle from '../api/lifecycle';
 import * as identity from '../api/identity';
 import { asCommandError, describeError } from '../api/errors';
 import { toLatinDigits } from '../ui/format';
+import { skipsPasswordReauth } from '../shell/open-mode';
 import type { ManagedUser, Role } from '../api/lifecycle';
 
 const emit = defineEmits<{ reauthenticated: [] }>();
@@ -33,6 +34,15 @@ const busy = ref(false);
  * care whether re-authentication already happened.
  */
 async function withReauth(action: () => Promise<void>): Promise<void> {
+  if (skipsPasswordReauth()) {
+    // `ADR-039`: a shop that has not claimed an account has no password to prove,
+    // and its session already stands at the assurance this modal exists to reach.
+    // Rust decides that; this only keeps the panel from demanding a secret the shop
+    // has not got — and from refusing the action when the operator has nothing to
+    // type into it.
+    await action();
+    return;
+  }
   pendingAction.value = action;
   reauthPassword.value = '';
   error.value = '';

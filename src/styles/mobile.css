@@ -1,0 +1,132 @@
+/* واجهة الموبايل — عرض الموبايل (ADR-039 §الموبايل).
+   كل ما هنا إعادة ترتيب للأجزاء الموجودة فعلًا (`.shell`, `.rail`, `.pos`, `.modal`) على
+   شاشة ضيقة: مفيش شاشة جديدة ومفيش مكوّن جديد، عشان البيّاع والمالك يشوفوا نفس السيستم
+   بنفس الألوان والخط، بس بمقاس يبقى مقروء في الإيد.
+   القواعد شغّالة على الموبايل الحقيقي (pointer خشن لحد 1000px) وعلى أي نافذة ضيقة (760px)،
+   لأن اللي بيحدد التخطيط هو المساحة المتاحة. الأذونات دي قرار في Rust ومش هنا. */
+
+@media (max-width: 760px), (max-width: 1000px) and (pointer: coarse) {
+  /* ===== 1· الإطار: الـ rail بقى شريط تحت الإبهام ===== */
+  .shell {
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+    padding: 0 env(safe-area-inset-left) 0 env(safe-area-inset-right);
+  }
+  .main { flex: 1 1 auto; min-height: 0; }
+  .rail {
+    order: 2; flex-direction: row; align-items: stretch; gap: 2px; min-height: 0; flex: none;
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
+    border-inline-end: 0; border-top: 1px solid var(--border);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail .logo, .rail .sp { display: none; }
+  /* «الدليل» زر فوق، والشكل (فاتح/غامق) في الإعدادات ← الشكل: الشريط التحتاني
+     للمحل نفسه، ومش لحاجة الاتنين ملزقين في بعض. */
+  .rail [data-rail-guide-btn], .rail .nav-btn[title="فاتح / غامق"] { display: none; }
+  .nav-btn {
+    width: auto; min-width: 0; flex: 1 1 0; padding: 6px 4px 5px; gap: 2px; font-size: .7rem;
+  }
+  .nav-btn svg.i { width: 21px; height: 21px; }
+  .nav-btn .lock-badge { top: 2px; inset-inline-start: 8px; }
+  .content { overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+
+  /* ===== 2· الشريط العلوي: عنوان، وردية، وحساب ===== */
+  /* سطر للعنوان وللحساب اللي شغال، وسطر تحته أزرار الوردية والدليل: الشريط مكانه
+     فوق، مش اتنين شريط فوق بعض. */
+  .topbar { height: auto; min-height: 48px; padding: 6px 10px; gap: 6px; flex-wrap: wrap; z-index: 25; }
+  .topbar .sp { display: none; }
+  .topbar h1 { font-size: 1.12rem; order: 0; }
+  .topbar .user-switch { order: 1; margin-inline-start: auto; }
+  .topbar .status, .topbar .btn { order: 2; }
+  /* الدليل ومصروف الدرج أيقونة بس (عنوانينهم في الـ tooltip وفي الشاشات نفسها)،
+     فالسطر يفضل سطر واحد والوردية هي الزرار اللي له اسم. */
+  .topbar [data-open-system-guide] span, .topbar [data-open-drawer-expense] span { display: none; }
+  .topbar [data-open-system-guide], .topbar [data-open-drawer-expense] { padding: 0 9px; }
+  .topbar .shop { font-size: .78rem; }
+  .topbar .status { font-size: .74rem; padding: 3px 7px; gap: 4px; }
+  /* الساعة وحالة الطابعة والإيصال: تفاصيل تُقرأ من الإعدادات، ومش حاجة تتزاحم بيها فوق
+     شاشة بيع في الإيد. حالة الوردية هي الوحيدة اللي بتهم كل حركة. */
+  .topbar .status:not([data-topbar-shift-status]):not(.fresh-tag) { display: none; }
+  .topbar .btn.sm { min-height: 34px; padding: 0 9px; font-size: .78rem; }
+  .topbar .user-chip { padding: 3px 7px 3px 5px; }
+  .topbar .user-chip .who { font-size: .82rem; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sw-menu { width: min(276px, 92vw); }
+  .open-note { padding: 6px 10px; gap: 8px; font-size: .78rem; }
+  .open-note .btn { min-height: 34px; }
+
+  /* ===== 3· الصفحات ===== */
+  .page { padding: 12px 12px 24px; gap: 12px; }
+  .page-h { gap: 6px; }
+  .page-h h2 { font-size: 1.08rem; }
+  .page-h .sub { font-size: .8rem; width: 100%; }
+  .s-nav button { padding: 8px 10px; font-size: .8rem; }
+  .s-row { padding: 10px 0; }
+  .s-row .t { min-width: 0; }
+  .sv-t { font-size: .82rem; }
+  .empty-state { padding: 24px 12px; }
+
+  /* ===== 4· البيع: الأصناف فوق والفاتورة تحت، والزر كبير كفاية لإصبع ===== */
+  .pos { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .catalog { padding: 10px 12px 0; gap: 8px; }
+  .search-box { height: 46px; padding: 0 12px; gap: 8px; }
+  .search-box input { font-size: max(16px, 1rem); }
+  /* البحث بيتثبّت فوق: دي أول حاجة بيبحث عنها الكاشير، ومفيش حاجة تحتها غير
+     الأصناف — ومفيش مبرر إن اللفة تنزّلها من الشاشة. */
+  .search-row {
+    position: sticky; top: 0; z-index: 8; flex-wrap: wrap; gap: 8px;
+    padding-block: 8px; background: var(--bg);
+  }
+  .search { flex: 1 1 100%; }
+  .search-row > .btn { flex: 1 1 auto; min-width: 0; min-height: 38px; padding: 0 8px; font-size: .76rem; }
+  .svc-btn { min-height: 46px; padding: 0 12px; font-size: .84rem; }
+  .results { max-height: 48vh; }
+  .tiles { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; padding-bottom: 10px; }
+  .tile { min-height: 100px; padding: 9px; gap: 6px; }
+  .tile .ico.img { width: 42px; height: 42px; }
+  .tile .name { font-size: .86rem; }
+  /* الفاتورة مش بتتخنق في نص شاشة: الصفحة كلها بتتلف، والزرار الكبير بيلزق تحت. */
+  .pos-wrap { grid-template-rows: auto auto; height: auto; min-height: 100%; }
+  .tiles { flex: none; overflow: visible; }
+  .cart { border-inline-start: 0; border-top: 1px solid var(--border); max-height: none; }
+  .lines { flex: none; min-height: 96px; overflow: visible; }
+  .cart-actions {
+    position: sticky; bottom: 0; z-index: 6; margin-top: 2px;
+    background: var(--surface); border-top: 1px solid var(--border);
+  }
+  .cart-actions { grid-template-columns: 1fr 1fr; padding: 6px 10px calc(10px + env(safe-area-inset-bottom)); gap: 6px; }
+  .cart-actions .btn { min-height: 42px; }
+  .cart-actions .btn-pay { height: 54px; font-size: 1.06rem; }
+  /* اختصارات الكيبورد (F2، /، Enter، Ctrl+L) ملهاش معنى من غير كيبورد: القايمة
+     كلها مستخبية، غير اللي في «الدليل» — دي شرح مش زرار. */
+  .keys-bar, .topbar kbd, .search-box kbd, .cart-actions kbd, .modal kbd, .result .enter, .lock-card kbd {
+    display: none;
+  }
+
+  /* ===== 5· النوافذ: بتفتح من تحت وبتقفل على الشاشة ===== */
+  .overlay { padding: 0; align-items: flex-end; place-items: stretch; }
+  .modal, .modal.sm, .modal.md, .modal.wide {
+    width: 100%; max-width: none; max-height: 92dvh; border-radius: var(--r-l) var(--r-l) 0 0;
+    border-inline: 0; border-block-end: 0; padding-bottom: env(safe-area-inset-bottom);
+  }
+  .modal-h, .modal-b, .modal-f { padding-inline: 14px; }
+  .modal .inline-search { min-width: 0; width: 100%; }
+  .cust-list { max-height: 40vh; }
+
+  /* ===== 6· زرار وحقل بمقاس صباع ===== */
+  .btn { min-height: 40px; }
+  .btn.sm { min-height: 34px; }
+  .icon-btn { min-width: 38px; min-height: 38px; }
+  .field input, .field select, .field textarea, .inline-search input { font-size: max(16px, 1rem); }
+  .seg, .chips { flex-wrap: wrap; }
+
+  /* ===== 7· القفل والـ PIN ===== */
+  .lock { padding: 14px; }
+  .lock-card { width: min(540px, 100%); padding: 18px 16px 20px; }
+  .lock-card h1 { font-size: 1.25rem; }
+  .users { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .user-card { padding: 12px 6px 10px; }
+
+  /* ===== 8· معاينة الموبايل المساعد ===== */
+  .phones { flex-direction: column; align-items: center; gap: 14px; }
+  .phone { width: min(288px, 100%); }
+}
