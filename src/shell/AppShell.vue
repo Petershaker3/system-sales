@@ -63,6 +63,13 @@ const initialScreen = (): ScreenId => {
     ).__MSHOP_INITIAL_SCREEN__;
     if (requested) return requested;
   }
+  if (
+    typeof navigator !== 'undefined' &&
+    !navigator.webdriver &&
+    /Android/i.test(navigator.userAgent)
+  ) {
+    return 'mobile';
+  }
   return 'pos';
 };
 const screen = ref<ScreenId>(initialScreen());

@@ -6,9 +6,10 @@
 # can open: the frontend type-checks and builds, the Rust code compiles, and the
 # whole Rust test suite passes (`AGENTS.md`: no claim without a recorded log).
 #
-# Minutes: the two Linux jobs run on every push. The Windows job (the real
-# target, 2x minutes) runs only when the commit message contains `[windows]`
-# or when started by hand, and it also builds the installer the owner can try.
+# Minutes: the two Linux jobs run on every push. The Windows installer job and
+# the Android APK job run when the commit message contains `[windows]`,
+# `[android]`, or `[release]`, or when started via `workflow_dispatch`, and
+# automatically publish the latest `.exe` and `.apk` to GitHub Releases.
 
 name: CI
 
@@ -23,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   # The compiler pinned in rust-toolchain.toml. Set here so rustup does not
@@ -91,7 +92,7 @@ jobs:
 
   windows:
     name: Windows (cargo test + installer)
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[windows]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[windows]') || contains(github.event.head_commit.message, '[release]')
     runs-on: windows-2022
     timeout-minutes: 90
     env:
@@ -131,3 +132,84 @@ jobs:
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 30
+
+  android:
+    name: Android (APK aarch64)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android]') || contains(github.event.head_commit.message, '[windows]') || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RUSTUP_TOOLCHAIN: '1.98.1'
+    steps:
+      - uses: actions/checkout@v5
+      - name: System libraries Tauri CLI links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Android NDK & SDK Platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "ndk;28.2.13676358" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/28.2.13676358" >> "$GITHUB_ENV"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Rust ${{ env.RUST_VERSION }} + aarch64-linux-android
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target aarch64-linux-android --no-self-update
+          rustc --version
+          cargo --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build frontend
+        run: npm ci && npm run build
+      - name: Init & build Android APK (aarch64)
+        run: |
+          npx tauri android init --ci
+          npx tauri android build --debug --target aarch64 --apk 2>&1 | tee android.log; exit ${PIPESTATUS[0]}
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-shop-system-android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish Latest Release (.exe + .apk)
+    needs: [windows, android]
+    if: always() && (needs.windows.result == 'success' || needs.android.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Publish to GitHub Release v1.0.0-latest
+        run: |
+          mkdir -p dist-release
+          find release-assets -type f \( -name "*.exe" -o -name "*.apk" \) -exec cp -v {} dist-release/ \;
+          ls -lh dist-release/
+          git tag -f v1.0.0-latest "${{ github.sha }}"
+          git push origin -f v1.0.0-latest
+          if gh release view v1.0.0-latest >/dev/null 2>&1; then
+            gh release upload v1.0.0-latest dist-release/* --clobber
+          else
+            gh release create v1.0.0-latest dist-release/* \
+              --title "Mobile Shop System v1.0.0 (Windows .exe + Android .apk)" \
+              --notes "Latest automated build of Mobile Shop System (Phases 1–4 + In-App System Guide) for Windows Desktop (.exe) and Android (.apk)."
+          fi
