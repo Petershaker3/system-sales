@@ -1100,10 +1100,12 @@ onMounted(async () => {
               </button>
             </div>
 
-            <label class="switch" data-intake-deliver-now>
-              <input v-model="intakeDeliverNow" type="checkbox" />
-              <span class="track"><span class="thumb"></span></span>
-              <span class="small">اتسلّمت في ساعتها (تحصيل فوري)</span>
+            <label class="switch-field" data-intake-deliver-now>
+              <span class="switch">
+                <input v-model="intakeDeliverNow" type="checkbox" />
+                <span></span>
+              </span>
+              <span class="cap">اتسلّمت في ساعتها (تحصيل فوري)</span>
             </label>
           </div>
 

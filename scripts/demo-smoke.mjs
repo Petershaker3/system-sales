@@ -2235,6 +2235,19 @@ check(
   // Register an opening-stock used phone («المستعمل اللي في المحل يوم البداية») with owner PIN approval
   await page.click('[data-open-used-phone]');
   await page.waitForSelector('[data-used-opening-toggle]', { timeout: 3000 });
+  check(
+    'the opening-stock toggle is a row with its caption beside the switch, not over the form',
+    await page.evaluate(() => {
+      const cap = document.querySelector('[data-used-opening-toggle] .cap');
+      const first = document.querySelector('.modal .field');
+      if (cap === null || first === null) return false;
+      const c = cap.getBoundingClientRect();
+      const f = first.getBoundingClientRect();
+      // The caption must have a place of its own: a caption painted as the switch's
+      // track sits inside a 44×26 box, and its text then covers the first field.
+      return c.height > 14 && c.bottom <= f.top + 1;
+    }),
+  );
   await page.click('[data-used-opening-toggle]');
   await page.click('[data-grade="B"]');
   await page.type('#nu-model', 'Galaxy A34');

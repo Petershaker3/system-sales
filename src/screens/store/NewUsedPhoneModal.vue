@@ -403,15 +403,19 @@ onMounted(load);
 
     <!-- Opening stock / drawer payout mode bar (when not inside POS trade-in) -->
     <div v-if="mode !== 'tradein'" class="used-mode-bar">
-      <label class="switch" data-used-opening-toggle>
-        <input v-model="isOpeningStock" type="checkbox" />
-        <span class="track"><span class="thumb"></span></span>
-        <span>من المستعمل اللي في المحل يوم البداية (رصيد افتتاحي بـ PIN المالك)</span>
+      <label class="switch-field" data-used-opening-toggle>
+        <span class="switch">
+          <input v-model="isOpeningStock" type="checkbox" />
+          <span></span>
+        </span>
+        <span class="cap">من المستعمل اللي في المحل يوم البداية (رصيد افتتاحي بـ PIN المالك)</span>
       </label>
-      <label v-if="!isOpeningStock" class="switch" data-used-drawer-toggle>
-        <input v-model="payoutFromDrawer" type="checkbox" />
-        <span class="track"><span class="thumb"></span></span>
-        <span>صرف ثمن الشراء من درج الوردية المفتوحة</span>
+      <label v-if="!isOpeningStock" class="switch-field" data-used-drawer-toggle>
+        <span class="switch">
+          <input v-model="payoutFromDrawer" type="checkbox" />
+          <span></span>
+        </span>
+        <span class="cap">صرف ثمن الشراء من درج الوردية المفتوحة</span>
       </label>
     </div>
 
