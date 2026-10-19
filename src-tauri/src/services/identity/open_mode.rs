@@ -232,9 +232,11 @@ pub async fn session(pool: &SqlitePool) -> Result<Option<Session>, DomainError> 
             issued_at: now,
             last_seen_at: now,
             absolute_expires_at: now.plus_millis(ABSOLUTE_LIFETIME_MS),
-            // Neither flag can be true of a row nobody claimed: `must_change_password`
-            // is only ever set by a manager's reset, and `disabled_at` only by an
-            // administrative decision, which `find_open` already honoured.
+            // Neither flag can be true of a row nobody claimed, and that is now two
+            // facts deep rather than luck: `must_change_password` is only ever set by
+            // a manager's reset, which refuses the open row through
+            // [`ensure_is_account`], and `disabled_at` only by an administrative
+            // decision, which `find_open` already honoured.
             must_change_password: false,
             disabled_at: None,
             owner_approval: None,
