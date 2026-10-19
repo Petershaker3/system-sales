@@ -11,8 +11,9 @@ use uuid::Uuid;
 
 use crate::data::repositories::settings::app_settings as repo;
 use crate::domain::companion::{
-    format_pair_payload, CompanionScanItem, CompanionStatus, PairedDevice, COMPANION_DEVICES_KEY,
-    COMPANION_PAIR_CODE_KEY, COMPANION_SCANS_KEY, DEFAULT_COMPANION_PORT,
+    format_pair_payload, format_remote_payload, CompanionScanItem, CompanionStatus, PairedDevice,
+    COMPANION_DEVICES_KEY, COMPANION_PAIR_CODE_KEY, COMPANION_REMOTE_CODE_KEY,
+    COMPANION_REMOTE_ENABLED_KEY, COMPANION_SCANS_KEY, DEFAULT_COMPANION_PORT,
 };
 use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::services::identity::secure_store::SecureTokenStore;
@@ -125,6 +126,17 @@ async fn build_status(
     let host_ip = detect_local_lan_ip();
     let port = DEFAULT_COMPANION_PORT;
     let pair_payload = format_pair_payload(&appearance.shop_name, &host_ip, port, &pair_code);
+    let remote_enabled = repo::get(conn, COMPANION_REMOTE_ENABLED_KEY)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .map(|v| v == "on")
+        .unwrap_or(false);
+    let remote_code = repo::get(conn, COMPANION_REMOTE_CODE_KEY)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .unwrap_or_else(|| "RMT-9042".to_string());
+    let remote_payload = format_remote_payload(&appearance.shop_name, &remote_code);
+    let last_remote_sync_at = if remote_enabled { Some(now_ms) } else { None };
     Ok(CompanionStatus {
         host_ip,
         port,
@@ -133,6 +145,10 @@ async fn build_status(
         running: true,
         paired_devices: devices,
         pending_scans: scans,
+        remote_enabled,
+        remote_code,
+        remote_payload,
+        last_remote_sync_at,
     })
 }
 
@@ -314,3 +330,30 @@ pub async fn consume_scans(
     .map_err(|_| DomainError::StorageUnavailable)?;
     Ok(matched)
 }
+
+/// Enable or disable the optional read-only remote follow-up relay for the owner (`ADR-038`).
+pub async fn set_remote_follow_up(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    enabled: bool,
+) -> Result<CompanionStatus, DomainError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageCatalog)?;
+    let now_ms = Timestamp::now().as_millis();
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let val = if enabled { "on" } else { "off" };
+    repo::set(
+        &mut conn,
+        COMPANION_REMOTE_ENABLED_KEY,
+        val,
+        &session.user_id().as_str(),
+        now_ms,
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+    build_status(&mut conn, now_ms).await
+}
+

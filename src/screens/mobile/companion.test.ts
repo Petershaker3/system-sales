@@ -8,8 +8,10 @@ import type { ProductUnit } from '../../api/inventory.ts';
 import type { PosProduct } from '../../api/pos.ts';
 import type { SaleHistoryEntry } from '../../api/sales.ts';
 import {
+  buildEtaEReceiptDraft,
   buildMobileSalesSnapshot,
   buildPairingQrMatrix,
+  buildRemoteOwnerSnapshot,
   filterMobileLookupProducts,
   resolveMobileScanToPos,
 } from './companion.ts';
@@ -147,5 +149,44 @@ describe('LAN Companion & Mobile Helper (Plan 3.2 / ADR-037)', () => {
     const qr = buildPairingQrMatrix('MSHOP-PAIR|v1|سنتر بيتر|192.168.1.10:8787|PAIR-8787');
     assert.equal(qr.length, 21);
     assert.equal(qr[0]![0], true);
+  });
+
+  it('builds Phase 4 remote owner snapshot with separate repair/software money and canonical ETA e-Receipt v1.2 draft', () => {
+    const remote = buildRemoteOwnerSnapshot({
+      shopName: 'سنتر بيتر للموبايلات',
+      remoteCode: 'RMT-9042',
+      remoteEnabled: true,
+      salesMinor: 1_925_900,
+      invoicesCount: 9,
+      profitMinor: 429_620,
+      hardwareRevenueMinor: 415_000,
+      softwareRevenueMinor: 55_000,
+      expectedDrawerCashMinor: 275_920,
+      shiftNumber: 2,
+    });
+    assert.equal(remote.remoteEnabled, true);
+    assert.equal(remote.hardwareRevenueMinor, 415_000);
+    assert.equal(remote.softwareRevenueMinor, 55_000);
+
+    const draft = buildEtaEReceiptDraft({
+      receiptNumber: 'INV-20261019-0009',
+      issuedAtMs: 1_760_875_200_000,
+      lines: [
+        {
+          itemCode: 'EG-2000000000015',
+          description: 'شاحن سامسونج 25 وات',
+          quantity: 1,
+          unitPriceMinor: 45_000,
+          discountMinor: 0,
+          netTotalMinor: 45_000,
+        },
+      ],
+      invoiceDiscountMinor: 5_000,
+    });
+    assert.equal(draft.receiptType, 'S');
+    assert.equal(draft.typeVersion, '1.2');
+    assert.equal(draft.totalMinor, 40_000);
+    assert.equal(draft.taxMinor, 0);
+    assert.equal(draft.canonicalHashHex.length, 32);
   });
 });

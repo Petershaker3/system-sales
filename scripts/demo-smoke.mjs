@@ -1798,6 +1798,15 @@ check(
     (await text('[data-companion-host-address]')).includes(':8787')
 );
 
+await page.click('[data-remote-followup-toggle]');
+await sleep(200);
+check(
+  'Enabling «مرحّل المتابعة البعيدة للمالك» in «الأجهزة والطابعة» reveals the encrypted read-only remote QR code',
+  (await count('[data-remote-followup-card]')) === 1 &&
+    (await count('[data-remote-qr]')) === 1 &&
+    (await text('[data-remote-followup-card]')).includes('RMT-9042')
+);
+
 // Restore printerEnabled to off and switch back to all settings sections
 await page.click('[data-devices-printer-toggle]');
 await sleep(150);
@@ -2463,6 +2472,18 @@ check(
       (await text('[data-mobile-screen]')).includes('مفيش قاعدة بيانات على الموبايل')
   );
   await shot('62-mobile-companion');
+
+  await page.click('[data-mobile-mode="remote"]');
+  await sleep(200);
+  const remoteSummaryTxt = await text('[data-mobile-remote-summary]');
+  check(
+    'Switching Mobile Companion to «من برّه المحل (للمالك)» displays separate repair & software money and drawer cash',
+    remoteSummaryTxt.includes('فلوس الصيانة لوحدها') &&
+      remoteSummaryTxt.includes('فلوس السوفت وير لوحدها') &&
+      remoteSummaryTxt.includes('المفروض في الدرج'),
+    remoteSummaryTxt
+  );
+  await shot('63-mobile-remote-owner');
 
   await page.click('[data-mobile-scan-acc]');
   await sleep(250);

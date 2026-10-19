@@ -74,3 +74,12 @@ pub async fn consume_companion_scans(
 ) -> Result<Vec<CompanionScanItem>, CompanionCommandError> {
     Ok(use_cases::consume_scans(&ctx.pool, ctx.tokens.as_ref(), &target).await?)
 }
+
+#[tauri::command]
+pub async fn set_companion_remote(
+    ctx: Ctx<'_>,
+    enabled: bool,
+) -> Result<CompanionStatus, CompanionCommandError> {
+    Ok(use_cases::set_remote_follow_up(&ctx.pool, ctx.tokens.as_ref(), enabled).await?)
+}
+

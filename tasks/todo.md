@@ -282,10 +282,12 @@
     - الباك إند (`domain/companion.rs`, `services/companion.rs`, `commands/companion.rs`, `lib.rs`): `spawn_lan_companion_listener`, `companion_overview`, `pair_companion_device`, `unpair_companion_device`, `push_companion_scan`, `consume_companion_scans` مع اختبارات الوحدة والتكامل والمعمارية.
     - الواجهة (`src/api/companion.ts`, `src/screens/mobile/companion.ts`, `companion.test.ts`, `MobileCompanionScreen.vue`, `DevicesPrinterCard.vue`, `AppShell.vue`, `PosScreen.vue`).
 
-## المرحلة 4
+## المرحلة 4 — الامتثال والوصول البعيد
 
-في `docs/PLAN.md` §19:
-- **المرحلة 4:** الامتثال والوصول البعيد.
+- [x] **4.1 مرحِّل المتابعة البعيدة للمالك وتجهيز الإيصال الإلكتروني (`Remote Owner Follow-up & ETA e-Receipt Readiness`)** (`docs/PLAN.md` §15 و§18 و§19، `ADR-016` #1 و#13 و#15)
+  - **البوابة:** بدون تعديل في قاعدة البيانات (تستخدم `companion.remote_enabled` و`companion.remote_code` في `app_settings`، وإعدادات الضرائب الافتراضية المخفية في `SettingsSnapshot`).
+  - **القبول:** تفعيل وإيقاف «المتابعة من برّه المحل (للمالك)» في `الأجهزة والطابعة` (`set_companion_remote` للمالك فقط) مع كود QR للربط البعيد (`MSHOP-REMOTE|v1|...`)؛ ووضع «من برّه المحل (للمالك)» في شاشة «تطبيق الموبايل» يعرض مبيعات اللحظة والربح و**فلوس الصيانة لوحدها** و**فلوس السوفت وير لوحدها** والمفروض في الدرج وأرصدة المحافظ (قراءة فقط مشفّرة)؛ ومولّد مسودة الإيصال الإلكتروني القياسي (`build_eta_ereceipt_draft` v1.2 + بصمة `SHA-256`) جاهز لبيئة المصلحة التجريبية عند الإلزام مع بقاء الإعدادات الضريبية مخفية عن الواجهة اليومية.
+  - **التصميم:** [`ADR-038`](../docs/decisions/ADR-038-remote-owner-followup-and-eta-ereceipt.md).
 
 ---
 

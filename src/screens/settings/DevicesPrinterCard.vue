@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue';
 import {
   companionOverview,
   pairCompanionDevice,
+  setCompanionRemote,
   unpairCompanionDevice,
   type CompanionStatus,
 } from '../../api/companion';
@@ -43,8 +44,31 @@ const qrMatrix = computed(() =>
   ),
 );
 
+const remoteQrMatrix = computed(() =>
+  buildPairingQrMatrix(
+    companion.value?.remotePayload ??
+      `MSHOP-REMOTE|v1|${appearance.shopName || 'موبايل ستور'}|RMT-9042`,
+    21,
+  ),
+);
+
 async function loadCompanion(): Promise<void> {
   companion.value = await companionOverview().catch(() => null);
+}
+
+async function onToggleRemoteFollowUp(): Promise<void> {
+  const next = !(companion.value?.remoteEnabled ?? false);
+  try {
+    companion.value = await setCompanionRemote(next);
+    toast(
+      next
+        ? 'اتفعلت متابعة المالك من برّه المحل (قراءة فقط مشفّرة)'
+        : 'اتوقفت المتابعة البعيدة',
+      'info',
+    );
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
 }
 
 async function onPairNewDevice(): Promise<void> {
@@ -263,6 +287,74 @@ onMounted(() => {
           </span>
           <span class="muted">
             مفيش قاعدة بيانات على الموبايل — كل حاجة بتتقرأ وتتحفظ في الكمبيوتر ده مباشرة.
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" data-remote-followup-card>
+      <div class="card-h">
+        <h3>المتابعة من برّه المحل (للمالك)</h3>
+        <span
+          class="tag"
+          :class="companion?.remoteEnabled ? 'ok' : ''"
+          data-remote-status-tag
+        >
+          <span v-if="companion?.remoteEnabled" class="dot"></span>
+          {{ companion?.remoteEnabled ? 'شغّالة (قراءة فقط)' : 'مقفولة' }}
+        </span>
+      </div>
+
+      <div class="s-row">
+        <span class="t-ico"><Icon name="signal" /></span>
+        <div class="t">
+          <b>مرحّل المتابعة البعيدة للمالك</b>
+          <small>
+            يبعت ملخص مشفّر (قراءة فقط) لمبيعات اللحظة والربح وفلوس الصيانة والسوفت وير والدرج والمحافظ عشان تتابع المحل من البيت
+          </small>
+        </div>
+        <label
+          class="switch"
+          aria-label="مرحّل المتابعة البعيدة للمالك"
+          data-remote-followup-toggle
+        >
+          <input
+            type="checkbox"
+            :checked="Boolean(companion?.remoteEnabled)"
+            @change="onToggleRemoteFollowUp"
+          />
+          <span />
+        </label>
+      </div>
+
+      <div v-if="companion?.remoteEnabled" class="qr-box" data-remote-qr-box>
+        <div class="pair-qr" data-remote-qr>
+          <svg
+            viewBox="0 0 21 21"
+            width="120"
+            height="120"
+            shape-rendering="crispEdges"
+            aria-label="كود المتابعة من برّه المحل"
+          >
+            <rect width="21" height="21" fill="#ffffff" />
+            <template v-for="(row, r) in remoteQrMatrix" :key="r">
+              <template v-for="(cell, c) in row" :key="`${r}-${c}`">
+                <rect
+                  v-if="cell"
+                  :x="c"
+                  :y="r"
+                  width="1"
+                  height="1"
+                  fill="#141517"
+                />
+              </template>
+            </template>
+          </svg>
+        </div>
+        <div class="stack" style="gap: 4px">
+          <b>كود متابعة المالك من برّه المحل: <bdi dir="ltr" class="mono">{{ companion?.remoteCode ?? 'RMT-9042' }}</bdi></b>
+          <span class="muted">
+            مشفّر، وللقراءة فقط للمالك — البيع والماسح والاستلام يفضلوا من داخل المحل بس.
           </span>
         </div>
       </div>

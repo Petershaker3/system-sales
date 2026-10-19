@@ -674,12 +674,14 @@ interface DemoCompanionScan {
 }
 
 let demoCompanionScans: DemoCompanionScan[] = [];
+let demoRemoteEnabled = false;
 
 function demoCompanionStatusDto() {
   const shopName = appearance.shopName || 'موبايل ستور';
   const hostIp = '192.168.1.10';
   const port = 8787;
   const pairCode = 'PAIR-8787';
+  const remoteCode = 'RMT-9042';
   return {
     hostIp,
     port,
@@ -688,6 +690,10 @@ function demoCompanionStatusDto() {
     running: true,
     pairedDevices: demoPairedDevices.map((d) => ({ ...d })),
     pendingScans: demoCompanionScans.map((s) => ({ ...s })),
+    remoteEnabled: demoRemoteEnabled,
+    remoteCode,
+    remotePayload: `MSHOP-REMOTE|v1|${shopName}|${remoteCode}`,
+    lastRemoteSyncAt: demoRemoteEnabled ? now() : null,
   };
 }
 
@@ -4709,6 +4715,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const matched = demoCompanionScans.filter((s) => s.target === targetRaw);
     demoCompanionScans = demoCompanionScans.filter((s) => s.target !== targetRaw);
     return matched;
+  },
+  set_companion_remote: (args) => {
+    const user = requireUser();
+    if (user.role !== 'manager') throw { code: 'PERMISSION_DENIED' };
+    demoRemoteEnabled = Boolean(args?.['enabled']);
+    return demoCompanionStatusDto();
   },
 };
 

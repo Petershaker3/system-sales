@@ -3360,6 +3360,12 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
             "domain/companion.rs must stay pure domain (`{forbidden}`)"
         );
     }
+    for required_fn in ["format_remote_payload", "build_eta_ereceipt_draft"] {
+        assert!(
+            comp_domain.contains(required_fn),
+            "domain/companion.rs must define `{required_fn}` (ADR-038)"
+        );
+    }
 
     let comp_service = code_only(COMPANION_SERVICE);
     for forbidden in ["sqlx::query", "SELECT ", "INSERT ", "UPDATE ", "DELETE "] {
@@ -3406,8 +3412,9 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
 
     assert!(
         DEVICES_PRINTER_CARD_VUE.contains("الموبايلات المتوصلة")
-            && DEVICES_PRINTER_CARD_VUE.contains("توصيل موبايل جديد"),
-        "DevicesPrinterCard.vue must include paired phones section"
+            && DEVICES_PRINTER_CARD_VUE.contains("توصيل موبايل جديد")
+            && DEVICES_PRINTER_CARD_VUE.contains("المتابعة من برّه المحل (للمالك)"),
+        "DevicesPrinterCard.vue must include paired phones and remote follow-up sections"
     );
 }
 

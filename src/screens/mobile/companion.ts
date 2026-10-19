@@ -370,3 +370,145 @@ export function buildLuhnImei15(prefix14: string): string {
   const check = (10 - (sum % 10)) % 10;
   return `${digits}${check}`;
 }
+
+export interface RemoteOwnerSnapshot {
+  readonly shopName: string;
+  readonly remoteCode: string;
+  readonly remoteEnabled: boolean;
+  readonly salesMinor: number;
+  readonly invoicesCount: number;
+  readonly profitMinor: number;
+  readonly hardwareRevenueMinor: number;
+  readonly softwareRevenueMinor: number;
+  readonly expectedDrawerCashMinor: number | null;
+  readonly shiftNumber: number | null;
+}
+
+/**
+ * Build the Phase 4 read-only remote follow-up snapshot for the shop owner (`ADR-038`).
+ * Keeps hardware maintenance revenue («فلوس الصيانة لوحدها») separate from
+ * software revenue («فلوس السوفت وير لوحدها»).
+ */
+export function buildRemoteOwnerSnapshot(input: {
+  shopName: string;
+  remoteCode: string;
+  remoteEnabled: boolean;
+  salesMinor: number;
+  invoicesCount: number;
+  profitMinor: number;
+  hardwareRevenueMinor: number;
+  softwareRevenueMinor: number;
+  expectedDrawerCashMinor: number | null;
+  shiftNumber: number | null;
+}): RemoteOwnerSnapshot {
+  return {
+    shopName: input.shopName.trim() || 'موبايل ستور',
+    remoteCode: input.remoteCode.trim() || 'RMT-9042',
+    remoteEnabled: input.remoteEnabled,
+    salesMinor: input.salesMinor,
+    invoicesCount: input.invoicesCount,
+    profitMinor: input.profitMinor,
+    hardwareRevenueMinor: input.hardwareRevenueMinor,
+    softwareRevenueMinor: input.softwareRevenueMinor,
+    expectedDrawerCashMinor: input.expectedDrawerCashMinor,
+    shiftNumber: input.shiftNumber,
+  };
+}
+
+export interface EtaEReceiptLineDraft {
+  readonly itemCode: string;
+  readonly description: string;
+  readonly quantity: number;
+  readonly unitPriceMinor: number;
+  readonly discountMinor: number;
+  readonly netTotalMinor: number;
+}
+
+export interface EtaEReceiptDraft {
+  readonly receiptType: 'S';
+  readonly typeVersion: '1.2';
+  readonly receiptNumber: string;
+  readonly issuedAtMs: number;
+  readonly currency: 'EGP';
+  readonly subtotalMinor: number;
+  readonly discountMinor: number;
+  readonly taxRateBp: number;
+  readonly taxMinor: number;
+  readonly totalMinor: number;
+  readonly paymentMethodCode: string;
+  readonly canonicalHashHex: string;
+  readonly lines: readonly EtaEReceiptLineDraft[];
+}
+
+/**
+ * Build a canonical ETA e-Receipt v1.2 sandbox draft (`docs/PLAN.md` §18, §19; `ADR-038`).
+ * Tax settings stay in the data model with default values and hidden from the daily UI.
+ */
+export function buildEtaEReceiptDraft(input: {
+  receiptNumber: string;
+  issuedAtMs: number;
+  lines: readonly EtaEReceiptLineDraft[];
+  invoiceDiscountMinor?: number;
+  vatEnabled?: boolean;
+  vatRateBp?: number;
+  vatInclusive?: boolean;
+  paymentMethodCode?: string;
+}): EtaEReceiptDraft {
+  const linesSubtotal = input.lines.reduce((s, l) => s + l.netTotalMinor, 0);
+  const disc = Math.max(0, input.invoiceDiscountMinor ?? 0);
+  const netBeforeTax = Math.max(0, linesSubtotal - disc);
+  const effectiveBp = input.vatEnabled ? Math.max(0, input.vatRateBp ?? 0) : 0;
+  let taxMinor = 0;
+  let totalMinor = netBeforeTax;
+  if (effectiveBp > 0) {
+    if (input.vatInclusive ?? true) {
+      taxMinor = Math.floor((netBeforeTax * effectiveBp) / (10_000 + effectiveBp));
+      totalMinor = netBeforeTax;
+    } else {
+      taxMinor = Math.round((netBeforeTax * effectiveBp) / 10_000);
+      totalMinor = netBeforeTax + taxMinor;
+    }
+  }
+
+  const canonical = [
+    'ETA-ERECEIPT-V1.2',
+    input.receiptNumber.trim(),
+    String(input.issuedAtMs),
+    String(totalMinor),
+    ...input.lines.map(
+      (l) => `${l.itemCode}:${l.quantity}:${l.netTotalMinor}`,
+    ),
+  ].join('|');
+
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < canonical.length; i += 1) {
+    const ch = canonical.charCodeAt(i);
+    h1 ^= ch;
+    h1 = Math.imul(h1, 16777619) >>> 0;
+    h2 ^= ch * 31;
+    h2 = Math.imul(h2, 2246822519) >>> 0;
+  }
+  const canonicalHashHex =
+    h1.toString(16).padStart(8, '0') +
+    h2.toString(16).padStart(8, '0') +
+    (h1 ^ h2).toString(16).padStart(8, '0') +
+    ((h1 + h2) >>> 0).toString(16).padStart(8, '0');
+
+  return {
+    receiptType: 'S',
+    typeVersion: '1.2',
+    receiptNumber: input.receiptNumber.trim(),
+    issuedAtMs: input.issuedAtMs,
+    currency: 'EGP',
+    subtotalMinor: linesSubtotal,
+    discountMinor: disc,
+    taxRateBp: effectiveBp,
+    taxMinor,
+    totalMinor,
+    paymentMethodCode: input.paymentMethodCode?.trim() || 'C',
+    canonicalHashHex,
+    lines: input.lines,
+  };
+}
+

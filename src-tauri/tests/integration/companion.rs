@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use super::PASSWORD;
 use mobile_shop_system_lib::data::db;
-use mobile_shop_system_lib::domain::companion::{parse_pair_payload, DEFAULT_COMPANION_PORT};
+use mobile_shop_system_lib::domain::companion::{
+    parse_pair_payload, parse_remote_payload, DEFAULT_COMPANION_PORT,
+};
 use mobile_shop_system_lib::domain::identity::Role;
 use mobile_shop_system_lib::services::companion;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
@@ -36,6 +38,9 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
     assert_eq!(initial.paired_devices.len(), 2);
     let parsed = parse_pair_payload(&initial.pair_payload).expect("valid QR payload");
     assert_eq!(parsed.2, DEFAULT_COMPANION_PORT);
+    assert!(!initial.remote_enabled);
+    let parsed_remote = parse_remote_payload(&initial.remote_payload).expect("valid remote QR");
+    assert_eq!(parsed_remote.1, initial.remote_code);
 
     // Owner pairs a third phone.
     let paired = companion::pair_device(&pool, tokens.as_ref(), "موبايل مينا", "Galaxy A55")
@@ -74,6 +79,11 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
     let refused_unpair = companion::unpair_device(&pool, tokens.as_ref(), &added_id).await;
     assert_eq!(
         refused_unpair.err().map(|e| e.code()),
+        Some("PERMISSION_DENIED")
+    );
+    let refused_remote = companion::set_remote_follow_up(&pool, tokens.as_ref(), true).await;
+    assert_eq!(
+        refused_remote.err().map(|e| e.code()),
         Some("PERMISSION_DENIED")
     );
 
@@ -130,6 +140,12 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
         .await
         .expect("owner unpairs device");
     assert_eq!(after_unpair.paired_devices.len(), 2);
+
+    let after_remote = companion::set_remote_follow_up(&pool, tokens.as_ref(), true)
+        .await
+        .expect("owner enables remote follow-up");
+    assert!(after_remote.remote_enabled);
+    assert!(after_remote.last_remote_sync_at.is_some());
 
     settings::read_snapshot(&pool, tokens.as_ref())
         .await

@@ -29,10 +29,20 @@ export interface CompanionStatus {
   readonly running: boolean;
   readonly pairedDevices: readonly PairedDevice[];
   readonly pendingScans: readonly CompanionScanItem[];
+  readonly remoteEnabled: boolean;
+  readonly remoteCode: string;
+  readonly remotePayload: string;
+  readonly lastRemoteSyncAt: number | null;
 }
 
 export async function companionOverview(): Promise<CompanionStatus> {
   return invoke<CompanionStatus>('companion_overview');
+}
+
+export async function setCompanionRemote(
+  enabled: boolean,
+): Promise<CompanionStatus> {
+  return invoke<CompanionStatus>('set_companion_remote', { enabled });
 }
 
 export async function pairCompanionDevice(

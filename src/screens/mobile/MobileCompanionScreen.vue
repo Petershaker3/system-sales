@@ -18,9 +18,12 @@ import {
   type ProductUnit,
 } from '../../api/inventory';
 import { posCatalog, type PosProduct } from '../../api/pos';
+import { repairsOverview, type RepairsOverview } from '../../api/repairs';
 import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
+import { currentShiftSummary, type CurrentShiftState } from '../../api/shift';
 import { walletsOverview, type WalletsOverview } from '../../api/wallet';
 import type { ScreenId } from '../../shell/nav';
+import { appearance } from '../../ui/appearance';
 import { dg, fmtTime, money, num, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
@@ -28,6 +31,7 @@ import { dayStart, addDays } from '../sales/analytics';
 import {
   buildLuhnImei15,
   buildMobileSalesSnapshot,
+  buildRemoteOwnerSnapshot,
   filterMobileLookupProducts,
   resolveMobileScanToPos,
 } from './companion';
@@ -47,6 +51,9 @@ const users = ref<readonly UserSummary[]>([]);
 const products = ref<readonly PosProduct[]>([]);
 const units = ref<readonly ProductUnit[]>([]);
 const walletsData = ref<WalletsOverview | null>(null);
+const repairsData = ref<RepairsOverview | null>(null);
+const shiftData = ref<CurrentShiftState | null>(null);
+const viewMode = ref<'lan' | 'remote'>('lan');
 
 const lookupQuery = ref('Samsung');
 const manualScanCode = ref('');
@@ -74,6 +81,22 @@ const salesSnapshot = computed(() =>
     currentUserId: props.session.userId,
     currentDisplayName: props.session.displayName,
     currentRole: props.session.role,
+  }),
+);
+
+const remoteSnapshot = computed(() =>
+  buildRemoteOwnerSnapshot({
+    shopName: appearance.shopName || 'موبايل ستور',
+    remoteCode: companion.value?.remoteCode ?? 'RMT-9042',
+    remoteEnabled: Boolean(companion.value?.remoteEnabled),
+    salesMinor: salesSnapshot.value.totalMinor,
+    invoicesCount: salesSnapshot.value.invoicesCount,
+    profitMinor: salesSnapshot.value.profitMinor ?? 0,
+    hardwareRevenueMinor: repairsData.value?.hardware.totalRevenueMinor ?? 0,
+    softwareRevenueMinor: repairsData.value?.software.totalRevenueMinor ?? 0,
+    expectedDrawerCashMinor:
+      shiftData.value?.openShift?.totals.expectedCashMinor ?? null,
+    shiftNumber: shiftData.value?.openShift?.shift.shiftNumber ?? null,
   }),
 );
 
@@ -129,25 +152,34 @@ async function loadAll(): Promise<void> {
   const todayStartMs = dayStart(now).getTime();
   const todayEndMs = addDays(dayStart(now), 1).getTime() - 1;
   try {
-    const [comp, salesList, usersList, cat, allU, wal] = await Promise.all([
-      companionOverview().catch(() => null),
-      listSalesHistory(2000).catch(() => [] as SaleHistoryEntry[]),
-      listUsers().catch(() => [] as UserSummary[]),
-      posCatalog().catch(() => ({
-        products: [],
-        categories: [],
-        brands: [],
-        units: [],
-      })),
-      listAllProductUnits().catch(() => [] as ProductUnit[]),
-      walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(() => null),
-    ]);
+    const [comp, salesList, usersList, cat, allU, wal, rep, sh] =
+      await Promise.all([
+        companionOverview().catch(() => null),
+        listSalesHistory(2000).catch(() => [] as SaleHistoryEntry[]),
+        listUsers().catch(() => [] as UserSummary[]),
+        posCatalog().catch(() => ({
+          products: [],
+          categories: [],
+          brands: [],
+          units: [],
+        })),
+        listAllProductUnits().catch(() => [] as ProductUnit[]),
+        walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(
+          () => null,
+        ),
+        repairsOverview({ fromTs: todayStartMs, toTs: todayEndMs }).catch(
+          () => null,
+        ),
+        currentShiftSummary().catch(() => null),
+      ]);
     companion.value = comp;
     history.value = salesList;
     users.value = usersList;
     products.value = cat.products;
     units.value = allU;
     walletsData.value = wal;
+    repairsData.value = rep;
+    shiftData.value = sh;
     if (!selectedRecvProductId.value) {
       const firstPhone =
         cat.products.find((p) => p.disposition === 'serialized') ??
@@ -322,15 +354,50 @@ onMounted(() => {
     <div class="page-h">
       <h2>تطبيق الموبايل</h2>
       <span class="sub">
-        مساعد جوه المحل على نفس الـ Wi-Fi، بيكلّم الكمبيوتر على طول ومن غير إنترنت
+        {{
+          viewMode === 'remote'
+            ? 'متابعة المالك من برّه المحل (قراءة فقط مشفّرة للمبيعات والصيانة والسوفت وير والدرج)'
+            : 'مساعد جوه المحل على نفس الـ Wi-Fi، بيكلّم الكمبيوتر على طول ومن غير إنترنت'
+        }}
       </span>
       <span class="sp"></span>
+      <div
+        v-if="isOwner"
+        class="seg"
+        data-mobile-mode-switch
+        role="group"
+        aria-label="وضع اتصال الموبايل"
+      >
+        <button
+          type="button"
+          :class="{ on: viewMode === 'lan' }"
+          data-mobile-mode="lan"
+          @click="viewMode = 'lan'"
+        >
+          <Icon name="wifi" /> داخل المحل (Wi-Fi)
+        </button>
+        <button
+          type="button"
+          :class="{ on: viewMode === 'remote' }"
+          data-mobile-mode="remote"
+          @click="viewMode = 'remote'"
+        >
+          <Icon name="signal" /> من برّه المحل (للمالك)
+        </button>
+      </div>
       <span class="status" data-mobile-lan-status>
         <span class="dot"></span>
-        <Icon name="wifi" />
-        شبكة المحل
-        <bdi dir="ltr" class="mono">{{ hostIp }}:{{ port }}</bdi>
-        · {{ num(onlineDevicesCount) }} موبايل متصل
+        <Icon :name="viewMode === 'remote' ? 'signal' : 'wifi'" />
+        <template v-if="viewMode === 'remote'">
+          مرحّل مشفّر
+          <bdi dir="ltr" class="mono">{{ remoteSnapshot.remoteCode }}</bdi>
+          · قراءة فقط للمالك
+        </template>
+        <template v-else>
+          شبكة المحل
+          <bdi dir="ltr" class="mono">{{ hostIp }}:{{ port }}</bdi>
+          · {{ num(onlineDevicesCount) }} موبايل متصل
+        </template>
       </span>
     </div>
 
@@ -389,6 +456,31 @@ onMounted(() => {
                 >
                   <span class="muted">الربح (للمالك بس)</span>
                   <b class="num">{{ money(salesSnapshot.profitMinor) }}</b>
+                </div>
+              </div>
+
+              <div
+                v-if="salesSnapshot.isOwner && viewMode === 'remote'"
+                class="ph-card"
+                data-mobile-remote-summary
+              >
+                <span class="muted" style="font-size: 0.8rem">
+                  ملخص الصيانة والدرج عن بُعد
+                </span>
+                <div class="r">
+                  <span>فلوس الصيانة لوحدها</span>
+                  <b class="num">{{ money(remoteSnapshot.hardwareRevenueMinor) }}</b>
+                </div>
+                <div class="r">
+                  <span>فلوس السوفت وير لوحدها</span>
+                  <b class="num">{{ money(remoteSnapshot.softwareRevenueMinor) }}</b>
+                </div>
+                <div
+                  v-if="remoteSnapshot.expectedDrawerCashMinor !== null"
+                  class="r"
+                >
+                  <span>المفروض في الدرج</span>
+                  <b class="num">{{ money(remoteSnapshot.expectedDrawerCashMinor) }}</b>
                 </div>
               </div>
 

@@ -159,6 +159,7 @@ pub fn run() {
             commands::companion::unpair_companion_device,
             commands::companion::push_companion_scan,
             commands::companion::consume_companion_scans,
+            commands::companion::set_companion_remote,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
