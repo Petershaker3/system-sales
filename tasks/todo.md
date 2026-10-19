@@ -291,6 +291,11 @@
   - **اتعمل (2026-10-19):**
     - الباك إند (`domain/companion.rs`, `services/companion.rs`, `commands/companion.rs`, `lib.rs`, `tests/integration/companion.rs`, `tests/architecture/main.rs`): `COMPANION_REMOTE_ENABLED_KEY`, `COMPANION_REMOTE_CODE_KEY`, `format_remote_payload`, `parse_remote_payload`, `set_remote_follow_up` (`set_companion_remote`), و`build_eta_ereceipt_draft` (الإيصال الإلكتروني v1.2 ببصمة `SHA-256`).
     - الواجهة (`src/api/companion.ts`, `src/screens/mobile/companion.ts`, `companion.test.ts`, `MobileCompanionScreen.vue`, `DevicesPrinterCard.vue`)، وفحص المتصفح 224/224، و126 اختبار واجهة، و`npm run build` نظيف (تشغيل GitHub Actions `39220253366` لم يبدأ بسبب حد فوترة دقائق GitHub Actions على الحساب).
+- [x] **4.2 المراجعة الشاملة ودليل السيستم المدمج (`In-App System Guide — F1`)** (`docs/SYSTEM-REVIEW-AND-GUIDE.md`)
+  - **اتعمل (2026-10-19):**
+    - إضافة شاشة **«دليل السيستم الشامل»** (`src/screens/guide/guide.ts`, `guide.test.ts`, `GuideScreen.vue`, وربطها في `AppShell.vue` و`nav.ts` بزرار `دليل السيستم` في الشريط العلوي وزرار `الدليل` في الشريط الجانبي واختصار `F1` من أي شاشة).
+    - كتابة تقرير المراجعة الشاملة ودليل التثبيت الكامل في `docs/SYSTEM-REVIEW-AND-GUIDE.md` وتحديث `docs/TRY-THE-APP.md`.
+    - التحقق النهائي: **129 / 129** اختبار وحدة للواجهة (`npm run test:unit`)، و**225 / 225** فحص متصفح (`scripts/demo-smoke.mjs`، اللقطة `64-system-guide.png`)، وتجهيز ملفات التشغيل الفوري المستقلة للكمبيوتر والأندرويد في `releases/`.
 
 ---
 

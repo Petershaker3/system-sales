@@ -15,7 +15,8 @@ export type ScreenId =
   | 'store'
   | 'reports'
   | 'mobile'
-  | 'settings';
+  | 'settings'
+  | 'guide';
 
 export interface NavItem {
   readonly id: ScreenId;
@@ -45,6 +46,7 @@ export const TITLES: Record<ScreenId, string> = {
   reports: 'التقارير',
   mobile: 'تطبيق الموبايل',
   settings: 'الإعدادات',
+  guide: 'دليل السيستم الشامل',
 };
 
 export function navFor(role: Role): NavItem[] {

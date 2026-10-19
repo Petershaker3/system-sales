@@ -37,6 +37,7 @@ import StoreScreen from '../screens/store/StoreScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
 import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
+import GuideScreen from '../screens/guide/GuideScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import ShiftModal from './ShiftModal.vue';
 import { avatarColour, navFor, roleName, TITLES } from './nav';
@@ -55,7 +56,16 @@ const demo = import.meta.env.VITE_DEMO === '1';
 /** The browser demo's PINs, shown under the switch pad as the mockup does. Empty in real builds. */
 const DEMO_PINS: Record<string, string> = demo ? { peter: '1111', youssef: '2222', marina: '3333' } : {};
 
-const screen = ref<ScreenId>('pos');
+const initialScreen = (): ScreenId => {
+  if (typeof window !== 'undefined') {
+    const requested = (
+      window as unknown as { __MSHOP_INITIAL_SCREEN__?: ScreenId }
+    ).__MSHOP_INITIAL_SCREEN__;
+    if (requested) return requested;
+  }
+  return 'pos';
+};
+const screen = ref<ScreenId>(initialScreen());
 const salesFocusTarget = ref<
   { readonly kind: 'day'; readonly iso: string } | { readonly kind: 'month'; readonly key: string } | null
 >(null);
@@ -79,9 +89,14 @@ const dark = computed(() => {
 watch(
   () => props.session.role,
   () => {
-    if (!items.value.some((item) => item.id === screen.value)) screen.value = 'pos';
+    if (screen.value !== 'guide' && !items.value.some((item) => item.id === screen.value)) screen.value = 'pos';
   }
 );
+
+watch(screen, () => {
+  const el = document.querySelector('.content');
+  if (el) el.scrollTop = 0;
+});
 
 const me = computed(() => props.users.find((user) => user.id === props.session.userId) ?? null);
 const others = computed(() => props.users.filter((user) => !user.disabled && user.id !== props.session.userId));
@@ -137,7 +152,13 @@ function menuAction(action: 'lock' | 'setPin' | 'signOut'): void {
 
 /** While the switch pad is open, every key is the pad's and stops here. */
 function onSwitchKey(event: KeyboardEvent): void {
-  if (swUser.value === null) return;
+  if (swUser.value === null) {
+    if (event.key === 'F1') {
+      event.preventDefault();
+      screen.value = 'guide';
+    }
+    return;
+  }
   event.stopPropagation();
   if (swPad.value?.handleKey(event)) event.preventDefault();
 }
@@ -241,6 +262,17 @@ async function switchTheme(): Promise<void> {
         <span>{{ item.label }}</span>
       </button>
       <div class="sp" />
+      <button
+        type="button"
+        class="nav-btn"
+        :class="{ active: screen === 'guide' }"
+        title="دليل السيستم الشامل (F1)"
+        data-rail-guide-btn
+        @click="screen = 'guide'"
+      >
+        <Icon name="info" />
+        <span>الدليل</span>
+      </button>
       <button type="button" class="nav-btn" title="فاتح / غامق" @click="switchTheme">
         <Icon :name="dark ? 'sun' : 'moon'" />
         <span>{{ dark ? 'فاتح' : 'غامق' }}</span>
@@ -294,6 +326,16 @@ async function switchTheme(): Promise<void> {
           </template>
           <template v-else>مفيش وردية مفتوحة</template>
         </span>
+        <button
+          type="button"
+          class="btn sm ghost"
+          data-open-system-guide
+          title="دليل السيستم الشامل (F1)"
+          @click="screen = 'guide'"
+        >
+          <Icon name="info" />
+          <span>دليل السيستم</span>
+        </button>
         <button
           v-if="shiftState.openShift"
           type="button"
@@ -425,6 +467,11 @@ async function switchTheme(): Promise<void> {
           @changed="refreshShiftState"
         />
         <SettingsScreen v-else-if="screen === 'settings'" />
+        <GuideScreen
+          v-else-if="screen === 'guide'"
+          :session="session"
+          @go-screen="screen = $event"
+        />
       </div>
 
       <DrawerExpenseModal

@@ -76,3 +76,5 @@ adb-status-evidence.txt
 
 # ── Browser demo build (npm run build:demo); never shipped ──
 dist-demo/
+releases/
+

@@ -2610,6 +2610,22 @@ await page.keyboard.press('Enter');
 await page.waitForSelector('.lock.over', { hidden: true, timeout: 3000 }).catch(() => {});
 check('the new password signs the owner in', (await count('.lock.over')) === 0 && (await chipName()).includes('بيتر'));
 
+// --- In-App System Guide (دليل السيستم الشامل) ----------------------------
+await page.click('[data-open-system-guide]');
+await page.waitForSelector('[data-guide-screen]', { timeout: 3000 });
+await sleep(250);
+const guideText = await text('[data-guide-screen]');
+check(
+  'In-App System Guide («دليل السيستم الشامل») opens with shortcuts and all feature topics',
+  guideText.includes('دليل السيستم الشامل') &&
+    guideText.includes('اختصارات الكيبورد السريعة') &&
+    guideText.includes('فلوس الصيانة لوحدها') &&
+    guideText.includes('فلوس السوفت وير لوحدها') &&
+    guideText.includes('تثبيت وتشغيل السيستم على الكمبيوتر (Windows) والموبايل (Android)'),
+  guideText.slice(0, 140),
+);
+await shot('64-system-guide');
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 
