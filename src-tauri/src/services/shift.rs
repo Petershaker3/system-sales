@@ -336,9 +336,17 @@ pub async fn expenses_overview(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
-    let rows = repo::list_expenses_between(&mut conn, from_ms, to_ms)
+    // The repository returns the row with the recorder's name; the section speaks in
+    // its own type so nothing above this layer depends on the repository's shape.
+    let rows: Vec<ExpenseRow> = repo::list_expenses_between(&mut conn, from_ms, to_ms)
         .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .into_iter()
+        .map(|row| ExpenseRow {
+            record: row.record,
+            created_by_name: row.created_by_name,
+        })
+        .collect();
     let known = repo::expense_category_counts(&mut conn)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
