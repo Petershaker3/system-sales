@@ -317,6 +317,8 @@ pub enum RepairError {
     AmountInvalid,
     StatusInvalid,
     PayMethodInvalid,
+    /// The named wallet does not receive that method (`ADR-041`).
+    PayWalletInvalid,
     NotFound,
     AlreadyDelivered,
 }
@@ -330,6 +332,7 @@ impl RepairError {
             RepairError::AmountInvalid => "REPAIR_AMOUNT_INVALID",
             RepairError::StatusInvalid => "REPAIR_STATUS_INVALID",
             RepairError::PayMethodInvalid => "REPAIR_PAY_METHOD_INVALID",
+            RepairError::PayWalletInvalid => "REPAIR_PAY_WALLET_INVALID",
             RepairError::NotFound => "REPAIR_NOT_FOUND",
             RepairError::AlreadyDelivered => "REPAIR_ALREADY_DELIVERED",
         }

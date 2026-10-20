@@ -667,6 +667,68 @@ pub async fn create_wallet(
     Ok(wallet)
 }
 
+/// Why the shop wallet a payment named could not be resolved (`ADR-041`).
+///
+/// The two cases are kept apart on purpose: a caller that turns a storage failure into "that
+/// wallet does not take this method" sends the operator to fix an input that was never wrong, and
+/// a caller that turns a refusal into a storage error hides a mistake behind a retry.
+pub enum PaymentWalletFailure {
+    /// The read itself failed — the transaction must be rolled back and nothing written.
+    Storage(sqlx::Error),
+    /// The number named is unknown, does not receive that method, or was named for a method no
+    /// shop wallet holds at all.
+    NotEligible(WalletError),
+}
+
+/// The wallet one payment should be recorded on, for every flow that moves money (`ADR-041`).
+///
+/// A sale, a return, a customer settling a debt and a repair being settled all ask the same
+/// question and must get the same answer: the number the operator named when they named one, and
+/// the primary for the method otherwise. A named wallet that does not receive the method is an
+/// error, never a silent reassignment — quietly moving money to another wallet is how a till ends
+/// up balanced on paper and wrong in the drawer. A method no shop wallet holds (cash, card, the
+/// customer's own wallet) yields `None`, and naming a wallet for it is `WalletPayMethodInvalid`.
+pub async fn resolve_payment_wallet_id(
+    conn: &mut sqlx::SqliteConnection,
+    method_raw: &str,
+    chosen_raw: Option<&str>,
+) -> Result<Option<String>, PaymentWalletFailure> {
+    let chosen = chosen_raw.map(str::trim).filter(|s| !s.is_empty());
+    let method = match method_raw.trim() {
+        "vf" | "instapay" => WalletPayMethod::parse_optional(Some(method_raw))
+            .map_err(PaymentWalletFailure::NotEligible)?,
+        _ => None,
+    };
+    let Some(method) = method else {
+        return match chosen {
+            Some(_) => Err(PaymentWalletFailure::NotEligible(
+                WalletError::WalletPayMethodInvalid,
+            )),
+            None => Ok(None),
+        };
+    };
+
+    if let Some(chosen) = chosen {
+        let wallet = repo::find_wallet_by_id(conn, chosen)
+            .await
+            .map_err(PaymentWalletFailure::Storage)?
+            .ok_or(PaymentWalletFailure::NotEligible(
+                WalletError::WalletNotFound,
+            ))?;
+        if wallet.pay_method != Some(method) {
+            return Err(PaymentWalletFailure::NotEligible(
+                WalletError::WalletPayMethodInvalid,
+            ));
+        }
+        return Ok(Some(wallet.id.as_str().to_owned()));
+    }
+
+    let primary = repo::primary_payment_wallet(conn, method)
+        .await
+        .map_err(PaymentWalletFailure::Storage)?;
+    Ok(primary.map(|wallet| wallet.id.as_str().to_owned()))
+}
+
 /// The wallet numbers that can receive a sale paid with `method` (`ADR-040`).
 ///
 /// A seller may read this: it is the choice the pay screen offers when one company holds more

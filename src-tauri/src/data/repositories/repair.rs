@@ -225,6 +225,28 @@ pub async fn insert(
         .ok_or(sqlx::Error::RowNotFound)
 }
 
+/// Name the shop wallet that took this ticket's money (`ADR-041`).
+///
+/// Its own write rather than a column on the insert or the delivery update, because the wallet
+/// is a fact about the money and the ticket row keeps being edited for other reasons after the
+/// money is in. A ticket whose method no wallet receives is named nothing, which is what leaves
+/// the drawer money out of every wallet's balance.
+pub async fn set_pay_wallet(
+    conn: &mut SqliteConnection,
+    id: &str,
+    wallet_id: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let Some(wallet_id) = wallet_id else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE repairs SET pay_wallet_id = ?2 WHERE id = ?1")
+        .bind(id)
+        .bind(wallet_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 pub async fn update_status_and_details(
     conn: &mut SqliteConnection,
     id: &str,

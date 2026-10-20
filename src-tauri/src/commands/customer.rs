@@ -146,6 +146,7 @@ pub async fn record_customer_payment(
     amount_minor: i64,
     method: String,
     note: Option<String>,
+    wallet_id: Option<String>,
 ) -> Result<CustomerDto, CustomerCommandError> {
     let updated = use_cases::record_payment(
         &ctx.pool,
@@ -155,6 +156,7 @@ pub async fn record_customer_payment(
             amount_minor,
             method,
             note,
+            wallet_id,
         },
     )
     .await?;

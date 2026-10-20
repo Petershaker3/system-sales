@@ -146,3 +146,8 @@ pub const OPEN_OWNER_ACCOUNT: &str = include_str!("0029_open_owner_account.sql")
 /// one-wallet-per-method index dropped and the history backfilled (ADR-040).
 pub const WALLET_GROUPS_AND_PAYMENT_ATTRIBUTION: &str =
     include_str!("0030_wallet_groups_and_payment_attribution.sql");
+
+/// `0031`: `customer_ledger.wallet_id` and `repairs.pay_wallet_id`, so every money stream that
+/// can name a wallet does — with the history named once rather than re-derived (`ADR-041`).
+pub const WALLET_IN_EVERY_MONEY_FLOW: &str =
+    include_str!("0031_wallet_in_every_money_flow.sql");

@@ -26,6 +26,7 @@ use crate::domain::customer::{
     NewCustomerPayment,
 };
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
+use crate::services::wallet as wallet_service;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 
@@ -257,7 +258,7 @@ pub async fn record_payment(
 ) -> Result<CustomerWithBalance, CustomerServiceError> {
     let session = authorize_seller(pool, tokens).await?;
     session.require_sensitivity(Sensitivity::Routine, Timestamp::now())?;
-    let (amount_minor, method, note) = input.cleaned()?;
+    let (amount_minor, method, note, chosen_wallet) = input.cleaned()?;
     let now = Timestamp::now();
     let actor = session.user_id();
 
@@ -279,12 +280,28 @@ pub async fn record_payment(
         return Err(CustomerError::PaymentExceedsBalance.into());
     }
 
+    // Which number of the shop the customer sent the money to — named at the counter, or the
+    // primary for the method when nobody looked at the list (`ADR-041`).
+    let wallet_id = wallet_service::resolve_payment_wallet_id(
+        &mut tx,
+        &method,
+        chosen_wallet.as_deref(),
+    )
+    .await
+    .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::NotEligible(_) => {
+            CustomerError::PaymentWalletInvalid.into()
+        }
+        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
+    })?;
+
     let entry = CustomerLedgerEntry {
         id: UserId::generate().as_str().to_string(),
         customer_id: customer.id.clone(),
         kind: "payment".to_owned(),
         amount_minor: -amount_minor,
         method: Some(method.clone()),
+        wallet_id,
         sale_id: None,
         note,
         actor_id: actor,

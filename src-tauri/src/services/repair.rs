@@ -23,6 +23,7 @@ use crate::domain::repair::{
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
+use crate::services::wallet as wallet_service;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RepairServiceError {
@@ -72,6 +73,9 @@ pub struct CreateRepairInput {
     pub parts_cost_minor: Option<i64>,
     pub deposit_minor: i64,
     pub pay_method: Option<String>,
+    /// The shop wallet that took the deposit — or the settlement, when the ticket is delivered at
+    /// intake (`ADR-041`).
+    pub pay_wallet_id: Option<String>,
     pub technician_name: Option<String>,
     pub warranty_days: Option<i64>,
     pub note: Option<String>,
@@ -94,6 +98,8 @@ pub struct DeliverRepairInput {
     pub final_price_minor: i64,
     pub parts_cost_minor: Option<i64>,
     pub pay_method: String,
+    /// The shop wallet the remaining amount is collected into (`ADR-041`).
+    pub pay_wallet_id: Option<String>,
     pub technician_name: Option<String>,
     pub warranty_days: Option<i64>,
     pub note: Option<String>,
@@ -185,6 +191,21 @@ pub async fn create_repair(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
+    // Resolved inside the transaction, before anything is written: a number that does not take
+    // this method aborts the ticket rather than moving its money somewhere else (`ADR-041`).
+    let pay_wallet_id = wallet_service::resolve_payment_wallet_id(
+        &mut tx,
+        pay_method.as_str(),
+        input.pay_wallet_id.as_deref(),
+    )
+    .await
+    .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::NotEligible(_) => {
+            RepairError::PayWalletInvalid.into()
+        }
+        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
+    })?;
+
     let raw = repair_repo::insert(
         &mut tx,
         NewRepairRow {
@@ -215,6 +236,12 @@ pub async fn create_repair(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(wallet_id) = pay_wallet_id.as_deref() {
+        repair_repo::set_pay_wallet(&mut tx, id.as_str(), Some(wallet_id))
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": id.as_str(),
@@ -354,6 +381,18 @@ pub async fn deliver_repair(
     }
 
     let effective_parts_cost = parts_cost_opt.unwrap_or(existing.parts_cost_minor);
+    let pay_wallet_id = wallet_service::resolve_payment_wallet_id(
+        &mut tx,
+        pay_method.as_str(),
+        input.pay_wallet_id.as_deref(),
+    )
+    .await
+    .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::NotEligible(_) => {
+            RepairError::PayWalletInvalid.into()
+        }
+        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
+    })?;
     let effective_warranty = warranty_days.unwrap_or(existing.warranty_days);
 
     let delivered = repair_repo::mark_delivered(
@@ -371,6 +410,12 @@ pub async fn deliver_repair(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(wallet_id) = pay_wallet_id.as_deref() {
+        repair_repo::set_pay_wallet(&mut tx, rid.as_str(), Some(wallet_id))
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),

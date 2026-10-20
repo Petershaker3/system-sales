@@ -239,62 +239,47 @@ pub async fn compute_wallet_balance_minor(
     .fetch_one(&mut *conn)
     .await?;
 
-    let sales_in_minor = match wallet.pay_method {
-        Some(method) => {
-            let m = method.as_str();
-            let pos_sales_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(
-                    CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
-                ), 0)
-                FROM sale_payments sp
-                INNER JOIN sales s ON s.id = sp.sale_id
-                WHERE sp.wallet_id = ?1",
-            )
-            // A payment names the wallet that collected it (`0030`), so this is what *this*
-            // wallet took, not every sale paid by this method (`ADR-040`).
-            .bind(wid)
-            .fetch_one(&mut *conn)
-            .await?;
+    // Every money stream that can name a wallet does so now: a sale payment (`0030`), a
+    // customer settling a debt and a settled repair (`0031`). One predicate for all three and
+    // nothing to fall back to — money a row does not name belongs to no wallet. That is why the
+    // migrations named the history instead of this read re-deriving it from whoever happens to be
+    // first in the listing order today (`ADR-041`). It is also why a wallet that stopped
+    // receiving a method keeps the money it took while it did.
+    let payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(
+            CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
+        ), 0)
+        FROM sale_payments sp
+        INNER JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let credit_payments_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(-amount_minor), 0)
-                 FROM customer_ledger
-                 WHERE kind = 'payment' AND method = ?1
-                   AND ?2 = (SELECT w.id FROM wallets w
-                              WHERE w.pay_method = ?1
-                              ORDER BY w.sort ASC, w.id ASC
-                              LIMIT 1)",
-            )
-            // A customer settling a debt names a method, never a wallet, so the money belongs
-            // to the primary wallet of that method; a second number of the same company must
-            // not count the same deposit twice (`ADR-040`). `?2` is this wallet.
-            .bind(m)
-            .bind(wid)
-            .fetch_one(&mut *conn)
-            .await?;
+    let credit_payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(-amount_minor), 0)
+         FROM customer_ledger
+         WHERE kind = 'payment' AND wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let repairs_in_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
-                 FROM repairs
-                 WHERE status = 'delivered' AND pay_method = ?1
-                   AND ?2 = (SELECT w.id FROM wallets w
-                              WHERE w.pay_method = ?1
-                              ORDER BY w.sort ASC, w.id ASC
-                              LIMIT 1)",
-            )
-            .bind(m)
-            .bind(wid)
-            .fetch_one(&mut *conn)
-            .await?;
+    let repairs_in_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+         FROM repairs
+         WHERE status = 'delivered' AND pay_wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            pos_sales_minor + credit_payments_minor + repairs_in_minor
-        }
-        None => 0,
-    };
-
-    Ok(wallet.opening_balance_minor + ops_delta + sales_in_minor)
+    Ok(
+        wallet.opening_balance_minor + ops_delta + payments_minor + credit_payments_minor
+            + repairs_in_minor,
+    )
 }
-
 /// Compute statistics for one wallet in a `[from_ms, to_ms]` time window (`walletStats` in `analytics.js`).
 pub async fn compute_wallet_period_stats(
     conn: &mut SqliteConnection,
@@ -330,68 +315,54 @@ pub async fn compute_wallet_period_stats(
     let wit_minor: i64 = row.try_get("wit_minor")?;
     let fees_minor: i64 = row.try_get("fees_minor")?;
 
-    let sales_in_minor = match wallet.pay_method {
-        Some(method) => {
-            let m = method.as_str();
-            let pos_sales_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(
-                    CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
-                ), 0)
-                FROM sale_payments sp
-                INNER JOIN sales s ON s.id = sp.sale_id
-                WHERE sp.wallet_id = ?1
-                  AND s.occurred_at >= ?2
-                  AND s.occurred_at <= ?3",
-            )
-            .bind(wid)
-            .bind(from_ms)
-            .bind(to_ms)
-            .fetch_one(&mut *conn)
-            .await?;
+    // The same three streams as `compute_wallet_balance`, inside the window and named by wallet
+    // alone (`ADR-041`).
+    let pos_sales_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(
+            CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
+        ), 0)
+        FROM sale_payments sp
+        INNER JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.wallet_id = ?1
+          AND s.occurred_at >= ?2
+          AND s.occurred_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let credit_payments_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(-amount_minor), 0)
-                 FROM customer_ledger
-                 WHERE kind = 'payment'
-                   AND method = ?1
-                   AND occurred_at >= ?2
-                   AND occurred_at <= ?3
-                   AND ?4 = (SELECT w.id FROM wallets w
-                              WHERE w.pay_method = ?1
-                              ORDER BY w.sort ASC, w.id ASC
-                              LIMIT 1)",
-            )
-            .bind(m)
-            .bind(from_ms)
-            .bind(to_ms)
-            .bind(wid)
-            .fetch_one(&mut *conn)
-            .await?;
+    let credit_payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(-amount_minor), 0)
+         FROM customer_ledger
+         WHERE kind = 'payment'
+           AND wallet_id = ?1
+           AND occurred_at >= ?2
+           AND occurred_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let repairs_in_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
-                 FROM repairs
-                 WHERE status = 'delivered'
-                   AND pay_method = ?1
-                   AND delivered_at IS NOT NULL
-                   AND delivered_at >= ?2
-                   AND delivered_at <= ?3
-                   AND ?4 = (SELECT w.id FROM wallets w
-                              WHERE w.pay_method = ?1
-                              ORDER BY w.sort ASC, w.id ASC
-                              LIMIT 1)",
-            )
-            .bind(m)
-            .bind(from_ms)
-            .bind(to_ms)
-            .bind(wid)
-            .fetch_one(&mut *conn)
-            .await?;
+    let repairs_in_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+         FROM repairs
+         WHERE status = 'delivered'
+           AND pay_wallet_id = ?1
+           AND delivered_at IS NOT NULL
+           AND delivered_at >= ?2
+           AND delivered_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            pos_sales_minor + credit_payments_minor + repairs_in_minor
-        }
-        None => 0,
-    };
+    let sales_in_minor = pos_sales_minor + credit_payments_minor + repairs_in_minor;
 
     Ok(WalletPeriodStats {
         wallet_id: wallet.id.clone(),
