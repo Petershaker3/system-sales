@@ -1,7 +1,7 @@
 //! Integration tests for the LAN companion server & mobile helper (`ADR-037`, Plan item 3.2).
 
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::PASSWORD;
 use mobile_shop_system_lib::data::db;
@@ -17,6 +17,18 @@ use mobile_shop_system_lib::services::identity::{auth, bootstrap, session, users
 use mobile_shop_system_lib::services::settings;
 use sqlx::SqlitePool;
 
+/// The wire's staging area is process-wide (`LAN_STAGED`), while every test opens its
+/// own in-memory shop. Two tests that stage and drain at the same moment would hand
+/// each other's drafts to the wrong database — one test's rent would turn up in the
+/// other's inbox — so the tests that drive the wire take turns (`ADR-042`, `ADR-043`).
+static LAN_TURNS: Mutex<()> = Mutex::new(());
+
+fn take_lan_turn() -> MutexGuard<'static, ()> {
+    LAN_TURNS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 async fn signed_in_manager() -> (SqlitePool, Arc<InMemoryTokenStore>) {
     let pool = db::open_in_memory().await.expect("in-memory database");
     let tokens = Arc::new(InMemoryTokenStore::new());
@@ -31,6 +43,7 @@ async fn signed_in_manager() -> (SqlitePool, Arc<InMemoryTokenStore>) {
 
 #[tokio::test]
 async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_snapshot() {
+    let _turn = take_lan_turn();
     let (pool, tokens) = signed_in_manager().await;
 
     let initial = companion::overview(&pool, tokens.as_ref())
@@ -448,6 +461,7 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
     use mobile_shop_system_lib::domain::shift::PaidFrom;
     use mobile_shop_system_lib::services::shift as shift_service;
 
+    let _turn = take_lan_turn();
     let (pool, tokens) = signed_in_manager().await;
     let status = companion::overview(&pool, tokens.as_ref())
         .await
