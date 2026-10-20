@@ -238,7 +238,9 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
         "photos": [],
     })
     .to_string();
-    let intake = |body: String, staged: usize| {
+    // The state a request is answered against is the one the shop publishes right
+    // now — rotation replaces it, which is exactly what makes an old QR stale.
+    let intake = |body: String, state: &LanState| {
         companion::handle_lan_request(
             &LanRequest {
                 method: "POST".to_string(),
@@ -246,10 +248,10 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
                 body,
                 oversized: false,
             },
-            &LanState { staged, ..shop.clone() },
+            state,
         )
     };
-    let (taken, effect) = intake(draft_json.clone(), 0);
+    let (taken, effect) = intake(draft_json.clone(), &shop);
     assert_eq!(taken.status, 202, "the desktop took the capture");
     companion::stage_lan_effect(effect.expect("the draft is queued for the desktop"));
     let inbox = companion::overview(&pool, tokens.as_ref())
@@ -286,7 +288,11 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
         .await
         .expect("rotated pair code");
     assert_ne!(rotated.pair_code, shop.pair_code);
-    let (stale, none) = intake(draft_json, 0);
+    let after_rotation = LanState {
+        pair_code: rotated.pair_code.clone(),
+        ..shop.clone()
+    };
+    let (stale, none) = intake(draft_json, &after_rotation);
     assert_eq!(stale.status, 401, "an old QR stops working at once");
     assert!(none.is_none(), "a refused draft queues nothing");
     let after_rotate = companion::overview(&pool, tokens.as_ref())
@@ -315,7 +321,7 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
             "photos": [],
         })
         .to_string();
-        intake(body, 0)
+        intake(body, &after_rotation)
     };
     assert_eq!(second.status, 202);
     companion::stage_lan_effect(effect.expect("queued"));
