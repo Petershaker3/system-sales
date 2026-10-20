@@ -38,11 +38,11 @@ import Icon from '../../ui/Icon.vue';
 import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import { dayStart, addDays } from '../sales/analytics';
+import { imeiLuhn, normalizeImeiDigits } from '../pos/imei';
 import { isPhone } from '../../shell/device';
 import { shrinkImageFile } from '../store/image.ts';
 import CompanionPairQr from './CompanionPairQr.vue';
 import {
-  buildLuhnImei15,
   buildMobileSalesSnapshot,
   buildRemoteOwnerSnapshot,
   deviceLinkLabel,
@@ -78,6 +78,7 @@ const recvMode = ref<'imei' | 'qty'>('imei');
 const selectedRecvProductId = ref('');
 const recvQty = ref(1);
 const recvImeis = ref<string[]>([]);
+const recvImeiDraft = ref('');
 const capturedPhotoBadge = ref<string | null>(null);
 
 const isOwner = computed(() => props.session.role === 'manager');
@@ -108,6 +109,10 @@ const pendingIntakes = computed<readonly CompanionIntakeDraft[]>(
   () => companion.value?.pendingIntakes ?? [],
 );
 const pairedDevices = computed(() => companion.value?.pairedDevices ?? []);
+/** How many handsets the wire actually hears right now — never a painted green dot. */
+const onlinePhones = computed(
+  () => pairedDevices.value.filter((device) => device.online).length,
+);
 const lastLinkLabel = computed(() => {
   const status = companion.value;
   if (status === null) return 'مفيش حالة';
@@ -295,61 +300,6 @@ async function loadAll(): Promise<void> {
   }
 }
 
-async function scanPhoneBoxToPos(): Promise<void> {
-  const availableUnit = units.value.find((u) => {
-    const prod = products.value.find((p) => p.id === u.productId);
-    return prod && prod.onHand > 0;
-  });
-  if (!availableUnit) {
-    toast('مفيش أجهزة بالـ IMEI متاحة حالياً', 'err');
-    return;
-  }
-  const prod = products.value.find((p) => p.id === availableUnit.productId);
-  try {
-    companion.value = await pushCompanionScan({
-      target: 'pos',
-      code: availableUnit.imei,
-      productId: availableUnit.productId,
-      productName: prod?.name ?? 'جهاز موبايل',
-      deviceName: `موبايل ${props.session.displayName}`,
-    });
-    lastScan.value = {
-      name: prod?.name ?? 'جهاز موبايل',
-      imei: availableUnit.imei,
-      code: availableUnit.imei,
-    };
-    toast(`اتبعت ${prod?.name ?? 'الجهاز'} لشاشة البيع`, 'ok');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  }
-}
-
-async function scanAccessoryToPos(): Promise<void> {
-  const acc = products.value.find(
-    (p) => p.disposition === 'quantity' && p.onHand > 0 && p.barcode,
-  );
-  if (!acc || !acc.barcode) {
-    toast('مفيش إكسسوار بباركود متاح حالياً', 'err');
-    return;
-  }
-  try {
-    companion.value = await pushCompanionScan({
-      target: 'pos',
-      code: acc.barcode,
-      productId: acc.id,
-      productName: acc.name,
-      deviceName: `موبايل ${props.session.displayName}`,
-    });
-    lastScan.value = {
-      name: acc.name,
-      code: acc.barcode,
-    };
-    toast(`اتضاف «${acc.name}» من الموبايل لفاتورة الكاشير`, 'ok');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  }
-}
-
 /** A camera reading goes through the same resolver as a typed code. */
 function onManualScan(reading: ScanReading): void {
   manualScanCode.value = reading.digits === '' ? reading.raw : reading.digits;
@@ -386,22 +336,40 @@ async function submitManualScanToPos(): Promise<void> {
   }
 }
 
-function generateValidNextImei(): string {
-  const base14 = `35286715${String(Math.floor(100000 + Math.random() * 899999))}`;
-  return buildLuhnImei15(base14);
+/**
+ * One IMEI into the receipt list — from the camera or typed, with the same checks the
+ * stock panel applies: exactly 15 digits, a valid check digit, and never a second time.
+ */
+function addRecvImei(raw: string): void {
+  if (recvImeis.value.length >= 5) return;
+  const digits = normalizeImeiDigits(raw);
+  if (digits === '') return;
+  if (!/^\d{15}$/.test(digits)) {
+    toast('الـ IMEI لازم يكون 15 رقم بالظبط', 'err');
+    return;
+  }
+  if (!imeiLuhn(digits)) {
+    toast('الـ IMEI ده فيه رقم غلط (فحص Luhn) — راجع العلبة', 'err');
+    return;
+  }
+  if (
+    recvImeis.value.includes(digits) ||
+    units.value.some((u) => u.imei === digits || u.imei2 === digits)
+  ) {
+    toast('الـ IMEI ده متسجّل بالفعل', 'err');
+    return;
+  }
+  recvImeis.value = [...recvImeis.value, digits];
+  recvImeiDraft.value = '';
+  toast(`اتمسح IMEI …${digits.slice(-4)}`, 'ok');
 }
 
-function scanNextReceiveImei(): void {
-  if (recvImeis.value.length >= 5) return;
-  let candidate = generateValidNextImei();
-  while (
-    recvImeis.value.includes(candidate) ||
-    units.value.some((u) => u.imei === candidate)
-  ) {
-    candidate = generateValidNextImei();
-  }
-  recvImeis.value.push(candidate);
-  toast(`اتمسح IMEI …${candidate.slice(-4)}`, 'ok');
+function onReceiveScan(reading: ScanReading): void {
+  addRecvImei(reading.digits === '' ? reading.raw : reading.digits);
+}
+
+function addTypedRecvImei(): void {
+  addRecvImei(recvImeiDraft.value);
 }
 
 async function saveReceiveByImei(): Promise<void> {
@@ -869,31 +837,26 @@ onUnmounted(() => {
             </div>
             <div class="ph-head">
               <b>ماسح الكاشير</b>
-              <span class="tag ok"><span class="dot"></span> متصل</span>
+              <span
+                class="tag"
+                :class="onlinePhones > 0 ? 'ok' : ''"
+                :data-online="num(onlinePhones)"
+                data-mobile-scan-link
+              >
+                <span v-if="onlinePhones > 0" class="dot"></span>
+                {{ onlinePhones > 0 ? 'متصل' : 'مش متصل' }}
+              </span>
             </div>
             <div class="ph-body">
-              <div class="viewfinder">
-                <div class="box-art"></div>
-                <div class="scan-frame"><div class="scan-line"></div></div>
-                <span class="vf-cap">وجّه الكاميرا على باركود أو IMEI</span>
-              </div>
-
-              <button
-                type="button"
-                class="btn primary block"
-                data-mobile-scan-phone
-                @click="scanPhoneBoxToPos"
-              >
-                <Icon name="scan-barcode" /> امسح علبة موبايل
-              </button>
-              <button
-                type="button"
-                class="btn block"
-                data-mobile-scan-acc
-                @click="scanAccessoryToPos"
-              >
-                <Icon name="scan-line" /> امسح باركود إكسسوار
-              </button>
+              <!-- A real camera, not a picture of one: the frame only appears when the
+                   lens is open, and a machine without a decoder says so and keeps the
+                   field below for typing. -->
+              <CameraScanButton
+                label="امسح باركود أو IMEI"
+                hint="وجّه الكاميرا على الباركود أو الـ IMEI — القراية بتحصل على الجهاز ده بس."
+                data-mobile-scan-camera
+                @scan="onManualScan"
+              />
 
               <div class="row" style="gap: 6px">
                 <input
@@ -906,7 +869,6 @@ onUnmounted(() => {
                   style="flex: 1; min-width: 0; height: 36px"
                   @keydown.enter.prevent="submitManualScanToPos"
                 />
-                <CameraScanButton :compact="true" data-mobile-scan-camera @scan="onManualScan" />
                 <button
                   type="button"
                   class="btn sm"
@@ -1128,15 +1090,35 @@ onUnmounted(() => {
                     لسه مفيش أجهزة اتمسحت
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="btn primary block"
-                  data-mobile-recv-scan
-                  :disabled="recvImeis.length >= 5"
-                  @click="scanNextReceiveImei"
-                >
-                  <Icon name="scan-barcode" /> امسح الجهاز اللي بعده
-                </button>
+                <div class="row" style="gap: 6px">
+                  <input
+                    v-model="recvImeiDraft"
+                    :class="{ mono: recvImeiDraft !== '' }"
+                    :dir="recvImeiDraft ? 'ltr' : 'rtl'"
+                    inputmode="numeric"
+                    maxlength="17"
+                    autocomplete="off"
+                    placeholder="15 رقم…"
+                    data-mobile-recv-imei-input
+                    style="flex: 1; min-width: 0; height: 36px"
+                    :disabled="recvImeis.length >= 5"
+                    @keydown.enter.prevent="addTypedRecvImei"
+                  />
+                  <CameraScanButton
+                    :compact="true"
+                    data-mobile-recv-camera
+                    @scan="onReceiveScan"
+                  />
+                  <button
+                    type="button"
+                    class="btn sm"
+                    data-mobile-recv-add
+                    :disabled="recvImeis.length >= 5"
+                    @click="addTypedRecvImei"
+                  >
+                    أضف
+                  </button>
+                </div>
                 <button
                   type="button"
                   class="btn block"

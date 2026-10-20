@@ -3885,6 +3885,28 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
         "the capture screen must not paint a pairing QR: that is the computer's page (`ADR-042`)"
     );
 
+    // The preview of the handset must not perform a scan it did not do: the frame used
+    // to show a painted viewfinder and two buttons that pushed a product the computer
+    // had already chosen — a green dot and a fake reading (`ADR-043`).
+    for required in [
+        "data-mobile-scan-camera",
+        "data-mobile-scan-link",
+        "data-mobile-recv-camera",
+        "data-mobile-recv-imei-input",
+        "addRecvImei",
+    ] {
+        assert!(
+            MOBILE_COMPANION_SCREEN_VUE.contains(required),
+            "MobileCompanionScreen.vue must contain `{required}`: the handset reads codes with the camera (`ADR-043`)"
+        );
+    }
+    for forbidden in ["viewfinder", "buildLuhnImei15"] {
+        assert!(
+            !MOBILE_COMPANION_SCREEN_VUE.contains(forbidden),
+            "MobileCompanionScreen.vue must not contain `{forbidden}`: nothing on a screen may invent a scan (`ADR-043`)"
+        );
+    }
+
     // The rail carries the camera on a handset and not on the computer, and the
     // shell has a screen to switch to.
     for required in [

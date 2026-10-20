@@ -2680,18 +2680,101 @@ await shot('62b-companion-link-panel');
   check(
     'the mobile helper barcode box carries a camera mark beside it',
     (await count('[data-mobile-scan-camera] [data-camera-scan]')) === 1 &&
-      (await text('[data-mobile-scan-camera] [data-camera-scan]')) === ''
+      (await text('[data-mobile-scan-camera] [data-camera-scan]')).includes('امسح')
   );
 
-  await page.click('[data-mobile-scan-acc]');
+  // The badge counts handsets the wire hears, instead of painting a green dot.
+  const scanBadge = await page.$eval('[data-mobile-scan-link]', (el) => ({
+    online: el.getAttribute('data-online'),
+    label: el.textContent?.trim() ?? '',
+  }));
+  check(
+    'the scanner badge reports the real number of handsets the wire hears',
+    scanBadge.online === '0'
+      ? scanBadge.label.includes('مش متصل')
+      : scanBadge.label.includes('متصل') && !scanBadge.label.includes('مش متصل'),
+    JSON.stringify(scanBadge)
+  );
+
+  await page.click('[data-mobile-scan-camera] [data-camera-scan]');
+  await sleep(600);
+  check(
+    'the mobile camera either opens or says plainly that this handset cannot read codes',
+    (await count('[data-mobile-scan-camera] [data-camera-scan-panel]')) >= 1
+  );
+  await shot('62c-mobile-scanner-camera');
+
+  // A typed code goes through the same resolver a camera reading does.
+  const scanTarget = await page.evaluate(() => {
+    try {
+      const res = window.__mshopDemoInvoke('pos_catalog', {});
+      const p = (res?.products ?? []).find(
+        (x) => x.disposition === 'quantity' && x.onHand > 0 && x.barcode
+      );
+      return p ? { barcode: p.barcode, name: p.name } : null;
+    } catch {
+      return null;
+    }
+  });
+  check(
+    'the shop still has an accessory a phone can send to the till',
+    scanTarget !== null,
+    JSON.stringify(scanTarget)
+  );
+  await fill('[data-mobile-scan-input]', scanTarget?.barcode ?? '');
+  await page.click('[data-mobile-scan-submit]');
+  await sleep(400);
+  check(
+    'the code the phone read is queued for the till, and the screen names it',
+    (await text('[data-mobile-last-scan]')).includes(scanTarget?.name ?? '~')
+  );
+
+  // The receipt card on the handset checks a typed IMEI before it counts it.
+  const luhnValid = (digits) => {
+    let sum = 0;
+    for (let i = digits.length - 1; i >= 0; i -= 1) {
+      let n = Number(digits[i]);
+      if ((digits.length - i) % 2 === 0) {
+        n *= 2;
+        if (n > 9) n -= 9;
+      }
+      sum += n;
+    }
+    return sum % 10 === 0;
+  };
+  const freshImei = (seed) => {
+    const base = String(seed).padStart(14, '0').slice(-14);
+    for (let c = 0; c < 10; c += 1) {
+      const candidate = `${base}${c}`;
+      if (luhnValid(candidate)) return candidate;
+    }
+    return null;
+  };
+  const newImei = freshImei('3582190412345');
+  await fill('[data-mobile-recv-imei-input]', '356938035643800');
+  await page.click('[data-mobile-recv-add]');
   await sleep(250);
+  check(
+    'the receipt card refuses an IMEI whose check digit is wrong',
+    (await count('[data-mobile-recv-imei-row]')) === 0
+  );
+  await fill('[data-mobile-recv-imei-input]', newImei);
+  await page.click('[data-mobile-recv-add]');
+  await sleep(250);
+  check(
+    'a valid IMEI typed on the handset is the one that enters the receipt list',
+    (await count('[data-mobile-recv-imei-row]')) === 1 &&
+      (await text('[data-mobile-recv-imei-row]')).includes(newImei),
+    `${newImei}`
+  );
+
   await page.click('[data-mobile-go-pos]');
   await page.waitForSelector('.pos', { timeout: 3000 });
-  await sleep(300);
+  await sleep(400);
   check(
-    'Scanning on the mobile helper and jumping to POS delivers the scanned item to the open invoice',
+    'the item the phone scanned lands on the open invoice at the till',
     (await text('.topbar h1')) === 'البيع' &&
-      (await count('.pos .line')) >= 1
+      (await text('.pos .line')).includes(scanTarget?.name ?? '~')
   );
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------

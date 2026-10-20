@@ -356,22 +356,6 @@ export function buildPairingQrMatrix(payload: string, size = 21): boolean[][] {
   return grid;
 }
 
-/** Generate a valid 15-digit Luhn IMEI from a 14-digit numeric prefix. */
-export function buildLuhnImei15(prefix14: string): string {
-  const digits = normalizeImeiDigits(prefix14).replace(/\D/g, '').slice(0, 14).padEnd(14, '0');
-  let sum = 0;
-  for (let i = 0; i < 14; i += 1) {
-    let d = Number(digits[i]);
-    if (i % 2 === 1) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-  }
-  const check = (10 - (sum % 10)) % 10;
-  return `${digits}${check}`;
-}
-
 export interface RemoteOwnerSnapshot {
   readonly shopName: string;
   readonly remoteCode: string;

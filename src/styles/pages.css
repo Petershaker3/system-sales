@@ -361,12 +361,6 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .ph-head b { flex: 1; font-size: 1rem; }
 .ph-body { flex: 1; min-height: 0; overflow: auto; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
 .ph-body .inline-search { min-width: 0; height: 40px; flex: none; }
-.viewfinder { height: 180px; border-radius: var(--r-l); background: #1c1e22; position: relative; display: grid; place-items: center; overflow: hidden; flex: none; }
-.viewfinder .box-art { position: absolute; width: 190px; height: 120px; border-radius: var(--r-s); background: #e5e7eb; opacity: .14; transform: rotate(-4deg); }
-.scan-frame { width: 210px; height: 92px; border: 3px solid rgba(255, 255, 255, .9); border-radius: var(--r-m); position: relative; overflow: hidden; }
-.scan-line { position: absolute; inset-inline: 6px; height: 2px; background: var(--accent-fill); animation: scan 2s ease-in-out infinite; }
-@keyframes scan { 0%, 100% { top: 10%; } 50% { top: 86%; } }
-.viewfinder .vf-cap { position: absolute; bottom: 10px; color: #e6e7e9; font-size: .8rem; }
 .ph-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-m); padding: 10px 12px; display: grid; gap: 4px; flex: none; }
 .ph-card .r { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ph-prod { display: flex; align-items: center; gap: 8px; min-width: 0; }
