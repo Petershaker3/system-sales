@@ -209,6 +209,27 @@ check(
   'an unlinked phone is told so, in words it can act on',
   (await text('[data-link-state]')).includes('امسح باركود الربط من الكمبيوتر')
 );
+// Nothing is linked yet. A capture saved now cannot be sent, and the screen must
+// say that with a button rather than with silence — this is the «مش بقدر» the owner
+// described (`ADR-043`).
+await fill('[data-capture-name]', 'كفر سيليكون أسود');
+await fill('[data-capture-qty]', '3');
+await fill('[data-capture-cost]', '12000');
+await sleep(150);
+await page.click('[data-capture-save]');
+await sleep(400);
+check(
+  'a capture saved before linking stays on the phone, and says so',
+  (await count('[data-outbox-row]')) === 1 &&
+    (await text('[data-outbox-state]')).includes('مستنية البعته')
+);
+check(
+  'the waiting capture is announced at the top with a send button',
+  (await count('[data-capture-send-banner]')) === 1 &&
+    (await text('[data-capture-send-banner-push]')).includes('ابعت للكمبيوتر')
+);
+await shot('06b-phone-waiting-to-send');
+
 await fill(
   '[data-capture-paste]',
   'MSHOP-PAIR|v1|سنتر بيتر للموبايلات|192.168.1.10:8787|PAIR-8787'
@@ -227,25 +248,22 @@ check(
   (await text('[data-capture-link-tag]')).includes('متّصل') &&
     (await text('[data-capture-link-detail]')).includes('اتسجّل')
 );
-
-await fill('[data-capture-name]', 'كفر سيليكون أسود');
-await fill('[data-capture-qty]', '3');
-await fill('[data-capture-cost]', '12000');
-await sleep(150);
-await page.click('[data-capture-save]');
-await sleep(400);
-check('a saved capture waits in the outbox, and says so', (await count('[data-outbox-row]')) === 1);
 check(
-  'the outbox row names the queue, not the shelf',
-  (await text('[data-outbox-state]')).includes('مستنية البعته')
+  'once linked, the phone shows the computer it will send to — not an empty field',
+  (await text('[data-capture-stored-host]')).includes('192.168.1.10:8787')
 );
-await page.click('[data-capture-push]');
-await sleep(500);
+
+await page.click('[data-capture-send-banner-push]');
+await sleep(600);
 const pushed = await text('[data-outbox-state]');
 check(
-  'after a push the phone says the computer received it — and no more than that',
+  'the banner button sends, and the phone claims only delivery',
   pushed.includes('وصلت للكمبيوتر') && !pushed.includes('اتسجلت') && !pushed.includes('نزلت'),
   pushed
+);
+check(
+  'the banner leaves once nothing is waiting',
+  (await count('[data-capture-send-banner]')) === 0
 );
 await shot('07-phone-capture-link');
 
@@ -262,29 +280,32 @@ check(
     (await count('[data-capture-expense-from="drawer"]')) === 1
 );
 await page.click('[data-capture-expense-save]');
-await sleep(500);
+await sleep(700);
 check(
-  'the saved expense waits in the same queue as the product capture',
+  'a linked phone sends the expense on save — no second button to find',
   (await count('[data-outbox-row]')) === 2 &&
     (await page.$$eval('[data-outbox-row]', (rows) => rows.map((r) => r.textContent ?? '').join(' '))).includes(
       'مصروف'
     )
 );
-check(
-  'the queue has one obvious send button for everything waiting',
-  (await text('[data-outbox-push]')).includes('ابعت للكمبيوتر')
-);
-await shot('08-phone-expense-queued');
-
-await page.click('[data-outbox-push]');
-await sleep(600);
 const afterExpensePush = await page.$$eval('[data-outbox-row] [data-outbox-state]', (rows) =>
   rows.map((r) => r.textContent ?? '').join(' ')
 );
 check(
-  'pushing sends the expense too, and the phone still claims only delivery',
+  'the expense went too, and the phone still claims only delivery',
   afterExpensePush.includes('وصلت للكمبيوتر') && !afterExpensePush.includes('اتسجل'),
   afterExpensePush.slice(0, 120)
+);
+check(
+  'nothing is left waiting, so the banner is gone again',
+  (await count('[data-capture-send-banner]')) === 0
+);
+await shot('08-phone-expense-queued');
+
+// And the queue still has its own header button for anything that piles up later.
+check(
+  'the queue keeps its own send button for whatever piles up',
+  (await text('[data-outbox-push]')).includes('ابعت للكمبيوتر')
 );
 await shot('09-phone-expense-sent');
 

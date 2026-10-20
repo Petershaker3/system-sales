@@ -45,6 +45,10 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
     assert!(initial.pending_intakes.is_empty());
     assert!(initial.outbox.is_empty());
     assert_eq!(initial.last_link_at, None);
+    assert_eq!(
+        initial.remote_host, "",
+        "a handset that has never scanned a QR has no computer to dial — and says so"
+    );
     let parsed = parse_pair_payload(&initial.pair_payload).expect("valid QR payload");
     assert_eq!(parsed.2, DEFAULT_COMPANION_PORT);
     assert!(!initial.remote_enabled);
@@ -430,4 +434,150 @@ async fn an_oversized_push_is_answered_with_413() {
     assert!(response
         .to_http()
         .starts_with("HTTP/1.1 413 Content Too Large\r\n"));
+}
+
+/// An expense recorded on the phone becomes the shop's expense on the computer
+/// (`ADR-043`).
+///
+/// The draft goes through the same wire the phone uses — the intake route, the same
+/// queue, the same acceptance — and lands in the ledger through the expenses use case
+/// rather than the receiving one. A source the desktop does not know is refused at
+/// the door, so a typo can never decide whether the drawer shrinks.
+#[tokio::test]
+async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
+    use mobile_shop_system_lib::domain::shift::PaidFrom;
+    use mobile_shop_system_lib::services::shift as shift_service;
+
+    let (pool, tokens) = signed_in_manager().await;
+    let status = companion::overview(&pool, tokens.as_ref())
+        .await
+        .expect("overview publishes the credentials");
+    let shop = LanState {
+        shop: "متجر الاختبار".to_string(),
+        pair_code: status.pair_code.clone(),
+        blocked: Vec::new(),
+        port: DEFAULT_COMPANION_PORT,
+        staged: 0,
+    };
+    let intake = |body: String, state: &LanState| {
+        companion::handle_lan_request(
+            &LanRequest {
+                method: "POST".to_string(),
+                path: "/api/companion/intake".to_string(),
+                body,
+                oversized: false,
+            },
+            state,
+        )
+    };
+
+    // The phone remembers the computer it scanned, so reopening the screen does not
+    // look like an unlinked phone (`ADR-043`).
+    let linked = companion::save_host(&pool, tokens.as_ref(), "192.168.1.10:8787", "PAIR-1")
+        .await
+        .expect("the phone stores its computer");
+    assert_eq!(linked.remote_host, "192.168.1.10:8787");
+
+    // The rent is paid before anybody opens a shift, and the phone still carries it.
+    let rent = serde_json::json!({
+        "id": "expense-from-phone",
+        "kind": "expense",
+        "pairCode": shop.pair_code,
+        "deviceName": "موبايل بيتر",
+        "createdAt": 1,
+        "expenseCategory": "إيجار",
+        "expenseAmountMinor": 500_000,
+        "expensePaidFrom": "outside",
+        "expenseNote": "إيجار شهر أكتوبر",
+        "photos": [],
+    })
+    .to_string();
+    let (taken, effect) = intake(rent.clone(), &shop);
+    assert_eq!(taken.status, 202, "an expense draft is as welcome as a capture");
+    companion::stage_lan_effect(effect.expect("the draft is queued for the desktop"));
+
+    let inbox = companion::overview(&pool, tokens.as_ref())
+        .await
+        .expect("inbox after the push");
+    assert_eq!(inbox.pending_intakes.len(), 1);
+    assert_eq!(inbox.pending_intakes[0].kind, "expense");
+    assert_eq!(inbox.pending_intakes[0].expense_category, "إيجار");
+    assert_eq!(inbox.pending_intakes[0].expense_amount_minor, 500_000);
+    assert!(
+        inbox.pending_intakes[0].product_name.is_empty(),
+        "an expense draft is not a half-filled capture"
+    );
+
+    let data_dir = std::env::temp_dir().join(format!("mshop-expense-{}", std::process::id()));
+    std::fs::create_dir_all(&data_dir).expect("temporary data directory");
+    let catalog = CatalogContext::new(pool.clone(), tokens.clone());
+    let (after_apply, applied) = companion::accept_intake(
+        &pool,
+        tokens.as_ref(),
+        &catalog,
+        &data_dir,
+        "expense-from-phone",
+    )
+    .await
+    .expect("the draft became the shop's expense");
+    assert!(after_apply.pending_intakes.is_empty());
+    assert_eq!(applied.expense_category, "إيجار");
+    assert!(applied.product_id.is_none(), "no stock was invented");
+
+    let section = shift_service::expenses_overview(&pool, tokens.as_ref(), None, None)
+        .await
+        .expect("the section reads the applied expense");
+    assert_eq!(section.count, 1);
+    assert_eq!(section.outside_minor, 500_000);
+    assert_eq!(section.drawer_minor, 0);
+    assert_eq!(section.rows[0].record.paid_from, PaidFrom::Outside);
+    assert_eq!(section.rows[0].created_by_name, "Peter");
+
+    // A drawer expense with no shift open is refused at acceptance, with the code a
+    // shopkeeper can act on — and the draft stays in the inbox rather than vanishing.
+    let drawer = serde_json::json!({
+        "id": "expense-drawer",
+        "kind": "expense",
+        "pairCode": shop.pair_code,
+        "deviceName": "موبايل بيتر",
+        "expenseCategory": "ضيافة",
+        "expenseAmountMinor": 5_000,
+        "expensePaidFrom": "drawer",
+    })
+    .to_string();
+    let (queued, effect) = intake(drawer, &shop);
+    assert_eq!(queued.status, 202);
+    companion::stage_lan_effect(effect.expect("queued"));
+    let refused = companion::accept_intake(
+        &pool,
+        tokens.as_ref(),
+        &catalog,
+        &data_dir,
+        "expense-drawer",
+    )
+    .await;
+    assert_eq!(
+        refused.expect_err("no shift is open").code(),
+        "SHIFT_NOT_OPEN",
+        "the refusal names the remedy instead of attaching the tea to a till nobody opened"
+    );
+    let still_there = companion::overview(&pool, tokens.as_ref())
+        .await
+        .expect("inbox after a refused apply");
+    assert_eq!(still_there.pending_intakes.len(), 1);
+
+    // And the wire refuses a source it does not know, before the draft is even queued.
+    let unknown_source = serde_json::json!({
+        "id": "expense-unknown",
+        "kind": "expense",
+        "pairCode": shop.pair_code,
+        "deviceName": "موبايل بيتر",
+        "expenseCategory": "كهربا",
+        "expenseAmountMinor": 20_000,
+        "expensePaidFrom": "cash",
+    })
+    .to_string();
+    let (bad, none) = intake(unknown_source, &shop);
+    assert_eq!(bad.status, 400);
+    assert!(none.is_none(), "a draft with half a fact queues nothing");
 }

@@ -15,6 +15,7 @@ import {
   companionClearOutbox,
   companionConnectHost,
   companionOverview,
+  companionProbeHost,
   companionPushCaptures,
   companionSaveCapture,
   type CompanionIntakeDraft,
@@ -77,6 +78,16 @@ const expenseSaving = ref(false);
 const expenseTouched = ref(false);
 
 const deviceName = computed(() => `موبايل ${props.session.displayName}`.trim());
+
+/**
+ * The computer this phone already sends to, as the phone itself stored it.
+ *
+ * Reading it from the status rather than from a field is the whole point: the
+ * address is remembered across restarts, so reopening the screen does not look like
+ * an unlinked phone (`ADR-043`).
+ */
+const storedHost = computed<string>(() => companion.value?.remoteHost ?? '');
+
 const deviceModel = computed(() => {
   const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
   if (/iPhone|iPad|iPod/i.test(ua)) return 'iPhone';
@@ -162,8 +173,37 @@ const expenseProblem = computed<string | null>(() =>
 
 async function loadAll(): Promise<void> {
   companion.value = await companionOverview().catch(() => null);
+  // A stored address fills the field, so «مفيش حاجة مكتوبة» never reads as
+  // «مش مربوط» (`ADR-043`).
+  if (hostAddress.value === '' && (companion.value?.remoteHost ?? '') !== '') {
+    hostAddress.value = companion.value?.remoteHost ?? '';
+  }
   const catalog = await posCatalog().catch(() => null);
   products.value = catalog?.products ?? [];
+}
+
+/// Ask the stored computer whether it is listening, without retyping anything.
+async function probeStoredHost(): Promise<void> {
+  const target = storedHost.value.trim();
+  if (target === '') {
+    toast('لسه ما اتربطتش بكمبيوتر — امسح باركود الربط الأول.', 'err');
+    return;
+  }
+  const at = target.lastIndexOf(':');
+  const host = at > 0 ? target.slice(0, at) : target;
+  const port = at > 0 ? Number(target.slice(at + 1)) : 8787;
+  linkBusy.value = true;
+  try {
+    const probe = await companionProbeHost(host, Number.isFinite(port) ? port : 8787);
+    linkResult.value = { ok: probe.ok, detail: probe.detail };
+    toast(probe.detail, probe.ok ? 'ok' : 'err');
+  } catch (error) {
+    const reason = describeError(error);
+    linkResult.value = { ok: false, detail: reason };
+    toast(reason, 'err');
+  } finally {
+    linkBusy.value = false;
+  }
 }
 
 function usePastedPayload(): void {
@@ -305,10 +345,17 @@ async function saveCapture(): Promise<void> {
   try {
     companion.value = await companionSaveCapture(draft);
     resetForm();
-    toast(
-      `الصنف اتحفظ على الموبايل — ${dg(waitingCount.value)} مستني الكمبيوتر`,
-      'ok',
-    );
+    if (storedHost.value !== '') {
+      // A linked phone does not make the shopkeeper press a second button: saving
+      // sends. The toast after the push reports what the computer actually answered
+      // (`ADR-043`).
+      await pushAll();
+    } else {
+      toast(
+        `الصنف اتحفظ على الموبايل — اربط الكمبيوتر فوق عشان تبعته (${dg(waitingCount.value)} مستني)`,
+        'ok',
+      );
+    }
   } catch (error) {
     toast(describeError(error), 'err');
   } finally {
@@ -360,10 +407,14 @@ async function saveExpense(): Promise<void> {
     expenseAmountText.value = '';
     expenseNote.value = '';
     expenseTouched.value = false;
-    toast(
-      `المصروف اتحفظ على الموبايل — ${dg(waitingCount.value)} مستني البعته للكمبيوتر`,
-      'ok',
-    );
+    if (storedHost.value !== '') {
+      await pushAll();
+    } else {
+      toast(
+        `المصروف اتحفظ على الموبايل — اربط الكمبيوتر فوق عشان تبعته (${dg(waitingCount.value)} مستني)`,
+        'ok',
+      );
+    }
   } catch (error) {
     toast(describeError(error), 'err');
   } finally {
@@ -410,6 +461,27 @@ onUnmounted(() => {
         {{ linkLine.label }}
       </span>
     </div>
+
+    <!-- The one thing the screen is for: what is waiting, and the button that sends
+         it. Placed above everything else so «مش بقدر» has no room to happen. -->
+    <section v-if="waitingCount > 0" class="card send-banner" data-capture-send-banner>
+      <div>
+        <b>{{ dg(waitingCount) }} حاجة على الموبايل لسه ما اتبعتتش للكمبيوتر</b>
+        <span class="muted">
+          صنف أو مصروف — الزرار ده بيبعت كل اللي مستني، ولو ما وصلش هيقوللك السبب.
+        </span>
+      </div>
+      <button
+        type="button"
+        class="btn primary"
+        :disabled="pushing"
+        data-capture-send-banner-push
+        @click="pushAll"
+      >
+        <Icon name="wifi" />
+        {{ pushing ? 'بيّبعت…' : 'ابعت للكمبيوتر' }}
+      </button>
+    </section>
 
     <p v-if="linkLine.detail !== ''" class="muted" data-capture-link-detail>
       {{ linkLine.detail }}
@@ -470,6 +542,22 @@ onUnmounted(() => {
               data-capture-code
             />
           </div>
+        </div>
+        <div v-if="storedHost !== ''" class="remembered" data-capture-stored-host>
+          <span>
+            الموبايل متظبط على الكمبيوتر
+            <bdi dir="ltr" class="mono">{{ storedHost }}</bdi>
+            — مش محتاج تكتبه تاني.
+          </span>
+          <button
+            type="button"
+            class="btn sm"
+            :disabled="linkBusy"
+            data-capture-probe
+            @click="probeStoredHost"
+          >
+            <Icon name="wifi" /> {{ linkBusy ? 'بيجرّب…' : 'جرّب الاتصال' }}
+          </button>
         </div>
         <div class="row" style="gap: 8px">
           <button
@@ -533,6 +621,7 @@ onUnmounted(() => {
           <div class="field" style="flex: 1; justify-content: flex-end">
             <span class="label">امسح</span>
             <CameraScanButton
+              :compact="true"
               label="امسح الباركود"
               data-capture-scan
               @scan="applyBarcodeScan"
@@ -791,6 +880,27 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.send-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-color: var(--accent-fill);
+}
+
+.remembered {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+}
+
 .warn {
   color: #8a3b12;
   font-size: 0.82rem;

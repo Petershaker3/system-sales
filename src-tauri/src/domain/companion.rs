@@ -77,6 +77,12 @@ pub struct CompanionStatus {
     pub remote_enabled: bool,
     pub remote_code: String,
     pub remote_payload: String,
+    /// The computer this handset sends to, as it stored it (`ip:port`).
+    ///
+    /// Empty on a machine that has never been told to dial one. Without it the phone
+    /// forgets its own address every time the screen is reopened, which is how a
+    /// working link ends up described as «مش بقدر» (`ADR-043`).
+    pub remote_host: String,
     /// Last moment data actually moved in either direction. The shell used to
     /// report "synced just now" from a checkbox; that field is gone (`ADR-042`).
     pub last_link_at: Option<i64>,

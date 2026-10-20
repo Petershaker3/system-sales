@@ -3020,6 +3020,83 @@ check(
 );
 await shot('70-expenses-two-sources');
 
+// --- a phone records an expense, the computer applies it (ADR-043) ---------
+// The owner's complaint had two halves: no expenses section, and nothing recorded on
+// the phone could be sent. This is the second half, end to end: the phone pushes a
+// draft over the same wire, the desktop inbox shows it, and the owner's approval is
+// what writes it — into the expenses section, not into stock.
+const sentFromPhone = await page.evaluate(() => {
+  const invoke = window.__mshopDemoInvoke;
+  invoke('companion_connect_host', {
+    host: '192.168.1.10:8787',
+    pairCode: 'PAIR-8787',
+    deviceName: 'موبايل بيتر',
+    deviceModel: 'Pixel 8',
+  });
+  invoke('companion_save_capture', {
+    draft: {
+      kind: 'expense',
+      deviceName: 'موبايل بيتر',
+      expenseCategory: 'كهربا',
+      expenseAmountMinor: 27500,
+      expensePaidFrom: 'outside',
+      expenseNote: 'فاتورة كهربا شهر سبتمبر',
+    },
+  });
+  return invoke('companion_push_captures', {}).detail;
+});
+check('a phone can push an expense over the same link as a capture', sentFromPhone.includes('أخد'), sentFromPhone);
+
+await clickText('.rail .nav-btn', 'الموبايل');
+await page.waitForSelector('[data-companion-inbox]', { timeout: 5000 });
+await sleep(300);
+check(
+  'the computer has a titled inbox for what the phone sent — not a list under the QR',
+  (await text('[data-companion-inbox-count]')).includes('مستنية')
+);
+check(
+  'the arriving row is described as money, with its source',
+  (await text('[data-companion-intake-row]')).includes('كهربا') &&
+    (await text('[data-companion-intake-row]')).includes('من برّه الدرج')
+);
+check(
+  'the accept button says where it will go, so nobody fears it becomes stock',
+  (await text('[data-companion-accept]')).includes('سجّلها في المصاريف')
+);
+await shot('72-phone-expense-in-inbox');
+
+await page.click('[data-companion-accept]');
+await sleep(700);
+check(
+  'accepting it empties the inbox',
+  (await text('[data-companion-inbox-count]')).includes('مفيش')
+);
+
+const drawerBeforeAccept = await (async () => {
+  await clickText('.rail .nav-btn', 'المصاريف');
+  await page.waitForSelector('[data-expenses-screen]', { timeout: 5000 });
+  await sleep(300);
+  return await text('[data-expenses-drawer]');
+})();
+check(
+  'the phone expense did not move the drawer',
+  drawerBeforeAccept === (await text('[data-expenses-drawer]')),
+  `drawer ${drawerBeforeAccept}`
+);
+const outsideAfterPhone = await text('[data-expenses-outside]');
+check(
+  'the section counted the applied expense in its outside column',
+  outsideAfterPhone !== outsideFinal,
+  `${outsideFinal} → ${outsideAfterPhone}`
+);
+check(
+  'its row names the phone category and source',
+  (await page.$$eval('[data-expenses-row]', (rows) =>
+    rows.map((r) => r.textContent ?? '').join(' | ')
+  )).includes('كهربا')
+);
+await shot('73-phone-expense-applied');
+
 // --- the camera beside a barcode field (ADR-043) ---------------------------
 await clickText('.rail .nav-btn', 'البيع');
 await page.waitForSelector('#q', { timeout: 5000 });

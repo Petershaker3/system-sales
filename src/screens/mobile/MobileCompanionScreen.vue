@@ -536,6 +536,86 @@ onUnmounted(() => {
       باركود الربط. اللي تحت ده شكل شاشات الموبايل للمراجعة بس.
     </p>
 
+    <!-- The inbox is its own card, with a heading and a count, and it comes first:
+         what a phone sent is the reason this screen exists. It used to be a list
+         with no heading under the QR, which is exactly why «مش بقدر» was the
+         owner's description of a working feature. -->
+    <section v-if="!phoneSide" class="card" data-companion-inbox>
+      <div class="card-h">
+        <h3>اللي وصل من الموبايل</h3>
+        <span
+          class="tag"
+          :class="pendingIntakes.length > 0 ? 'warn' : ''"
+          data-companion-inbox-count
+        >
+          <span v-if="pendingIntakes.length > 0" class="dot"></span>
+          {{
+            pendingIntakes.length === 0
+              ? 'مفيش حاجة مستنية'
+              : `${num(pendingIntakes.length)} مستنية موافقتك`
+          }}
+        </span>
+        <span class="sp"></span>
+        <span class="muted" style="font-size: 0.82rem">صنف أو مصروف — الكمبيوتر هو اللي بيسجّل</span>
+      </div>
+      <p class="muted" style="margin-top: 0">
+        كل حاجة الموبايل بعتها بتقف هنا لحد ما تقرر. الصنف بينزل باستلام، والمصروف بيتسجل
+        في قسم المصاريف — ومفيش حاجة بتتكتب في الدفتر من غير موافقتك.
+      </p>
+
+    <div v-if="pendingIntakes.length === 0" class="muted" style="padding: 8px 0" data-companion-inbox-empty>
+      مفيش مسودة واصلة من الموبايل. اللي يوصل بيستنى موافقتك هنا قبل ما ينزل في الاستلام
+      أو في المصاريف.
+    </div>
+    <div
+      v-for="draft in pendingIntakes"
+      :key="draft.id"
+      class="s-row"
+      data-companion-intake-row
+    >
+      <span class="t-ico">
+        <Icon :name="draft.kind === 'expense' ? 'hand-coins' : 'boxes'" />
+      </span>
+      <div class="t">
+        <b>{{ draft.kind === 'expense' ? draft.expenseCategory : draft.productName }}</b>
+        <small v-if="draft.kind === 'expense'">
+          مصروف من {{ draft.deviceName }} · {{ money(draft.expenseAmountMinor) }} ·
+          {{ draft.expensePaidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج' }}
+        </small>
+        <small v-else>
+          من {{ draft.deviceName }} · {{ num(draft.quantity) }} قطعة ·
+          · {{ money(draft.unitCostMinor) }} للقطعة
+          <template v-if="draft.imeis.length > 0">
+            · {{ num(draft.imeis.length) }} <bdi dir="auto">IMEI</bdi>
+          </template>
+          <template v-if="draft.photos.length > 0">
+            · {{ num(draft.photos.length) }} صورة
+          </template>
+        </small>
+        <small v-if="draft.kind === 'expense'" class="muted">
+          {{
+            draft.expenseNote === ''
+              ? 'من غير ملاحظة'
+              : draft.expenseNote
+          }}
+        </small>
+        <small v-else class="muted">
+          {{
+            draft.barcode === ''
+              ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
+              : `باركود ${draft.barcode}`
+          }}
+        </small>
+      </div>
+      <button type="button" class="btn sm primary" data-companion-accept @click="onAcceptIntake(draft)">
+        {{ draft.kind === 'expense' ? 'سجّلها في المصاريف' : 'نزّلها في الاستلام' }}
+      </button>
+      <button type="button" class="btn sm ghost" data-companion-reject @click="onRejectIntake(draft)">
+        ارفض
+      </button>
+    </div>
+  </section>
+
     <section v-if="!phoneSide" class="card" data-companion-host-panel>
       <div class="card-h">
         <h3>الربط: الكمبيوتر بيعرض والموبايل بيصور</h3>
@@ -572,7 +652,10 @@ onUnmounted(() => {
         <div class="stack" style="gap: 6px">
           <b>{{ num(1) }}. افتح «الالتقاط» على الموبايل</b>
           <span>{{ num(2) }}. امسح الباركود ده، أو اكتب اللي تحته في خانة الكود</span>
-          <span>{{ num(3) }}. الموبايل بيبعت الصور والـ <bdi dir="auto">IMEI</bdi> — وانت تنزّلهم في الاستلام</span>
+          <span>
+            {{ num(3) }}. الموبايل يبعت الصنف أو المصروف — وانت تقرر هنا: الصنف ينزل استلام،
+            والمصروف يتسجل في قسمه
+          </span>
           <span class="muted">
             عنوان الكمبيوتر:
             <bdi dir="ltr" class="mono" data-companion-host-address>{{ hostIp }}:{{ port }}</bdi>
@@ -602,57 +685,6 @@ onUnmounted(() => {
           @click="onUnpairDevice(dev.id, dev.name)"
         >
           فصل
-        </button>
-      </div>
-
-      <div v-if="pendingIntakes.length === 0" class="muted" style="padding: 8px 0" data-companion-inbox-empty>
-        مفيش مسودة واصلة من الموبايل. اللي يوصل بيستنى موافقتك هنا قبل ما ينزل في الاستلام.
-      </div>
-      <div
-        v-for="draft in pendingIntakes"
-        :key="draft.id"
-        class="s-row"
-        data-companion-intake-row
-      >
-        <span class="t-ico">
-          <Icon :name="draft.kind === 'expense' ? 'hand-coins' : 'boxes'" />
-        </span>
-        <div class="t">
-          <b>{{ draft.kind === 'expense' ? draft.expenseCategory : draft.productName }}</b>
-          <small v-if="draft.kind === 'expense'">
-            مصروف من {{ draft.deviceName }} · {{ money(draft.expenseAmountMinor) }} ·
-            {{ draft.expensePaidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج' }}
-          </small>
-          <small v-else>
-            من {{ draft.deviceName }} · {{ num(draft.quantity) }} قطعة ·
-            · {{ money(draft.unitCostMinor) }} للقطعة
-            <template v-if="draft.imeis.length > 0">
-              · {{ num(draft.imeis.length) }} <bdi dir="auto">IMEI</bdi>
-            </template>
-            <template v-if="draft.photos.length > 0">
-              · {{ num(draft.photos.length) }} صورة
-            </template>
-          </small>
-          <small v-if="draft.kind === 'expense'" class="muted">
-            {{
-              draft.expenseNote === ''
-                ? 'من غير ملاحظة'
-                : draft.expenseNote
-            }}
-          </small>
-          <small v-else class="muted">
-            {{
-              draft.barcode === ''
-                ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
-                : `باركود ${draft.barcode}`
-            }}
-          </small>
-        </div>
-        <button type="button" class="btn sm primary" data-companion-accept @click="onAcceptIntake(draft)">
-          {{ draft.kind === 'expense' ? 'سجّلها في المصاريف' : 'نزّلها في الاستلام' }}
-        </button>
-        <button type="button" class="btn sm ghost" data-companion-reject @click="onRejectIntake(draft)">
-          ارفض
         </button>
       </div>
     </section>

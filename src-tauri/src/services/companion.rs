@@ -516,6 +516,10 @@ async fn build_status(
         Some(raw) => serde_json::from_str(&raw).unwrap_or_default(),
         None => Vec::new(),
     };
+    let remote_host = repo::get(conn, COMPANION_HOST_KEY)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .unwrap_or_default();
     let host_ip = detect_local_lan_ip();
     let port = DEFAULT_COMPANION_PORT;
     let pair_payload = format_pair_payload(&appearance.shop_name, &host_ip, port, &pair_code);
@@ -550,6 +554,7 @@ async fn build_status(
         remote_enabled,
         remote_code,
         remote_payload,
+        remote_host,
         last_link_at,
     })
 }

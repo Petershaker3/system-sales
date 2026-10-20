@@ -107,6 +107,8 @@ export interface CompanionStatus {
   readonly remoteEnabled: boolean;
   readonly remoteCode: string;
   readonly remotePayload: string;
+  /** The computer this handset sends to (`ip:port`); `''` when it has none. */
+  readonly remoteHost: string;
   /** The last moment data really moved. Absent means it never has. */
   readonly lastLinkAt: number | null;
 }

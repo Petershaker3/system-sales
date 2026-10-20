@@ -3856,6 +3856,13 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
         "data-capture-expense",
         "data-capture-expense-save",
         "data-outbox-push",
+        // What is waiting is announced at the top with the button that sends it, and
+        // a linked phone sends on save. «مش بقدر» was a screen where the only way out
+        // was a button at the bottom that said nothing (`ADR-043`).
+        "data-capture-send-banner",
+        "data-capture-send-banner-push",
+        "data-capture-stored-host",
+        "companionProbeHost",
         // The camera is a component now: one implementation serves every barcode and
         // IMEI field in the app (`ADR-043`), so this screen renders it rather than
         // carrying a second copy of the decoder.
@@ -3908,7 +3915,13 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
             "src/api/companion.ts must wrap `{command}` for the phone (`ADR-042`)"
         );
     }
-    for field in ["pendingIntakes", "outbox", "rejectedPushes", "lastLinkAt"] {
+    for field in [
+        "pendingIntakes",
+        "outbox",
+        "rejectedPushes",
+        "remoteHost",
+        "lastLinkAt",
+    ] {
         assert!(
             API_COMPANION_TS.contains(field),
             "the status the panel reads must carry `{field}`: without it there is no honest thing to show (`ADR-042`)"

@@ -833,6 +833,8 @@ function demoCompanionStatusDto() {
     remoteEnabled: demoRemoteEnabled,
     remoteCode,
     remotePayload: `MSHOP-REMOTE|v1|${shopName}|${remoteCode}`,
+    // What this handset stored when it scanned the computer's QR. Empty until it has.
+    remoteHost: demoHostAddress,
     // The link stamp is only ever a real link: the demo writes it when a phone
     // connects or pushes, exactly like the listener does.
     lastLinkAt: demoLastLinkAt,
@@ -5388,15 +5390,21 @@ const handlers: Record<string, (args: Args) => unknown> = {
 
 /** Install the stand-in backend. Call once, before the app mounts. */
 export function install(): void {
-  mockIPC((cmd, args) => {
+  const run = (cmd: string, args: Args) => {
     const handler = handlers[cmd];
     if (handler === undefined) {
       // Not part of the demo (backups, user changes): refused, so nothing
       // pretends to have happened.
       throw { code: 'DEMO_UNAVAILABLE' };
     }
-    return handler(args as Args);
-  });
+    return handler(args);
+  };
+  mockIPC((cmd, args) => run(cmd, args as Args));
+  // The demo browser has one window, but the shop has two machines. This hook is
+  // how a smoke test can be the other one — it calls the same handlers the screens
+  // call, so a phone push it performs is the push the real app would have made.
+  // Demo build only (`VITE_DEMO=1`); the shipped app never loads this file.
+  (window as unknown as { __mshopDemoInvoke?: unknown }).__mshopDemoInvoke = run;
 }
 
 /** Shown on the sign-in card of the demo only. */
