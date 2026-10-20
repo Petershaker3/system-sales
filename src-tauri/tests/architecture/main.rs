@@ -3691,6 +3691,7 @@ fn the_companion_link_reports_the_wire_and_never_invents_state() {
         "MAX_INTAKE_BODY_BYTES",
         "Access-Control-Allow-Origin: *",
         "fn read_lan_request",
+        "note_lan_response(&response, effect)",
         "fn flush_lan_state",
         "fn lan_introduce",
         "fn push_pending",

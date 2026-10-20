@@ -194,8 +194,10 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
     assert_eq!(refused.status, 403, "unpairing must mean something");
 
     // A stranger guessing a code is refused, and the shop is told it was tried.
-    let (knock, _) = hello(r#"{"pairCode":"PAIR-GUESS","name":"موبايل غريب"}"#.to_string());
+    let (knock, none) = hello(r#"{"pairCode":"PAIR-GUESS","name":"موبايل غريب"}"#.to_string());
     assert_eq!(knock.status, 401);
+    assert!(none.is_none(), "a wrong code queues nothing on the shelf");
+    companion::note_lan_response(&knock, none);
     let counted = companion::overview(&pool, tokens.as_ref())
         .await
         .expect("status after a wrong code");

@@ -423,6 +423,22 @@ pub fn read_lan_request(stream: &mut TcpStream) -> Option<LanRequest> {
 /// Called from the desktop's setup hook only: a phone does not host a link, it
 /// dials one. `lan_server_running` reports the bind, so a port already taken by
 /// another program shows up as a stopped server instead of a working one.
+/// What the socket loop does with one answer, kept out of the loop on purpose.
+///
+/// A refusal is counted where the wire saw it — the router stays a pure function of
+/// its request and state — and the effect that has to be persisted is staged for the
+/// desktop to drain on its next read. A test drives the same two lines without
+/// opening a socket or starting a second process, which is how "a knocked door is
+/// reported" is provable at all (`ADR-042`).
+pub fn note_lan_response(response: &LanResponse, effect: Option<LanEffect>) {
+    if response.status == 401 {
+        LAN_REJECTED_PUSHES.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(effect) = effect {
+        stage_lan_effect(effect);
+    }
+}
+
 pub fn spawn_lan_companion_listener(port: u16) {
     std::thread::spawn(move || {
         let Ok(listener) = TcpListener::bind(("0.0.0.0", port)) else {
@@ -436,12 +452,7 @@ pub fn spawn_lan_companion_listener(port: u16) {
             };
             let state = lan_state();
             let (response, effect) = handle_lan_request(&req, &state);
-            if response.status == 401 {
-                LAN_REJECTED_PUSHES.fetch_add(1, Ordering::Relaxed);
-            }
-            if let Some(effect) = effect {
-                stage_lan_effect(effect);
-            }
+            note_lan_response(&response, effect);
             let _ = stream.write_all(response.to_http().as_bytes());
             let _ = stream.flush();
         }
