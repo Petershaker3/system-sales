@@ -2857,7 +2857,8 @@ check(
 );
 const numberButtons = await page.$$('[data-wallet-choice]');
 if (numberButtons[1]) await numberButtons[1].click();
-await sleep(150);
+await sleep(200);
+await shot('68a-pay-screen-names-the-number');
 await page.click('#confirm-pay-btn');
 await sleep(400);
 await page.keyboard.press('Escape');
