@@ -289,10 +289,12 @@ pub async fn record_payment(
     )
     .await
     .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::Storage(_) => {
+            CustomerServiceError::from(DomainError::StorageUnavailable)
+        }
         wallet_service::PaymentWalletFailure::NotEligible(_) => {
             CustomerError::PaymentWalletInvalid.into()
         }
-        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
     })?;
 
     let entry = CustomerLedgerEntry {

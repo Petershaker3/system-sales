@@ -200,10 +200,12 @@ pub async fn create_repair(
     )
     .await
     .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::Storage(_) => {
+            RepairServiceError::from(DomainError::StorageUnavailable)
+        }
         wallet_service::PaymentWalletFailure::NotEligible(_) => {
             RepairError::PayWalletInvalid.into()
         }
-        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
     })?;
 
     let raw = repair_repo::insert(
@@ -388,10 +390,12 @@ pub async fn deliver_repair(
     )
     .await
     .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::Storage(_) => {
+            RepairServiceError::from(DomainError::StorageUnavailable)
+        }
         wallet_service::PaymentWalletFailure::NotEligible(_) => {
             RepairError::PayWalletInvalid.into()
         }
-        wallet_service::PaymentWalletFailure::Storage(_) => DomainError::StorageUnavailable.into(),
     })?;
     let effective_warranty = warranty_days.unwrap_or(existing.warranty_days);
 

@@ -572,7 +572,7 @@ pub async fn record_sale_with_discounts(
         let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
             .await
             .map_err(|err| match err {
-                SalePayeeError::Storage => DomainError::StorageUnavailable.into(),
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
                 SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
             })?;
         sales_repo::insert_sale_payment(
@@ -1552,7 +1552,7 @@ async fn execute_return_core_in_tx(
         let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
             .await
             .map_err(|err| match err {
-                SalePayeeError::Storage => DomainError::StorageUnavailable.into(),
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
                 SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
             })?;
         sales_repo::insert_sale_payment(
@@ -2173,7 +2173,7 @@ pub async fn record_sale_exchange(
         let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
             .await
             .map_err(|err| match err {
-                SalePayeeError::Storage => DomainError::StorageUnavailable.into(),
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
                 SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
             })?;
         sales_repo::insert_sale_payment(
