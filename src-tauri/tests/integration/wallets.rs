@@ -8,11 +8,14 @@ use std::sync::Arc;
 use super::{fresh, PASSWORD};
 use mobile_shop_system_lib::data::repositories::identity::audit;
 use mobile_shop_system_lib::domain::catalog::Disposition;
+use mobile_shop_system_lib::domain::customer::{NewCustomer, NewCustomerPayment};
 use mobile_shop_system_lib::domain::identity::{Role, Sensitivity, UserId};
 use mobile_shop_system_lib::domain::sales::SalePaymentInput;
 use mobile_shop_system_lib::domain::wallet::{WalletPayMethod, MAX_WALLET_COMPANY_CHARS};
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
+use mobile_shop_system_lib::services::customer as customer_service;
+use mobile_shop_system_lib::services::repair::{self as repair_service, CreateRepairInput};
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{auth, bootstrap, pin, session, users};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
@@ -228,6 +231,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -437,6 +441,7 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -494,5 +499,253 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
             .await
             .is_err(),
         "a company label past the ceiling is refused, not truncated"
+    );
+}
+
+/// `ADR-041`: every flow that moves money names the number that took it.
+///
+/// The sale at the till, the customer settling a debt, and the repair being settled are three
+/// different screens with one accounting rule between them: the row names a wallet, and the money
+/// is that wallet's and no one else's. A number named for a method it does not receive is refused
+/// rather than swapped for a similar one, because a silent swap is what makes a till balanced on
+/// paper and wrong in the drawer.
+#[tokio::test]
+async fn every_money_flow_names_the_number_that_took_it() {
+    let (pool, tokens, _manager_uid, _seller_uid, product_id) = setup_shop().await;
+
+    let second = wallet_service::create_wallet(
+        &pool,
+        tokens.as_ref(),
+        "فودافون كاش ٢",
+        "#e60000",
+        Some("01009999999"),
+        Some("فودافون كاش"),
+    )
+    .await
+    .expect("a second number of the same company");
+    wallet_service::update_wallet(
+        &pool,
+        tokens.as_ref(),
+        UpdateWalletInput {
+            wallet_id: second.id.as_str().to_owned(),
+            name: "فودافون كاش ٢".to_owned(),
+            number: "01009999999".to_owned(),
+            color: "#e60000".to_owned(),
+            opening_balance_minor: 0,
+            min_alert_minor: 0,
+            max_limit_minor: 0,
+            daily_limit_minor: 0,
+            pay_method: Some("vf".to_owned()),
+            company: Some("فودافون كاش".to_owned()),
+            sort: second.sort,
+            hidden: false,
+        },
+    )
+    .await
+    .expect("link the second number to the same method");
+
+    let customer = customer_service::create(
+        &pool,
+        tokens.as_ref(),
+        NewCustomer {
+            name: "صابر حلمي".to_string(),
+            contact: Some("01055667788".to_string()),
+        },
+    )
+    .await
+    .expect("create customer");
+
+    async fn numbers(
+        pool: &SqlitePool,
+        tokens: &InMemoryTokenStore,
+        second_id: &str,
+    ) -> (i64, i64) {
+        let overview = wallet_service::wallets_overview(pool, tokens, 0, 0, i64::MAX, None, 50)
+            .await
+            .expect("overview");
+        let find = |id: &str| {
+            overview
+                .wallets
+                .iter()
+                .find(|s| s.wallet.id.as_str() == id)
+                .map(|s| s.balance_minor)
+                .unwrap_or(i64::MIN)
+        };
+        (find("vf"), find(second_id))
+    }
+
+    let (primary_before, picked_before) = numbers(&pool, tokens.as_ref(), second.id.as_str()).await;
+
+    // 1 — the till names the number, and only that number grows.
+    sales::record_sale_with_payments(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineWithUnitInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
+            imei: None,
+        }],
+        None,
+        Some(&[SalePaymentInput {
+            method: "vf".to_owned(),
+            amount_minor: 20_000,
+            reference: None,
+            wallet_id: Some(second.id.as_str().to_owned()),
+        }]),
+        None,
+    )
+    .await
+    .expect("a sale paid into the number the operator named");
+
+    // 2 — a number named for cash is a mistake, not a preference.
+    let wrong = sales::record_sale_with_payments(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineWithUnitInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
+            imei: None,
+        }],
+        None,
+        Some(&[SalePaymentInput {
+            method: "cash".to_owned(),
+            amount_minor: 20_000,
+            reference: None,
+            wallet_id: Some(second.id.as_str().to_owned()),
+        }]),
+        None,
+    )
+    .await
+    .expect_err("cash does not land in a wallet, so naming one is refused");
+    assert!(
+        format!("{wrong:?}").contains("PaymentWalletInvalid"),
+        "the refusal must say the number does not take this method: {wrong:?}"
+    );
+
+    // 3 — a customer settling a debt transfers to a number.
+    sales::record_sale_with_payments(
+        &pool,
+        tokens.as_ref(),
+        &[SaleLineWithUnitInput {
+            product_id: product_id.clone(),
+            quantity: 1,
+            warranty_start: None,
+            warranty_end: None,
+            imei: None,
+        }],
+        None,
+        Some(&[SalePaymentInput {
+            method: "credit".to_owned(),
+            amount_minor: 20_000,
+            reference: None,
+            wallet_id: None,
+        }]),
+        Some(customer.id.as_str()),
+    )
+    .await
+    .expect("a credit sale to the customer");
+    customer_service::record_payment(
+        &pool,
+        tokens.as_ref(),
+        NewCustomerPayment {
+            customer_id: customer.id.clone(),
+            amount_minor: 10_000,
+            method: "vf".to_owned(),
+            note: None,
+            wallet_id: Some(second.id.as_str().to_owned()),
+        },
+    )
+    .await
+    .expect("the repayment names its number");
+
+    // 4 — a repair settled on the spot names its number too.
+    repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "hardware".to_owned(),
+            customer_name: "عميل الصيانة".to_owned(),
+            customer_phone: "01099887766".to_owned(),
+            device_name: "شاومي ريدمي 13C".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "تغيير شاشة".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 90_000,
+            parts_cost_minor: None,
+            deposit_minor: 0,
+            pay_method: Some("vf".to_owned()),
+            pay_wallet_id: Some(second.id.as_str().to_owned()),
+            technician_name: None,
+            warranty_days: None,
+            note: None,
+            deliver_now: true,
+        },
+    )
+    .await
+    .expect("a repair settled into the named number");
+
+    let (primary_after, picked_after) = numbers(&pool, tokens.as_ref(), second.id.as_str()).await;
+    assert_eq!(
+        picked_after - picked_before,
+        20_000 + 10_000 + 90_000,
+        "the number all three flows named holds all of it"
+    );
+    assert_eq!(
+        primary_after, primary_before,
+        "the other number of the same company took none of it"
+    );
+
+    // Each stream keeps the name on its own row, so the answer survives a reordering of the list.
+    let sale_wallet: String = sqlx::query_scalar(
+        "SELECT wallet_id FROM sale_payments WHERE method = 'vf' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the sale payment row names a wallet");
+    assert_eq!(sale_wallet, second.id.as_str());
+
+    let ledger_wallet: String = sqlx::query_scalar(
+        "SELECT wallet_id FROM customer_ledger WHERE kind = 'payment' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the repayment row names a wallet");
+    assert_eq!(ledger_wallet, second.id.as_str());
+
+    let credit_wallet: Option<String> = sqlx::query_scalar(
+        "SELECT wallet_id FROM customer_ledger WHERE kind = 'credit_sale' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the credit row exists");
+    assert_eq!(
+        credit_wallet, None,
+        "an آجل sale moves no wallet money, so it names no number"
+    );
+
+    let repair_wallet: String = sqlx::query_scalar(
+        "SELECT pay_wallet_id FROM repairs WHERE status = 'delivered' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the delivered ticket names a wallet");
+    assert_eq!(repair_wallet, second.id.as_str());
+
+    // And the picker the operator used is the list the backend offers them.
+    let candidates = wallet_service::payment_wallet_candidates(&pool, tokens.as_ref(), "vf")
+        .await
+        .expect("candidates for vf");
+    assert_eq!(candidates.len(), 2);
+    assert!(
+        candidates
+            .iter()
+            .any(|w| w.id.as_str() == second.id.as_str()),
+        "the number the operator picked has to be on the list they picked from"
     );
 }

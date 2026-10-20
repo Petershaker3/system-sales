@@ -113,6 +113,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(30),
             note: Some("العميل مستعجل".to_owned()),
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -155,6 +156,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(30),
             note: Some("تم التسليم وتجربة الشاشة".to_owned()),
+            pay_wallet_id: None,
         },
     )
     .await
@@ -188,6 +190,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(0),
             note: None,
             deliver_now: true,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -220,6 +223,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(0),
             note: None,
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -341,6 +345,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             method: "credit".to_owned(),
             amount_minor: 900_00,
             reference: None,
+            wallet_id: None,
         }]),
         Some(&cust.id),
     )
@@ -355,6 +360,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             amount_minor: 400_00,
             method: "vf".to_owned(),
             note: Some("سداد جزء من الآجل فودافون كاش".to_owned()),
+            wallet_id: None,
         },
     )
     .await
@@ -383,6 +389,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             warranty_days: Some(14),
             note: None,
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -399,6 +406,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(14),
             note: None,
+            pay_wallet_id: None,
         },
     )
     .await

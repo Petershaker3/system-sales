@@ -2823,6 +2823,82 @@ check(
 );
 await shot('67-two-numbers-one-company');
 
+// --- `ADR-041`: every flow that moves money names the number that took it ---
+async function walletCards() {
+  return page.$$eval('[data-wal-card]', (els) =>
+    els.map((el) => ({
+      id: el.getAttribute('data-wal-card') ?? '',
+      balance: Number(
+        (el.querySelector('[data-wal-balance]')?.textContent ?? '0').replace(/[^\d.-]/g, '')
+      )
+    }))
+  );
+}
+
+const namedBefore = await walletCards();
+const lastBefore = namedBefore[namedBefore.length - 1] || { id: '', balance: -1 };
+const secondId = lastBefore.id;
+const primaryBefore = (namedBefore.find((w) => w.id === 'vf') || { balance: -1 }).balance;
+const secondBefore = lastBefore.balance;
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile', { timeout: 3000 });
+await sleep(150);
+await clickText('.tiles .tile', 'كابل تايب سي 1 متر');
+await sleep(120);
+await page.keyboard.press('F12');
+await page.waitForSelector('.methods', { timeout: 3000 });
+await page.click('[data-method="vf"]');
+await sleep(300);
+check(
+  'the till asks which of the two numbers took the money, and offers both',
+  (await count('[data-wallet-choice]')) === 2,
+  `choices=${await count('[data-wallet-choice]')}`
+);
+const numberButtons = await page.$$('[data-wallet-choice]');
+if (numberButtons[1]) await numberButtons[1].click();
+await sleep(150);
+await page.click('#confirm-pay-btn');
+await sleep(400);
+await page.keyboard.press('Escape');
+await sleep(250);
+
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+const namedAfter = await walletCards();
+const primaryAfter = (namedAfter.find((w) => w.id === 'vf') || { balance: -1 }).balance;
+const secondAfter = (namedAfter.find((w) => w.id === secondId) || { balance: -1 }).balance;
+check(
+  'the number named at the till is the one that grew; the other number of the company did not move',
+  secondAfter > secondBefore && primaryAfter === primaryBefore,
+  `picked ${secondBefore}→${secondAfter}, primary ${primaryBefore}→${primaryAfter}`
+);
+
+// The refund asks the same question, and stops asking it for cash.
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('[data-open-returns]', { timeout: 3000 });
+await sleep(150);
+await page.click('[data-open-returns]');
+await page.waitForSelector('[data-return-modal]', { timeout: 3000 });
+await sleep(250);
+await page.click('[data-return-method="vf"]');
+await sleep(250);
+check(
+  'the return modal names the number that pays the refund out',
+  (await count('[data-wallet-choice]')) === 2,
+  `choices=${await count('[data-wallet-choice]')}`
+);
+await page.click('[data-return-method="cash"]');
+await sleep(250);
+check(
+  'a method no wallet holds is not offered a number',
+  (await count('[data-wallet-choice]')) === 0
+);
+await page.keyboard.press('Escape');
+await sleep(200);
+await shot('68-money-names-its-wallet');
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

@@ -2726,11 +2726,13 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "cash".to_string(),
                 amount_minor: 300_00,
                 reference: None,
+                wallet_id: None,
             },
             SalePaymentInput {
                 method: "vf".to_string(),
                 amount_minor: 200_00,
                 reference: Some("  0100123  ".to_string()),
+                wallet_id: None,
             },
         ],
         500_00,
@@ -2750,6 +2752,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "card".to_string(),
                 amount_minor: 500_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2765,6 +2768,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "install".to_string(),
                 amount_minor: 500_00,
                 reference: Some("   ".to_string()),
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2780,6 +2784,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "credit".to_string(),
                 amount_minor: 500_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2792,6 +2797,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
             method: "credit".to_string(),
             amount_minor: 500_00,
             reference: None,
+            wallet_id: None,
         }],
         500_00,
         enabled,
@@ -2806,6 +2812,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "cash".to_string(),
                 amount_minor: 450_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -3065,8 +3072,13 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     // Default refund allocation across split payment methods.
     let alloc = allocate_default_refund_payments(
         &[
-            (PaymentMethod::Cash, 10_000, None),
-            (PaymentMethod::Vf, 17_000, Some("VF-1".to_owned())),
+            (PaymentMethod::Cash, 10_000, None, None),
+            (
+                PaymentMethod::Vf,
+                17_000,
+                Some("VF-1".to_owned()),
+                Some("w-2".to_owned()),
+            ),
         ],
         PaymentMethod::Cash,
         15_000,
@@ -3076,6 +3088,10 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     assert_eq!(alloc[0].amount_minor, 10_000);
     assert_eq!(alloc[1].method, PaymentMethod::Vf);
     assert_eq!(alloc[1].amount_minor, 5_000);
+    // A refund leaves by the number that took the money (`ADR-041`), and a row that names none
+    // leaves the seller with nothing to inherit rather than a guess.
+    assert_eq!(alloc[1].wallet_id.as_deref(), Some("w-2"));
+    assert_eq!(alloc[0].wallet_id, None);
 }
 
 #[test]

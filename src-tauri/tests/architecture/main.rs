@@ -3507,3 +3507,147 @@ fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_
         "a sale payment must name the wallet that collected it (`ADR-040`)"
     );
 }
+
+/// `ADR-041`: every flow that moves money names the wallet number that took it.
+///
+/// Pinned as an architecture rule because the point of the change is that the four money flows
+/// agree. A flow that forgot to ask, or that read its money back out of the method instead of the
+/// name on the row, would pass its own tests and still leave two numbers of one company counting
+/// the same money — which is the thing `ADR-040` could not finish.
+const WALLET_FLOW_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0031_wallet_in_every_money_flow.sql");
+const CUSTOMER_REPOSITORY: &str = include_str!("../../src/data/repositories/customer.rs");
+const REPAIR_REPOSITORY: &str = include_str!("../../src/data/repositories/repair.rs");
+const CUSTOMER_SERVICE: &str = include_str!("../../src/services/customer.rs");
+const POS_PAY_MODAL_VUE: &str = include_str!("../../../src/screens/pos/PayModal.vue");
+const POS_RETURN_MODAL_VUE: &str = include_str!("../../../src/screens/pos/ReturnModal.vue");
+const POS_CUSTOMER_PICKER_VUE: &str = include_str!("../../../src/screens/pos/CustomerPickerModal.vue");
+const POS_WALLET_CHIPS_VUE: &str = include_str!("../../../src/screens/pos/WalletNumberChips.vue");
+const FRONTEND_SALES_API: &str = include_str!("../../../src/api/sales.ts");
+const FRONTEND_CUSTOMER_API: &str = include_str!("../../../src/api/customer.ts");
+const FRONTEND_REPAIRS_API: &str = include_str!("../../../src/api/repairs.ts");
+const FRONTEND_WALLET_API: &str = include_str!("../../../src/api/wallet.ts");
+
+#[test]
+fn every_money_flow_names_its_wallet_number() {
+    let sql = sql_only(WALLET_FLOW_MIGRATION);
+    for required in [
+        "alter table customer_ledger add column wallet_id text null references wallets (id);",
+        "alter table repairs add column pay_wallet_id text null references wallets (id);",
+        "drop trigger customer_ledger_no_update;",
+        "update customer_ledger",
+        "create trigger customer_ledger_no_update",
+        "update repairs",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0031 must contain `{required}` (`ADR-041`)"
+        );
+    }
+    // The ledger is append-only, so the trigger has to come down for the backfill and go back up
+    // afterwards — the order `0030` set and its test pins (`ADR-038` §2).
+    let drop_at = sql
+        .find("drop trigger customer_ledger_no_update;")
+        .expect("the append-only trigger must come down for the backfill");
+    let backfill_at = sql
+        .find("update customer_ledger")
+        .expect("the history must be given its wallet");
+    let restore_at = sql
+        .rfind("create trigger customer_ledger_no_update")
+        .expect("the append-only trigger must go back up");
+    assert!(
+        drop_at < backfill_at && backfill_at < restore_at,
+        "0031 must drop the trigger, backfill, then re-create the trigger"
+    );
+    assert!(
+        sql.contains("and kind = 'payment'"),
+        "only the rows that moved money into a shop wallet may be named: an آجل sale names none"
+    );
+
+    // One reading rule in the repository: the name on the row, with no fallback to the listing
+    // order and no method match that could count the same money for two numbers.
+    let repo = code_only(WALLET_REPOSITORY);
+    for required in [
+        "WHERE sp.wallet_id = ?1",
+        "WHERE kind = 'payment' AND wallet_id = ?1",
+        "WHERE status = 'delivered' AND pay_wallet_id = ?1",
+    ] {
+        assert!(
+            repo.contains(required),
+            "repositories/wallet.rs must attribute a stream with `{required}` (`ADR-041`)"
+        );
+    }
+    assert!(
+        !repo.contains("(SELECT w.id FROM wallets w"),
+        "attribution must not be gated on being the primary wallet of the method: an unnamed row \
+         whose method later finds a second number would otherwise move money between wallets"
+    );
+
+    let customer_repo = code_only(CUSTOMER_REPOSITORY);
+    assert!(
+        customer_repo.contains("id, customer_id, kind, amount_minor, method, wallet_id, sale_id"),
+        "the ledger insert must carry the wallet the money went into (`ADR-041`)"
+    );
+    let repair_repo = code_only(REPAIR_REPOSITORY);
+    assert!(
+        repair_repo.contains("UPDATE repairs SET pay_wallet_id = ?2 WHERE id = ?1"),
+        "a repair ticket must be able to name its wallet (`ADR-041`)"
+    );
+
+    // Every service asks the same question through the same resolver — none of them re-implements
+    // the default, which is how a flow drifts.
+    let service = code_only(WALLET_SERVICE);
+    assert!(
+        service.contains("pub async fn resolve_payment_wallet_id"),
+        "the wallet service must own the answer to `which number took this money` (`ADR-041`)"
+    );
+    for (name, code) in [
+        ("services/customer.rs", code_only(CUSTOMER_SERVICE)),
+        ("services/repair.rs", code_only(REPAIR_SERVICE)),
+        ("services/sales/mod.rs", code_only(SALES_SERVICE)),
+    ] {
+        assert!(
+            code.contains("resolve_payment_wallet_id") || code.contains("sale_payee_wallet_id("),
+            "{name} must route its money through the shared resolver (`ADR-041`)"
+        );
+    }
+
+    // The picker is one component used by every flow, and it is the only thing that asks.
+    let chips = code_only(POS_WALLET_CHIPS_VUE);
+    assert!(
+        chips.contains("paymentWalletCandidates") && chips.contains("options.length > 1"),
+        "the wallet picker must list candidates and stay out of the way when there is one number"
+    );
+    for (name, source) in [
+        ("PayModal.vue", code_only(POS_PAY_MODAL_VUE)),
+        ("ReturnModal.vue", code_only(POS_RETURN_MODAL_VUE)),
+        ("CustomerPickerModal.vue", code_only(POS_CUSTOMER_PICKER_VUE)),
+        ("RepairsScreen.vue", code_only(REPAIRS_SCREEN_VUE)),
+    ] {
+        assert!(
+            source.contains("WalletNumberChips"),
+            "{name} is a flow that moves money, so it must ask which number took it (`ADR-041`)"
+        );
+    }
+
+    // The payload carries the name on every leg of the way, or the question is asked for nothing.
+    assert!(
+        code_only(FRONTEND_SALES_API).contains("walletId: p.walletId ?? null"),
+        "api/sales.ts must send the wallet with each payment and each refund"
+    );
+    assert!(
+        code_only(FRONTEND_CUSTOMER_API).contains("walletId: walletId ?? null"),
+        "api/customer.ts must send the wallet a repayment went to"
+    );
+    assert!(
+        code_only(FRONTEND_REPAIRS_API)
+            .matches("payWalletId: params.payWalletId ?? null")
+            .count()
+            == 2,
+        "api/repairs.ts must send the wallet at intake and at delivery"
+    );
+    assert!(
+        code_only(FRONTEND_WALLET_API).contains("'payment_wallet_candidates'"),
+        "api/wallet.ts must expose the candidates command the chips read"
+    );
+}

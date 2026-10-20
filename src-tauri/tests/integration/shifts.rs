@@ -146,6 +146,7 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
             method: "cash".to_owned(),
             amount_minor: 40_000,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -181,11 +182,13 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
                 method: "vf".to_owned(),
                 amount_minor: 20_000,
                 reference: Some("VF-900".to_owned()),
+                wallet_id: None,
             },
             SalePaymentInput {
                 method: "credit".to_owned(),
                 amount_minor: 40_000,
                 reference: None,
+                wallet_id: None,
             },
         ]),
         Some(&cust.id),
@@ -202,6 +205,7 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
             amount_minor: 15_000,
             method: "cash".to_owned(),
             note: Some("دفعة كاش".to_owned()),
+            wallet_id: None,
         },
     )
     .await

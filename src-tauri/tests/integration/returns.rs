@@ -370,6 +370,7 @@ async fn exchange_executes_return_and_replacement_sale_in_one_atomic_operation()
             method: "cash".to_owned(),
             amount_minor: 35_000,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
