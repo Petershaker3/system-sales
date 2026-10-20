@@ -11,7 +11,7 @@ use mobile_shop_system_lib::domain::companion::{
 use mobile_shop_system_lib::domain::identity::Role;
 use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::companion::{self, LanEffect, LanRequest, LanState};
-use mobile_shop_system_lib::services::inventory;
+use mobile_shop_system_lib::services::inventory::stock as inventory;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{auth, bootstrap, session, users};
 use mobile_shop_system_lib::services::settings;
@@ -259,7 +259,7 @@ async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_sn
 
     // Applying it is ordinary, audited receiving work (`ADR-019`): the item, the
     // receipt, and the IMEI, none of it written by a companion-only path.
-    let data_dir = std::env::temp().join(format!("mshop-intake-{}", std::process::id()));
+    let data_dir = std::env::temp_dir().join(format!("mshop-intake-{}", std::process::id()));
     std::fs::create_dir_all(&data_dir).expect("temporary data directory");
     let catalog = CatalogContext::new(pool.clone(), tokens.clone());
     let (after_apply, applied) =

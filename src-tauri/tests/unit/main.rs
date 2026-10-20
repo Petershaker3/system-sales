@@ -3188,15 +3188,16 @@ fn a_capture_draft_is_checked_before_it_is_held() {
         "a one-off item has no stock balance for a receipt to move"
     );
 
-    for mutate in [
-        |draft: &mut CompanionIntakeDraft| draft.quantity = 0,
+    let mutations: [fn(&mut CompanionIntakeDraft); 7] = [
+        |draft| draft.quantity = 0,
         |draft| draft.quantity = -3,
         |draft| draft.unit_cost_minor = -1,
         |draft| draft.device_name = " ".to_string(),
         |draft| draft.photos = vec!["x".to_string(); MAX_INTAKE_PHOTOS + 1],
         |draft| draft.imeis = vec!["1".to_string(); 41],
         |draft| draft.product_name = "س".repeat(400),
-    ] {
+    ];
+    for mutate in mutations {
         let mut draft = base();
         mutate(&mut draft);
         assert!(
