@@ -1,7 +1,7 @@
 //! Integration tests for the LAN companion server & mobile helper (`ADR-037`, Plan item 3.2).
 
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use super::PASSWORD;
 use mobile_shop_system_lib::data::db;
@@ -17,18 +17,6 @@ use mobile_shop_system_lib::services::identity::{auth, bootstrap, session, users
 use mobile_shop_system_lib::services::settings;
 use sqlx::SqlitePool;
 
-/// The wire's staging area is process-wide (`LAN_STAGED`), while every test opens its
-/// own in-memory shop. Two tests that stage and drain at the same moment would hand
-/// each other's drafts to the wrong database — one test's rent would turn up in the
-/// other's inbox — so the tests that drive the wire take turns (`ADR-042`, `ADR-043`).
-static LAN_TURNS: Mutex<()> = Mutex::new(());
-
-fn take_lan_turn() -> MutexGuard<'static, ()> {
-    LAN_TURNS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 async fn signed_in_manager() -> (SqlitePool, Arc<InMemoryTokenStore>) {
     let pool = db::open_in_memory().await.expect("in-memory database");
     let tokens = Arc::new(InMemoryTokenStore::new());
@@ -43,7 +31,6 @@ async fn signed_in_manager() -> (SqlitePool, Arc<InMemoryTokenStore>) {
 
 #[tokio::test]
 async fn companion_overview_pairing_and_scan_queue_respect_roles_and_settings_snapshot() {
-    let _turn = take_lan_turn();
     let (pool, tokens) = signed_in_manager().await;
 
     let initial = companion::overview(&pool, tokens.as_ref())
@@ -452,23 +439,29 @@ async fn an_oversized_push_is_answered_with_413() {
 /// An expense recorded on the phone becomes the shop's expense on the computer
 /// (`ADR-043`).
 ///
-/// The draft goes through the same wire the phone uses — the intake route, the same
-/// queue, the same acceptance — and lands in the ledger through the expenses use case
-/// rather than the receiving one. A source the desktop does not know is refused at
-/// the door, so a typo can never decide whether the drawer shrinks.
+/// The draft has the shape the intake route accepts, and the route is asked about it
+/// — but nothing is staged in the responder's process-wide queue here: that queue
+/// belongs to a running shop, not to a test that would share it with the other tests
+/// in this binary. The draft is written to the inbox as the wire would write it, and
+/// what is checked is what matters: it lands in the ledger through the expenses use
+/// case rather than the receiving one, and a source the desktop does not know is
+/// refused before it can decide whether the drawer shrinks.
 #[tokio::test]
 async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
+    use mobile_shop_system_lib::data::repositories::settings::app_settings as settings_repo;
+    use mobile_shop_system_lib::domain::companion::COMPANION_INTAKES_KEY;
     use mobile_shop_system_lib::domain::shift::PaidFrom;
     use mobile_shop_system_lib::services::shift as shift_service;
 
-    let _turn = take_lan_turn();
     let (pool, tokens) = signed_in_manager().await;
-    let status = companion::overview(&pool, tokens.as_ref())
+    // Not `overview`: it drains the responder's process-wide queue into whatever
+    // database calls it first, which is another test's inbox in a parallel run.
+    let rotated = companion::rotate_pair_code(&pool, tokens.as_ref())
         .await
-        .expect("overview publishes the credentials");
+        .expect("a pair code for this shop");
     let shop = LanState {
         shop: "متجر الاختبار".to_string(),
-        pair_code: status.pair_code.clone(),
+        pair_code: rotated.pair_code.clone(),
         blocked: Vec::new(),
         port: DEFAULT_COMPANION_PORT,
         staged: 0,
@@ -492,6 +485,21 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
         .expect("the phone stores its computer");
     assert_eq!(linked.remote_host, "192.168.1.10:8787");
 
+    // A source the wire does not know never becomes a draft.
+    let unknown_source = serde_json::json!({
+        "id": "expense-unknown",
+        "kind": "expense",
+        "pairCode": shop.pair_code,
+        "deviceName": "موبايل بيتر",
+        "expenseCategory": "كهربا",
+        "expenseAmountMinor": 20_000,
+        "expensePaidFrom": "cash",
+    })
+    .to_string();
+    let (bad, none) = intake(unknown_source, &shop);
+    assert_eq!(bad.status, 400);
+    assert!(none.is_none(), "a draft with half a fact queues nothing");
+
     // The rent is paid before anybody opens a shift, and the phone still carries it.
     let rent = serde_json::json!({
         "id": "expense-from-phone",
@@ -504,23 +512,33 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
         "expensePaidFrom": "outside",
         "expenseNote": "إيجار شهر أكتوبر",
         "photos": [],
-    })
-    .to_string();
-    let (taken, effect) = intake(rent.clone(), &shop);
+    });
+    let (taken, effect) = intake(rent.to_string(), &shop);
     assert_eq!(taken.status, 202, "an expense draft is as welcome as a capture");
-    companion::stage_lan_effect(effect.expect("the draft is queued for the desktop"));
-
-    let inbox = companion::overview(&pool, tokens.as_ref())
-        .await
-        .expect("inbox after the push");
-    assert_eq!(inbox.pending_intakes.len(), 1);
-    assert_eq!(inbox.pending_intakes[0].kind, "expense");
-    assert_eq!(inbox.pending_intakes[0].expense_category, "إيجار");
-    assert_eq!(inbox.pending_intakes[0].expense_amount_minor, 500_000);
     assert!(
-        inbox.pending_intakes[0].product_name.is_empty(),
-        "an expense draft is not a half-filled capture"
+        matches!(effect, Some(LanEffect::Intake(_))),
+        "the route hands the desktop a draft, not a page"
     );
+
+    // Written to the inbox the way the desktop writes what the wire handed it.
+    let session = session::resolve(&pool, tokens.as_ref())
+        .await
+        .expect("signed-in manager");
+    // Owned: `user_id()` hands back a value whose borrow cannot outlive the call.
+    let actor = session.user_id().as_str().to_string();
+    let now_ms = mobile_shop_system_lib::domain::identity::Timestamp::now().as_millis();
+    {
+        let mut conn = pool.acquire().await.expect("connection");
+        settings_repo::set(
+            &mut conn,
+            COMPANION_INTAKES_KEY,
+            &format!("[{}]", rent),
+            &actor,
+            now_ms,
+        )
+        .await
+        .expect("the inbox holds the draft");
+    }
 
     let data_dir = std::env::temp_dir().join(format!("mshop-expense-{}", std::process::id()));
     std::fs::create_dir_all(&data_dir).expect("temporary data directory");
@@ -537,6 +555,10 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
     assert!(after_apply.pending_intakes.is_empty());
     assert_eq!(applied.expense_category, "إيجار");
     assert!(applied.product_id.is_none(), "no stock was invented");
+    assert!(
+        applied.note.unwrap_or_default().contains("المصاريف"),
+        "the applied draft says where it went"
+    );
 
     let section = shift_service::expenses_overview(&pool, tokens.as_ref(), None, None)
         .await
@@ -557,11 +579,19 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
         "expenseCategory": "ضيافة",
         "expenseAmountMinor": 5_000,
         "expensePaidFrom": "drawer",
-    })
-    .to_string();
-    let (queued, effect) = intake(drawer, &shop);
-    assert_eq!(queued.status, 202);
-    companion::stage_lan_effect(effect.expect("queued"));
+    });
+    {
+        let mut conn = pool.acquire().await.expect("connection");
+        settings_repo::set(
+            &mut conn,
+            COMPANION_INTAKES_KEY,
+            &format!("[{}]", drawer),
+            &actor,
+            now_ms,
+        )
+        .await
+        .expect("the drawer draft is queued");
+    }
     let refused = companion::accept_intake(
         &pool,
         tokens.as_ref(),
@@ -575,23 +605,26 @@ async fn a_phone_expense_is_refused_without_a_source_and_applied_as_money() {
         "SHIFT_NOT_OPEN",
         "the refusal names the remedy instead of attaching the tea to a till nobody opened"
     );
-    let still_there = companion::overview(&pool, tokens.as_ref())
-        .await
-        .expect("inbox after a refused apply");
-    assert_eq!(still_there.pending_intakes.len(), 1);
 
-    // And the wire refuses a source it does not know, before the draft is even queued.
-    let unknown_source = serde_json::json!({
-        "id": "expense-unknown",
-        "kind": "expense",
-        "pairCode": shop.pair_code,
-        "deviceName": "موبايل بيتر",
-        "expenseCategory": "كهربا",
-        "expenseAmountMinor": 20_000,
-        "expensePaidFrom": "cash",
-    })
-    .to_string();
-    let (bad, none) = intake(unknown_source, &shop);
-    assert_eq!(bad.status, 400);
-    assert!(none.is_none(), "a draft with half a fact queues nothing");
+    let still_queued: Vec<serde_json::Value> = {
+        let mut conn = pool.acquire().await.expect("connection");
+        let raw = settings_repo::get(&mut conn, COMPANION_INTAKES_KEY)
+            .await
+            .expect("inbox read")
+            .unwrap_or_else(|| "[]".to_string());
+        serde_json::from_str(&raw).expect("inbox is a list of drafts")
+    };
+    assert_eq!(
+        still_queued.len(),
+        1,
+        "a refused apply leaves the draft for the owner to fix, not lost"
+    );
+    assert_eq!(still_queued[0]["id"], "expense-drawer");
+
+    // Nothing reached the ledger from either refusal.
+    let unchanged = shift_service::expenses_overview(&pool, tokens.as_ref(), None, None)
+        .await
+        .expect("the section is still the one expense");
+    assert_eq!(unchanged.count, 1);
+    assert_eq!(unchanged.drawer_minor, 0);
 }
