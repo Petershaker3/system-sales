@@ -284,7 +284,7 @@ pub fn handle_lan_request(req: &LanRequest, state: &LanState) -> (LanResponse, O
             None,
         ),
         ("POST", "/api/companion/hello") => {
-            #[derive(serde::Deserialize)]
+            #[derive(serde::Deserialize, Default)]
             #[serde(rename_all = "camelCase", default)]
             struct Hello {
                 pair_code: String,
@@ -553,7 +553,7 @@ pub async fn overview(
         .acquire()
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
-    flush_lan_state(&mut conn, session.user_id().as_str(), now_ms).await?;
+    flush_lan_state(&mut conn, &session.user_id().as_str(), now_ms).await?;
     build_status(&mut conn, now_ms).await
 }
 
@@ -1170,7 +1170,7 @@ pub async fn save_host(
         &mut conn,
         COMPANION_HOST_KEY,
         host.trim(),
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1179,7 +1179,7 @@ pub async fn save_host(
         &mut conn,
         COMPANION_HOST_CODE_KEY,
         pair_code.trim(),
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1300,7 +1300,7 @@ pub async fn record_push_results(
         &mut conn,
         COMPANION_OUTBOX_KEY,
         &json,
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1310,7 +1310,7 @@ pub async fn record_push_results(
             &mut conn,
             COMPANION_LAST_LINK_KEY,
             &now_ms.to_string(),
-            session.user_id().as_str(),
+            &session.user_id().as_str(),
             now_ms,
         )
         .await
@@ -1383,7 +1383,7 @@ pub async fn save_capture(
         &mut conn,
         COMPANION_OUTBOX_KEY,
         &json,
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1419,7 +1419,7 @@ pub async fn clear_outbox(
         &mut conn,
         COMPANION_OUTBOX_KEY,
         &json,
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1559,7 +1559,7 @@ pub async fn accept_intake(
         &mut conn,
         COMPANION_INTAKES_KEY,
         &json,
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1568,7 +1568,7 @@ pub async fn accept_intake(
         &mut conn,
         COMPANION_LAST_LINK_KEY,
         &now_ms.to_string(),
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
@@ -1614,7 +1614,7 @@ pub async fn reject_intake(
         &mut conn,
         COMPANION_INTAKES_KEY,
         &json,
-        session.user_id().as_str(),
+        &session.user_id().as_str(),
         now_ms,
     )
     .await
