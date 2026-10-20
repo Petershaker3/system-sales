@@ -73,7 +73,7 @@
 
 ### 2. المثبّت الرسمي لويندوز (`.exe`) وملف الـ `APK` للأندرويد
 - **مثبّت ويندوز الرسمي (`NSIS Installer .exe`):**
-  - الملف: `Mobile Shop System_0.1.0_x64-setup.exe` (`4.08 MiB`).
+  - الملف: `Mobile.Shop.System_1.0.0_x64-setup.exe` (من صفحة Releases ← «Latest»، ومعه `SHA256SUMS.txt`).
   - التنزيل المباشر من GitHub Actions: افتح المستودع `Petershaker3/system-sales` ← تبويب **Actions** ← التشغيل [`39216830477`](https://github.com/Petershaker3/system-sales/actions/runs/39216830477) ← تحت **Artifacts** نزّل **`mobile-shop-system-windows-installer`** (Artifact ID: `12170877222`).
   - أو لبنائه محلياً على جهازك في أي وقت: `npm ci && npx tauri build --bundles nsis`.
 - **تطبيق الأندرويد (`Android Companion` / `APK`):**

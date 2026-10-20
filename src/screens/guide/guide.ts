@@ -281,7 +281,7 @@ export const GUIDE_TOPICS: readonly GuideTopic[] = [
     targetScreen: 'mobile',
     targetLabel: 'افتح شاشة الموبايل والربط',
     bullets: [
-      'نسخة الكمبيوتر (Windows Installer .exe): المثبّت الرسمي «Mobile Shop System_0.1.0_x64-setup.exe» مبني على GitHub Actions في الـ Artifacts تحت اسم «mobile-shop-system-windows-installer»، وكمان متوفر ملف تشغيل فوري مستقل في «releases/mobile-shop-desktop-latest.html».',
+      'نسخة الكمبيوتر (Windows Installer .exe): المثبّت الرسمي «Mobile.Shop.System_1.0.0_x64-setup.exe» مبني على GitHub Actions وموجود في صفحة الـ Releases تحت «Latest» (وكمان كـ Artifact باسم «mobile-shop-system-windows-installer»، وملف تشغيل فوري مستقل في «releases/mobile-shop-desktop-latest.html»). ومعه في نفس الصفحة نسخة الموبايل «Mobile.Shop.System_1.0.0_arm64.apk» — الملفين من نفس البناء.',
       'مسار قاعدة البيانات الحقيقية على ويندوز: محفوظة محلياً بالكامل على جهاز المحل في «%LOCALAPPDATA%\\com.mshop.system» وتشتغل بدون إنترنت.',
       'نسخة الموبايل الأندرويد (طريقتين): (1) فوراً على نفس Wi-Fi المحل بمسح كود الـ QR من «الإعدادات ← الأجهزة والطابعة» أو فتح العنوان «http://192.168.1.10:8787» أو فتح ملف «releases/mobile-shop-android-companion.html» على الموبايل واختيار «Add to Home Screen / إضافة للشاشة الرئيسية».',
       'لبناء ملف APK أصلي للأندرويد (aarch64) على جهازك مباشرة: شغّل الأمر الجاهز «.\\scripts\\android-build.ps1 -Apk» (أو «-Apk -Device» للتثبيت المباشر على الموبايل المتوصل بـ USB). النسخة دي سيستم كامل على الموبايل: بتفتح على شاشة البيع بتخطيط الموبايل، وأول تشغيل بيشتغل من غير حساب لحد ما تعمل حساب المالك من الإعدادات.',
