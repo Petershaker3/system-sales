@@ -3113,8 +3113,95 @@ fn ean13_bar_encoding_and_tspl_label_formatting() {
     assert!(tspl.contains("PRINT 3,1"));
 }
 
+/// A handset is "connected" only while the wire says so (`ADR-042`).
+///
+/// The companion panel used to print two phones and say they were online because
+/// that is what the demo data looked like. These are the bounds of the rule that
+/// replaced it: the window is inclusive, a device that has never spoken is not
+/// connected, and a clock that moved backwards is not a connection either.
+#[test]
+fn a_phone_counts_as_connected_only_while_it_is_being_heard() {
+    use mobile_shop_system_lib::domain::companion::{is_online, ONLINE_WINDOW_MS};
 
+    assert!(!is_online(0, 1_000), "never heard from is not connected");
+    assert!(is_online(1_000, 1_000), "this instant counts");
+    assert!(
+        is_online(1_000, 1_000 + ONLINE_WINDOW_MS),
+        "the edge of the window still counts"
+    );
+    assert!(
+        !is_online(1_000, 1_001 + ONLINE_WINDOW_MS),
+        "one millisecond past it does not"
+    );
+    assert!(!is_online(5_000, 1_000), "a future last-seen is not a connection");
+}
 
+/// What a capture must contain before either side queues it (`ADR-042`).
+///
+/// `one_off` is refused on purpose: that disposition has no stock balance for a
+/// receipt to move, so accepting it would mean writing a draft the shop then has to
+/// explain away in the ledger.
+#[test]
+fn a_capture_draft_is_checked_before_it_is_held() {
+    use mobile_shop_system_lib::domain::companion::{
+        validate_intake_draft, CompanionIntakeDraft, MAX_INTAKE_PHOTOS,
+    };
 
+    let base = || CompanionIntakeDraft {
+        id: "draft-1".to_string(),
+        pair_code: "PAIR-1".to_string(),
+        device_name: "موبايل بيتر".to_string(),
+        created_at: 1,
+        disposition: "quantity".to_string(),
+        product_name: "شاحن".to_string(),
+        barcode: String::new(),
+        quantity: 2,
+        unit_cost_minor: 25_000,
+        imeis: Vec::new(),
+        photos: Vec::new(),
+        product_id: None,
+        receipt_id: None,
+        pushed_at: None,
+        push_error: None,
+        note: None,
+    };
+    assert_eq!(validate_intake_draft(&base()), Ok(()));
 
+    let mut no_name = base();
+    no_name.product_name = "   ".to_string();
+    assert_eq!(
+        validate_intake_draft(&no_name),
+        Err("draft carries no product name")
+    );
 
+    let mut serialised = base();
+    serialised.disposition = "serialized".to_string();
+    assert!(
+        validate_intake_draft(&serialised).is_err(),
+        "a serialized draft with no IMEI leaves a unit nobody can sell"
+    );
+
+    let mut one_off = base();
+    one_off.disposition = "one_off".to_string();
+    assert!(
+        validate_intake_draft(&one_off).is_err(),
+        "a one-off item has no stock balance for a receipt to move"
+    );
+
+    for mutate in [
+        |draft: &mut CompanionIntakeDraft| draft.quantity = 0,
+        |draft| draft.quantity = -3,
+        |draft| draft.unit_cost_minor = -1,
+        |draft| draft.device_name = " ".to_string(),
+        |draft| draft.photos = vec!["x".to_string(); MAX_INTAKE_PHOTOS + 1],
+        |draft| draft.imeis = vec!["1".to_string(); 41],
+        |draft| draft.product_name = "س".repeat(400),
+    ] {
+        let mut draft = base();
+        mutate(&mut draft);
+        assert!(
+            validate_intake_draft(&draft).is_err(),
+            "a draft that breaks one of the caps must be refused, not trimmed"
+        );
+    }
+}

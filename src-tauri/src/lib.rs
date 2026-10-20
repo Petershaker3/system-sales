@@ -161,6 +161,14 @@ pub fn run() {
             commands::companion::push_companion_scan,
             commands::companion::consume_companion_scans,
             commands::companion::set_companion_remote,
+            commands::companion::companion_connect_host,
+            commands::companion::companion_probe_host,
+            commands::companion::companion_save_capture,
+            commands::companion::companion_push_captures,
+            commands::companion::companion_clear_outbox,
+            commands::companion::companion_accept_intake,
+            commands::companion::companion_reject_intake,
+            commands::companion::companion_rotate_pair_code,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
@@ -234,7 +242,13 @@ pub fn run() {
                 services::catalog::brands::add_default_brands(&pool),
             );
 
-            // Start the stateless shop Wi-Fi companion listener on 0.0.0.0:8787 (ADR-037).
+            // Start the shop Wi-Fi companion listener on 0.0.0.0:8787 (`ADR-037`).
+            //
+            // Desktops only, from here on: the handset dials the link, it does not
+            // host one. Both platforms answering on 8787 against two separate
+            // databases is how the two screens ended up showing each other the
+            // same page (`ADR-042`).
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             services::companion::spawn_lan_companion_listener(
                 domain::companion::DEFAULT_COMPANION_PORT,
             );

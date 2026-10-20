@@ -3651,3 +3651,115 @@ fn every_money_flow_names_its_wallet_number() {
         "api/wallet.ts must expose the candidates command the chips read"
     );
 }
+
+/// `ADR-042`: the companion link reports the wire instead of asserting a story,
+/// and the two machines are not allowed to show each other the same screen.
+///
+/// The invented state this pins out is not a detail: the panel used to print two
+/// handsets and a "connected" dot because that is what a shell needed to look
+/// finished. A guard on the *removal* is the only thing that keeps it removed.
+#[test]
+fn the_companion_link_reports_the_wire_and_never_invents_state() {
+    let service = code_only(COMPANION_SERVICE);
+    let domain = code_only(COMPANION_DOMAIN);
+    let commands = code_only(COMPANION_COMMANDS);
+
+    for gone in [
+        "default_devices",
+        "LAN_SERVER_RUNNING",
+        "running: true",
+        "last_remote_sync_at",
+    ] {
+        assert!(
+            !service.contains(gone),
+            "services/companion.rs must no longer contain `{gone}`: the status is read from the wire (`ADR-042`)"
+        );
+    }
+
+    for required in [
+        "lan_server_running()",
+        "is_online(",
+        "\"/api/companion/ping\"",
+        "\"/api/companion/hello\"",
+        "\"/api/companion/intake\"",
+        "MAX_INTAKE_BODY_BYTES",
+        "Access-Control-Allow-Origin: *",
+        "fn read_lan_request",
+        "fn flush_lan_state",
+        "fn lan_introduce",
+        "fn push_pending",
+        "fn accept_intake",
+        "fn reject_intake",
+        "fn rotate_pair_code",
+        "receive_with_units(",
+    ] {
+        assert!(
+            service.contains(required),
+            "services/companion.rs must contain `{required}` (`ADR-042`)"
+        );
+    }
+
+    // Routing is a plain function: the shop's credentials go in, the thing to
+    // remember comes out. A method that reached for the globals could not be
+    // tested without racing every other test in the binary.
+    assert!(
+        service.contains("pub fn handle_lan_request(req: &LanRequest, state: &LanState)"),
+        "the responder's routing must take its state as an argument (`ADR-042`)"
+    );
+
+    for required in [
+        "COMPANION_INTAKES_KEY",
+        "COMPANION_OUTBOX_KEY",
+        "COMPANION_HOST_KEY",
+        "COMPANION_BLOCKED_KEY",
+        "ONLINE_WINDOW_MS",
+        "MAX_INTAKE_PHOTOS",
+        "MAX_INTAKE_QUEUE",
+        "fn is_online",
+        "fn validate_intake_draft",
+        "CompanionLinkError",
+        "pub struct CompanionIntakeDraft",
+    ] {
+        assert!(
+            domain.contains(required),
+            "domain/companion.rs must define `{required}` (`ADR-042`)"
+        );
+    }
+
+    // Applying a capture is ordinary receiving work. If the companion ever grew
+    // its own write path, the phone would be a second ledger (`ADR-016` #2).
+    for forbidden in ["sqlx::query", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden) && !commands.contains(forbidden),
+            "the companion link must reach the ledger through the services, not by writing SQL (`{forbidden}`)"
+        );
+    }
+
+    // A handset dials the link; it does not host one. Both sides binding 8787
+    // against two separate databases is how the owner ended up with "two full
+    // systems" that each claimed to be the other's computer.
+    assert!(
+        LIB.contains(r#"#[cfg(not(any(target_os = "android", target_os = "ios")))]"#),
+        "the LAN listener must start on desktops only (`ADR-042`)"
+    );
+
+    for command in [
+        "companion_connect_host",
+        "companion_probe_host",
+        "companion_save_capture",
+        "companion_push_captures",
+        "companion_clear_outbox",
+        "companion_accept_intake",
+        "companion_reject_intake",
+        "companion_rotate_pair_code",
+    ] {
+        assert!(
+            commands.contains(&format!("pub async fn {command}")),
+            "commands/companion.rs must define `{command}` (`ADR-042`)"
+        );
+        assert!(
+            LIB.contains(&format!("commands::companion::{command}")),
+            "lib.rs must register `{command}` (`ADR-042`)"
+        );
+    }
+}
