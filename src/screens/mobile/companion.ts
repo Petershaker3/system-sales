@@ -6,6 +6,7 @@ import type { PosProduct } from '../../api/pos.ts';
 import type { SaleHistoryEntry } from '../../api/sales.ts';
 import { imeiLuhn, normalizeImeiDigits } from '../pos/imei.ts';
 import { dayStart, todayReport } from '../sales/analytics.ts';
+import { dg } from '../../ui/format.ts';
 
 export interface MobileSellerBar {
   readonly userId: string;
@@ -510,5 +511,276 @@ export function buildEtaEReceiptDraft(input: {
     canonicalHashHex,
     lines: input.lines,
   };
+}
+
+// --- the phone ⇄ computer link (`ADR-042`) ------------------------------------
+//
+// The rules here are the ones `src-tauri/src/domain/companion.rs` enforces on the
+// wire. They are duplicated on purpose and pinned by a test: a form that lets a
+// person queue a capture the computer will refuse is a form that teaches them the
+// computer is unreliable. The Rust side stays the authority — this only moves the
+// refusal to where the mistake is made.
+
+/** Which half of the link a device plays. One page, two jobs, never both. */
+export type LanRole = 'host' | 'client';
+
+/**
+ * The computer hosts the link; the handset dials it.
+ *
+ * Before this, both sides started the same listener on the same port against two
+ * separate databases, which is how the shop ended up with "two full systems" each
+ * showing the other its own pairing page.
+ */
+export function lanRoleFor(device: 'phone' | 'desktop'): LanRole {
+  return device === 'phone' ? 'client' : 'host';
+}
+
+/** The window in which a handset still counts as connected. */
+export const LINK_ONLINE_WINDOW_MS = 30_000;
+
+/** Photos one capture may carry. The computer stores one cover per product. */
+export const MAX_CAPTURE_PHOTOS = 3;
+/** IMEIs one capture may carry. */
+export const MAX_CAPTURE_IMEIS = 40;
+/** Characters of product name. */
+export const MAX_CAPTURE_NAME_CHARS = 120;
+/** Characters of barcode. */
+export const MAX_CAPTURE_BARCODE_CHARS = 64;
+
+export interface CaptureDraftInput {
+  readonly deviceName: string;
+  readonly productName: string;
+  readonly barcode: string;
+  readonly disposition: 'quantity' | 'serialized';
+  readonly quantity: number;
+  readonly unitCostMinor: number;
+  readonly imeis: readonly string[];
+  readonly photos: readonly string[];
+}
+
+/**
+ * Why this capture cannot be saved, in the shop's words, or `null` when it can.
+ *
+ * `serialized` demands at least one IMEI because a serialized receipt with no
+ * units is a shelf full of stock nobody can sell; `one_off` is not offered at all
+ * because it has no balance for a receipt to move.
+ */
+export function validateCaptureDraft(input: CaptureDraftInput): string | null {
+  if (!input.deviceName.trim()) return 'اسم الموبايل ناقص — بيجي من إعدادات الجهاز.';
+  if (!input.productName.trim()) return 'اكتب اسم الصنف اللي صورته.';
+  if (input.productName.trim().length > MAX_CAPTURE_NAME_CHARS)
+    return 'اسم الصنف أطول من ' + dg(MAX_CAPTURE_NAME_CHARS) + ' حرف.';
+  if (input.barcode.length > MAX_CAPTURE_BARCODE_CHARS)
+    return 'الباركود أطول من ' + dg(MAX_CAPTURE_BARCODE_CHARS) + ' رقم.';
+  if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 9_999)
+    return 'الكمية لازم تكون رقم من ' + dg(1) + ' لـ ' + dg(9_999) + '.';
+  if (!Number.isInteger(input.unitCostMinor) || input.unitCostMinor < 0)
+    return 'التكلفة ما ينفعش تكون سالبة.';
+  if (input.imeis.length > MAX_CAPTURE_IMEIS)
+    return 'أقصى عدد IMEI في المسودة ' + dg(MAX_CAPTURE_IMEIS) + '.';
+  if (input.photos.length > MAX_CAPTURE_PHOTOS)
+    return 'أقصى عدد صور في المسودة ' + dg(MAX_CAPTURE_PHOTOS) + '.';
+  if (input.disposition === 'serialized' && input.imeis.length === 0)
+    return 'الصنف المتسلسل محتاج IMEI واحد على الأقل، وإلا هتنزل قطعة من غير رقم تتسجل بيه.';
+  if (input.disposition === 'serialized' && input.imeis.length > input.quantity)
+    return 'عدد الـ IMEI أكبر من الكمية.';
+  return null;
+}
+
+/** The pairing text the computer prints under its QR, read back by the handset. */
+export interface PairTarget {
+  readonly shopName: string;
+  readonly host: string;
+  readonly port: number;
+  readonly pairCode: string;
+}
+
+/**
+ * Parse `MSHOP-PAIR|v1|{shop}|{ip}:{port}|{code}`.
+ *
+ * The camera is the fast path and this is the path that always works: a WebView
+ * with no `BarcodeDetector`, a cracked lens, a screen the owner photographs with
+ * a second phone — typing the line under the QR must be enough.
+ */
+export function parsePairPayload(payload: string): PairTarget | null {
+  const parts = payload.trim().split('|');
+  if (parts.length !== 5 || parts[0] !== 'MSHOP-PAIR' || parts[1] !== 'v1') return null;
+  const shopName = (parts[2] ?? '').trim();
+  const at = (parts[3] ?? '').trim().lastIndexOf(':');
+  if (at <= 0) return null;
+  const host = (parts[3] ?? '').slice(0, at).trim();
+  const port = Number((parts[3] ?? '').slice(at + 1).trim());
+  const pairCode = (parts[4] ?? '').trim();
+  if (!shopName || !host || !pairCode) return null;
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) return null;
+  return { shopName, host, port, pairCode };
+}
+
+/** `192.168.1.20:8787`, the form the phone stores and dials. */
+export function formatHostAddress(host: string, port: number): string {
+  return `${host.trim()}:${port}`;
+}
+
+/**
+ * Read IMEIs out of whatever the person typed or scanned: one per line, comma
+ * separated, with spaces and dashes. Non-digits are dropped, a 15-digit run is
+ * kept once, and anything else is left for the shop to notice rather than send.
+ */
+export function parseImeiList(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const chunk of text.split(/[\s,;]+/)) {
+    const digits = chunk.replace(/\D+/g, '');
+    if (digits.length !== 15) continue;
+    if (seen.has(digits)) continue;
+    seen.add(digits);
+    out.push(digits);
+  }
+  return out;
+}
+
+/** "قبل ٤ ثواني" / "من ساعتين" / nothing at all when it never spoke. */
+export function relativeLinkAge(
+  nowMs: number,
+  seenMs: number,
+  digits: (value: number) => string,
+): string {
+  if (seenMs <= 0) return 'مفيش ظهور بعد';
+  const delta = Math.max(0, Math.round((nowMs - seenMs) / 1000));
+  if (delta < 45) return 'قبل ثواني';
+  if (delta < 5_400) return `قبل ${digits(Math.round(delta / 60))} دقيقة`;
+  if (delta < 86_400) return `قبل ${digits(Math.round(delta / 3_600))} ساعة`;
+  return `من ${digits(Math.round(delta / 86_400))} يوم`;
+}
+
+/**
+ * What one handset's row says about itself.
+ *
+ * Only the wire's answer, never the pairing record: a name typed in by the owner
+ * is a name, not a connection.
+ */
+export function deviceLinkLabel(
+  device: { online: boolean; lastSeenAt: number },
+  nowMs: number,
+  digits: (value: number) => string,
+): string {
+  if (device.online) return 'متصل دلوقتي';
+  if (device.lastSeenAt <= 0) return 'متسجّل — لسه ما كلّمش الجهاز';
+  return `آخر ظهور ${relativeLinkAge(nowMs, device.lastSeenAt, digits)}`;
+}
+
+export type LinkTone = 'ok' | 'warn' | 'bad';
+
+export interface LinkState {
+  readonly tone: LinkTone;
+  readonly label: string;
+  readonly detail: string;
+}
+
+/**
+ * The computer's own link line, built from what the responder reported.
+ *
+ * The old panel had no equivalent of this: it printed a green dot and two phones
+ * because a shell needed to look finished.
+ */
+export function hostLinkState(
+  status: {
+    running: boolean;
+    port: number;
+    pairedDevices: readonly { online: boolean }[];
+    rejectedPushes: number;
+    pendingIntakes: readonly unknown[];
+  } | null,
+  digits: (value: number) => string,
+): LinkState {
+  if (status === null) {
+    return { tone: 'bad', label: 'مفيش حالة', detail: 'السيستم ما ردّش على شاشة الربط.' };
+  }
+  if (!status.running) {
+    return {
+      tone: 'bad',
+      label: 'المنفذ مش متحجز',
+      detail: `الكمبيوتر مش سامع على البورت ${digits(status.port)} — في برنامج تاني بياخدّه، أو السيستم اتفتح من غير ما يشغّل الربط.`,
+    };
+  }
+  const online = status.pairedDevices.filter((d) => d.online).length;
+  if (online === 0) {
+    return {
+      tone: 'warn',
+      label: 'سامع، ومفيش موبايل كلّمه',
+      detail: 'امسح الباركود من الموبايل على نفس Wi-Fi المتجر.',
+    };
+  }
+  const waiting = status.pendingIntakes.length;
+  if (waiting > 0) {
+    return {
+      tone: 'ok',
+      label: `${digits(online)} موبايل متصل · ${digits(waiting)} مسودة مستنياك`,
+      detail: 'اللي وصل من الموبايل محتاج موافقتك قبل ما ينزل في الاستلام.',
+    };
+  }
+  if (status.rejectedPushes > 0) {
+    return {
+      tone: 'warn',
+      label: `${digits(online)} موبايل متصل`,
+      detail: `في ${digits(status.rejectedPushes)} محاولة وصلت بكود ربط غلط واترَفضت.`,
+    };
+  }
+  return {
+    tone: 'ok',
+    label: `${digits(online)} موبايل متصل`,
+    detail: 'الربط شغال: الموبايل بيصور والكمبيوتر بيسجّل.',
+  };
+}
+
+export interface OutboxSummary {
+  readonly waiting: number;
+  readonly delivered: number;
+  readonly failed: number;
+}
+
+/** The phone's own queue, counted the way its panel reads it. */
+export function outboxSummary(
+  items: readonly { pushedAt: number | null; pushError: string | null }[],
+): OutboxSummary {
+  let waiting = 0;
+  let delivered = 0;
+  let failed = 0;
+  for (const item of items) {
+    if (item.pushedAt !== null) delivered += 1;
+    else if (item.pushError) failed += 1;
+    else waiting += 1;
+  }
+  return { waiting, delivered, failed };
+}
+
+/**
+ * One row of that queue. "وصلت" means the computer took the bytes — not that it
+ * recorded a receipt, which is its decision and not the phone's knowledge.
+ */
+export function intakeProgressLabel(
+  draft: { pushedAt: number | null; pushError: string | null },
+  nowMs: number,
+  digits: (value: number) => string,
+): string {
+  if (draft.pushError) return `الكمبيوتر ردّ: ${draft.pushError}`;
+  if (draft.pushedAt !== null)
+    return `وصلت للكمبيوتر ${relativeLinkAge(nowMs, draft.pushedAt, digits)} · هو يقرر امتى يتسجل`;
+  return 'مستنية البعته';
+}
+
+/** What an applied draft is worth saying about itself. */
+export function describeApplied(
+  draft: { productName: string; productId: string | null; note: string | null },
+): string {
+  const what = draft.productId ? `«${draft.productName}»` : draft.productName;
+  return draft.note ? `${what} — ${draft.note}` : `${what} نزلت في الاستلام`;
+}
+
+/** The camera line: honest about the platform, because it usually is not. */
+export function barcodeScannerLabel(supported: boolean): string {
+  return supported
+    ? 'الكاميرا جاهزة لمسح الباركود والـ IMEI'
+    : 'كاميرا المتصفح على الجهاز ده ما بتقرأش الباركود — اكتب الرقم أو الصقه';
 }
 

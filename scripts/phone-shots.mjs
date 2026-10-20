@@ -70,6 +70,25 @@ async function clickText(selector, label) {
   }
   return false;
 }
+/** Walk to a screen by its rail label, reporting the rail when the label is not there. */
+async function goTo(label) {
+  await sleep(400);
+  const found = await page.$$eval(
+    '.rail .nav-btn',
+    (els, l) => {
+      const el = els.find((e) => (e.textContent ?? '').includes(l));
+      if (!el) return false;
+      el.click();
+      return true;
+    },
+    label
+  );
+  if (!found) {
+    const rail = await page.$$eval('.rail .nav-btn', (els) => els.map((e) => e.textContent.trim()));
+    throw new Error(`nothing on the rail is called «${label}» — rail: ${rail.join(', ')}`);
+  }
+  await sleep(300);
+}
 /** How far the page reaches past the screen: the phone bug, measured. */
 const overflow = () =>
   page.evaluate(
@@ -169,6 +188,87 @@ check('the chip now carries the claimed name', (await text('.user-chip .who')).i
 await shot('06-phone-after-claim');
 
 console.log(errors.length === 0 ? '\nok   no console errors' : `\nFAIL console errors:\n${errors.join('\n')}`);
+
+// --- the phone captures, the computer records (ADR-042) ----------------------
+// The owner's complaint in one line: the Android app was showing the computer's
+// pairing page. A handset has a camera and no database, so this is what it gets.
+await goTo('الالتقاط');
+await page.waitForSelector('[data-phone-capture-screen]', { timeout: 8000 });
+await sleep(250);
+check('the till rail carries «الالتقاط» on a phone', (await count('[data-phone-capture-screen]')) === 1);
+check(
+  'the computer\'s preview screen is not offered to a handset',
+  !(await hasText('.rail .nav-btn', 'الموبايل'))
+);
+check(
+  'a phone is never shown a pairing QR',
+  (await count('[data-companion-qr]')) === 0,
+  `qr boxes: ${await count('[data-companion-qr]')}`
+);
+check(
+  'an unlinked phone is told so, in words it can act on',
+  (await text('[data-link-state]')).includes('امسح باركود الربط من الكمبيوتر')
+);
+await fill(
+  '[data-capture-paste]',
+  'MSHOP-PAIR|v1|سنتر بيتر للموبايلات|192.168.1.10:8787|PAIR-8787'
+);
+await page.click('[data-capture-use-payload]');
+await sleep(200);
+check(
+  'the pasted line fills in the address and the code',
+  (await page.$eval('[data-capture-host]', (el) => el.value)) === '192.168.1.10:8787' &&
+    (await page.$eval('[data-capture-code]', (el) => el.value)) === 'PAIR-8787'
+);
+await page.click('[data-capture-connect]');
+await sleep(400);
+check(
+  'connecting is answered with what happened, not with a green dot',
+  (await text('[data-capture-link-tag]')).includes('متّصل') &&
+    (await text('[data-capture-link-detail]')).includes('اتسجّل')
+);
+
+await fill('[data-capture-name]', 'كفر سيليكون أسود');
+await fill('[data-capture-qty]', '3');
+await fill('[data-capture-cost]', '12000');
+await sleep(150);
+await page.click('[data-capture-save]');
+await sleep(400);
+check('a saved capture waits in the outbox, and says so', (await count('[data-outbox-row]')) === 1);
+check(
+  'the outbox row names the queue, not the shelf',
+  (await text('[data-outbox-state]')).includes('مستنية البعته')
+);
+await page.click('[data-capture-push]');
+await sleep(500);
+const pushed = await text('[data-outbox-state]');
+check(
+  'after a push the phone says the computer received it — and no more than that',
+  pushed.includes('وصلت للكمبيوتر') && !pushed.includes('اتسجلت') && !pushed.includes('نزلت'),
+  pushed
+);
+await shot('07-phone-capture-link');
+
+// The settings page on a phone is the same rule: it explains the link, it does
+// not print a code for the phone to read itself.
+await goTo('الإعدادات');
+await page.waitForSelector('[data-settings-tab="devices"]', { timeout: 8000 });
+await page.click('[data-settings-tab="devices"]');
+await page.waitForSelector('[data-devices-companion-card]', { timeout: 8000 });
+await sleep(300);
+check(
+  'the devices page on a phone points at the computer instead of at itself',
+  (await count('[data-companion-qr]')) === 0 &&
+    (await text('[data-devices-companion-phone-note]')).includes('الكمبيوتر هو اللي بيعرضه')
+);
+const ovLink = await overflow();
+check(
+  'the capture screen fits a 400px phone',
+  ovLink.x <= 1,
+  `overflow-x: ${ovLink.x}px ${ovLink.wide.join(' ')}`
+);
+await shot('08-phone-settings-no-qr');
+
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed — shots in ${OUT}`);
 await browser.close();

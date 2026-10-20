@@ -704,7 +704,6 @@ interface DemoPairedDevice {
   model: string;
   pairedAt: number;
   lastSeenAt: number;
-  online: boolean;
 }
 
 const demoPairedDevices: DemoPairedDevice[] = [
@@ -714,15 +713,13 @@ const demoPairedDevices: DemoPairedDevice[] = [
     model: 'iPhone 15 Pro',
     pairedAt: Date.now() - 7 * 86_400_000,
     lastSeenAt: Date.now(),
-    online: true,
   },
   {
     id: 'dev-seller-1',
     name: 'موبايل يوسف',
     model: 'Redmi Note 13',
     pairedAt: Date.now() - 3 * 86_400_000,
-    lastSeenAt: Date.now() - 300_000,
-    online: true,
+    lastSeenAt: Date.now() - 300_000
   },
 ];
 
@@ -739,24 +736,95 @@ interface DemoCompanionScan {
 let demoCompanionScans: DemoCompanionScan[] = [];
 let demoRemoteEnabled = false;
 
+/**
+ * The intake queue, mirroring `CompanionIntakeDraft` in `domain/companion.rs`.
+ * The demo keeps the same shape so the desktop panel and the smoke test speak
+ * one language with both backends, and the same `id` so a draft pushed twice is
+ * still queued once.
+ */
+interface DemoIntakeDraft {
+  id: string;
+  source: 'phone' | 'scanner';
+  createdAt: number;
+  pushedAt: number | null;
+  pushError: string | null;
+  pairCode: string;
+  productName: string;
+  barcode: string | null;
+  quantity: number;
+  unitCostMinor: number;
+  salePriceMinor: number | null;
+  imeis: string[];
+  photos: string[];
+  note: string | null;
+  deviceName: string | null;
+}
+
+/** A handset that talked to this computer: the wire decides, never a toggle. */
+const DEMO_ONLINE_WINDOW_MS = 30000;
+let demoIntakes: DemoIntakeDraft[] = [];
+let demoOutbox: DemoIntakeDraft[] = [];
+let demoHostAddress = '';
+let demoHostCode = '';
+let demoPairCode = 'PAIR-8787';
+let demoBlockedNames: string[] = [];
+let demoRejectedPushes = 0;
+let demoLastLinkAt: number | null = null;
+let demoSeq = 0;
+
+function demoIntakeDto(d: DemoIntakeDraft) {
+  return {
+    id: d.id,
+    source: d.source,
+    createdAt: d.createdAt,
+    pushedAt: d.pushedAt,
+    pushError: d.pushError,
+    productName: d.productName,
+    barcode: d.barcode,
+    quantity: d.quantity,
+    unitCostMinor: d.unitCostMinor,
+    salePriceMinor: d.salePriceMinor,
+    imeis: [...d.imeis],
+    photos: [...d.photos],
+    note: d.note,
+    deviceName: d.deviceName,
+  };
+}
+
+/** The phone that is always on the wire in the demo, so the panel can show both labels. */
+function demoMarkLivePhoneTalking(): void {
+  const live = demoPairedDevices.find((d) => d.name === 'موبايل بيتر');
+  if (live !== undefined) {
+    live.lastSeenAt = now();
+  }
+}
+
 function demoCompanionStatusDto() {
   const shopName = appearance.shopName || 'موبايل ستور';
   const hostIp = '192.168.1.10';
   const port = 8787;
-  const pairCode = 'PAIR-8787';
   const remoteCode = 'RMT-9042';
+  demoMarkLivePhoneTalking();
   return {
     hostIp,
     port,
-    pairCode,
-    pairPayload: `MSHOP-PAIR|v1|${shopName}|${hostIp}:${port}|${pairCode}`,
+    pairCode: demoPairCode,
+    pairPayload: `MSHOP-PAIR|v1|${shopName}|${hostIp}:${port}|${demoPairCode}`,
     running: true,
-    pairedDevices: demoPairedDevices.map((d) => ({ ...d })),
+    pairedDevices: demoPairedDevices.map((d) => ({
+      ...d,
+      online: now() - d.lastSeenAt <= DEMO_ONLINE_WINDOW_MS,
+    })),
     pendingScans: demoCompanionScans.map((s) => ({ ...s })),
+    pendingIntakes: demoIntakes.map(demoIntakeDto),
+    outbox: demoOutbox.map(demoIntakeDto),
+    rejectedPushes: demoRejectedPushes,
     remoteEnabled: demoRemoteEnabled,
     remoteCode,
     remotePayload: `MSHOP-REMOTE|v1|${shopName}|${remoteCode}`,
-    lastRemoteSyncAt: demoRemoteEnabled ? now() : null,
+    // The link stamp is only ever a real link: the demo writes it when a phone
+    // connects or pushes, exactly like the listener does.
+    lastLinkAt: demoLastLinkAt,
   };
 }
 
@@ -4910,8 +4978,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       name,
       model,
       pairedAt: now(),
-      lastSeenAt: now(),
-      online: true,
+      lastSeenAt: now()
     });
     return demoCompanionStatusDto();
   },
@@ -4919,6 +4986,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireManager();
     const deviceId = str(args, 'deviceId').trim();
     const idx = demoPairedDevices.findIndex((d) => d.id === deviceId);
+    const gone = demoPairedDevices[idx];
+    if (gone !== undefined && demoBlockedNames.includes(gone.name) === false) demoBlockedNames.push(gone.name);
     if (idx !== -1) {
       demoPairedDevices.splice(idx, 1);
     }
@@ -4960,9 +5029,159 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return matched;
   },
   set_companion_remote: (args) => {
-    const user = requireUser();
-    if (user.role !== 'manager') throw { code: 'PERMISSION_DENIED' };
+    requireManager();
     demoRemoteEnabled = Boolean(args?.['enabled']);
+    // Like the Rust command: a flag is not a wire. Nothing here pretends a
+    // phone rang, so `lastRemoteSyncAt` stays whatever the traffic said.
+    return demoCompanionStatusDto();
+  },
+  companion_connect_host: (args) => {
+    requireUser();
+    const host = str(args, 'host').trim();
+    const code = str(args, 'pairCode').trim();
+    if (host === '') {
+      throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب عنوان كمبيوتر المتجر الأول.' };
+    }
+    demoHostAddress = host;
+    demoHostCode = code === '' ? demoPairCode : code;
+    const name = str(args, 'deviceName').trim() || 'موبايل';
+    if (demoBlockedNames.includes(name)) {
+      return { ok: false, detail: 'الموبايل ده مفصول من عند الكمبيوتر — اطلب من المالك يربطه تاني.', status: demoCompanionStatusDto() };
+
+    }
+    demoLastLinkAt = now();
+    demoPairedDevices.push({
+      id: `dev-${now()}-${demoPairedDevices.length + 1}`,
+      name,
+      model: str(args, 'deviceModel').trim() || 'موبايل',
+      pairedAt: now(),
+      lastSeenAt: now(),
+    });
+    return {
+      ok: true,
+      detail: `كمبيوتر المتجر رد والموبايل اتسجّل عنده — يبقى التصوير يتبعت له.`,
+      status: demoCompanionStatusDto(),
+    };
+  },
+  companion_probe_host: (args) => {
+    requireUser();
+    const host = str(args, 'host').trim();
+    // The demo answers one address, the way a real shop only answers the
+    // machine that is actually switched on.
+    if (host !== '192.168.1.10:8787') {
+      return { ok: false, latencyMs: 0, detail: 'العنوان ده ما ردّش. اتأكد إن البرنامج مفتوح على الكمبيوتر ورقم المنفذ صح.' };
+    }
+    demoLastLinkAt = now();
+    return { ok: true, latencyMs: 12, detail: 'كمبيوتر المتجر رد — دي نفس الخدمة اللي على الشبكة.' };
+  },
+  companion_save_capture: (args) => {
+    requireUser();
+    const draft = (args?.['draft'] ?? {}) as Record<string, unknown>;
+    args = draft;
+    const name = str(args, 'productName').trim();
+    if (name === '') {
+      throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب اسم الصنف الأول.' };
+    }
+    const imeis = Array.isArray(args?.['imeis'])
+      ? (args?.['imeis'] as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    const quantity = numArg(args, 'quantity');
+    const entry: DemoIntakeDraft = {
+      id: `intake-${String(++demoSeq).padStart(6, '0')}`,
+      source: 'phone',
+      createdAt: now(),
+      pushedAt: null,
+      pushError: null,
+      pairCode: demoHostCode,
+      productName: name,
+      barcode: str(args, 'barcode').trim() || null,
+      quantity: quantity > 0 ? quantity : Math.max(1, imeis.length),
+      unitCostMinor: numArg(args, 'unitCostMinor'),
+      salePriceMinor: typeof args?.['salePriceMinor'] === 'number' ? (args['salePriceMinor'] as number) : null,
+      imeis,
+      photos: Array.isArray(args?.['photos'])
+        ? (args?.['photos'] as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
+      note: str(args, 'note').trim() || null,
+      deviceName: str(args, 'deviceName').trim() || 'موبايل',
+    };
+    demoOutbox.unshift(entry);
+    return demoCompanionStatusDto();
+  },
+  companion_push_captures: () => {
+    requireUser();
+    if (demoHostAddress === '') {
+      throw { code: 'COMPANION_NO_HOST', message: 'الموبايل مش موصل بأي كمبيوتر لحد دلوقتي.' };
+    }
+    const pending = demoOutbox.filter((d) => d.pushedAt === null);
+    for (const draft of pending) {
+      if (demoBlockedNames.includes(draft.deviceName ?? '')) {
+        demoRejectedPushes += 1;
+        continue;
+      }
+      draft.pushedAt = now();
+      if (!demoIntakes.some((x) => x.id === draft.id)) demoIntakes.unshift({ ...draft });
+    }
+    if (pending.length > 0) demoLastLinkAt = now();
+    return {
+      ok: true,
+      detail:
+        pending.length === 0
+          ? 'الكمبيوتر ما كانش فيه حاجة مستنياه.'
+          : 'الكمبيوتر أخد كل المسودات — هو اللي بيقرر امتى ينزّلها في الاستلام',
+      status: demoCompanionStatusDto(),
+    };
+  },
+  companion_clear_outbox: () => {
+    requireUser();
+    demoOutbox = demoOutbox.filter((d) => d.pushedAt === null);
+    return demoCompanionStatusDto();
+  },
+  companion_accept_intake: (args) => {
+    requireManager();
+    const intakeId = str(args, 'intakeId');
+    const idx = demoIntakes.findIndex((d) => d.id === intakeId);
+    if (idx < 0) {
+      throw { code: 'COMPANION_INTAKE_GONE', message: 'المسودة دي اتعملها حاجة من قبل كده.' };
+    }
+    const draft = demoIntakes[idx]!;
+    const existing =
+      draft.barcode !== null
+        ? products.find((x) => x.barcode === draft.barcode && x.status === 'active')
+        : products.find((x) => x.name === draft.productName && x.status === 'active');
+    const product =
+      existing ??
+      handlers['create_product']!({
+          name: draft.productName,
+          barcode: draft.barcode,
+          disposition: 'quantity',
+        }) as { id: string };
+    const productId = String(product.id);
+    const outcome = handlers['receive_stock']!({
+      productId,
+      quantity: draft.quantity,
+      unitCostMinor: draft.unitCostMinor,
+      imeis: draft.imeis,
+    });
+    for (const photo of draft.photos) {
+      handlers['set_product_image']!({ productId, dataUrl: photo });
+    }
+    demoIntakes.splice(idx, 1);
+    demoLastLinkAt = now();
+    void outcome;
+    return { status: demoCompanionStatusDto(), draft: demoIntakeDto(draft) };
+  },
+  companion_reject_intake: (args) => {
+    requireManager();
+    const intakeId = str(args, 'intakeId');
+    const idx = demoIntakes.findIndex((d) => d.id === intakeId);
+    if (idx < 0) return demoCompanionStatusDto();
+    demoIntakes.splice(idx, 1);
+    return demoCompanionStatusDto();
+  },
+  companion_rotate_pair_code: () => {
+    requireManager();
+    demoPairCode = `PAIR-9${String(++demoSeq).padStart(3, '0')}`;
     return demoCompanionStatusDto();
   },
 };

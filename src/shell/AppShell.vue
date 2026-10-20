@@ -36,6 +36,7 @@ import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
 import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
+import PhoneCaptureScreen from '../screens/mobile/PhoneCaptureScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import GuideScreen from '../screens/guide/GuideScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
@@ -507,6 +508,10 @@ async function switchTheme(): Promise<void> {
           :session="session"
           @go-screen="screen = $event"
           @changed="refreshShiftState"
+        />
+        <PhoneCaptureScreen
+          v-else-if="screen === 'capture'"
+          :session="session"
         />
         <SettingsScreen v-else-if="screen === 'settings'" ref="settingsScreen" />
         <GuideScreen

@@ -260,6 +260,12 @@ export const ErrorCode = {
   REPAIR_STATUS_INVALID: 'REPAIR_STATUS_INVALID',
   REPAIR_PAY_METHOD_INVALID: 'REPAIR_PAY_METHOD_INVALID',
   REPAIR_PAY_WALLET_INVALID: 'REPAIR_PAY_WALLET_INVALID',
+
+  // الربط بين الموبايل والكمبيوتر (`ADR-042`)
+  COMPANION_NO_HOST: 'COMPANION_NO_HOST',
+  COMPANION_INTAKE_REFUSED: 'COMPANION_INTAKE_REFUSED',
+  COMPANION_INTAKE_GONE: 'COMPANION_INTAKE_GONE',
+  COMPANION_INTAKE_NOT_RECEIVABLE: 'COMPANION_INTAKE_NOT_RECEIVABLE',
   REPAIR_NOT_FOUND: 'REPAIR_NOT_FOUND',
   REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED'
 } as const;
@@ -657,6 +663,15 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'طريقة التحصيل غير صحيحة.',
   [ErrorCode.REPAIR_PAY_WALLET_INVALID]:
     'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+  // الموبايل والكمبيوتر: أربع حالات تخص اللي ماسك الموبايل في إيده (`ADR-042`).
+  [ErrorCode.COMPANION_NO_HOST]:
+    'الموبايل لسه ما عرفش عنوان الكمبيوتر — امسح باركود الربط اللي على الكمبيوتر الأول.',
+  [ErrorCode.COMPANION_INTAKE_REFUSED]:
+    'المسودة ما اتقبلتش: ناقصها اسم الصنف أو الكمية، أو كود الربط مش بتاع الكمبيوتر ده.',
+  [ErrorCode.COMPANION_INTAKE_GONE]:
+    'المسودة دي مش في صندوق الوارد: في حد قدام الكمبيوتر سجّلها في الاستلام أو رفضها قبل لحظات.',
+  [ErrorCode.COMPANION_INTAKE_NOT_RECEIVABLE]:
+    'المسودة دي ما تنفعش تستلمها (صنف مرة واحدة، أو من غير كمية) — ارفضها وابلّغ اللي صوّرها.',
   [ErrorCode.REPAIR_NOT_FOUND]:
     'تذكرة الصيانة دي مش موجودة.',
   [ErrorCode.REPAIR_ALREADY_DELIVERED]:

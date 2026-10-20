@@ -201,16 +201,14 @@ pub async fn companion_push_captures(
             code: DomainError::StorageUnavailable.code(),
         })?;
     let failed = results.iter().filter(|(_, done)| done.is_err()).count();
-    let sent = results.len() - failed;
+    // No count is quoted here: a Rust string that reaches a shop window carries no
+    // western digits, and the panel below the toast lists the rows one by one anyway.
     let detail = if failed == 0 {
-        format!(
-            "استلم الكمبيوتر {sent} من {} — هو اللي بيقرر امتى ينزّلها في الاستلام",
-            results.len()
-        )
+        "الكمبيوتر أخد كل المسودات — هو اللي بيقرر امتى ينزّلها في الاستلام".to_string()
     } else {
         match results.iter().find_map(|(_, done)| done.as_ref().err()) {
             Some(reason) => reason.clone(),
-            None => format!("{sent} وصل و{failed} لسه مستني"),
+            None => "بعض المسودات وصلت وبعضها لسه مستني".to_string(),
         }
     };
     let status = use_cases::record_push_results(&ctx.pool, ctx.tokens.as_ref(), results).await?;

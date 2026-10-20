@@ -15,6 +15,7 @@ export type ScreenId =
   | 'store'
   | 'reports'
   | 'mobile'
+  | 'capture'
   | 'settings'
   | 'guide';
 
@@ -24,6 +25,12 @@ export interface NavItem {
   readonly icon: IconName;
   /** Shown to the owner (role `manager`) only. */
   readonly ownerOnly: boolean;
+  /**
+   * Shown on a handset only (`ADR-042`). The phone's capture screen has no
+   * desktop twin: the computer's half of that job is the inbox on «الموبايل», and
+   * a till that offered both would be the two-systems confusion again.
+   */
+  readonly phoneOnly?: boolean;
 }
 
 export const NAV: readonly NavItem[] = [
@@ -34,6 +41,7 @@ export const NAV: readonly NavItem[] = [
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false },
+  { id: 'capture', label: 'الالتقاط', icon: 'camera', ownerOnly: false, phoneOnly: true },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },
 ];
 
@@ -45,6 +53,7 @@ export const TITLES: Record<ScreenId, string> = {
   store: 'المخزن',
   reports: 'التقارير',
   mobile: 'تطبيق الموبايل',
+  capture: 'الالتقاط من الموبايل',
   settings: 'الإعدادات',
   guide: 'دليل السيستم الشامل',
 };
@@ -58,7 +67,12 @@ export const TITLES: Record<ScreenId, string> = {
  * presentation: the screens behind it are still guarded in Rust (`spec:210`).
  */
 export function navFor(role: Role, phone: boolean = false): NavItem[] {
-  return NAV.filter((item) => (!item.ownerOnly || role === 'manager') && !(phone && item.id === 'mobile'));
+  return NAV.filter(
+    (item) =>
+      (!item.ownerOnly || role === 'manager') &&
+      !(phone && item.id === 'mobile') &&
+      (!item.phoneOnly || phone),
+  );
 }
 
 /** «المالك» for the manager role, «بيّاع» for sales — the owner's own words. */

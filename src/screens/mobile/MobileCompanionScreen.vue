@@ -1,13 +1,20 @@
 <script setup lang="ts">
-// «تطبيق الموبايل» — المساعد المتصل على Wi-Fi المحل (`docs/PLAN.md` §15 و§19 — البند 3.2،
-// `docs/ui/mockup-v1/views/mobile.js`، `ADR-037`).
+// «تطبيق الموبايل» — نصّ الكمبيوتر من الربط (`docs/PLAN.md` §15 و§19 — البند 3.2،
+// `docs/ui/mockup-v1/views/mobile.js`، `ADR-037`, `ADR-042`).
 //
-// الموبايل بلا قاعدة بيانات خاصة به: يقرأ ويسجّل في الكمبيوتر مباشرة عبر الشبكة المحلية.
+// دي شاشة الكمبيوتر: هنا الباركود اللي الموبايل بيمسحه، وهنا المسودة اللي بعتّها
+// الموبايل ومستنية موافقة اللي قدام الكمبيوتر. اللي تحت ده معاينة لشكل الموبايل —
+// الموبايل الحقيقي بيشتغل من شاشة «الالتقاط»، ومفيش قاعدة بيانات على الموبايل.
 
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
+  companionAcceptIntake,
   companionOverview,
+  companionRejectIntake,
+  companionRotatePairCode,
   pushCompanionScan,
+  unpairCompanionDevice,
+  type CompanionIntakeDraft,
   type CompanionStatus,
 } from '../../api/companion';
 import { describeError } from '../../api/errors';
@@ -17,6 +24,7 @@ import {
   receiveStock,
   type ProductUnit,
 } from '../../api/inventory';
+import { setProductImage } from '../../api/images';
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { repairsOverview, type RepairsOverview } from '../../api/repairs';
 import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
@@ -28,11 +36,16 @@ import { dg, fmtTime, money, num, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import { dayStart, addDays } from '../sales/analytics';
+import { isPhone } from '../../shell/device';
+import { shrinkImageFile } from '../store/image.ts';
+import CompanionPairQr from './CompanionPairQr.vue';
 import {
   buildLuhnImei15,
   buildMobileSalesSnapshot,
   buildRemoteOwnerSnapshot,
+  deviceLinkLabel,
   filterMobileLookupProducts,
+  hostLinkState,
   resolveMobileScanToPos,
 } from './companion';
 
@@ -69,10 +82,90 @@ const isOwner = computed(() => props.session.role === 'manager');
 
 const hostIp = computed(() => companion.value?.hostIp ?? '192.168.1.10');
 const port = computed(() => companion.value?.port ?? 8787);
-const onlineDevicesCount = computed(
-  () =>
-    (companion.value?.pairedDevices ?? []).filter((d) => d.online).length || 2,
+const nowMs = ref(Date.now());
+let linkTicker: ReturnType<typeof setInterval> | undefined;
+
+// The handset's own screen belongs on the handset (`ADR-042`). This file is the
+// computer's half; the number of connected phones is read from the wire rather
+// than printed because a panel with a green dot looks more finished.
+const linkState = computed(() =>
+  companion.value === null
+    ? null
+    : hostLinkState(
+        {
+          running: companion.value.running,
+          port: companion.value.port,
+          pairedDevices: companion.value.pairedDevices,
+          rejectedPushes: companion.value.rejectedPushes,
+          pendingIntakes: companion.value.pendingIntakes,
+        },
+        num,
+      ),
 );
+const pendingIntakes = computed<readonly CompanionIntakeDraft[]>(
+  () => companion.value?.pendingIntakes ?? [],
+);
+const pairedDevices = computed(() => companion.value?.pairedDevices ?? []);
+const lastLinkLabel = computed(() => {
+  const status = companion.value;
+  if (status === null) return 'مفيش حالة';
+  if (status.lastLinkAt === null) return 'مفيش بيانات اتنقلت بعد';
+  return `آخر بيانات اتنقلت ${deviceLinkLabel(
+    { online: false, lastSeenAt: status.lastLinkAt },
+    nowMs.value,
+    num,
+  ).replace('آخر ظهور ', '')}`;
+});
+const phoneSide = computed(() => isPhone());
+
+async function refreshCompanion(): Promise<void> {
+  companion.value = await companionOverview().catch(() => companion.value);
+  nowMs.value = Date.now();
+}
+
+async function onAcceptIntake(draft: CompanionIntakeDraft): Promise<void> {
+  try {
+    const applied = await companionAcceptIntake(draft.id);
+    companion.value = applied.status;
+    toast(
+      applied.draft.note === null
+        ? `«${applied.draft.productName}» نزلت في الاستلام على الكمبيوتر`
+        : `«${applied.draft.productName}» نزلت في الاستلام — ${applied.draft.note}`,
+      'ok',
+    );
+    emit('changed');
+    await loadAll();
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onRejectIntake(draft: CompanionIntakeDraft): Promise<void> {
+  try {
+    companion.value = await companionRejectIntake(draft.id);
+    toast(`«${draft.productName}» اترفضت وما اتسجّلش حاجة`, 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onUnpairDevice(deviceId: string, name: string): Promise<void> {
+  try {
+    companion.value = await unpairCompanionDevice(deviceId);
+    toast(`«${name}» اتفصل — لو كلّم الكمبيوتر تاني برقم الربط الحالي هيرجع`, 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onRotatePairCode(): Promise<void> {
+  try {
+    companion.value = await companionRotatePairCode();
+    toast('كود الربط اتغيّر: كل الموبايلات محتاجة تمسح الباركود من جديد', 'ok');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
 
 const salesSnapshot = computed(() =>
   buildMobileSalesSnapshot({
@@ -338,14 +431,42 @@ async function saveReceiveByQty(): Promise<void> {
   }
 }
 
-function captureInspectionPhoto(): void {
-  const stamp = fmtTime(new Date());
-  capturedPhotoBadge.value = `صورة فحص جهاز (${stamp}) — 192×192 JPEG محفوظة على الكمبيوتر`;
-  toast('اتصورت حالة الجهاز واتبعتت للكمبيوتر على طول', 'ok');
+// The inspection photo used to be a toast: nothing was read, nothing was sent.
+// It now goes where a picture of a product actually goes on this computer — the
+// product's cover image — and the badge reports what really happened (`ADR-042`).
+async function onInspectionPhotoPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement | null;
+  const files = input?.files ?? null;
+  const productId = selectedRecvProductId.value;
+  if (files === null || files.length === 0) return;
+  if (productId === '') {
+    toast('اختار الصنف الأول عشان الصورة تتحفظ عليه', 'err');
+    if (input !== null) input.value = '';
+    return;
+  }
+  try {
+    const dataUrl = await shrinkImageFile(files[0] as File);
+    await setProductImage(productId, dataUrl);
+    capturedPhotoBadge.value = `صورة فحص جهاز (${fmtTime(
+      new Date(),
+    )}) — 192×192 JPEG اتحفظت كغلاف للصنف على الكمبيوتر`;
+    toast('الصورة اتحفظت على الصنف', 'ok');
+  } catch (err) {
+    toast(typeof err === 'string' ? err : 'الصورة ما قرتش', 'err');
+  } finally {
+    if (input !== null) input.value = '';
+  }
 }
 
 onMounted(() => {
   void loadAll();
+  // The link is only true for a few seconds, so the panel asks again rather than
+  // letting "متصل" mean "as of whenever this page was opened".
+  linkTicker = setInterval(() => void refreshCompanion(), 4_000);
+});
+
+onUnmounted(() => {
+  if (linkTicker !== undefined) clearInterval(linkTicker);
 });
 </script>
 
@@ -396,10 +517,123 @@ onMounted(() => {
         <template v-else>
           شبكة المحل
           <bdi dir="ltr" class="mono">{{ hostIp }}:{{ port }}</bdi>
-          · {{ num(onlineDevicesCount) }} موبايل متصل
+          · {{ linkState?.label ?? 'بنتظر رد السيرفر' }}
         </template>
       </span>
     </div>
+
+    <p v-if="phoneSide" class="muted" data-mobile-host-note>
+      انت على موبايل: شاشة الالتقاط هي اللي بتصوّر وبتبعت، والكمبيوتر هو اللي بيعرض
+      باركود الربط. اللي تحت ده شكل شاشات الموبايل للمراجعة بس.
+    </p>
+
+    <section v-if="!phoneSide" class="card" data-companion-host-panel>
+      <div class="card-h">
+        <h3>الربط: الكمبيوتر بيعرض والموبايل بيصور</h3>
+        <span
+          class="tag"
+          :class="linkState?.tone === 'ok' ? 'ok' : linkState?.tone === 'warn' ? 'warn' : 'danger'"
+          data-companion-link-tone
+        >
+          <span v-if="linkState?.tone === 'ok'" class="dot"></span>
+          {{ linkState?.label ?? 'مفيش حالة' }}
+        </span>
+        <span class="sp"></span>
+        <button
+          v-if="isOwner"
+          type="button"
+          class="btn sm ghost"
+          data-companion-rotate
+          @click="onRotatePairCode"
+        >
+          <Icon name="refresh-ccw" /> كود ربط جديد
+        </button>
+      </div>
+
+      <p v-if="linkState !== null && linkState.detail !== ''" class="muted" data-companion-link-detail>
+        {{ linkState.detail }}
+      </p>
+
+      <div class="qr-box">
+        <CompanionPairQr
+          :payload="companion?.pairPayload ?? ''"
+          marker="data-companion-qr"
+          aria-label="باركود ربط الموبايل"
+        />
+        <div class="stack" style="gap: 6px">
+          <b>{{ num(1) }}. افتح «الالتقاط» على الموبايل</b>
+          <span>{{ num(2) }}. امسح الباركود ده، أو اكتب اللي تحته في خانة الكود</span>
+          <span>{{ num(3) }}. الموبايل بيبعت الصور والـ <bdi dir="auto">IMEI</bdi> — وانت تنزّلهم في الاستلام</span>
+          <span class="muted">
+            عنوان الكمبيوتر:
+            <bdi dir="ltr" class="mono" data-companion-host-address>{{ hostIp }}:{{ port }}</bdi>
+          </span>
+          <span class="muted" data-companion-payload>
+            <bdi dir="ltr" class="mono">{{ companion?.pairPayload ?? '' }}</bdi>
+          </span>
+          <span class="muted" data-companion-last-link>{{ lastLinkLabel }}</span>
+        </div>
+      </div>
+
+      <div v-for="dev in pairedDevices" :key="dev.id" class="s-row" data-companion-device-row>
+        <span class="t-ico"><Icon name="smartphone" /></span>
+        <div class="t">
+          <b>{{ dev.name }}</b>
+          <small><bdi dir="rtl">{{ dev.model }}</bdi> · {{ deviceLinkLabel(dev, nowMs, num) }}</small>
+        </div>
+        <span class="tag" :class="dev.online ? 'ok' : ''" data-companion-device-tag>
+          <span v-if="dev.online" class="dot"></span>
+          {{ dev.online ? 'متصل دلوقتي' : 'مقترن' }}
+        </span>
+        <button
+          v-if="isOwner"
+          type="button"
+          class="btn sm ghost danger"
+          data-companion-unpair
+          @click="onUnpairDevice(dev.id, dev.name)"
+        >
+          فصل
+        </button>
+      </div>
+
+      <div v-if="pendingIntakes.length === 0" class="muted" style="padding: 8px 0" data-companion-inbox-empty>
+        مفيش مسودة واصلة من الموبايل. اللي يوصل بيستنى موافقتك هنا قبل ما ينزل في الاستلام.
+      </div>
+      <div
+        v-for="draft in pendingIntakes"
+        :key="draft.id"
+        class="s-row"
+        data-companion-intake-row
+      >
+        <span class="t-ico"><Icon name="boxes" /></span>
+        <div class="t">
+          <b>{{ draft.productName }}</b>
+          <small>
+            من {{ draft.deviceName }} · {{ num(draft.quantity) }} قطعة ·
+            · {{ money(draft.unitCostMinor) }} للقطعة
+            <template v-if="draft.imeis.length > 0">
+              · {{ num(draft.imeis.length) }} <bdi dir="auto">IMEI</bdi>
+            </template>
+            <template v-if="draft.photos.length > 0">
+              · {{ num(draft.photos.length) }} صورة
+            </template>
+          </small>
+          <small class="muted">
+            {{
+              draft.barcode === ''
+                ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
+                : `باركود ${draft.barcode}`
+            }}
+          </small>
+        </div>
+        <button type="button" class="btn sm primary" data-companion-accept @click="onAcceptIntake(draft)">
+          نزّلها في الاستلام
+        </button>
+        <button type="button" class="btn sm ghost" data-companion-reject @click="onRejectIntake(draft)">
+          ارفض
+        </button>
+      </div>
+    </section>
 
     <div class="phones">
       <!-- 1. مبيعات النهارده لحظة بلحظة -->
@@ -894,14 +1128,18 @@ onMounted(() => {
                   <span class="muted" style="font-size: 0.8rem">
                     تصوير صيانة / استبدال
                   </span>
-                  <button
-                    type="button"
-                    class="btn sm ghost"
-                    data-mobile-capture-photo
-                    @click="captureInspectionPhoto"
-                  >
+                  <label class="btn sm ghost" data-mobile-capture-photo>
                     <Icon name="camera" /> صوّر الجهاز
-                  </button>
+                    <input
+                      id="mshop-inspection-photo"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      hidden
+                      data-mobile-photo-input
+                      @change="onInspectionPhotoPicked"
+                    />
+                  </label>
                 </div>
                 <div
                   v-if="capturedPhotoBadge"

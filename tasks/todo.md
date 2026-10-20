@@ -336,6 +336,16 @@
 
 ---
 
+### 3.2 — توصيلة الموبايل بالكمبيوتر: دَورين مش نسختين ✅ (2026-10-20)
+
+- [x] **الطلب (2026-10-20):** «تطبيق الاندرويد بيعرض نفس صفحة اللينك بتاعة الكمبيوتر… عوز الموبايل يصوّر المنتجات والصور والبراكودات والتكلفة ويبعتهم للكمبيوتر، وشاشات الكمبيوتر تشتغل من الموبايل… من غير تكلفة جديدة، وبنفترض إن الجهازين مش مستعملين في نفس اللحظة».
+  - **التصميم:** [`ADR-042`](../docs/decisions/ADR-042-companion-link-two-roles-one-shop.md) — **في انتظار توقيع المالك.**
+  - **اتعمل (نصف Rust، `21fdc84` + ما بعده):** `domain/companion.rs` (مفاتيح `companion.intakes|outbox|host|host_code|blocked`، `is_online`، `validate_intake_draft`، `LanRequest/LanResponse::to_http`، `CompanionLinkError`، `CompanionStatus{last_link_at, rejected_pushes}`)، `services/companion.rs` (`handle_lan_request` نقيّة، `spawn_lan_companion_listener` بعلم بيتحط بعد `bind`، `accept_intake`/`reject_intake`/`rotate_pair_code`/`lan_introduce`/`push_pending`/`flush_lan_state`، و`default_devices()` اتشالت)، `commands/companion.rs` (٨ أوامر جديدة)، و`lib.rs` بقفل المستمع والتسجيل على سطح المكتب.
+  - **اتعمل (نصف الواجهة):** `src/api/companion.ts` (العقد كامل + ٨ لافات)، `CompanionPairQr.vue` (الرسّام الوحيد للباركود)، `PhoneCaptureScreen.vue` (كاميرا + `BarcodeDetector` مع سقوط معلن للطريق اليدوي، صور متصغّرة ١٩٢، outbox، استطلاع كل ٤ ثواني)، بند «الالتقاط» في `nav.ts` بـ`phoneOnly`، لوحة الربط الحقيقية في `MobileCompanionScreen.vue` (بدل `onlineDevicesCount || 2`)، بوابة الموبايل في `DevicesPrinterCard.vue` (مفيش باركود على handset)، و٤ كودات خطأ عربي في `errors.ts`.
+  - **الـ demo مراية:** نفس الأوامر التمانية بنفس أشكال الردّ، و`online` مشتقّة، و`pair_companion_device` ما بيكتبش `online: true`، و`lastLinkAt` من الحركة بس.
+  - **الدليل:** typecheck نظيف، **159** اختبار وحدة (منهم 7 جديدة على الحelpers)، demo-smoke **244/244**، phone-shots **28/28** (منهم «a phone is never shown a pairing QR» و«after a push the phone says the computer received it — and no more than that»)، وحارسين في `src-tauri/tests/architecture/main.rs`: `the_companion_link_reports_the_wire_and_never_invents_state` و`each_half_of_the_link_lives_on_the_machine_that_owns_it`، و8 حالات تكامل في `tests/integration/companion.rs`. **CI: في انتظار تشغيل هذا الـ commit (`cargo` مش متثبت في الـsandbox، فنصف Rust اتكتب والتحقق بتاعه على CI).**
+  - **فاضل:** توقيع المالك على `ADR-042`؛ تجربة على جهازين (موبايل أندرويد + كمبيوتر على نفس الـWi‑Fi) للتصوير والمسح والكليرتكست في WebView؛ بناء الـAPK على جهازه (`scripts/android-build.ps1 -Apk -Device`)؛ و«الاستلام لسه عملية المالك» — الموبايل ما بيعملش receipt بنفسه، وده مقصود (`ADR-015`).
+
 ## ملاحظات تقنية منقولة (حتى لا تضيع)
 
 - **الترحيلات المطبَّقة لا تُعدَّل أبدًا.**

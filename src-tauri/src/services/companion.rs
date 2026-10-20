@@ -1038,10 +1038,10 @@ pub fn lan_probe(host: &str, port: u16) -> CompanionProbe {
             latency_ms,
             detail: "في خدمة تانية على البورت ده — الرد مش من برنامج المتجر".to_string(),
         },
-        Ok((status, _)) => CompanionProbe {
+        Ok((_status, _)) => CompanionProbe {
             ok: false,
             latency_ms,
-            detail: format!("الكمبيوتر رد بكود {status}"),
+            detail: "الكمبيوتر رد بردّ مش مفهوم — البرنامج اللي على البورت ده مش برنامج المتجر.".to_string(),
         },
         Err(detail) => CompanionProbe {
             ok: false,
@@ -1109,7 +1109,7 @@ pub fn lan_hello(host: &str, port: u16, pair_code: &str, name: &str, model: &str
 /// Hand one captured draft to the shop computer (`ADR-042`).
 fn lan_push_draft(host: &str, port: u16, draft: &CompanionIntakeDraft) -> Result<(), String> {
     let body = serde_json::to_string(draft)
-        .map_err(|_| "البطالة ما اتكتبتش بشكل سليم".to_string())?;
+        .map_err(|_| "المسودة ما اتكتبش بشكل سليم".to_string())?;
     let (status, response) = lan_http(host, port, "POST", "/api/companion/intake", Some(&body))?;
     if (200..300).contains(&status) {
         return Ok(());
@@ -1528,10 +1528,10 @@ pub async fn accept_intake(
             }
         }
         if photo_count > 1 {
-            let extra = format!(
-                "أول صورة بس هي اللي بتتخزن كغلاف على الكمبيوتر — {count} صورة فاضلة على الموبايل",
-                count = photo_count - 1
-            );
+            // The number of leftovers is the phone's business; the shop only needs
+            // to know the cover took the first one and the rest stayed where they were.
+            let extra =
+                "أول صورة بس هي اللي بتتخزن كغلاف على الكمبيوتر — الباقي فاضل على الموبايل".to_string();
             note = Some(match note {
                 Some(existing) => format!("{existing} — والصور التانية فاضلة على الموبايل"),
                 None => extra,

@@ -15,17 +15,37 @@ test('the owner sees every screen, the seller sees none of the owner-only ones',
   assert.ok(seller.includes('pos') && seller.includes('sales'));
 });
 
-test('a phone drops «الموبايل», the desktop preview of itself', () => {
+test('a phone drops «الموبايل» and gains «الالتقاط» (`ADR-042`)', () => {
+  // The «الموبايل» screen is the computer's own link panel and preview; the
+  // handset gets its capture screen instead. Neither device is offered the
+  // other's half, which is the difference between an integrated shop and two
+  // systems that each show a picture of themselves.
   assert.ok(navFor('manager').some((item) => item.id === 'mobile'));
   assert.ok(!navFor('manager', true).some((item) => item.id === 'mobile'));
+  assert.ok(
+    navFor('manager', true).some((item) => item.id === 'capture'),
+    'a handset needs its own capture screen',
+  );
+  assert.ok(
+    !navFor('manager').some((item) => item.id === 'capture'),
+    'the computer shows the inbox, not a camera',
+  );
+  assert.deepEqual(
+    navFor('manager').map((item) => item.id),
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'mobile', 'settings'],
+    'the desktop rail, with the phone preview where it always was',
+  );
+  assert.deepEqual(
+    navFor('manager', true).map((item) => item.id),
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'capture', 'settings'],
+    'the same shop on a phone: preview out, capture in, same place in the rail',
+  );
   assert.deepEqual(
     navFor('sales', true).map((item) => item.id),
-    navFor('sales')
-      .map((item) => item.id)
-      .filter((id) => id !== 'mobile'),
-    'a phone loses the preview and nothing else — the till stays first'
+    ['pos', 'sales', 'wallets', 'repairs', 'capture'],
+    'a seller on a phone keeps the till and gains the camera',
   );
-  assert.equal(navFor('sales', true)[0]?.id, 'pos');
+  assert.equal(navFor('sales', true)[0]?.id, 'pos', 'the till stays first');
 });
 
 test('every screen id has a title and a place in NAV', () => {

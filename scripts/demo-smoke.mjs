@@ -2587,6 +2587,47 @@ check(
   );
   await shot('62-mobile-companion');
 
+// --- the link says what the wire said (ADR-042) ------------------------------
+// The panel used to print «٢ موبايل متصل» because an empty panel looked broken.
+// Now the only phones counted are the ones that spoke, and the demo keeps one
+// handset that keeps talking and one that has not spoken in five minutes.
+await clickText('.rail .nav-btn', 'الموبايل');
+await page.waitForSelector('[data-companion-host-panel]', { timeout: 3000 });
+await sleep(300);
+const linkTone = await text('[data-companion-link-tone]');
+check(
+  'the link line counts only handsets that actually spoke',
+  linkTone.includes('موبايل متصل') && !/[٢2] موبايل متصل/.test(linkTone),
+  linkTone
+);
+const deviceTags = await page.$$eval('[data-companion-device-tag]', (els) =>
+  els.map((e) => ({ t: e.textContent.trim(), ok: e.className.includes('ok') }))
+);
+check(
+  'a silent handset is labelled paired, never connected',
+  deviceTags.length === 2 &&
+    deviceTags.some((d) => d.ok && d.t.includes('متصل دلوقتي')) &&
+    deviceTags.some((d) => !d.ok && (d.t.includes('مقترن') || d.t.includes('آخر ظهور'))),
+  deviceTags.map((d) => `${d.t}${d.ok ? ' [ok]' : ''}`).join(' / ')
+);
+check(
+  'the intake inbox is empty until a phone pushes something',
+  (await count('[data-companion-intake-row]')) === 0 &&
+    (await text('[data-companion-inbox-empty]')).includes('مفيش مسودة')
+);
+check('the pairing QR is drawn, not described', (await count('[data-companion-qr] svg')) === 1);
+const payloadBefore = await text('[data-companion-payload]');
+await page.click('[data-companion-rotate]');
+await sleep(400);
+const payloadAfter = await text('[data-companion-payload]');
+check(
+  'a new pair code changes the line the phone reads',
+  payloadBefore !== payloadAfter && /PAIR-\d+/.test(payloadAfter) && !payloadBefore.includes(payloadAfter.split('|').pop()),
+  `${payloadBefore} → ${payloadAfter}`
+);
+await shot('62b-companion-link-panel');
+
+
   await page.click('[data-mobile-mode="remote"]');
   await sleep(200);
   const remoteSummaryTxt = await text('[data-mobile-remote-summary]');

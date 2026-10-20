@@ -7,8 +7,20 @@ import type { UserSummary } from '../../api/identity.ts';
 import type { ProductUnit } from '../../api/inventory.ts';
 import type { PosProduct } from '../../api/pos.ts';
 import type { SaleHistoryEntry } from '../../api/sales.ts';
+import { dg } from '../../ui/format.ts';
 import {
+  barcodeScannerLabel,
   buildEtaEReceiptDraft,
+  deviceLinkLabel,
+  formatHostAddress,
+  hostLinkState,
+  intakeProgressLabel,
+  lanRoleFor,
+  outboxSummary,
+  parseImeiList,
+  parsePairPayload,
+  relativeLinkAge,
+  validateCaptureDraft,
   buildMobileSalesSnapshot,
   buildPairingQrMatrix,
   buildRemoteOwnerSnapshot,
@@ -188,5 +200,139 @@ describe('LAN Companion & Mobile Helper (Plan 3.2 / ADR-037)', () => {
     assert.equal(draft.totalMinor, 40_000);
     assert.equal(draft.taxMinor, 0);
     assert.equal(draft.canonicalHashHex.length, 32);
+  });
+});
+
+// `ADR-042`: the two halves of the link are not symmetric, and nothing in this
+// file may claim a connection that the wire did not report.
+describe('the link reports the wire (ADR-042)', () => {
+  const digits = (value: number): string => `[${value}]`;
+
+  it('makes the computer the host and the handset the caller', () => {
+    assert.equal(lanRoleFor('desktop'), 'host');
+    assert.equal(lanRoleFor('phone'), 'client');
+  });
+
+  it('reads back the line printed under the QR, and nothing else', () => {
+    const target = parsePairPayload('MSHOP-PAIR|v1|موبايل ستور|192.168.1.20:8787|PAIR-8787');
+    assert.deepEqual(target, {
+      shopName: 'موبايل ستور',
+      host: '192.168.1.20',
+      port: 8787,
+      pairCode: 'PAIR-8787',
+    });
+    assert.equal(formatHostAddress('192.168.1.20', 8787), '192.168.1.20:8787');
+    // The owner-only follow-up line is a different contract, and must not be
+    // swallowed by the pairing parser just because a phone scanned it.
+    assert.equal(parsePairPayload('MSHOP-REMOTE|v1|موبايل ستور|RMT-9042'), null);
+    assert.equal(parsePairPayload('MSHOP-PAIR|v1|متجر|192.168.1.20|PAIR-8787'), null);
+    assert.equal(parsePairPayload('MSHOP-PAIR|v2|متجر|192.168.1.20:8787|PAIR-8787'), null);
+    assert.equal(parsePairPayload('MSHOP-PAIR|v1||192.168.1.20:8787|PAIR-8787'), null);
+    assert.equal(parsePairPayload('MSHOP-PAIR|v1|متجر|192.168.1.20:99999|PAIR-8787'), null);
+  });
+
+  it('refuses a draft the computer would refuse, in the shop’s words', () => {
+    const ok = {
+      deviceName: 'موبايل بيتر',
+      productName: 'شاومي ريدمي نوت ١٣',
+      barcode: '',
+      disposition: 'quantity' as const,
+      quantity: 2,
+      unitCostMinor: 4_500_00,
+      imeis: [],
+      photos: [],
+    };
+    assert.equal(validateCaptureDraft(ok), null);
+    assert.match(validateCaptureDraft({ ...ok, productName: '  ' }) ?? '', /اسم الصنف/);
+    const longName = validateCaptureDraft({ ...ok, productName: 'ص'.repeat(121) }) ?? '';
+    const longCode = validateCaptureDraft({ ...ok, barcode: '9'.repeat(65) }) ?? '';
+    assert.ok(longName.includes(dg(120)), 'the cap is quoted through dg(), the one digit renderer');
+    assert.ok(longCode.includes(dg(64)), 'same for the barcode cap');
+    assert.match(validateCaptureDraft({ ...ok, quantity: 0 }) ?? '', /الكمية/);
+    assert.match(validateCaptureDraft({ ...ok, unitCostMinor: -1 }) ?? '', /التكلفة/);
+    assert.match(validateCaptureDraft({ ...ok, photos: ['a', 'b', 'c', 'd'] }) ?? '', /صور/);
+    assert.match(
+      validateCaptureDraft({ ...ok, disposition: 'serialized', imeis: [] }) ?? '',
+      /IMEI واحد على الأقل/,
+      'a serialized receipt with no units is stock nobody can sell',
+    );
+    assert.match(
+      validateCaptureDraft({ ...ok, disposition: 'serialized', quantity: 1, imeis: ['356930023095058', '356930023095066'] }) ?? '',
+      /أكبر من الكمية/,
+    );
+  });
+
+  it('keeps only 15-digit IMEIs a person could actually record', () => {
+    assert.deepEqual(
+      parseImeiList('356930023095058\n356930023095066, 356930023095058\n12345'),
+      ['356930023095058', '356930023095066'],
+    );
+    assert.deepEqual(parseImeiList('35693-02309-5058'), [], 'a torn run is not an IMEI');
+  });
+
+  it('names a handset by what it did, not by what was typed about it', () => {
+    const seen = 1_000;
+    assert.equal(deviceLinkLabel({ online: true, lastSeenAt: seen }, 1_000, digits), 'متصل دلوقتي');
+    assert.equal(
+      deviceLinkLabel({ online: false, lastSeenAt: 0 }, 1_000, digits),
+      'متسجّل — لسه ما كلّمش الجهاز',
+      'a pairing record alone never earns a green dot',
+    );
+    assert.match(
+      deviceLinkLabel({ online: false, lastSeenAt: seen }, 3 * 86_400_000, digits),
+      /من \[3\] يوم/,
+    );
+    assert.equal(relativeLinkAge(1_000, 0, digits), 'مفيش ظهور بعد');
+    assert.equal(relativeLinkAge(2_000, 1_990, digits), 'قبل ثواني');
+  });
+
+  it('will not call the link alive with nobody on it', () => {
+    const base = {
+      running: true,
+      port: 8787,
+      rejectedPushes: 0,
+      pendingIntakes: [] as unknown[],
+    };
+    const quiet = hostLinkState({ ...base, pairedDevices: [{ online: false }, { online: false }] }, digits);
+    assert.equal(quiet.tone, 'warn');
+    assert.equal(quiet.label, 'سامع، ومفيش موبايل كلّمه');
+    const alive = hostLinkState({ ...base, pairedDevices: [{ online: true }, { online: false }] }, digits);
+    assert.equal(alive.tone, 'ok');
+    assert.equal(alive.label, '[1] موبايل متصل', 'only the online rows are counted');
+    const waiting = hostLinkState(
+      { ...base, pairedDevices: [{ online: true }], pendingIntakes: [{}, {}] },
+      digits,
+    );
+    assert.match(waiting.label, /مسودة مستنياك/);
+    const refused = hostLinkState(
+      { ...base, pairedDevices: [{ online: true }], rejectedPushes: 3 },
+      digits,
+    );
+    assert.equal(refused.tone, 'warn', 'a refused code is not a clean link');
+    assert.match(refused.detail, /بكود ربط غلط/);
+    assert.equal(hostLinkState(null, digits).tone, 'bad', 'no answer is not an ok');
+    assert.equal(
+      hostLinkState({ ...base, running: false, pairedDevices: [{ online: true }] }, digits).tone,
+      'bad',
+      'a port nobody holds is not a listener',
+    );
+  });
+
+  it('counts the phone’s queue without stealing the computer’s decision', () => {
+    const summary = outboxSummary([
+      { pushedAt: null, pushError: null },
+      { pushedAt: 5, pushError: null },
+      { pushedAt: null, pushError: 'كود الربط مرفوض' },
+    ]);
+    assert.deepEqual(summary, { waiting: 1, delivered: 1, failed: 1 });
+    assert.equal(intakeProgressLabel({ pushedAt: null, pushError: null }, 10, digits), 'مستنية البعته');
+    assert.match(
+      intakeProgressLabel({ pushedAt: 9, pushError: null }, 10, digits),
+      /هو يقرر امتى يتسجل/,
+      '“delivered” is the phone’s word for bytes received, not for stock recorded',
+    );
+    assert.match(intakeProgressLabel({ pushedAt: null, pushError: 'مرفوض' }, 10, digits), /الكمبيوتر ردّ: مرفوض/);
+    assert.equal(barcodeScannerLabel(false), 'كاميرا المتصفح على الجهاز ده ما بتقرأش الباركود — اكتب الرقم أو الصقه');
+    assert.match(barcodeScannerLabel(false), /^\D+$/, 'an excuse needs no numbers');
   });
 });

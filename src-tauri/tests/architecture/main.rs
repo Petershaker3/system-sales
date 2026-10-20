@@ -3267,6 +3267,12 @@ const COMPANION_SERVICE: &str = include_str!("../../src/services/companion.rs");
 const COMPANION_COMMANDS: &str = include_str!("../../src/commands/companion.rs");
 const MOBILE_COMPANION_SCREEN_VUE: &str =
     include_str!("../../../src/screens/mobile/MobileCompanionScreen.vue");
+const PHONE_CAPTURE_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/mobile/PhoneCaptureScreen.vue");
+const COMPANION_PAIR_QR_VUE: &str =
+    include_str!("../../../src/screens/mobile/CompanionPairQr.vue");
+const API_COMPANION_TS: &str = include_str!("../../../src/api/companion.ts");
+const ERRORS_TS: &str = include_str!("../../../src/api/errors.ts");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3760,6 +3766,145 @@ fn the_companion_link_reports_the_wire_and_never_invents_state() {
         assert!(
             LIB.contains(&format!("commands::companion::{command}")),
             "lib.rs must register `{command}` (`ADR-042`)"
+        );
+    }
+}
+
+/// The screen shapes are part of the contract, because the bug was a shape: two
+/// devices showing each other the same page, and a panel that printed a handset
+/// count nobody had earned (`ADR-042`).
+///
+/// These asserts are deliberately about *which half lives where*. A reviewer
+/// cannot keep the pairing honest by reading a changelog, so the file that paints
+/// a QR, the rail entry that carries the camera, and the string the panel prints
+/// are all pinned to the machine that is allowed to own them.
+#[test]
+fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
+    // The desktop's link panel: counted from the wire, with the inbox under it.
+    for required in [
+        "v-if=\"!phoneSide\" class=\"card\" data-companion-host-panel",
+        "data-companion-inbox-empty",
+        "data-companion-rotate",
+        "data-companion-last-link",
+        "deviceLinkLabel(",
+    ] {
+        assert!(
+            MOBILE_COMPANION_SCREEN_VUE.contains(required),
+            "MobileCompanionScreen.vue must contain `{required}` (`ADR-042`)"
+        );
+    }
+    for gone in ["|| 2", "onlineDevicesCount"] {
+        assert!(
+            !MOBILE_COMPANION_SCREEN_VUE.contains(gone),
+            "MobileCompanionScreen.vue must not fall back to an invented handset count (`{gone}`)"
+        );
+    }
+
+    // The computer's settings page is where the QR lives, and only the computer's.
+    for required in [
+        "v-if=\"phoneSide\"",
+        "data-devices-companion-phone-note",
+        "v-else class=\"qr-box\"",
+        "marker=\"data-companion-qr\"",
+        "data-companion-payload-line",
+        "data-paired-devices-empty",
+    ] {
+        assert!(
+            DEVICES_PRINTER_CARD_VUE.contains(required),
+            "DevicesPrinterCard.vue must contain `{required}`: the handset is told where the code is, not shown one (`ADR-042`)"
+        );
+    }
+    assert!(
+        !DEVICES_PRINTER_CARD_VUE.contains("class=\"tag ok\"><span class=\"dot\"></span> متصل"),
+        "a handset row may not be called connected by markup (`ADR-042`)"
+    );
+
+    // One painter for both host screens, so the two cannot drift apart.
+    for required in ["marker", "side", r#"class="pair-qr""#, "buildPairingQrMatrix"] {
+        assert!(
+            COMPANION_PAIR_QR_VUE.contains(required),
+            "CompanionPairQr.vue must own `{required}` for both pairing surfaces (`ADR-042`)"
+        );
+    }
+    assert!(
+        MOBILE_COMPANION_SCREEN_VUE.contains("CompanionPairQr")
+            && DEVICES_PRINTER_CARD_VUE.contains("CompanionPairQr"),
+        "both pairing surfaces must render the same QR component (`ADR-042`)"
+    );
+
+    // The phone's half: a camera, a queue of its own, and no QR anywhere on it.
+    for required in [
+        "data-phone-capture-screen",
+        "data-capture-paste",
+        "data-capture-connect",
+        "data-capture-push",
+        "data-capture-save",
+        "data-outbox-row",
+        "BarcodeDetector",
+        "getUserMedia",
+        "shrinkImageFile",
+        "validateCaptureDraft",
+        "onUnmounted",
+    ] {
+        assert!(
+            PHONE_CAPTURE_SCREEN_VUE.contains(required),
+            "PhoneCaptureScreen.vue must contain `{required}`: the handset captures and queues (`ADR-042`)"
+        );
+    }
+    assert!(
+        !PHONE_CAPTURE_SCREEN_VUE.contains("data-companion-qr"),
+        "the capture screen must not paint a pairing QR: that is the computer's page (`ADR-042`)"
+    );
+
+    // The rail carries the camera on a handset and not on the computer, and the
+    // shell has a screen to switch to.
+    for required in [
+        "| 'capture'",
+        "readonly phoneOnly?: boolean",
+        "{ id: 'capture', label: 'الالتقاط', icon: 'camera', ownerOnly: false, phoneOnly: true }",
+        "(!item.phoneOnly || phone)",
+    ] {
+        assert!(
+            SHELL_NAV_TS.contains(required),
+            "src/shell/nav.ts must contain `{required}` (`ADR-042`)"
+        );
+    }
+    assert!(
+        SHELL_NAV_TS.contains("id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false"),
+        "the desktop's preview screen keeps its place in the rail (`ADR-039`)"
+    );
+
+    // The commands the phone calls, and the reasons it can be told about.
+    for command in [
+        "companionConnectHost",
+        "companionProbeHost",
+        "companionSaveCapture",
+        "companionPushCaptures",
+        "companionClearOutbox",
+        "companionAcceptIntake",
+        "companionRejectIntake",
+        "companionRotatePairCode",
+    ] {
+        assert!(
+            API_COMPANION_TS.contains(&format!("export async function {command}")),
+            "src/api/companion.ts must wrap `{command}` for the phone (`ADR-042`)"
+        );
+    }
+    for field in ["pendingIntakes", "outbox", "rejectedPushes", "lastLinkAt"] {
+        assert!(
+            API_COMPANION_TS.contains(field),
+            "the status the panel reads must carry `{field}`: without it there is no honest thing to show (`ADR-042`)"
+        );
+    }
+    for code in [
+        "COMPANION_NO_HOST",
+        "COMPANION_INTAKE_REFUSED",
+        "COMPANION_INTAKE_GONE",
+        "COMPANION_INTAKE_NOT_RECEIVABLE",
+    ] {
+        assert!(
+            ERRORS_TS.contains(code),
+            "src/api/errors.ts must translate `{code}`, so a refusal arrives in Arabic (`ADR-042`)"
         );
     }
 }
