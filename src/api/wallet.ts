@@ -207,3 +207,24 @@ export function updateWallet(payload: UpdateWalletPayload): Promise<WalletRecord
 export function deleteWallet(walletId: string): Promise<void> {
   return invoke<void>('delete_wallet', { walletId });
 }
+
+/** One of the numbers the till can name for a method (`ADR-041`). */
+export interface PaymentWalletOption {
+  readonly id: string;
+  readonly name: string;
+  readonly number: string;
+}
+
+/**
+ * The wallet numbers that can take money paid with `method` (`ADR-040`, `ADR-041`).
+ *
+ * One entry means there is nothing to choose, which is how every shop except a multi-number one
+ * sees it; a picker shows itself only when the list is longer than that. Deliberately not
+ * `walletsOverview` — naming a number at the till must not cost the whole shop's balances, and
+ * this answers with the numbers alone.
+ */
+export function paymentWalletCandidates(
+  method: string
+): Promise<PaymentWalletOption[]> {
+  return invoke<PaymentWalletOption[]>('payment_wallet_candidates', { method });
+}

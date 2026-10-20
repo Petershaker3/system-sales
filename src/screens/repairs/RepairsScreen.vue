@@ -18,6 +18,7 @@ import { listCustomers, type Customer } from '../../api/customer';
 import { appearance } from '../../ui/appearance';
 import { describeError } from '../../api/errors';
 import { money } from '../../ui/format';
+import WalletNumberChips from '../pos/WalletNumberChips.vue';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import {
@@ -101,6 +102,8 @@ const intakePriceEgp = ref('');
 const intakePartsCostEgp = ref('');
 const intakeDepositEgp = ref('0');
 const intakePayMethod = ref<RepairPayMethod>('cash');
+/** Which wallet number took the money collected at intake (`ADR-041`). */
+const intakePayWalletId = ref<string | null>(null);
 const intakeWarrantyDays = ref<number>(14);
 
 // Deliver modal state
@@ -110,6 +113,8 @@ const deliverError = ref('');
 const deliverFinalPriceEgp = ref('');
 const deliverPartsCostEgp = ref('');
 const deliverPayMethod = ref<RepairPayMethod>('cash');
+/** Which wallet number takes the remaining amount at delivery (`ADR-041`). */
+const deliverPayWalletId = ref<string | null>(null);
 const deliverTech = ref('');
 const deliverWarrantyDays = ref<number>(14);
 const deliverNote = ref('');
@@ -216,6 +221,7 @@ function openIntakeModal(defaultKind: RepairServiceKind = 'hardware'): void {
   intakePartsCostEgp.value = '0';
   intakeDepositEgp.value = '0';
   intakePayMethod.value = 'cash';
+  intakePayWalletId.value = null;
   intakeWarrantyDays.value = defaultKind === 'software' ? 0 : 14;
   showIntake.value = true;
 }
@@ -321,6 +327,7 @@ async function submitIntake(): Promise<void> {
       partsCostMinor: partsMinor,
       depositMinor,
       payMethod: intakeDeliverNow.value ? intakePayMethod.value : 'cash',
+      payWalletId: intakeDeliverNow.value ? intakePayWalletId.value : null,
       technicianName: intakeTech.value.trim() || null,
       warrantyDays: intakeWarrantyDays.value,
       note: null,
@@ -368,6 +375,7 @@ function openDeliverModal(ticket: RepairTicket): void {
       ? String(Math.round(ticket.partsCostMinor / 100))
       : '0';
   deliverPayMethod.value = ticket.payMethod || 'cash';
+  deliverPayWalletId.value = null;
   deliverTech.value = ticket.technicianName ?? '';
   deliverWarrantyDays.value =
     ticket.warrantyDays > 0
@@ -407,6 +415,7 @@ async function submitDeliver(): Promise<void> {
       finalPriceMinor: finalMinor,
       partsCostMinor: partsMinor,
       payMethod: deliverPayMethod.value,
+      payWalletId: deliverPayWalletId.value,
       technicianName: deliverTech.value.trim() || null,
       warrantyDays: deliverWarrantyDays.value,
       note: deliverNote.value.trim() || null,
@@ -1038,6 +1047,11 @@ onMounted(async () => {
                   </option>
                 </select>
               </label>
+              <WalletNumberChips
+                :method="intakePayMethod"
+                v-model="intakePayWalletId"
+                data-intake-pay-wallet
+              />
             </template>
             <template v-else>
               <label class="field">
@@ -1262,6 +1276,11 @@ onMounted(async () => {
               {{ m.label }}
             </button>
           </div>
+          <WalletNumberChips
+            :method="deliverPayMethod"
+            v-model="deliverPayWalletId"
+            data-deliver-pay-wallet
+          />
         </div>
 
         <div class="form-grid">

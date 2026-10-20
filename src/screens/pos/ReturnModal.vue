@@ -6,6 +6,7 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 
 import { describeError } from '../../api/errors';
+import WalletNumberChips from './WalletNumberChips.vue';
 import {
   inspectSaleForReturn,
   listRecentSalesForReturn,
@@ -72,6 +73,8 @@ const lineDrafts = reactive<
 >({});
 const reasonText = ref<string>(RETURN_REASON_PRESETS[0] ?? 'عدول العميل');
 const refundMode = ref<'default' | PayMethodId>('default');
+/** Which number pays the refund out, for a shop holding several for that method (`ADR-041`). */
+const refundWalletId = ref<string | null>(null);
 
 const hasCartItems = computed<boolean>(() => props.cartLines.length > 0);
 
@@ -199,6 +202,9 @@ function buildRefundPaymentsInput(): SalePaymentInput[] | null {
       method: refundMode.value,
       amountMinor: summary.value.refundMinor,
       reference: null,
+      // Which number pays it out. Under «بنفس طريقة الدفع» this stays null on purpose: the
+      // backend sends every refund row back out of the wallet the sale put it in (`ADR-041`).
+      walletId: refundWalletId.value,
     },
   ];
 }
@@ -687,6 +693,11 @@ onMounted(async () => {
                 خصم من حساب الآجل
               </button>
             </div>
+            <WalletNumberChips
+              v-if="refundMode !== 'default'"
+              :method="refundMode"
+              v-model="refundWalletId"
+            />
             <small v-if="refundMode === 'default'" class="hint">
               الرد الافتراضي:
               <span

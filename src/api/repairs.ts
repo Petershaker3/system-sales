@@ -91,6 +91,8 @@ export interface CreateRepairParams {
   readonly partsCostMinor?: number | null;
   readonly depositMinor: number;
   readonly payMethod?: RepairPayMethod | null;
+  /** The wallet number that took the money (`ADR-041`). */
+  readonly payWalletId?: string | null;
   readonly technicianName?: string | null;
   readonly warrantyDays?: number | null;
   readonly note?: string | null;
@@ -111,6 +113,8 @@ export interface DeliverRepairParams {
   readonly finalPriceMinor: number;
   readonly partsCostMinor?: number | null;
   readonly payMethod: RepairPayMethod;
+  /** The wallet number the remaining amount is collected into (`ADR-041`). */
+  readonly payWalletId?: string | null;
   readonly technicianName?: string | null;
   readonly warrantyDays?: number | null;
   readonly note?: string | null;
@@ -141,6 +145,7 @@ export async function createRepair(params: CreateRepairParams): Promise<RepairTi
     partsCostMinor: params.partsCostMinor ?? null,
     depositMinor: params.depositMinor,
     payMethod: params.payMethod ?? 'cash',
+    payWalletId: params.payWalletId ?? null,
     technicianName: params.technicianName ?? null,
     warrantyDays: params.warrantyDays ?? null,
     note: params.note ?? null,
@@ -165,6 +170,7 @@ export async function deliverRepair(params: DeliverRepairParams): Promise<Repair
     finalPriceMinor: params.finalPriceMinor,
     partsCostMinor: params.partsCostMinor ?? null,
     payMethod: params.payMethod,
+    payWalletId: params.payWalletId ?? null,
     technicianName: params.technicianName ?? null,
     warrantyDays: params.warrantyDays ?? null,
     note: params.note ?? null,

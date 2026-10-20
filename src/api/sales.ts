@@ -86,6 +86,8 @@ export interface SalePaymentInput {
   readonly method: string;
   readonly amountMinor: number;
   readonly reference?: string | null;
+  /** The wallet number that took this money (`ADR-041`); null means the primary for the method. */
+  readonly walletId?: string | null;
 }
 
 /**
@@ -117,6 +119,7 @@ export async function recordSale(
             method: p.method,
             amountMinor: p.amountMinor,
             reference: p.reference ?? null,
+            walletId: p.walletId ?? null,
           }))
         : null,
     customerId: customerId ?? null,
@@ -333,6 +336,7 @@ export async function recordSaleReturn(
             method: p.method,
             amountMinor: p.amountMinor,
             reference: p.reference ?? null,
+            walletId: p.walletId ?? null,
           }))
         : null,
   });
@@ -362,6 +366,7 @@ export async function recordSaleExchange(
             method: p.method,
             amountMinor: p.amountMinor,
             reference: p.reference ?? null,
+            walletId: p.walletId ?? null,
           }))
         : null,
     newLines: newLines.map((line) => ({
@@ -379,6 +384,7 @@ export async function recordSaleExchange(
             method: p.method,
             amountMinor: p.amountMinor,
             reference: p.reference ?? null,
+            walletId: p.walletId ?? null,
           }))
         : null,
     customerId: customerId ?? null,

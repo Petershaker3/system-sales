@@ -422,6 +422,8 @@ interface DemoCustomerLedgerEntry {
   kind: 'credit_sale' | 'payment' | 'sale_reversal';
   amountMinor: number;
   method: string | null;
+  /** The shop wallet that took a repayment (`ADR-041`). Absent on the rows that move no wallet money. */
+  walletId?: string | null;
   saleId: string | null;
   note: string | null;
   occurredAt: number;
@@ -1069,6 +1071,8 @@ interface DemoRepair {
   partsCostMinor: number;
   depositMinor: number;
   payMethod: 'cash' | 'vf' | 'instapay' | 'card';
+  /** The shop wallet the ticket's money was collected into (`ADR-041`). */
+  payWalletId?: string | null;
   technicianName: string | null;
   warrantyDays: number;
   note: string;
@@ -1195,9 +1199,57 @@ function demoSalePayeeWalletId(method: string): string | null {
   return takers[0]?.id ?? null;
 }
 
-function demoIsPrimaryWalletForMethod(w: DemoWallet): boolean {
-  if (!w.payMethod) return false;
-  return demoSalePayeeWalletId(w.payMethod) === w.id;
+/**
+ * Which wallet number one payment is recorded on (`ADR-041`).
+ *
+ * The number the operator named when they named one — and a named number that does not take the
+ * method is refused rather than reassigned — otherwise the primary for the method. A method no
+ * shop wallet holds (cash, card, آجل, تقسيط) yields null, and naming a wallet for it is refused
+ * the same way the real service refuses it.
+ */
+function demoResolvePaymentWalletId(
+  method: string,
+  chosen: string | null,
+  code: string
+): string | null {
+  if (method !== 'vf' && method !== 'instapay') {
+    if (chosen) fail(code);
+    return null;
+  }
+  if (!chosen) return demoSalePayeeWalletId(method);
+  const w = demoWallets.find((x) => x.id === chosen);
+  if (w === undefined || w.payMethod !== method) fail(code);
+  return w === undefined ? null : w.id;
+}
+
+/** The wallet id a caller sent, or null when it sent nothing usable. */
+function walletIdArg(args: unknown, key: string): string | null {
+  const raw = (args as Record<string, unknown> | undefined)?.[key];
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+}
+
+/**
+ * Name the wallet on the seeded money that predates the choice, the way `0030` and `0031` name it
+ * on a real database: the number that received the method at that moment. The reading rule in
+ * `demoComputeWalletBalanceMinor` then has one shape in the demo and in Rust, with no fallback
+ * the real system never applies (`ADR-041`).
+ */
+function demoNameHistoricalWallets(): void {
+  for (const sale of sales) {
+    for (const pay of sale.payments) {
+      if (pay.walletId === null) pay.walletId = demoSalePayeeWalletId(pay.method);
+    }
+  }
+  for (const entry of customerLedger) {
+    if (entry.kind === 'payment' && !entry.walletId) {
+      entry.walletId = demoSalePayeeWalletId(entry.method ?? '');
+    }
+  }
+  for (const repair of demoRepairs) {
+    if (repair.status === 'delivered' && !repair.payWalletId) {
+      repair.payWalletId = demoSalePayeeWalletId(repair.payMethod);
+    }
+  }
 }
 
 function demoComputeWalletBalanceMinor(w: DemoWallet): number {
@@ -1215,35 +1267,24 @@ function demoComputeWalletBalanceMinor(w: DemoWallet): number {
       bal += op.amountMinor;
     }
   }
-  for (const s of sales) {
-    const sign = s.kind === 'reversal' ? -1 : 1;
-    for (const p of s.payments) {
-      // A payment is this wallet's money when it names this wallet. A payment that names no
-      // wallet — written before `0030`, or for a method no wallet receives — belongs to the
-      // primary wallet of its method and to no other (`ADR-040`).
-      if (p.walletId === w.id) {
-        bal += sign * p.amountMinor;
-      } else if (
-        p.walletId === null &&
-        p.method === w.payMethod &&
-        demoIsPrimaryWalletForMethod(w)
-      ) {
-        bal += sign * p.amountMinor;
-      }
+  // Money is this wallet's when the row names it, and belongs to no wallet when it does not —
+  // one rule for the three streams, as in `compute_wallet_balance` (`ADR-041`). What a row names
+  // is decided when the money moves, never re-derived from the listing order, so the same sum
+  // cannot walk between two numbers of one company.
+  for (const sale of sales) {
+    const sign = sale.kind === 'reversal' ? -1 : 1;
+    for (const pay of sale.payments) {
+      if (pay.walletId === w.id) bal += sign * pay.amountMinor;
     }
   }
-  if (w.payMethod && demoIsPrimaryWalletForMethod(w)) {
-    // A customer settling a debt names a method, never a wallet: the primary takes it, so
-    // two numbers of one company never count the same deposit twice.
-    for (const entry of customerLedger) {
-      if (entry.kind === 'payment' && entry.method === w.payMethod) {
-        bal += Math.abs(entry.amountMinor);
-      }
+  for (const entry of customerLedger) {
+    if (entry.kind === 'payment' && entry.walletId === w.id) {
+      bal += Math.abs(entry.amountMinor);
     }
-    for (const rep of demoRepairs) {
-      if (rep.status === 'delivered' && rep.payMethod === w.payMethod) {
-        bal += Math.max(0, rep.finalPriceMinor - rep.depositMinor);
-      }
+  }
+  for (const repair of demoRepairs) {
+    if (repair.status === 'delivered' && repair.payWalletId === w.id) {
+      bal += Math.max(0, repair.finalPriceMinor - repair.depositMinor);
     }
   }
   return bal;
@@ -1290,12 +1331,12 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     }
   }
   let salesInMinor = 0;
-  if (w.payMethod) {
+  {
     for (const s of sales) {
       if (s.occurredAt < fromMs || s.occurredAt > toMs) continue;
       const sign = s.kind === 'reversal' ? -1 : 1;
       for (const p of s.payments) {
-        if (p.method === w.payMethod) {
+        if (p.walletId === w.id) {
           salesInMinor += sign * p.amountMinor;
         }
       }
@@ -1303,7 +1344,7 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     for (const entry of customerLedger) {
       if (
         entry.kind === 'payment' &&
-        entry.method === w.payMethod &&
+        entry.walletId === w.id &&
         entry.occurredAt >= fromMs &&
         entry.occurredAt <= toMs
       ) {
@@ -1313,7 +1354,7 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     for (const rep of demoRepairs) {
       if (
         rep.status === 'delivered' &&
-        rep.payMethod === w.payMethod &&
+        rep.payWalletId === w.id &&
         rep.deliveredAt !== null &&
         rep.deliveredAt >= fromMs &&
         rep.deliveredAt <= toMs
@@ -1933,6 +1974,11 @@ function buildDemoShortagesOverview() {
   return { items: active, suggestions };
 }
 
+// Every seeded row above now names its wallet, as a database upgraded through `0030`/`0031`
+// would. Placed here because the wallets and the repair seeds are declared further down than the
+// sales they are matched against.
+demoNameHistoricalWallets();
+
 const handlers: Record<string, (args: Args) => unknown> = {
   // identity
   // Three accounts exist in the demo data, so the shop is never open in the sense
@@ -2348,7 +2394,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
         method: m,
         amountMinor: p.amountMinor,
         reference: ref,
-        walletId: demoSalePayeeWalletId(m),
+        walletId: demoResolvePaymentWalletId(
+          m,
+          walletIdArg(p as Record<string, unknown>, 'walletId'),
+          'SALE_PAYMENT_WALLET_INVALID'
+        ),
       });
     }
     if (paySum !== total) fail('SALE_PAYMENT_TOTAL_MISMATCH');
@@ -2909,9 +2959,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
           method: p.method,
           amountMinor: p.amountMinor,
           reference: p.reference ?? null,
-          // A refund is not asked which number it leaves from: it goes back out of the
-          // primary wallet of the method, as it does in the real service (`ADR-040`).
-          walletId: demoSalePayeeWalletId(p.method),
+          walletId: demoResolvePaymentWalletId(
+            p.method,
+            walletIdArg(p as Record<string, unknown>, 'walletId'),
+            'SALE_PAYMENT_WALLET_INVALID'
+          ),
         });
       }
       if (sum !== refundMinor) fail('SALE_PAYMENT_TOTAL_MISMATCH');
@@ -4069,6 +4121,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const method = str(args, 'method').trim();
     if (!['cash', 'vf', 'instapay', 'card'].includes(method)) fail('CUSTOMER_PAYMENT_METHOD_INVALID');
     const note = str(args, 'note').trim() || null;
+    const paidIntoWalletId = demoResolvePaymentWalletId(
+      method,
+      walletIdArg(args, 'walletId'),
+      'CUSTOMER_PAYMENT_WALLET_INVALID'
+    );
     c.balanceMinor -= amountMinor;
     customerLedger.unshift({
       id: newId('cl'),
@@ -4076,6 +4133,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       kind: 'payment',
       amountMinor: -amountMinor,
       method,
+      walletId: paidIntoWalletId,
       saleId: null,
       note,
       occurredAt: now(),
@@ -4194,6 +4252,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
 
   // shop wallets and services ledger (Plan item 1.10, ADR-025)
+  payment_wallet_candidates: (args) => {
+    const method = str(args, 'method').trim();
+    return demoWallets
+      .filter((w) => !w.hidden && w.payMethod === method)
+      .sort((a, b) => a.sort - b.sort || (a.id < b.id ? -1 : 1))
+      .map((w) => ({ id: w.id, name: w.name, number: w.number }));
+  },
   wallets_overview: (args) => {
     requireUser();
     const todayFromMs = Math.max(0, numArg(args, 'todayFromMs'));
@@ -4710,6 +4775,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const payMethod = (
       ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
     ) as DemoRepair['payMethod'];
+    const payWalletId = demoResolvePaymentWalletId(
+      payMethod,
+      walletIdArg(args, 'payWalletId'),
+      'REPAIR_PAY_WALLET_INVALID'
+    );
     const technicianName =
       typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()
         ? args['technicianName'].trim()
@@ -4744,6 +4814,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       partsCostMinor,
       depositMinor: deliverNow ? 0 : depositMinor,
       payMethod,
+      payWalletId,
       technicianName,
       warrantyDays,
       note,
@@ -4796,6 +4867,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     rep.payMethod = (
       ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
     ) as DemoRepair['payMethod'];
+    rep.payWalletId = demoResolvePaymentWalletId(
+      rep.payMethod,
+      walletIdArg(args, 'payWalletId'),
+      'REPAIR_PAY_WALLET_INVALID'
+    );
     if (typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()) {
       rep.technicianName = args['technicianName'].trim();
     }

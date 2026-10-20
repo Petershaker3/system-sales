@@ -105,6 +105,12 @@ export interface DraftPayment {
   readonly method: PayMethodId;
   readonly amountMinor: number;
   readonly reference?: string | null;
+  /**
+   * The shop wallet number that took this part of the money (`ADR-041`). Left out or null means
+   * "the primary for the method", which is what a shop holding one number per method always
+   * meant — so a draft that never asks the question still records the same money as before.
+   */
+  readonly walletId?: string | null;
 }
 
 /** Total piastres already added to the split-payment list. */
