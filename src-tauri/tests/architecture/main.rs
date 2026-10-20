@@ -3994,7 +3994,7 @@ fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
         "data-expenses-drawer",
         "data-expenses-outside",
         "data-expenses-save",
-        'data-expenses-paid-from="drawer"',
+        r#"data-expenses-paid-from="drawer""#,
         "data-expenses-row",
         "recordShopExpense",
     ] {

@@ -419,7 +419,10 @@ async fn an_outside_expense_needs_no_shift_and_never_moves_expected_cash() {
     )
     .await
     .expect("drawer expense with a shift open");
-    assert_eq!(drawer.shift_id.as_deref(), Some(opened.shift.id.as_str()));
+    assert_eq!(
+        drawer.shift_id.as_ref().map(|id| id.as_str()),
+        Some(opened.shift.id.as_str())
+    );
     assert_eq!(drawer.paid_from, PaidFrom::Drawer);
 
     let summary = shift_service::current_shift_summary(&pool, tokens)
