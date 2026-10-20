@@ -14,8 +14,10 @@ import {
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { withOwnerApproval } from '../../shell/approval';
 import { money, num } from '../../ui/format';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
+import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import {
   buildReconcilePayload,
@@ -124,6 +126,12 @@ const filteredRows = computed<readonly StockCountRowState[]>(() => {
 });
 
 const reconcileItems = computed(() => buildReconcilePayload(scopedRows.value));
+
+/** A camera reading is submitted exactly like a scanner wedge's Enter. */
+function onScan(reading: ScanReading): void {
+  scanInput.value = reading.digits === '' ? reading.raw : reading.digits;
+  handleScanSubmit();
+}
 
 function handleScanSubmit(): void {
   const raw = scanInput.value.trim();
@@ -280,6 +288,7 @@ async function submitReconciliation(): Promise<void> {
               data-sc-scan-input
               @keydown.enter.prevent="handleScanSubmit"
             />
+            <CameraScanButton :compact="true" data-sc-scan-camera @scan="onScan" />
             <button
               type="button"
               class="btn primary"

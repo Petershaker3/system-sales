@@ -5,8 +5,10 @@ import { computed, ref } from 'vue';
 
 import type { PosProduct, PosUnit } from '../../api/pos';
 import { money, num } from '../../ui/format';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
+import type { ScanReading } from '../../ui/scan';
 import { imeiLuhn, normalizeImeiDigits } from './imei';
 
 const props = defineProps<{
@@ -81,6 +83,11 @@ const canRegisterLate = computed(() => {
   return { ok: true as const, imei: d };
 });
 
+/** A camera reading is the same as typing it: the list narrows, Enter picks. */
+function onScan(reading: ScanReading): void {
+  query.value = reading.digits === '' ? reading.raw : reading.digits;
+}
+
 function onEnter(): void {
   if (filteredUnits.value.length > 0 && digits.value.length < 15) {
     const first = filteredUnits.value[0];
@@ -108,22 +115,25 @@ function onEnter(): void {
     @close="emit('close')"
   >
     <div class="stack">
-      <label class="search-box">
-        <Icon name="scan-barcode" />
-        <input
-          id="imei-in"
-          v-model="query"
-          :class="{ mono: query !== '' }"
-          :dir="query ? 'ltr' : 'rtl'"
-          inputmode="numeric"
-          maxlength="17"
-          autocomplete="off"
-          placeholder="امسح الباركود أو اكتب آخر 4 أرقام أو 15 رقم كاملين…"
-          data-autofocus
-          @keydown.enter.prevent="onEnter"
-        />
-        <span class="muted" style="font-size: 0.78rem">{{ num(digits.length) }}/15</span>
-      </label>
+      <div class="imei-search-row">
+        <label class="search-box">
+          <Icon name="scan-barcode" />
+          <input
+            id="imei-in"
+            v-model="query"
+            :class="{ mono: query !== '' }"
+            :dir="query ? 'ltr' : 'rtl'"
+            inputmode="numeric"
+            maxlength="17"
+            autocomplete="off"
+            placeholder="امسح الباركود أو اكتب آخر 4 أرقام أو 15 رقم كاملين…"
+            data-autofocus
+            @keydown.enter.prevent="onEnter"
+          />
+          <span class="muted" style="font-size: 0.78rem">{{ num(digits.length) }}/15</span>
+        </label>
+        <CameraScanButton :compact="true" data-imei-picker-scan @scan="onScan" />
+      </div>
 
       <div v-if="canRegisterLate !== null">
         <div v-if="canRegisterLate.ok" class="new-imei-box ok">
@@ -206,6 +216,15 @@ function onEnter(): void {
 </template>
 
 <style scoped>
+.imei-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.imei-search-row .search-box {
+  flex: 1;
+  min-width: 0;
+}
 .imei-list {
   display: grid;
   gap: 6px;

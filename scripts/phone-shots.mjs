@@ -209,6 +209,12 @@ check(
   'an unlinked phone is told so, in words it can act on',
   (await text('[data-link-state]')).includes('امسح باركود الربط من الكمبيوتر')
 );
+check(
+  'the pairing line has a camera beside it, so the phone can read the QR on the computer',
+  (await count('[data-capture-scan-pair] [data-camera-scan]')) === 1 &&
+    (await text('[data-capture-scan-pair] [data-camera-scan]')) === ''
+);
+await shot('06a-phone-link-card');
 // Nothing is linked yet. A capture saved now cannot be sent, and the screen must
 // say that with a button rather than with silence — this is the «مش بقدر» the owner
 // described (`ADR-043`).

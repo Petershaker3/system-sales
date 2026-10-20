@@ -903,6 +903,12 @@ check(
     (await text('.catalog .notice')).includes('اتشالت الصورة، والصنف رجع بالأيقونة')
 );
 
+check(
+  'the catalogue barcode box carries a camera mark, so a code can be read instead of typed',
+  (await count('[data-catalog-search-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-catalog-search-scan] [data-camera-scan]')) === ''
+);
+
 // --- optional IMEI units & receiving (ADR-019, plan item 1.4) --------------
 await page.evaluate(() => {
   const sel = document.querySelector('#stock-product');
@@ -922,6 +928,12 @@ await sleep(150);
 check(
   'selecting a phone in the stock panel shows the optional IMEI box and receipt mode switcher',
   (await count('#stock-imei-input')) === 1 && (await count('#stock-mode-opening')) === 1
+);
+
+check(
+  'the IMEI box in the stock panel carries a camera mark beside it',
+  (await count('[data-stock-imei-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-stock-imei-scan] [data-camera-scan]')) === ''
 );
 await page.type('#stock-imei-input', '356938035643800');
 await page.click('#stock-imei-add');
@@ -981,6 +993,11 @@ check(
 await page.click('.line-imei-btn');
 await page.waitForSelector('#imei-in');
 await sleep(100);
+check(
+  'the IMEI picker carries a camera mark beside its field',
+  (await count('[data-imei-picker-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-imei-picker-scan] [data-camera-scan]')) === ''
+);
 await page.type('#imei-in', '490154203237518');
 await sleep(120);
 check(
@@ -2474,6 +2491,12 @@ check(
     (await text('[data-sc-kpi-missing-units]')).includes('3 جهاز')
   );
 
+  check(
+    'the stock-count scan row carries a camera mark beside the field',
+    (await count('[data-sc-scan-camera] [data-camera-scan]')) === 1 &&
+      (await text('[data-sc-scan-camera] [data-camera-scan]')) === ''
+  );
+
   await page.type('[data-sc-scan-input]', '356938035643809');
   await page.keyboard.press('Enter');
   await sleep(150);
@@ -2653,6 +2676,12 @@ await shot('62b-companion-link-panel');
     remoteSummaryTxt
   );
   await shot('63-mobile-remote-owner');
+
+  check(
+    'the mobile helper barcode box carries a camera mark beside it',
+    (await count('[data-mobile-scan-camera] [data-camera-scan]')) === 1 &&
+      (await text('[data-mobile-scan-camera] [data-camera-scan]')) === ''
+  );
 
   await page.click('[data-mobile-scan-acc]');
   await sleep(250);

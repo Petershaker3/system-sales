@@ -33,7 +33,9 @@ import { walletsOverview, type WalletsOverview } from '../../api/wallet';
 import type { ScreenId } from '../../shell/nav';
 import { appearance } from '../../ui/appearance';
 import { dg, fmtTime, money, num, pcsWord } from '../../ui/format';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
+import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import { dayStart, addDays } from '../sales/analytics';
 import { isPhone } from '../../shell/device';
@@ -346,6 +348,12 @@ async function scanAccessoryToPos(): Promise<void> {
   } catch (err) {
     toast(describeError(err), 'err');
   }
+}
+
+/** A camera reading goes through the same resolver as a typed code. */
+function onManualScan(reading: ScanReading): void {
+  manualScanCode.value = reading.digits === '' ? reading.raw : reading.digits;
+  void submitManualScanToPos();
 }
 
 async function submitManualScanToPos(): Promise<void> {
@@ -898,6 +906,7 @@ onUnmounted(() => {
                   style="flex: 1; min-width: 0; height: 36px"
                   @keydown.enter.prevent="submitManualScanToPos"
                 />
+                <CameraScanButton :compact="true" data-mobile-scan-camera @scan="onManualScan" />
                 <button
                   type="button"
                   class="btn sm"

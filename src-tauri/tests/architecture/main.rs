@@ -3281,6 +3281,10 @@ const API_EXPENSES_TS: &str = include_str!("../../../src/api/expenses.ts");
 const EXPENSES_MIGRATION: &str =
     include_str!("../../src/data/migrations/0032_expenses_outside_the_drawer.sql");
 const POS_SCREEN_VUE: &str = include_str!("../../../src/screens/pos/PosScreen.vue");
+const IMEI_PICKER_MODAL_VUE: &str =
+    include_str!("../../../src/screens/pos/ImeiPickerModal.vue");
+const STOCK_PANEL_VUE: &str = include_str!("../../../src/components/StockPanel.vue");
+const CATALOG_PANEL_VUE: &str = include_str!("../../../src/components/CatalogPanel.vue");
 const NEW_ITEM_MODAL_VUE: &str =
     include_str!("../../../src/screens/store/NewItemModal.vue");
 const API_COMPANION_TS: &str = include_str!("../../../src/api/companion.ts");
@@ -4054,6 +4058,11 @@ fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
         ("NewUsedPhoneModal.vue", NEW_USED_PHONE_MODAL_VUE),
         ("ImeiCheckModal.vue", IMEI_CHECK_MODAL_VUE),
         ("RepairsScreen.vue", REPAIRS_SCREEN_VUE),
+        ("ImeiPickerModal.vue", IMEI_PICKER_MODAL_VUE),
+        ("StockPanel.vue", STOCK_PANEL_VUE),
+        ("CatalogPanel.vue", CATALOG_PANEL_VUE),
+        ("StockCountModal.vue", STOCK_COUNT_MODAL_VUE),
+        ("MobileCompanionScreen.vue", MOBILE_COMPANION_SCREEN_VUE),
     ] {
         assert!(
             source.contains("CameraScanButton"),

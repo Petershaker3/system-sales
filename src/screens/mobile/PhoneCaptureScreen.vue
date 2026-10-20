@@ -127,7 +127,7 @@ const linkLine = computed((): {
     tone: 'warn',
     label: 'امسح باركود الربط من الكمبيوتر',
     detail:
-      'الباركود بيظهر على الكمبيوتر في شاشة «الموبايل» أو في الإعدادات ← الأجهزة والطابعة. اللصق هنا بيشتغل لو الكاميرا ما كانش معاها.',
+      'الباركود بيظهر على الكمبيوتر في شاشة «الموبايل» أو في الإعدادات ← الأجهزة والطابعة. امسحه بالكاميرا اللي جنب الخانة، أو الصقه لو الكاميرا مش متاحة.',
   };
 });
 
@@ -204,6 +204,12 @@ async function probeStoredHost(): Promise<void> {
   } finally {
     linkBusy.value = false;
   }
+}
+
+/** The QR on the PC screen, read by this phone's camera, is the same line as pasted. */
+function onPairScan(reading: ScanReading): void {
+  pastePayload.value = reading.raw;
+  usePastedPayload();
 }
 
 function usePastedPayload(): void {
@@ -505,14 +511,18 @@ onUnmounted(() => {
       <div class="stack" style="gap: 8px">
         <div class="field">
           <label for="mshop-paste">امسح أو الصق باركود الربط من الكمبيوتر</label>
-          <input
-            id="mshop-paste"
-            v-model="pastePayload"
-            type="text"
-            dir="ltr"
-            placeholder="MSHOP-PAIR|v1|اسم المحل|192.168.1.20:8787|PAIR-8787"
-            data-capture-paste
-          />
+          <div class="row" style="gap: 8px; margin-bottom: 0">
+            <input
+              id="mshop-paste"
+              v-model="pastePayload"
+              type="text"
+              dir="ltr"
+              style="flex: 1; min-width: 0"
+              placeholder="MSHOP-PAIR|v1|اسم المحل|192.168.1.20:8787|PAIR-8787"
+              data-capture-paste
+            />
+            <CameraScanButton :compact="true" data-capture-scan-pair @scan="onPairScan" />
+          </div>
         </div>
         <div>
           <button type="button" class="btn sm" data-capture-use-payload @click="usePastedPayload">

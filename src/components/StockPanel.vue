@@ -42,7 +42,9 @@ import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
 import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
+import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
+import type { ScanReading } from '../ui/scan';
 import { toast } from '../ui/toast';
 
 /**
@@ -242,6 +244,16 @@ watch(selectedProductId, async () => {
 });
 
 // --- IMEI entry on receive -------------------------------------------------
+
+/**
+ * One camera reading fills the IMEI draft and enters the batch, so the shopkeeper
+ * scans the box and moves on — the same checks (15 digits, Luhn, duplicates) run as
+ * if the number had been typed.
+ */
+function onImeiScan(reading: ScanReading): void {
+  imeiDraft.value = reading.digits === '' ? reading.raw : reading.digits;
+  addImeiToBatch();
+}
 
 function addImeiToBatch(): void {
   const digits = normalizeImeiDigits(imeiDraft.value);
@@ -517,6 +529,7 @@ void loadPickers();
               placeholder="امسح أو اكتب 15 رقم…"
               @keydown.enter.prevent="addImeiToBatch"
             />
+            <CameraScanButton :compact="true" data-stock-imei-scan @scan="onImeiScan" />
             <button
               id="stock-imei-add"
               type="button"
