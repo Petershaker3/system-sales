@@ -183,6 +183,9 @@ impl fmt::Display for SaleError {
             SaleError::PaymentReferenceInvalid => {
                 write!(f, "payment reference exceeds maximum length")
             }
+            SaleError::PaymentWalletInvalid => {
+                write!(f, "the wallet named for this payment does not receive that method")
+            }
             SaleError::InstallmentProviderRequired => {
                 write!(f, "instalment payment requires a provider name")
             }

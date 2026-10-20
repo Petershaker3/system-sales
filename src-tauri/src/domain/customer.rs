@@ -97,6 +97,7 @@ impl fmt::Display for CustomerError {
                 "customer payment exceeds current credit balance"
             }
             CustomerError::PaymentMethodInvalid => "customer payment method is invalid",
+            CustomerError::PaymentWalletInvalid => "the wallet named for this payment does not receive that method",
             CustomerError::NoteInvalid => "customer ledger note is too long",
         })
     }

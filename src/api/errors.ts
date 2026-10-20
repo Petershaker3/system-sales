@@ -170,6 +170,7 @@ export const ErrorCode = {
   SALE_RETURN_QUANTITY_EXCEEDS_REMAINING: 'SALE_RETURN_QUANTITY_EXCEEDS_REMAINING',
   SALE_RETURN_CONDITION_INVALID: 'SALE_RETURN_CONDITION_INVALID',
   SALE_RETURN_REASON_REQUIRED: 'SALE_RETURN_REASON_REQUIRED',
+  SALE_PAYMENT_WALLET_INVALID: 'SALE_PAYMENT_WALLET_INVALID',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -205,6 +206,7 @@ export const ErrorCode = {
   CUSTOMER_PAYMENT_AMOUNT_INVALID: 'CUSTOMER_PAYMENT_AMOUNT_INVALID',
   CUSTOMER_PAYMENT_EXCEEDS_BALANCE: 'CUSTOMER_PAYMENT_EXCEEDS_BALANCE',
   CUSTOMER_PAYMENT_METHOD_INVALID: 'CUSTOMER_PAYMENT_METHOD_INVALID',
+  CUSTOMER_PAYMENT_WALLET_INVALID: 'CUSTOMER_PAYMENT_WALLET_INVALID',
   CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
@@ -257,6 +259,7 @@ export const ErrorCode = {
   REPAIR_AMOUNT_INVALID: 'REPAIR_AMOUNT_INVALID',
   REPAIR_STATUS_INVALID: 'REPAIR_STATUS_INVALID',
   REPAIR_PAY_METHOD_INVALID: 'REPAIR_PAY_METHOD_INVALID',
+  REPAIR_PAY_WALLET_INVALID: 'REPAIR_PAY_WALLET_INVALID',
   REPAIR_NOT_FOUND: 'REPAIR_NOT_FOUND',
   REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED'
 } as const;
@@ -494,6 +497,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'حالة الصنف المرتجع غير صحيحة — اختار سليم أو تالف.',
   [ErrorCode.SALE_RETURN_REASON_REQUIRED]:
     'اكتب سبب المرتجع قبل الحفظ.',
+  [ErrorCode.SALE_PAYMENT_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:
@@ -552,6 +557,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'مبلغ السداد أكبر من الرصيد الآجل اللي على العميل.',
   [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
     'طريقة تحصيل الآجل غير مسموحة.',
+  [ErrorCode.CUSTOMER_PAYMENT_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
   [ErrorCode.CUSTOMER_NOTE_INVALID]:
     'الملاحظة طويلة زيادة عن اللزوم.',
 
@@ -648,6 +655,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'حالة التذكرة غير صحيحة.',
   [ErrorCode.REPAIR_PAY_METHOD_INVALID]:
     'طريقة التحصيل غير صحيحة.',
+  [ErrorCode.REPAIR_PAY_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
   [ErrorCode.REPAIR_NOT_FOUND]:
     'تذكرة الصيانة دي مش موجودة.',
   [ErrorCode.REPAIR_ALREADY_DELIVERED]:
