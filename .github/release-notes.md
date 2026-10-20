@@ -1,7 +1,7 @@
 <!--
-  Release body for `v1.0.0-latest`. The publish job replaces `__VERSION__` with
-  the version in `src-tauri/tauri.conf.json` and re-reads this file on every
-  build, so the download page describes the files that are actually there.
+  Release body for `v1.0.0-latest`. The publish job fills the version from
+  `src-tauri/tauri.conf.json` into the file names below and re-reads this file on
+  every build, so the download page describes the files that are actually there.
 -->
 
 # ملفين — نزّل اللي يخص جهازك
