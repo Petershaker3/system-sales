@@ -14,6 +14,7 @@ export type ScreenId =
   | 'repairs'
   | 'store'
   | 'reports'
+  | 'expenses'
   | 'mobile'
   | 'capture'
   | 'settings'
@@ -40,6 +41,10 @@ export const NAV: readonly NavItem[] = [
   { id: 'repairs', label: 'الصيانة', icon: 'wrench', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true },
+  // «المصاريف» sits beside «التقارير» because it answers the same question from the
+  // other side: what came in is the reports screen, what went out is this one
+  // (`ADR-043`). Owner-only, like the reports it belongs with.
+  { id: 'expenses', label: 'المصاريف', icon: 'hand-coins', ownerOnly: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false },
   { id: 'capture', label: 'الالتقاط', icon: 'camera', ownerOnly: false, phoneOnly: true },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },
@@ -52,6 +57,7 @@ export const TITLES: Record<ScreenId, string> = {
   repairs: 'الصيانة والسوفت وير',
   store: 'المخزن',
   reports: 'التقارير',
+  expenses: 'المصاريف',
   mobile: 'تطبيق الموبايل',
   capture: 'الالتقاط من الموبايل',
   settings: 'الإعدادات',

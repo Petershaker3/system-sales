@@ -249,6 +249,45 @@ check(
 );
 await shot('07-phone-capture-link');
 
+// An expense is recorded on the phone and sent the same way (`ADR-043`). The phone
+// never writes the ledger; it fills the same queue the product went through.
+await fill('[data-capture-expense-category]', 'إيجار');
+await fill('[data-capture-expense-amount]', '1500');
+await fill('[data-capture-expense-note]', 'إيجار شهر أكتوبر');
+await page.click('[data-capture-expense-from="outside"]');
+await sleep(150);
+check(
+  'the phone has an expense form, and it asks where the money came from',
+  (await count('[data-capture-expense]')) === 1 &&
+    (await count('[data-capture-expense-from="drawer"]')) === 1
+);
+await page.click('[data-capture-expense-save]');
+await sleep(500);
+check(
+  'the saved expense waits in the same queue as the product capture',
+  (await count('[data-outbox-row]')) === 2 &&
+    (await page.$$eval('[data-outbox-row]', (rows) => rows.map((r) => r.textContent ?? '').join(' '))).includes(
+      'مصروف'
+    )
+);
+check(
+  'the queue has one obvious send button for everything waiting',
+  (await text('[data-outbox-push]')).includes('ابعت للكمبيوتر')
+);
+await shot('08-phone-expense-queued');
+
+await page.click('[data-outbox-push]');
+await sleep(600);
+const afterExpensePush = await page.$$eval('[data-outbox-row] [data-outbox-state]', (rows) =>
+  rows.map((r) => r.textContent ?? '').join(' ')
+);
+check(
+  'pushing sends the expense too, and the phone still claims only delivery',
+  afterExpensePush.includes('وصلت للكمبيوتر') && !afterExpensePush.includes('اتسجل'),
+  afterExpensePush.slice(0, 120)
+);
+await shot('09-phone-expense-sent');
+
 // The settings page on a phone is the same rule: it explains the link, it does
 // not print a code for the phone to read itself.
 await goTo('الإعدادات');

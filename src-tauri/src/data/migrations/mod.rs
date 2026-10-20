@@ -151,3 +151,13 @@ pub const WALLET_GROUPS_AND_PAYMENT_ATTRIBUTION: &str =
 /// can name a wallet does — with the history named once rather than re-derived (`ADR-041`).
 pub const WALLET_IN_EVERY_MONEY_FLOW: &str =
     include_str!("0031_wallet_in_every_money_flow.sql");
+
+/// `0032`: an expense says where its money came from — the drawer during an open
+/// shift, or anywhere else.
+///
+/// Rebuilds `expenses` so `shift_id` may be `NULL`, adds `paid_from`, and keeps the
+/// two in step with a CHECK. A drawer row still requires an open shift and still
+/// reduces expected cash; an outside row names no shift, so it cannot touch a drawer
+/// it never left. Append-only triggers are recreated unchanged (`ADR-043`).
+pub const EXPENSES_OUTSIDE_THE_DRAWER: &str =
+    include_str!("0032_expenses_outside_the_drawer.sql");

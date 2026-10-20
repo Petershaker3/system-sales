@@ -20,6 +20,8 @@ import { describeError } from '../../api/errors';
 import { money } from '../../ui/format';
 import WalletNumberChips from '../pos/WalletNumberChips.vue';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import {
   buildRepairWhatsAppUrl,
@@ -92,6 +94,12 @@ const intakePhone = ref('');
 const intakeCustomerName = ref('');
 const intakeDevice = ref('');
 const intakeLock = ref('');
+// A camera reading into the intake's IMEI field (`ADR-043`), same 15-digit rule as
+// everywhere else.
+function onIntakeScan(reading: ScanReading): void {
+  intakeImei.value = reading.digits === '' ? reading.raw : reading.digits;
+}
+
 const intakeImei = ref('');
 const intakeIssueChips = ref<string[]>([]);
 const intakeIssueNote = ref('');
@@ -1077,18 +1085,27 @@ onMounted(async () => {
               </label>
             </template>
 
-            <label class="field">
-              <span class="lbl">IMEI (اختياري)</span>
-              <input
-                v-model="intakeImei"
-                type="text"
-                class="input"
-                :class="{ mono: intakeImei !== '' }"
-                :dir="intakeImei ? 'ltr' : 'rtl'"
-                placeholder="اختياري"
-                data-intake-imei
-              />
-            </label>
+            <div class="field">
+              <label class="lbl" for="repair-intake-imei">IMEI (اختياري)</label>
+              <!-- Camera beside the field, not inside its label (`ADR-043`). -->
+              <div class="row" style="gap: 6px; align-items: center">
+                <input
+                  id="repair-intake-imei"
+                  v-model="intakeImei"
+                  type="text"
+                  class="input"
+                  :class="{ mono: intakeImei !== '' }"
+                  :dir="intakeImei ? 'ltr' : 'rtl'"
+                  placeholder="اختياري"
+                  data-intake-imei
+                />
+                <CameraScanButton
+                  :compact="true"
+                  data-intake-scan-imei
+                  @scan="onIntakeScan"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

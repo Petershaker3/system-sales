@@ -3149,6 +3149,12 @@ fn a_capture_draft_is_checked_before_it_is_held() {
 
     let base = || CompanionIntakeDraft {
         id: "draft-1".to_string(),
+        // Empty means a product: every draft written before expenses existed (`ADR-043`).
+        kind: String::new(),
+        expense_category: String::new(),
+        expense_amount_minor: 0,
+        expense_paid_from: String::new(),
+        expense_note: String::new(),
         pair_code: "PAIR-1".to_string(),
         device_name: "موبايل بيتر".to_string(),
         created_at: 1,
@@ -3205,4 +3211,84 @@ fn a_capture_draft_is_checked_before_it_is_held() {
             "a draft that breaks one of the caps must be refused, not trimmed"
         );
     }
+}
+
+/// One queue, two kinds (`ADR-043`).
+///
+/// A draft is either a product capture or money that left the shop, and the wire
+/// guard refuses anything else — including a draft that carries half of each. The
+/// empty `kind` is not a third kind: it is every draft stored before expenses
+/// existed, and it must still read as a product.
+#[test]
+fn an_expense_draft_says_where_its_money_came_from() {
+    use mobile_shop_system_lib::domain::companion::{
+        draft_kind, validate_intake_draft, CompanionIntakeDraft, DraftKind, MAX_EXPENSE_NOTE_CHARS,
+    };
+
+    let base = |kind: &str| CompanionIntakeDraft {
+        id: "draft-1".to_string(),
+        kind: kind.to_string(),
+        expense_category: "إيجار".to_string(),
+        expense_amount_minor: 500_000,
+        expense_paid_from: "outside".to_string(),
+        expense_note: "إيجار أكتوبر".to_string(),
+        pair_code: "PAIR-1".to_string(),
+        device_name: "موبايل بيتر".to_string(),
+        created_at: 1,
+        disposition: String::new(),
+        product_name: String::new(),
+        barcode: String::new(),
+        quantity: 0,
+        unit_cost_minor: 0,
+        imeis: Vec::new(),
+        photos: Vec::new(),
+        product_id: None,
+        receipt_id: None,
+        pushed_at: None,
+        push_error: None,
+        note: None,
+    };
+
+    assert_eq!(draft_kind(&base("expense")), Some(DraftKind::Expense));
+    assert_eq!(draft_kind(&base("")), Some(DraftKind::Product));
+    assert_eq!(draft_kind(&base("product")), Some(DraftKind::Product));
+    assert_eq!(
+        draft_kind(&base("rent")),
+        None,
+        "an unknown word is refused rather than guessed into stock or into money"
+    );
+    assert_eq!(validate_intake_draft(&base("expense")), Ok(()));
+    assert!(
+        validate_intake_draft(&base("rent")).is_err(),
+        "a typo must not become a ledger row"
+    );
+
+    // Each half of the expense is required, in the shop's own words.
+    let mut no_category = base("expense");
+    no_category.expense_category = "  ".to_string();
+    assert!(validate_intake_draft(&no_category).is_err());
+
+    let mut no_amount = base("expense");
+    no_amount.expense_amount_minor = 0;
+    assert!(validate_intake_draft(&no_amount).is_err());
+
+    let mut no_source = base("expense");
+    no_source.expense_paid_from = String::new();
+    assert!(
+        validate_intake_draft(&no_source).is_err(),
+        "a default source would decide whether the drawer shrinks"
+    );
+
+    let mut long_note = base("expense");
+    long_note.expense_note = "ن".repeat(MAX_EXPENSE_NOTE_CHARS + 1);
+    assert!(validate_intake_draft(&long_note).is_err());
+
+    // The two kinds are separate: an expense does not need a product name, and a
+    // product draft does not need an amount.
+    let mut product = base("");
+    product.kind = "product".to_string();
+    product.product_name = "شاحن".to_string();
+    product.disposition = "quantity".to_string();
+    product.quantity = 2;
+    assert_eq!(validate_intake_draft(&product), Ok(()));
 }

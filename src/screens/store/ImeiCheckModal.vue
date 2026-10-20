@@ -7,6 +7,8 @@ import { checkImei, type ImeiCheckResult } from '../../api/brands';
 import { describeError } from '../../api/errors';
 import { money } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { gradeArabicLabel } from './phone';
 
@@ -31,6 +33,16 @@ const unitStatusLabel = computed(() => {
   if (st === 'retired') return 'مرتجع / متقاعد';
   return st ?? '';
 });
+
+/**
+ * A camera reading into the IMEI field (`ADR-043`).
+ *
+ * The check is deliberately not run automatically: the shopkeeper usually wants to
+ * confirm the number is the one on the box before spending a query on it.
+ */
+function onScan(reading: ScanReading): void {
+  imeiInput.value = reading.digits === '' ? reading.raw : reading.digits;
+}
 
 async function runCheck(): Promise<void> {
   const raw = imeiInput.value.trim();
@@ -79,6 +91,7 @@ onMounted(() => {
           placeholder="اكتب أو امسح الـ 15 رقم..."
           @keydown.enter.prevent="runCheck"
         />
+        <CameraScanButton :compact="true" data-imei-check-scan @scan="onScan" />
         <button
           type="button"
           class="btn primary"

@@ -136,6 +136,8 @@ pub fn run() {
             commands::shift::current_shift_summary,
             commands::shift::open_shift,
             commands::shift::record_expense,
+            commands::shift::record_shop_expense,
+            commands::shift::expenses_overview,
             commands::shift::record_cash_movement,
             commands::shift::close_shift,
             commands::wallet::wallets_overview,

@@ -17,6 +17,8 @@ import { describeError } from '../../api/errors';
 import { normalize } from '../../ui/arabic';
 import { kindsWord, money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import { asIconName } from '../pos/icons';
@@ -125,6 +127,17 @@ async function addCategory(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/**
+ * One camera reading into the barcode field (`ADR-043`).
+ *
+ * A shop barcode is whatever the shop prints, so the digits are taken as they came:
+ * nothing is stripped and nothing is validated here — `barcodeProblem` already says
+ * what the field accepts, and it says it after the value is in.
+ */
+function onBarcodeScan(reading: ScanReading): void {
+  barcode.value = reading.raw;
 }
 
 async function makeCode(): Promise<void> {
@@ -403,6 +416,12 @@ onMounted(async () => {
           <button type="button" class="btn sm soft" :disabled="busy || makingCode" @click="makeCode">
             <Icon name="scan-barcode" /> اعمل كود للمحل
           </button>
+          <CameraScanButton
+            :compact="false"
+            label="امسح الباركود"
+            data-ni-scan
+            @scan="onBarcodeScan"
+          />
         </div>
         <span v-if="shopCode" class="hint">ده كود المحل (EAN-13) — بيتطبع على الملصق.</span>
         <span v-else-if="barcodeProblem(barcode) !== ''" class="hint">{{ barcodeProblem(barcode) }}</span>

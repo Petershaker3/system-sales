@@ -21,6 +21,8 @@ import { describeError } from '../../api/errors';
 import { withOwnerApproval } from '../../shell/approval';
 import { money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
 import { normalizeImeiDigits, validateImeiInput } from '../pos/imei';
@@ -250,6 +252,21 @@ async function addInlineBrand(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/**
+ * A camera reading into the first IMEI field (`ADR-043`).
+ *
+ * `normalizeImeiDigits` is the same normaliser the keyboard path uses, so a scanned
+ * number and a typed number can never end up stored in two different shapes.
+ */
+function onImeiScan(reading: ScanReading): void {
+  imei.value = normalizeImeiDigits(reading.digits === '' ? reading.raw : reading.digits);
+}
+
+/** The second slot, for a dual-SIM handset. */
+function onImei2Scan(reading: ScanReading): void {
+  imei2.value = normalizeImeiDigits(reading.digits === '' ? reading.raw : reading.digits);
 }
 
 async function runQuickImeiCheck(): Promise<void> {
@@ -555,6 +572,11 @@ onMounted(load);
             maxlength="19"
             placeholder="15 رقم"
           />
+          <CameraScanButton
+            :compact="true"
+            data-nu-scan-imei
+            @scan="onImeiScan"
+          />
           <button
             type="button"
             class="btn ghost sm"
@@ -593,22 +615,33 @@ onMounted(load);
         </div>
       </div>
 
-      <label class="field" for="nu-imei2">
-        <span class="lbl">IMEI التاني <span class="muted">(اختياري — لو خطين)</span></span>
-        <input
-          id="nu-imei2"
-          v-model="imei2"
-          class="in"
-          :class="{ mono: imei2 !== '' }"
-          :dir="imei2 ? 'ltr' : 'rtl'"
-          maxlength="19"
-          placeholder="15 رقم"
-        />
+      <div class="field">
+        <label class="lbl" for="nu-imei2">
+          IMEI التاني <span class="muted">(اختياري — لو خطين)</span>
+        </label>
+        <!-- The camera sits beside the input rather than inside a wrapping <label>:
+             a control inside a label changes the caret geometry of an RTL field. -->
+        <div class="imei-inline">
+          <input
+            id="nu-imei2"
+            v-model="imei2"
+            class="in"
+            :class="{ mono: imei2 !== '' }"
+            :dir="imei2 ? 'ltr' : 'rtl'"
+            maxlength="19"
+            placeholder="15 رقم"
+          />
+          <CameraScanButton
+            :compact="true"
+            data-nu-scan-imei2
+            @scan="onImei2Scan"
+          />
+        </div>
         <div v-if="imei2Validation" class="imei-status-line">
           <span v-if="imei2Validation.ok" class="tag ok">✓ IMEI 2 سليم</span>
           <span v-else class="tag err-tag">{{ imeiErrorText(imei2Validation.code) }}</span>
         </div>
-      </label>
+      </div>
     </div>
 
     <!-- Condition Grade A / B / C & Battery % -->

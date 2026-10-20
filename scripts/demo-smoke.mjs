@@ -45,6 +45,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
 const text = (sel) => page.$eval(sel, (el) => el.textContent?.trim() ?? '').catch(() => '');
 const count = (sel) => page.$$eval(sel, (els) => els.length);
+/**
+ * Type into a field the way a person does: assign the value and let `v-model` hear
+ * the `input` event. `page.type` reverses Arabic in the headless RTL renderer.
+ */
+const fill = (sel, value) =>
+  page.$eval(
+    sel,
+    (el, v) => {
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+    value
+  );
+
 async function clickText(selector, label) {
   const handles = await page.$$(selector);
   for (const h of handles) {
@@ -2940,6 +2954,87 @@ check(
 await page.keyboard.press('Escape');
 await sleep(200);
 await shot('68-money-names-its-wallet');
+
+// --- the expenses section (ADR-043) -----------------------------------------
+// The owner's second complaint: expenses only existed as a tab in the shift modal,
+// so rent and bills had nowhere to go. One section, two sources, and the drawer's
+// arithmetic untouched.
+await clickText('.rail .nav-btn', 'المصاريف');
+await page.waitForSelector('[data-expenses-screen]', { timeout: 5000 });
+await sleep(400);
+check(
+  'the rail has a door for «المصاريف», and it is not the shift modal',
+  (await count('[data-expenses-screen]')) === 1
+);
+
+const totalBefore = await text('[data-expenses-total]');
+const drawerBefore = await text('[data-expenses-drawer]');
+const outsideBefore = await text('[data-expenses-outside]');
+await fill('[data-expenses-category]', 'إيجار');
+await fill('[data-expenses-amount]', '1500');
+await fill('[data-expenses-note]', 'إيجار شهر أكتوبر');
+await page.click('[data-expenses-paid-from="outside"]');
+await sleep(150);
+await page.click('[data-expenses-save]');
+await sleep(700);
+const outsideAfter = await text('[data-expenses-outside]');
+const drawerAfterOutside = await text('[data-expenses-drawer]');
+check(
+  'an expense paid from outside the drawer is recorded and appears in the list',
+  (await count('[data-expenses-row]')) >= 1 &&
+    (await text('[data-expenses-row]')).includes('إيجار')
+);
+check(
+  'it moved the outside total and left the drawer total where it was',
+  outsideAfter !== outsideBefore && drawerAfterOutside === drawerBefore,
+  `${outsideBefore}→${outsideAfter}, drawer ${drawerBefore}→${drawerAfterOutside}`
+);
+check(
+  'the list says which source each row came from',
+  (await text('[data-expenses-row]')).includes('من برّه الدرج')
+);
+await shot('69-expenses-section');
+
+// A drawer expense is the same form with a different answer, and the drawer's own
+// total — not the outside one — is what moves.
+await fill('[data-expenses-category]', 'ضيافة');
+await fill('[data-expenses-amount]', '40');
+await page.click('[data-expenses-paid-from="drawer"]');
+await sleep(150);
+await page.click('[data-expenses-save]');
+await sleep(700);
+const drawerFinal = await text('[data-expenses-drawer]');
+const outsideFinal = await text('[data-expenses-outside]');
+check(
+  'a drawer expense is offered only while a shift is open, and says so',
+  (await text('[data-expenses-drawer-note]')).includes('وردية مفتوحة')
+);
+check(
+  'the drawer total grew while the outside total stayed put',
+  drawerFinal !== drawerAfterOutside && outsideFinal === outsideAfter,
+  `drawer ${drawerAfterOutside}→${drawerFinal}, outside ${outsideAfter}→${outsideFinal}`
+);
+check(
+  'the row it wrote is a drawer row, not an outside one',
+  (await text('[data-expenses-row]')).includes('من الدرج')
+);
+await shot('70-expenses-two-sources');
+
+// --- the camera beside a barcode field (ADR-043) ---------------------------
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('#q', { timeout: 5000 });
+await sleep(250);
+check(
+  'the till search box — a barcode field — offers the camera',
+  (await count('.search-row [data-camera-scan]')) >= 1
+);
+await page.click('[data-pos-scan]');
+await sleep(500);
+check(
+  'pressing it either opens a camera or says plainly that this machine cannot read codes',
+  (await count('[data-camera-scan-panel]')) >= 1
+);
+await shot('71-camera-beside-barcode');
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();

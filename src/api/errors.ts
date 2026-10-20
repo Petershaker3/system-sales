@@ -219,6 +219,7 @@ export const ErrorCode = {
   EXPENSE_CATEGORY_INVALID: 'EXPENSE_CATEGORY_INVALID',
   EXPENSE_AMOUNT_INVALID: 'EXPENSE_AMOUNT_INVALID',
   EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
+  EXPENSE_PAID_FROM_INVALID: 'EXPENSE_PAID_FROM_INVALID',
   CASH_MOVEMENT_KIND_INVALID: 'CASH_MOVEMENT_KIND_INVALID',
   CASH_MOVEMENT_AMOUNT_INVALID: 'CASH_MOVEMENT_AMOUNT_INVALID',
   CASH_MOVEMENT_REASON_INVALID: 'CASH_MOVEMENT_REASON_INVALID',
@@ -587,6 +588,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'مبلغ المصروف لازم يكون أكبر من صفر.',
   [ErrorCode.EXPENSE_NOTE_INVALID]:
     'ملاحظة المصروف طويلة زيادة عن اللزوم.',
+  [ErrorCode.EXPENSE_PAID_FROM_INVALID]:
+    'قول المصروف خرج من الدرج ولا من برّاه — ده اللي بيحدد إذا كان بيتخصم من الدرج ولا لأ.',
   [ErrorCode.CASH_MOVEMENT_KIND_INVALID]:
     'نوع حركة الدرج غير معروف.',
   [ErrorCode.CASH_MOVEMENT_AMOUNT_INVALID]:

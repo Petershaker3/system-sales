@@ -745,6 +745,12 @@ let demoRemoteEnabled = false;
 interface DemoIntakeDraft {
   id: string;
   source: 'phone' | 'scanner';
+  /** `'product'` or `'expense'`; one queue, two destinations (`ADR-043`). */
+  kind: 'product' | 'expense';
+  expenseCategory: string | null;
+  expenseAmountMinor: number;
+  expensePaidFrom: 'drawer' | 'outside' | null;
+  expenseNote: string | null;
   createdAt: number;
   pushedAt: number | null;
   pushError: string | null;
@@ -776,6 +782,11 @@ function demoIntakeDto(d: DemoIntakeDraft) {
   return {
     id: d.id,
     source: d.source,
+    kind: d.kind,
+    expenseCategory: d.expenseCategory ?? '',
+    expenseAmountMinor: d.expenseAmountMinor,
+    expensePaidFrom: d.expensePaidFrom ?? '',
+    expenseNote: d.expenseNote ?? '',
     createdAt: d.createdAt,
     pushedAt: d.pushedAt,
     pushError: d.pushError,
@@ -845,7 +856,10 @@ interface DemoShift {
 
 interface DemoExpense {
   id: string;
-  shiftId: string;
+  /** `null` when the money did not leave the drawer (`ADR-043`). */
+  shiftId: string | null;
+  /** Where the money came from; only a drawer row reduces a shift's expected cash. */
+  paidFrom: 'drawer' | 'outside';
   category: string;
   amountMinor: number;
   note: string | null;
@@ -1541,8 +1555,11 @@ function buildDemoShiftSummary(shift: DemoShift) {
     }
   }
 
+  // Only drawer rows belong to a shift's cash (`ADR-043`). An outside expense is the
+  // shop's money, not the till's, so it is in the expenses section and nowhere near
+  // this subtraction.
   const shiftExpenses = expenses
-    .filter((e) => e.shiftId === shift.id)
+    .filter((e) => e.shiftId === shift.id && e.paidFrom === 'drawer')
     .sort((a, b) => b.createdAt - a.createdAt);
   const shiftMovements = cashMovements
     .filter((m) => m.shiftId === shift.id)
@@ -1688,6 +1705,26 @@ const str = (args: Args, key: string): string => {
 const numArg = (args: Args, key: string): number => {
   const v = args?.[key];
   return typeof v === 'number' ? v : NaN;
+};
+/** An optional numeric argument: `null` when absent, exactly what «الكل» sends. */
+const optNum = (args: Args, key: string): number | null => {
+  const v = args?.[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+};
+/** The display name behind a user id, for the expenses section's «اللي سجّله». */
+const userName = (id: string): string =>
+  users.find((u) => u.id === id)?.displayName ?? id;
+/**
+ * The two places an expense's money can come from, or a refusal.
+ *
+ * Never a default: mapping an unknown word to «من برّه الدرج» would quietly exclude
+ * it from the drawer's expected cash, and mapping it to «من الدرج» would quietly
+ * subtract it (`ADR-043`).
+ */
+const parsePaidFrom = (raw: string): 'drawer' | 'outside' => {
+  if (raw === 'drawer') return 'drawer';
+  if (raw === 'outside') return 'outside';
+  return fail('EXPENSE_PAID_FROM_INVALID');
 };
 const findProduct = (id: string) => products.find((x) => x.id === id) ?? fail('NO_PRODUCT_WITH_THIS_ID');
 
@@ -4265,6 +4302,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     expenses.push({
       id: newId('exp'),
       shiftId: open.id,
+      paidFrom: 'drawer',
       category,
       amountMinor,
       note,
@@ -4272,6 +4310,99 @@ const handlers: Record<string, (args: Args) => unknown> = {
       createdAt: now(),
     });
     return buildDemoShiftSummary(open);
+  },
+
+  // The expenses section (`ADR-043`): one window, one list, two sources.
+  expenses_overview: (args) => {
+    requireUser();
+    const fromMs = optNum(args, 'fromMs');
+    const toMs = optNum(args, 'toMs');
+    const inWindow = expenses
+      .filter(
+        (e) =>
+          (fromMs === null || e.createdAt >= fromMs) &&
+          (toMs === null || e.createdAt <= toMs)
+      )
+      .sort((a, b) => b.createdAt - a.createdAt);
+    let totalMinor = 0;
+    let drawerMinor = 0;
+    let outsideMinor = 0;
+    const byCategory = new Map<string, { totalMinor: number; count: number }>();
+    for (const e of inWindow) {
+      totalMinor += e.amountMinor;
+      if (e.paidFrom === 'drawer') drawerMinor += e.amountMinor;
+      else outsideMinor += e.amountMinor;
+      const entry = byCategory.get(e.category) ?? { totalMinor: 0, count: 0 };
+      entry.totalMinor += e.amountMinor;
+      entry.count += 1;
+      byCategory.set(e.category, entry);
+    }
+    const known: string[] = [];
+    for (const e of [...expenses].sort((a, b) => b.createdAt - a.createdAt)) {
+      if (!known.includes(e.category)) known.push(e.category);
+    }
+    const open = shifts.find((s) => s.status === 'open') ?? null;
+    return {
+      rows: inWindow.map((e) => ({
+        id: e.id,
+        shiftId: e.shiftId,
+        paidFrom: e.paidFrom,
+        category: e.category,
+        amountMinor: e.amountMinor,
+        note: e.note,
+        createdBy: e.createdBy,
+        createdAt: e.createdAt,
+        createdByName: userName(e.createdBy),
+      })),
+      totalMinor,
+      drawerMinor,
+      outsideMinor,
+      count: inWindow.length,
+      byCategory: [...byCategory.entries()]
+        .map(([category, v]) => ({ category, totalMinor: v.totalMinor, count: v.count }))
+        .sort((a, b) =>
+          b.totalMinor - a.totalMinor || a.category.localeCompare(b.category)
+        ),
+      knownCategories: known.slice(0, 24),
+      openShiftId: open ? open.id : null,
+    };
+  },
+  record_shop_expense: (args) => {
+    const user = requireUser();
+    if (user.role !== 'manager') fail('AUTH_FORBIDDEN');
+    // Stated, never guessed: a blank or unknown source is refused rather than
+    // defaulted, because the default would decide whether the drawer shrinks.
+    const paidFrom = parsePaidFrom(str(args, 'paidFrom').trim());
+    const category = str(args, 'category').trim();
+    if (!category || category.length > 80) fail('EXPENSE_CATEGORY_INVALID');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('EXPENSE_AMOUNT_INVALID');
+    const note = str(args, 'note').trim() || null;
+    // A drawer expense needs a till somebody opened; an outside one must not borrow
+    // whatever shift happens to be open (`ADR-043`).
+    const open = shifts.find((s) => s.status === 'open') ?? null;
+    if (paidFrom === 'drawer' && open === null) fail('SHIFT_NOT_OPEN');
+    const row: DemoExpense = {
+      id: newId('exp'),
+      shiftId: paidFrom === 'drawer' && open !== null ? open.id : null,
+      paidFrom,
+      category,
+      amountMinor,
+      note,
+      createdBy: user.id,
+      createdAt: now(),
+    };
+    expenses.push(row);
+    return {
+      id: row.id,
+      shiftId: row.shiftId,
+      paidFrom: row.paidFrom,
+      category: row.category,
+      amountMinor: row.amountMinor,
+      note: row.note,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+    };
   },
   record_cash_movement: (args) => {
     const user = requireUser();
@@ -5078,6 +5209,47 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireUser();
     const draft = (args?.['draft'] ?? {}) as Record<string, unknown>;
     args = draft;
+    // One queue, two kinds (`ADR-043`). An expense draft never touches the product
+    // fields, and a product draft never carries an amount.
+    const kind = str(args, 'kind') === 'expense' ? 'expense' : 'product';
+    if (kind === 'expense') {
+      const category = str(args, 'expenseCategory').trim();
+      if (category === '') {
+        throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب بند المصروف الأول.' };
+      }
+      const amount = numArg(args, 'expenseAmountMinor');
+      if (!(amount > 0)) {
+        throw { code: 'COMPANION_INTAKE_REFUSED', message: 'مبلغ المصروف لازم يكون أكبر من صفر.' };
+      }
+      const paidFromRaw = str(args, 'expensePaidFrom').trim();
+      if (paidFromRaw !== 'drawer' && paidFromRaw !== 'outside') {
+        throw { code: 'EXPENSE_PAID_FROM_INVALID' };
+      }
+      const entry: DemoIntakeDraft = {
+        id: `intake-${String(++demoSeq).padStart(6, '0')}`,
+        source: 'phone',
+        kind: 'expense',
+        expenseCategory: category,
+        expenseAmountMinor: amount,
+        expensePaidFrom: paidFromRaw,
+        expenseNote: str(args, 'expenseNote').trim() || null,
+        createdAt: now(),
+        pushedAt: null,
+        pushError: null,
+        pairCode: demoHostCode,
+        productName: '',
+        barcode: null,
+        quantity: 0,
+        unitCostMinor: 0,
+        salePriceMinor: null,
+        imeis: [],
+        photos: [],
+        note: null,
+        deviceName: str(args, 'deviceName').trim() || 'موبايل',
+      };
+      demoOutbox.unshift(entry);
+      return demoCompanionStatusDto();
+    }
     const name = str(args, 'productName').trim();
     if (name === '') {
       throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب اسم الصنف الأول.' };
@@ -5089,6 +5261,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const entry: DemoIntakeDraft = {
       id: `intake-${String(++demoSeq).padStart(6, '0')}`,
       source: 'phone',
+      kind: 'product',
+      expenseCategory: null,
+      expenseAmountMinor: 0,
+      expensePaidFrom: null,
+      expenseNote: null,
       createdAt: now(),
       pushedAt: null,
       pushError: null,
@@ -5145,6 +5322,29 @@ const handlers: Record<string, (args: Args) => unknown> = {
       throw { code: 'COMPANION_INTAKE_GONE', message: 'المسودة دي اتعملها حاجة من قبل كده.' };
     }
     const draft = demoIntakes[idx]!;
+    if (draft.kind === 'expense') {
+      // The desktop is what writes money down (`ADR-043`): the same handler the
+      // expenses screen calls, so a phone draft cannot take a shortcut.
+      const paidFrom = draft.expensePaidFrom ?? 'outside';
+      if (paidFrom === 'drawer' && !shifts.some((s) => s.status === 'open')) {
+        throw {
+          code: 'SHIFT_NOT_OPEN',
+          message: 'مفيش وردية مفتوحة على الكمبيوتر — افتحها أو سجّل المصروف «من برّه الدرج».',
+        };
+      }
+      handlers['record_shop_expense']!({
+        category: draft.expenseCategory ?? '',
+        amountMinor: draft.expenseAmountMinor,
+        note: draft.expenseNote,
+        paidFrom,
+      });
+      demoIntakes.splice(idx, 1);
+      demoLastLinkAt = now();
+      return {
+        status: demoCompanionStatusDto(),
+        draft: { ...demoIntakeDto(draft), note: 'اتسجّل في قسم المصاريف على الكمبيوتر' },
+      };
+    }
     const existing =
       draft.barcode !== null
         ? products.find((x) => x.barcode === draft.barcode && x.status === 'active')

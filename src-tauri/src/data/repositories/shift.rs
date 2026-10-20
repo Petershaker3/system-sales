@@ -7,8 +7,8 @@ use crate::domain::identity::{Timestamp, UserId};
 use crate::domain::money::Piastres;
 use crate::domain::shift::{
     CashMovementId, CashMovementKind, CashMovementReason, CashMovementRecord, ExpenseCategory,
-    ExpenseId, ExpenseNote, ExpenseRecord, ShiftCloseNote, ShiftId, ShiftRecord, ShiftStatus,
-    ShiftTotals,
+    ExpenseId, ExpenseNote, ExpenseRecord, PaidFrom, ShiftCloseNote, ShiftId, ShiftRecord,
+    ShiftStatus, ShiftTotals,
 };
 
 /// Return the next sequential `shift_number` (`1` for the first shift).
@@ -147,11 +147,14 @@ pub async fn insert_expense(
     expense: &ExpenseRecord,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO expenses (id, shift_id, category, amount_minor, note, created_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO expenses (id, shift_id, paid_from, category, amount_minor, note, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(expense.id.as_str())
-    .bind(expense.shift_id.as_str())
+    // A genuine NULL for money that never left the drawer (`ADR-043`); the table's
+    // CHECK keeps it in step with `paid_from`.
+    .bind(expense.shift_id.as_ref().map(|id| id.as_str()))
+    .bind(expense.paid_from.as_str())
     .bind(expense.category.as_str())
     .bind(expense.amount.as_minor())
     .bind(expense.note.as_ref().map(|n| n.as_str()))
@@ -168,7 +171,7 @@ pub async fn list_expenses_for_shift(
     shift_id: &str,
 ) -> Result<Vec<ExpenseRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, shift_id, category, amount_minor, note, created_by, created_at
+        "SELECT id, shift_id, paid_from, category, amount_minor, note, created_by, created_at
          FROM expenses
          WHERE shift_id = ?1
          ORDER BY created_at DESC, id DESC",
@@ -178,6 +181,81 @@ pub async fn list_expenses_for_shift(
     .await?;
 
     rows.into_iter().map(row_to_expense).collect()
+}
+
+/// Every expense in a window, newest first, with the person who recorded it.
+///
+/// `from_ms`/`to_ms` are inclusive bounds; `None` means "no bound on this side", which
+/// is how the section's «الكل» asks its question. Filtering happens in SQL rather than
+/// in the caller so a year of rows does not have to cross the wire to be counted.
+pub async fn list_expenses_between(
+    conn: &mut SqliteConnection,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+) -> Result<Vec<ExpenseWithName>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT e.id, e.shift_id, e.paid_from, e.category, e.amount_minor, e.note,
+                e.created_by, e.created_at, u.display_name AS created_by_name
+         FROM expenses e
+         JOIN users u ON u.id = e.created_by
+         WHERE (?1 IS NULL OR e.created_at >= ?1)
+           AND (?2 IS NULL OR e.created_at <= ?2)
+         ORDER BY e.created_at DESC, e.id DESC",
+    )
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            let created_by_name: String = row.try_get("created_by_name")?;
+            let record = row_to_expense(row)?;
+            Ok(ExpenseWithName {
+                record,
+                created_by_name,
+            })
+        })
+        .collect()
+}
+
+/// One expense beside the display name of whoever recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpenseWithName {
+    pub record: ExpenseRecord,
+    pub created_by_name: String,
+}
+
+/// The categories this shop has actually used, most frequent first.
+///
+/// Read from the rows rather than from a fixed list: the suggestions a shopkeeper
+/// sees should be the words their own shop uses (`ADR-043`).
+pub async fn expense_category_counts(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT category, COUNT(*) AS uses
+         FROM expenses
+         GROUP BY category
+         ORDER BY uses DESC, category ASC
+         LIMIT 24",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let category: String = row.try_get("category")?;
+            let uses: i64 = row.try_get("uses")?;
+            Ok((category, uses))
+        })
+        .collect()
+}
+
+/// Whether a shift is open right now, and which one.
+pub async fn open_shift_id(conn: &mut SqliteConnection) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT id FROM shifts WHERE status = 'open' LIMIT 1")
+        .fetch_optional(&mut *conn)
+        .await
 }
 
 /// Insert a cash drawer movement row for an open shift.
@@ -472,7 +550,8 @@ fn parse_user_id(raw: &str) -> Result<UserId, sqlx::Error> {
 
 fn row_to_expense(row: sqlx::sqlite::SqliteRow) -> Result<ExpenseRecord, sqlx::Error> {
     let id_raw: String = row.try_get("id")?;
-    let shift_id_raw: String = row.try_get("shift_id")?;
+    let shift_id_raw: Option<String> = row.try_get("shift_id")?;
+    let paid_from_raw: String = row.try_get("paid_from")?;
     let category_raw: String = row.try_get("category")?;
     let amount_raw: i64 = row.try_get("amount_minor")?;
     let note_raw: Option<String> = row.try_get("note")?;
@@ -481,7 +560,10 @@ fn row_to_expense(row: sqlx::sqlite::SqliteRow) -> Result<ExpenseRecord, sqlx::E
 
     Ok(ExpenseRecord {
         id: ExpenseId::new(id_raw).ok_or(sqlx::Error::RowNotFound)?,
-        shift_id: ShiftId::new(shift_id_raw).ok_or(sqlx::Error::RowNotFound)?,
+        shift_id: shift_id_raw
+            .map(|raw| ShiftId::new(raw).ok_or(sqlx::Error::RowNotFound))
+            .transpose()?,
+        paid_from: PaidFrom::parse(&paid_from_raw).ok_or(sqlx::Error::RowNotFound)?,
         category: ExpenseCategory::new(category_raw).map_err(|_| sqlx::Error::RowNotFound)?,
         amount: Piastres::new_minor(amount_raw).map_err(|_| sqlx::Error::RowNotFound)?,
         note: ExpenseNote::parse_optional(note_raw.as_deref())

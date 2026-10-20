@@ -587,6 +587,56 @@ export function validateCaptureDraft(input: CaptureDraftInput): string | null {
   return null;
 }
 
+/**
+ * The second kind of draft: money that left the shop (`ADR-043`).
+ *
+ * Same queue, same push, same inbox as a product capture — the shopkeeper has one
+ * button, «ابعت». What differs is that an expense is applied through the expenses
+ * use case rather than the receiving one, so a phone can never smuggle an expense
+ * into stock or a capture into the till.
+ */
+export interface ExpenseDraftInput {
+  readonly deviceName: string;
+  readonly category: string;
+  readonly amountMinor: number;
+  readonly paidFrom: 'drawer' | 'outside';
+  readonly note: string;
+  readonly photos?: readonly string[];
+}
+
+/** Characters of category the desktop accepts (`expenses.category` is 80). */
+export const MAX_EXPENSE_CATEGORY_CHARS = 80;
+/** Characters of note the desktop accepts (`expenses.note` is 300). */
+export const MAX_EXPENSE_NOTE_CHARS = 300;
+
+/**
+ * Why this expense cannot be saved, in the shop's words, or `null`.
+ *
+ * Only the drawer question is treated as a hard one: «من الدرج» without an open
+ * shift is refused by the computer, so the phone says it earlier and says it in the
+ * same words the expenses screen uses.
+ */
+export function validateExpenseDraft(input: ExpenseDraftInput): string | null {
+  if (!input.deviceName.trim()) return 'اسم الموبايل ناقص — بيجي من إعدادات الجهاز.';
+  if (!input.category.trim()) return 'اكتب بند المصروف الأول — مثلاً «إيجار» أو «كهربا».';
+  if (input.category.trim().length > MAX_EXPENSE_CATEGORY_CHARS)
+    return 'اسم البند أطول من ' + dg(MAX_EXPENSE_CATEGORY_CHARS) + ' حرف.';
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0)
+    return 'المبلغ لازم يكون أكبر من صفر.';
+  if (input.note.length > MAX_EXPENSE_NOTE_CHARS)
+    return 'الملاحظة أطول من ' + dg(MAX_EXPENSE_NOTE_CHARS) + ' حرف.';
+  if (input.paidFrom !== 'drawer' && input.paidFrom !== 'outside')
+    return 'قول المصروف خرج من الدرج ولا من برّاه.';
+  if ((input.photos?.length ?? 0) > MAX_CAPTURE_PHOTOS)
+    return 'أقصى عدد صور في المسودة ' + dg(MAX_CAPTURE_PHOTOS) + '.';
+  return null;
+}
+
+/** What a row in the phone's queue is, without trusting a blank field. */
+export function draftKindLabel(draft: { kind: string }): 'product' | 'expense' {
+  return draft.kind === 'expense' ? 'expense' : 'product';
+}
+
 /** The pairing text the computer prints under its QR, read back by the handset. */
 export interface PairTarget {
   readonly shopName: string;

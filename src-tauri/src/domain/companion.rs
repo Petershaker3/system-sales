@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::domain::identity::DomainError;
+use crate::domain::shift::PaidFrom;
 
 /// Prefix for companion state stored in `app_settings`.
 pub const COMPANION_PREFIX: &str = "companion.";
@@ -332,6 +333,11 @@ pub const MAX_INTAKE_BARCODE_CHARS: usize = 64;
 pub const MAX_INTAKE_BODY_BYTES: usize = 2 * 1024 * 1024;
 /// Drafts the desktop holds before it asks the phone to wait.
 pub const MAX_INTAKE_QUEUE: usize = 40;
+/// Characters of expense category a phone may send (`ADR-043` uses the same 80 the
+/// `expenses` table allows).
+pub const MAX_EXPENSE_CATEGORY_CHARS: usize = 80;
+/// Characters of expense note a phone may send.
+pub const MAX_EXPENSE_NOTE_CHARS: usize = 300;
 /// How long one HTTP hop to the shop computer may take before the phone gives up.
 pub const LAN_REQUEST_TIMEOUT_MS: u64 = 2_500;
 
@@ -364,6 +370,9 @@ pub fn is_online(last_seen_at: i64, now_ms: i64) -> bool {
 #[serde(rename_all = "camelCase", default)]
 pub struct CompanionIntakeDraft {
     pub id: String,
+    /// `"product"` or `"expense"`. Empty is a product: every draft written before
+    /// expenses existed was one, and a stored queue must still read back (`ADR-043`).
+    pub kind: String,
     /// The code the phone scanned. Checked by the responder against the shop's own.
     pub pair_code: String,
     pub device_name: String,
@@ -381,6 +390,16 @@ pub struct CompanionIntakeDraft {
     pub receipt_id: Option<String>,
     pub pushed_at: Option<i64>,
     pub push_error: Option<String>,
+    /// Expense drafts only: the category as the shopkeeper typed it (`ADR-043`).
+    /// `product_name` is left empty on those, so a reader can never confuse the two.
+    pub expense_category: String,
+    /// Expense drafts only: money in piastres, always positive.
+    pub expense_amount_minor: i64,
+    /// Expense drafts only: `"drawer"` or `"outside"`. Stated by the person who paid,
+    /// checked here, and never defaulted.
+    pub expense_paid_from: String,
+    /// Expense drafts only: a free line explaining what the money bought.
+    pub expense_note: String,
     /// What the desktop decided on its own: "only the first photo can be stored",
     /// or the reason a step was skipped. Shown verbatim so neither side pretends
     /// a partial apply was a complete one (`ADR-042`).
@@ -392,6 +411,60 @@ pub struct CompanionIntakeDraft {
 /// The phone enforces the same rules in `src/screens/mobile/companion.ts` so the
 /// form refuses locally; this is the wire guard behind it.
 pub fn validate_intake_draft(draft: &CompanionIntakeDraft) -> Result<(), &'static str> {
+    match draft_kind(draft) {
+        Some(DraftKind::Expense) => validate_expense_draft(draft),
+        Some(DraftKind::Product) => validate_product_draft(draft),
+        None => Err("a draft is either a product capture or an expense"),
+    }
+}
+
+/// What a draft is (`ADR-043`). Two kinds share one queue, one push and one inbox,
+/// because to the shopkeeper there is one button: «ابعت».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DraftKind {
+    Product,
+    Expense,
+}
+
+/// Read the kind. An empty field is a product (drafts stored before expenses
+/// existed carry no `kind`); an unknown word is `None` rather than a guess — a typo
+/// must not become stock, and a product must not become money that left the shop.
+pub fn draft_kind(draft: &CompanionIntakeDraft) -> Option<DraftKind> {
+    match draft.kind.trim() {
+        "" | "product" => Some(DraftKind::Product),
+        "expense" => Some(DraftKind::Expense),
+        _ => None,
+    }
+}
+
+/// Why an expense draft is refused before it queues anything (`ADR-043`).
+fn validate_expense_draft(draft: &CompanionIntakeDraft) -> Result<(), &'static str> {
+    if draft.device_name.trim().is_empty() {
+        return Err("draft carries no device name");
+    }
+    if draft.expense_category.trim().is_empty() {
+        return Err("draft carries no expense category");
+    }
+    if draft.expense_category.chars().count() > MAX_EXPENSE_CATEGORY_CHARS {
+        return Err("expense category too long for a draft");
+    }
+    if draft.expense_amount_minor <= 0 {
+        return Err("an expense draft must carry a positive amount");
+    }
+    if draft.expense_note.chars().count() > MAX_EXPENSE_NOTE_CHARS {
+        return Err("expense note too long for a draft");
+    }
+    if PaidFrom::parse(draft.expense_paid_from.trim()).is_none() {
+        return Err("an expense draft must say where its money came from");
+    }
+    if draft.photos.len() > MAX_INTAKE_PHOTOS {
+        return Err("too many photos in one draft");
+    }
+    Ok(())
+}
+
+/// The product half of the same rules, unchanged from `ADR-042`.
+fn validate_product_draft(draft: &CompanionIntakeDraft) -> Result<(), &'static str> {
     if draft.device_name.trim().is_empty() {
         return Err("draft carries no device name");
     }

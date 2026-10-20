@@ -3271,6 +3271,18 @@ const PHONE_CAPTURE_SCREEN_VUE: &str =
     include_str!("../../../src/screens/mobile/PhoneCaptureScreen.vue");
 const COMPANION_PAIR_QR_VUE: &str =
     include_str!("../../../src/screens/mobile/CompanionPairQr.vue");
+const CAMERA_SCAN_BUTTON_VUE: &str =
+    include_str!("../../../src/ui/CameraScanButton.vue");
+const SCAN_TS: &str = include_str!("../../../src/ui/scan.ts");
+const EXPENSES_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/expenses/ExpensesScreen.vue");
+const EXPENSES_TS: &str = include_str!("../../../src/screens/expenses/expenses.ts");
+const API_EXPENSES_TS: &str = include_str!("../../../src/api/expenses.ts");
+const EXPENSES_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0032_expenses_outside_the_drawer.sql");
+const POS_SCREEN_VUE: &str = include_str!("../../../src/screens/pos/PosScreen.vue");
+const NEW_ITEM_MODAL_VUE: &str =
+    include_str!("../../../src/screens/store/NewItemModal.vue");
 const API_COMPANION_TS: &str = include_str!("../../../src/api/companion.ts");
 const ERRORS_TS: &str = include_str!("../../../src/api/errors.ts");
 
@@ -3841,8 +3853,13 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
         "data-capture-push",
         "data-capture-save",
         "data-outbox-row",
-        "BarcodeDetector",
-        "getUserMedia",
+        "data-capture-expense",
+        "data-capture-expense-save",
+        "data-outbox-push",
+        // The camera is a component now: one implementation serves every barcode and
+        // IMEI field in the app (`ADR-043`), so this screen renders it rather than
+        // carrying a second copy of the decoder.
+        "CameraScanButton",
         "shrinkImageFile",
         "validateCaptureDraft",
         "onUnmounted",
@@ -3906,6 +3923,128 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
         assert!(
             ERRORS_TS.contains(code),
             "src/api/errors.ts must translate `{code}`, so a refusal arrives in Arabic (`ADR-042`)"
+        );
+    }
+}
+
+/// The expenses section and the shared camera button (`ADR-043`).
+///
+/// Two promises are checked here, because both are easy to lose in a later edit: that
+/// a drawer expense and an outside expense stay one list with the drawer's arithmetic
+/// untouched, and that every barcode/IMEI field offers the camera through one
+/// component rather than a copy per screen.
+#[test]
+fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
+    // One table, one nullable reference, and a CHECK that refuses half a fact.
+    for required in [
+        "paid_from     TEXT    NOT NULL CHECK (paid_from IN ('drawer', 'outside'))",
+        "shift_id      TEXT    NULL REFERENCES shifts (id) ON DELETE RESTRICT",
+        "CHECK ((paid_from = 'drawer') = (shift_id IS NOT NULL))",
+        "'drawer', category",
+    ] {
+        assert!(
+            EXPENSES_MIGRATION.contains(required),
+            "0032 must contain `{required}`: an expense says where its money came from (`ADR-043`)"
+        );
+    }
+    assert!(
+        !EXPENSES_MIGRATION.contains("CREATE TABLE expenses_outside"),
+        "a second table would make every future total a union of two shapes (`ADR-043`)"
+    );
+    for trigger in ["expenses_no_update", "expenses_no_delete"] {
+        assert!(
+            EXPENSES_MIGRATION.contains(trigger),
+            "0032 must re-create `{trigger}`: expenses stay append-only (`ADR-024`)"
+        );
+    }
+    assert!(
+        EXPENSES_MIGRATION.contains("CREATE TRIGGER expenses_require_open_shift\nBEFORE INSERT ON expenses\nWHEN NEW.paid_from = 'drawer'"),
+        "the open-shift rule must guard drawer rows only (`ADR-043`)"
+    );
+
+    // The service states the source, never defaults it, and refuses a closed drawer
+    // only for drawer money.
+    for required in [
+        "pub async fn record_shop_expense",
+        "PaidFrom::parse(paid_from.trim()).ok_or(ShiftError::InvalidPaidFrom)",
+        "PaidFrom::Outside => None",
+        "pub async fn expenses_overview",
+        "session.authorize(Permission::ManageCatalog)",
+    ] {
+        assert!(
+            SHIFT_SERVICE.contains(required),
+            "services/shift.rs must contain `{required}` (`ADR-043`)"
+        );
+    }
+    for required in ["record_shop_expense", "expenses_overview"] {
+        assert!(
+            SHIFT_COMMANDS.contains(required) && API_EXPENSES_TS.contains(required),
+            "`{required}` must reach the screen through both the command and the API wrapper (`ADR-043`)"
+        );
+    }
+    assert!(
+        SHIFT_COMMANDS.contains("pub shift_id: Option<String>"),
+        "the expense DTO must carry a nullable shift: an outside expense has none (`ADR-043`)"
+    );
+
+    // The section's own promises: two totals that never mix, and a list underneath.
+    for required in [
+        "data-expenses-screen",
+        "data-expenses-total",
+        "data-expenses-drawer",
+        "data-expenses-outside",
+        "data-expenses-save",
+        'data-expenses-paid-from="drawer"',
+        "data-expenses-row",
+        "recordShopExpense",
+    ] {
+        assert!(
+            EXPENSES_SCREEN_VUE.contains(required),
+            "ExpensesScreen.vue must contain `{required}` (`ADR-043`)"
+        );
+    }
+    for required in [
+        "expensePeriodBounds",
+        "EXPENSE_PERIODS",
+        "effectivePaidFrom",
+        "drawerAvailabilityNote",
+    ] {
+        assert!(
+            EXPENSES_TS.contains(required),
+            "screens/expenses/expenses.ts must contain `{required}` (`ADR-043`)"
+        );
+    }
+    assert!(
+        SHELL_NAV_TS.contains("{ id: 'expenses', label: 'المصاريف', icon: 'hand-coins', ownerOnly: true }"),
+        "the expenses section needs its own door in the rail (`ADR-043`)"
+    );
+
+    // One camera, every field. The decoder lives in the component, not in a screen.
+    for required in ["BarcodeDetector", "getUserMedia", "data-camera-scan", "classifyScan"] {
+        assert!(
+            CAMERA_SCAN_BUTTON_VUE.contains(required),
+            "CameraScanButton.vue must contain `{required}`: the camera is one component (`ADR-043`)"
+        );
+    }
+    assert!(
+        SCAN_TS.contains("export function classifyScan"),
+        "src/ui/scan.ts owns the 15-digit rule for every field (`ADR-043`)"
+    );
+    assert!(
+        SCAN_TS.contains("digits.length === 15"),
+        "an IMEI is 15 digits on every screen, not just the phone (`ADR-043`)"
+    );
+    for (name, source) in [
+        ("PhoneCaptureScreen.vue", PHONE_CAPTURE_SCREEN_VUE),
+        ("PosScreen.vue", POS_SCREEN_VUE),
+        ("NewItemModal.vue", NEW_ITEM_MODAL_VUE),
+        ("NewUsedPhoneModal.vue", NEW_USED_PHONE_MODAL_VUE),
+        ("ImeiCheckModal.vue", IMEI_CHECK_MODAL_VUE),
+        ("RepairsScreen.vue", REPAIRS_SCREEN_VUE),
+    ] {
+        assert!(
+            source.contains("CameraScanButton"),
+            "{name} has a barcode or IMEI field, so it must offer the camera beside it (`ADR-043`)"
         );
     }
 }

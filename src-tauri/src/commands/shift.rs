@@ -9,7 +9,9 @@ use crate::domain::shift::{
     CashMovementRecord, ExpenseRecord, ShiftRecord, ShiftSummary, ShiftTotals,
 };
 use crate::services::identity::IdentityContext;
-use crate::services::shift::{self as use_cases, CurrentShiftState, ShiftServiceError};
+use crate::services::shift::{
+    self as use_cases, CurrentShiftState, ExpenseOverview, ExpenseRow, ShiftServiceError,
+};
 
 type Ctx<'a> = State<'a, IdentityContext>;
 
@@ -121,7 +123,10 @@ impl From<ShiftTotals> for ShiftTotalsDto {
 #[serde(rename_all = "camelCase")]
 pub struct ExpenseRecordDto {
     pub id: String,
-    pub shift_id: String,
+    /// `null` when the money did not leave the drawer (`ADR-043`).
+    pub shift_id: Option<String>,
+    /// `"drawer"` or `"outside"` — where the money came from.
+    pub paid_from: String,
     pub category: String,
     pub amount_minor: i64,
     pub note: Option<String>,
@@ -133,12 +138,77 @@ impl From<ExpenseRecord> for ExpenseRecordDto {
     fn from(e: ExpenseRecord) -> Self {
         Self {
             id: e.id.as_str().to_owned(),
-            shift_id: e.shift_id.as_str().to_owned(),
+            shift_id: e.shift_id.map(|id| id.as_str().to_owned()),
+            paid_from: e.paid_from.as_str().to_owned(),
             category: e.category.as_str().to_owned(),
             amount_minor: e.amount.as_minor(),
             note: e.note.map(|n| n.as_str().to_owned()),
             created_by: e.created_by.as_str(),
             created_at: e.created_at.as_millis(),
+        }
+    }
+}
+
+/// One row in the expenses section: the expense and who recorded it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseRowDto {
+    #[serde(flatten)]
+    pub expense: ExpenseRecordDto,
+    pub created_by_name: String,
+}
+
+impl From<ExpenseRow> for ExpenseRowDto {
+    fn from(row: ExpenseRow) -> Self {
+        Self {
+            expense: row.record.into(),
+            created_by_name: row.created_by_name,
+        }
+    }
+}
+
+/// What one category cost in the window the section is showing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseCategoryTotalDto {
+    pub category: String,
+    pub total_minor: i64,
+    pub count: u64,
+}
+
+/// The section's answer for one window (`ADR-043`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpenseOverviewDto {
+    pub rows: Vec<ExpenseRowDto>,
+    pub total_minor: i64,
+    pub drawer_minor: i64,
+    pub outside_minor: i64,
+    pub count: u64,
+    pub by_category: Vec<ExpenseCategoryTotalDto>,
+    pub known_categories: Vec<String>,
+    pub open_shift_id: Option<String>,
+}
+
+impl From<ExpenseOverview> for ExpenseOverviewDto {
+    fn from(o: ExpenseOverview) -> Self {
+        Self {
+            rows: o.rows.into_iter().map(Into::into).collect(),
+            total_minor: o.total_minor,
+            drawer_minor: o.drawer_minor,
+            outside_minor: o.outside_minor,
+            count: o.count,
+            by_category: o
+                .by_category
+                .into_iter()
+                .map(|entry| ExpenseCategoryTotalDto {
+                    category: entry.category,
+                    total_minor: entry.total_minor,
+                    count: entry.count,
+                })
+                .collect(),
+            known_categories: o.known_categories,
+            open_shift_id: o.open_shift_id,
         }
     }
 }
@@ -240,6 +310,44 @@ pub async fn open_shift(
         .await;
     }
     Ok(summary.into())
+}
+
+/// Record an expense that may have been paid from the drawer or from elsewhere
+/// (`ADR-043`). Returns the row that was written, so the section can show it at once.
+#[tauri::command]
+pub async fn record_shop_expense(
+    ctx: Ctx<'_>,
+    category: String,
+    amount_minor: i64,
+    note: Option<String>,
+    paid_from: String,
+) -> Result<ExpenseRecordDto, ShiftCommandError> {
+    let row = use_cases::record_shop_expense(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &category,
+        amount_minor,
+        note.as_deref(),
+        &paid_from,
+    )
+    .await?;
+    Ok(row.into())
+}
+
+/// The expenses section: one period's rows and the totals they add up to (`ADR-043`).
+///
+/// `from_ms`/`to_ms` are inclusive; both `None` is «الكل». The bounds are computed by
+/// the screen, exactly as the repairs screen computes its own (`ADR-036`), so the
+/// section and the ledger can never disagree about where a day starts.
+#[tauri::command]
+pub async fn expenses_overview(
+    ctx: Ctx<'_>,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+) -> Result<ExpenseOverviewDto, ShiftCommandError> {
+    let overview = use_cases::expenses_overview(&ctx.pool, ctx.tokens.as_ref(), from_ms, to_ms)
+        .await?;
+    Ok(overview.into())
 }
 
 /// Record a cash expense from the drawer during the currently open shift.

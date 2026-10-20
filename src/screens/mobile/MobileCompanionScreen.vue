@@ -127,6 +127,15 @@ async function onAcceptIntake(draft: CompanionIntakeDraft): Promise<void> {
   try {
     const applied = await companionAcceptIntake(draft.id);
     companion.value = applied.status;
+    if (draft.kind === 'expense') {
+      // Money is written down by the same use case the expenses screen calls, so the
+      // toast names the section rather than the receiving screen (`ADR-043`).
+      toast(
+        `«${draft.expenseCategory}» اتسجل في المصاريف — ${money(draft.expenseAmountMinor)}`,
+        'ok',
+      );
+      return;
+    }
     toast(
       applied.draft.note === null
         ? `«${applied.draft.productName}» نزلت في الاستلام على الكمبيوتر`
@@ -605,10 +614,16 @@ onUnmounted(() => {
         class="s-row"
         data-companion-intake-row
       >
-        <span class="t-ico"><Icon name="boxes" /></span>
+        <span class="t-ico">
+          <Icon :name="draft.kind === 'expense' ? 'hand-coins' : 'boxes'" />
+        </span>
         <div class="t">
-          <b>{{ draft.productName }}</b>
-          <small>
+          <b>{{ draft.kind === 'expense' ? draft.expenseCategory : draft.productName }}</b>
+          <small v-if="draft.kind === 'expense'">
+            مصروف من {{ draft.deviceName }} · {{ money(draft.expenseAmountMinor) }} ·
+            {{ draft.expensePaidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج' }}
+          </small>
+          <small v-else>
             من {{ draft.deviceName }} · {{ num(draft.quantity) }} قطعة ·
             · {{ money(draft.unitCostMinor) }} للقطعة
             <template v-if="draft.imeis.length > 0">
@@ -618,7 +633,14 @@ onUnmounted(() => {
               · {{ num(draft.photos.length) }} صورة
             </template>
           </small>
-          <small class="muted">
+          <small v-if="draft.kind === 'expense'" class="muted">
+            {{
+              draft.expenseNote === ''
+                ? 'من غير ملاحظة'
+                : draft.expenseNote
+            }}
+          </small>
+          <small v-else class="muted">
             {{
               draft.barcode === ''
                 ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
@@ -627,7 +649,7 @@ onUnmounted(() => {
           </small>
         </div>
         <button type="button" class="btn sm primary" data-companion-accept @click="onAcceptIntake(draft)">
-          نزّلها في الاستلام
+          {{ draft.kind === 'expense' ? 'سجّلها في المصاريف' : 'نزّلها في الاستلام' }}
         </button>
         <button type="button" class="btn sm ghost" data-companion-reject @click="onRejectIntake(draft)">
           ارفض

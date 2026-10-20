@@ -32,9 +32,10 @@ use crate::services::catalog::images as image_use_cases;
 use crate::services::catalog::product::{self as catalog_product, NewProduct};
 use crate::services::catalog::CatalogContext;
 use crate::services::inventory::stock as inventory_stock;
+use crate::services::shift as shift_use_cases;
 use crate::domain::companion::{
-    format_pair_payload, format_remote_payload, is_online, validate_intake_draft,
-    CompanionIntakeDraft, CompanionLinkError, CompanionProbe, CompanionScanItem,
+    draft_kind, format_pair_payload, format_remote_payload, is_online, validate_intake_draft,
+    CompanionIntakeDraft, CompanionLinkError, CompanionProbe, CompanionScanItem, DraftKind,
     CompanionStatus, PairedDevice, COMPANION_BLOCKED_KEY, COMPANION_DEVICES_KEY,
     COMPANION_HOST_CODE_KEY, COMPANION_HOST_KEY, COMPANION_INTAKES_KEY,
     COMPANION_LAST_LINK_KEY, COMPANION_OUTBOX_KEY, COMPANION_PAIR_CODE_KEY,
@@ -1536,6 +1537,13 @@ pub async fn accept_intake(
             .find(|draft| draft.id == intake_id)
             .ok_or(CompanionLinkError::IntakeGone)?
     };
+    // An expense draft is not stock and must never reach the receiving path
+    // (`ADR-043`). It applies through the same use case the expenses screen calls —
+    // owner permission, one write, one audit row — and then leaves the inbox like any
+    // other draft.
+    if draft_kind(&draft) == Some(DraftKind::Expense) {
+        return accept_expense_intake(pool, tokens, &draft, intake_id).await;
+    }
     if !matches!(draft.disposition.as_str(), "quantity" | "serialized") {
         return Err(CompanionLinkError::IntakeNotReceivable);
     }
@@ -1612,6 +1620,65 @@ pub async fn accept_intake(
     let mut applied = draft;
     applied.product_id = Some(product_id);
     applied.note = note;
+    applied.pushed_at = Some(now_ms);
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let raw = repo::get(&mut conn, COMPANION_INTAKES_KEY)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let mut queue = intake_queue(raw);
+    queue.retain(|row| row.id != intake_id);
+    let json = serde_json::to_string(&queue).map_err(|_| DomainError::StorageUnavailable)?;
+    repo::set(&mut conn, COMPANION_INTAKES_KEY, &json, &actor, now_ms)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    repo::set(&mut conn, COMPANION_LAST_LINK_KEY, &now_ms.to_string(), &actor, now_ms)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let status = build_status(&mut conn, now_ms)
+        .await
+        .map_err(CompanionLinkError::from)?;
+    Ok((status, applied))
+}
+
+/// Apply one expense draft from the phone (`ADR-043`).
+///
+/// The desktop is the only side that writes the ledger, so the phone's job ends at
+/// "the computer has it". The money rules are the section's own: a drawer expense
+/// needs an open shift and reduces its expected cash, an outside one names no shift.
+/// When the drawer is closed the refusal travels back as the same code the section
+/// shows, rather than the draft being attached to a till that is not there.
+async fn accept_expense_intake(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    draft: &CompanionIntakeDraft,
+    intake_id: &str,
+) -> Result<(CompanionStatus, CompanionIntakeDraft), CompanionLinkError> {
+    // Same authorization as the inbox itself: only the owner applies what arrived,
+    // and `record_shop_expense` checks it again on its own door.
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageCatalog)?;
+    let actor = session.user_id().as_str();
+    let now_ms = Timestamp::now().as_millis();
+    let note = draft.expense_note.trim();
+    shift_use_cases::record_shop_expense(
+        pool,
+        tokens,
+        &draft.expense_category,
+        draft.expense_amount_minor,
+        (!note.is_empty()).then_some(note),
+        &draft.expense_paid_from,
+    )
+    .await
+    .map_err(|error| CompanionLinkError::Carried(error.code()))?;
+
+    let mut applied = draft.clone();
+    applied.product_id = None;
+    applied.receipt_id = None;
+    applied.note = Some("اتسجّل في قسم المصاريف على الكمبيوتر".to_string());
     applied.pushed_at = Some(now_ms);
 
     let mut conn = pool

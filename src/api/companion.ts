@@ -39,6 +39,11 @@ export interface CompanionScanItem {
  */
 export interface CompanionIntakeDraft {
   readonly id: string;
+  /**
+   * `'product'` for a stock capture, `'expense'` for money that left the shop
+   * (`ADR-043`). An older queue row carries `''`, which is a product.
+   */
+  readonly kind: string;
   readonly pairCode: string;
   readonly deviceName: string;
   readonly createdAt: number;
@@ -55,6 +60,14 @@ export interface CompanionIntakeDraft {
   readonly pushedAt: number | null;
   readonly pushError: string | null;
   readonly note: string | null;
+  /** Expense drafts only: the category as the shopkeeper typed it. */
+  readonly expenseCategory: string;
+  /** Expense drafts only: piastres, always positive. */
+  readonly expenseAmountMinor: number;
+  /** Expense drafts only: `'drawer'` or `'outside'`. */
+  readonly expensePaidFrom: string;
+  /** Expense drafts only: the free line explaining what the money bought. */
+  readonly expenseNote: string;
 }
 
 /** What a connection test actually measured (`ADR-042`). */

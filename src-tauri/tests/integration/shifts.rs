@@ -10,6 +10,7 @@ use mobile_shop_system_lib::domain::catalog::Disposition;
 use mobile_shop_system_lib::domain::customer::{NewCustomer, NewCustomerPayment};
 use mobile_shop_system_lib::domain::identity::{Role, Sensitivity, UserId};
 use mobile_shop_system_lib::domain::sales::SalePaymentInput;
+use mobile_shop_system_lib::domain::shift::PaidFrom;
 use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewProduct};
 use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::customer as customer_service;
@@ -353,4 +354,117 @@ async fn seller_shift_close_permission_and_sequential_shift_lifecycle_work_end_t
             .expect("count shift_closed"),
         1
     );
+}
+
+/// One list of expenses, two sources (`ADR-043`).
+///
+/// The rent is paid whether or not a shift is open, and it must not move a pound of
+/// the drawer somebody is about to count. A drawer expense keeps its old rules: it
+/// needs an open shift, and it reduces expected cash. Both appear in the section's
+/// window, with the totals telling them apart.
+#[tokio::test]
+async fn an_outside_expense_needs_no_shift_and_never_moves_expected_cash() {
+    let (pool, tokens, _manager_uid, _seller_uid, _product_id) = setup_shop().await;
+    let tokens = tokens.as_ref();
+
+    // No shift has been opened. The rent still happened, and it is recorded.
+    let rent = shift_service::record_shop_expense(
+        &pool,
+        tokens,
+        "إيجار",
+        500_000,
+        Some("إيجار شهر أكتوبر"),
+        "outside",
+    )
+    .await
+    .expect("an outside expense needs no shift");
+    assert_eq!(
+        rent.shift_id, None,
+        "money that never left the drawer must not name one (`ADR-043`)"
+    );
+    assert_eq!(rent.paid_from, PaidFrom::Outside);
+    assert_eq!(rent.amount.as_minor(), 500_000);
+
+    // A drawer expense still needs a till somebody opened.
+    let drawer_without_shift =
+        shift_service::record_shop_expense(&pool, tokens, "ضيافة", 5_000, None, "drawer").await;
+    assert!(
+        drawer_without_shift.is_err(),
+        "a drawer expense without an open shift would have nothing to subtract from"
+    );
+
+    // And the source cannot be left to a default: neither an empty answer nor an
+    // invented word is accepted.
+    for source in ["", "cash", "الدرج"] {
+        let refused =
+            shift_service::record_shop_expense(&pool, tokens, "ضاءة", 1_000, None, source).await;
+        assert!(
+            refused.is_err(),
+            "`{source}` must be refused: the source decides whose money this was"
+        );
+    }
+
+    // Open a drawer with 1,000 EGP and take 50 EGP out of it.
+    let opened = shift_service::open_shift(&pool, tokens, 100_000)
+        .await
+        .expect("open shift");
+    assert_eq!(opened.totals.expected_cash_minor, 100_000);
+    let drawer = shift_service::record_shop_expense(
+        &pool,
+        tokens,
+        "شاي وضيافة",
+        5_000,
+        None,
+        "drawer",
+    )
+    .await
+    .expect("drawer expense with a shift open");
+    assert_eq!(drawer.shift_id.as_deref(), Some(opened.shift.id.as_str()));
+    assert_eq!(drawer.paid_from, PaidFrom::Drawer);
+
+    let summary = shift_service::current_shift_summary(&pool, tokens)
+        .await
+        .expect("current shift")
+        .open_shift
+        .expect("a shift is open");
+    assert_eq!(
+        summary.totals.expenses_minor, 5_000,
+        "only the drawer's own expenses reduce the drawer"
+    );
+    assert_eq!(
+        summary.totals.expected_cash_minor, 95_000,
+        "1,000 EGP opening minus the 50 EGP taken out of the till"
+    );
+    assert_eq!(
+        summary.expenses.len(),
+        1,
+        "the outside expense is not a row of this shift"
+    );
+
+    // The section sees both, and its three totals do not mix them.
+    let overview = shift_service::expenses_overview(&pool, tokens, None, None)
+        .await
+        .expect("expenses overview");
+    assert_eq!(overview.count, 2);
+    assert_eq!(overview.total_minor, 505_000);
+    assert_eq!(overview.drawer_minor, 5_000);
+    assert_eq!(overview.outside_minor, 500_000);
+    assert_eq!(
+        overview.by_category.iter().map(|c| c.total_minor).max(),
+        Some(500_000),
+        "the biggest category is the rent, not the tea"
+    );
+    assert_eq!(
+        overview.rows[0].created_by_name, "Peter",
+        "the section says who recorded each expense"
+    );
+    assert_eq!(overview.open_shift_id, Some(opened.shift.id.as_str().to_owned()));
+
+    // A window that has already passed holds nothing, and a window that is still
+    // open holds both — the bounds are inclusive, and `None` means «الكل».
+    let future = shift_service::expenses_overview(&pool, tokens, None, Some(0))
+        .await
+        .expect("empty window");
+    assert_eq!(future.count, 0);
+    assert_eq!(future.total_minor, 0);
 }

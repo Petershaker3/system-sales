@@ -23,19 +23,22 @@ import {
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
 import { posCatalog, type PosProduct } from '../../api/pos';
-import { dg, num } from '../../ui/format';
+import { dg, money, num, parseMoney } from '../../ui/format';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
+import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import { shrinkImageFile } from '../store/image.ts';
 import {
-  barcodeScannerLabel,
   formatHostAddress,
   intakeProgressLabel,
   MAX_CAPTURE_PHOTOS,
+  MAX_EXPENSE_NOTE_CHARS,
   outboxSummary,
   parseImeiList,
   parsePairPayload,
   validateCaptureDraft,
+  validateExpenseDraft,
 } from './companion.ts';
 
 const props = defineProps<{
@@ -63,25 +66,15 @@ const photos = ref<string[]>([]);
 const saving = ref(false);
 const pushing = ref(false);
 
-const scanSupported = ref(false);
-const scanning = ref(false);
-const scanNote = ref<string | null>(null);
-const videoEl = ref<HTMLVideoElement | null>(null);
-let mediaStream: MediaStream | null = null;
-let scanTimer: ReturnType<typeof setInterval> | undefined;
-
-type DetectorResult = { readonly rawValue?: string | undefined };
-type Detector = {
-  detect: (source: CanvasImageSource) => Promise<readonly DetectorResult[]>;
-};
-type DetectorCtor = new (options: { formats: string[] }) => Detector;
-
-function detectorCtor(): DetectorCtor | null {
-  if (typeof window === 'undefined') return null;
-  const candidate = (window as unknown as { BarcodeDetector?: DetectorCtor })
-    .BarcodeDetector;
-  return typeof candidate === 'function' ? candidate : null;
-}
+// Expense capture (`ADR-043`): the same queue as a product, a different destination.
+const expenseCategory = ref('');
+const expenseAmountText = ref('');
+const expenseNote = ref('');
+const expensePaidFrom = ref<'drawer' | 'outside'>('outside');
+const expenseSaving = ref(false);
+// Errors wait until somebody has touched the form: an empty form is not a mistake,
+// it is a form. The button still stays disabled until the draft is complete.
+const expenseTouched = ref(false);
 
 const deviceName = computed(() => `موبايل ${props.session.displayName}`.trim());
 const deviceModel = computed(() => {
@@ -153,6 +146,20 @@ const draftError = computed(() =>
   }),
 );
 
+const expenseMinor = computed<number>(() => parseMoney(expenseAmountText.value) ?? 0);
+const expenseDraftError = computed<string | null>(() =>
+  validateExpenseDraft({
+    deviceName: deviceName.value,
+    category: expenseCategory.value,
+    amountMinor: expenseMinor.value,
+    paidFrom: expensePaidFrom.value,
+    note: expenseNote.value,
+  }),
+);
+const expenseProblem = computed<string | null>(() =>
+  expenseTouched.value ? expenseDraftError.value : null,
+);
+
 async function loadAll(): Promise<void> {
   companion.value = await companionOverview().catch(() => null);
   const catalog = await posCatalog().catch(() => null);
@@ -210,74 +217,28 @@ async function pushAll(): Promise<void> {
   }
 }
 
-function stopScanner(): void {
-  if (scanTimer !== undefined) {
-    clearInterval(scanTimer);
-    scanTimer = undefined;
-  }
-  mediaStream?.getTracks().forEach((track) => track.stop());
-  mediaStream = null;
-  scanning.value = false;
-}
-
-async function startScanner(): Promise<void> {
-  const Ctor = detectorCtor();
-  if (Ctor === null || navigator.mediaDevices?.getUserMedia === undefined) {
-    scanSupported.value = false;
-    scanNote.value = barcodeScannerLabel(false);
-    return;
-  }
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false,
-    });
-  } catch {
-    scanNote.value =
-      'الكاميرا اترفضت — اكتب الرقم بإيدك، أو اتأكد إن التطبيق مأذون له بالكاميرا.';
-    toast(scanNote.value, 'err');
-    return;
-  }
-  scanNote.value = null;
-  scanning.value = true;
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-  const video = videoEl.value;
-  if (video !== null) {
-    video.srcObject = mediaStream;
-    await video.play().catch(() => undefined);
-  }
-  const detector = new Ctor({ formats: ['ean_13', 'code_128', 'code_39', 'qr_code'] });
-  const grab = document.createElement('canvas');
-  scanTimer = setInterval(() => {
-    const source = videoEl.value;
-    if (source === null || source.videoWidth === 0) return;
-    grab.width = source.videoWidth;
-    grab.height = source.videoHeight;
-    const ctx = grab.getContext('2d');
-    if (ctx === null) return;
-    ctx.drawImage(source, 0, 0);
-    void detector.detect(grab).then((found) => {
-      const first = found[0]?.rawValue?.trim();
-      if (first === undefined || first === '') return;
-      takeScannedCode(first);
-      stopScanner();
-    });
-  }, 420);
-}
-
 /** A scan is a barcode unless it is unmistakably a serial: 15 digits is an IMEI. */
-function takeScannedCode(raw: string): void {
-  const digits = raw.replace(/\D+/g, '');
-  if (digits.length === 15) {
-    imeiText.value = imeiText.value.trim() === '' ? digits : `${imeiText.value.trim()}\n${digits}`;
-    serialized.value = true;
-    toast(`الرقم ${digits.slice(-4)}… اتسجّل كـ IMEI`, 'ok');
+function applyBarcodeScan(reading: ScanReading): void {
+  if (reading.kind === 'imei') {
+    addImei(reading.digits);
     return;
   }
-  barcode.value = raw.trim();
+  barcode.value = reading.raw;
   toast('الباركود اتسجّل', 'ok');
+}
+
+/** The IMEI field takes one number per line; a scan appends the next one. */
+function addImei(digits: string): void {
+  const clean = digits.replace(/\D+/g, '');
+  if (clean === '') return;
+  const existing = imeiText.value.trim();
+  imeiText.value = existing === '' ? clean : `${existing}\n${clean}`;
+  serialized.value = true;
+  toast(`الرقم ${clean.slice(-4)}… اتسجّل كـ IMEI`, 'ok');
+}
+
+function applyImeiScan(reading: ScanReading): void {
+  addImei(reading.kind === 'barcode' ? reading.raw.replace(/\D+/g, '') : reading.digits);
 }
 
 async function pickPhotos(event: Event): Promise<void> {
@@ -319,6 +280,7 @@ async function saveCapture(): Promise<void> {
   }
   const draft: CompanionIntakeDraft = {
     id: '',
+    kind: 'product',
     pairCode: hostCode.value.trim(),
     deviceName: deviceName.value,
     createdAt: 0,
@@ -334,6 +296,10 @@ async function saveCapture(): Promise<void> {
     pushedAt: null,
     pushError: null,
     note: null,
+    expenseCategory: '',
+    expenseAmountMinor: 0,
+    expensePaidFrom: '',
+    expenseNote: '',
   };
   saving.value = true;
   try {
@@ -350,6 +316,61 @@ async function saveCapture(): Promise<void> {
   }
 }
 
+/**
+ * Save an expense on the phone (`ADR-043`).
+ *
+ * It goes into the same queue as a capture, which is the whole point: the owner
+ * records the rent in the shop's doorway, opens the receipt screen on the computer,
+ * and presses one button there. Nothing is written to the ledger from here.
+ */
+async function saveExpense(): Promise<void> {
+  expenseTouched.value = true;
+  const problem = expenseDraftError.value;
+  if (problem !== null) {
+    toast(problem, 'err');
+    return;
+  }
+  const draft: CompanionIntakeDraft = {
+    id: '',
+    kind: 'expense',
+    pairCode: hostCode.value.trim(),
+    deviceName: deviceName.value,
+    createdAt: 0,
+    disposition: 'quantity',
+    productName: '',
+    barcode: '',
+    quantity: 1,
+    unitCostMinor: 0,
+    imeis: [],
+    photos: [],
+    productId: null,
+    receiptId: null,
+    pushedAt: null,
+    pushError: null,
+    note: null,
+    expenseCategory: expenseCategory.value.trim(),
+    expenseAmountMinor: expenseMinor.value,
+    expensePaidFrom: expensePaidFrom.value,
+    expenseNote: expenseNote.value.trim(),
+  };
+  expenseSaving.value = true;
+  try {
+    companion.value = await companionSaveCapture(draft);
+    expenseCategory.value = '';
+    expenseAmountText.value = '';
+    expenseNote.value = '';
+    expenseTouched.value = false;
+    toast(
+      `المصروف اتحفظ على الموبايل — ${dg(waitingCount.value)} مستني البعته للكمبيوتر`,
+      'ok',
+    );
+  } catch (error) {
+    toast(describeError(error), 'err');
+  } finally {
+    expenseSaving.value = false;
+  }
+}
+
 async function clearDelivered(): Promise<void> {
   try {
     companion.value = await companionClearOutbox();
@@ -361,20 +382,16 @@ async function clearDelivered(): Promise<void> {
 
 onMounted(() => {
   void loadAll();
-  scanSupported.value = detectorCtor() !== null;
   ticker = setInterval(() => {
     nowMs.value = Date.now();
-    if (!scanning.value) {
-      void companionOverview()
-        .then((status) => (companion.value = status))
-        .catch(() => undefined);
-    }
+    void companionOverview()
+      .then((status) => (companion.value = status))
+      .catch(() => undefined);
   }, 4_000);
 });
 
 onUnmounted(() => {
   if (ticker !== undefined) clearInterval(ticker);
-  stopScanner();
 });
 </script>
 
@@ -514,27 +531,13 @@ onUnmounted(() => {
             />
           </div>
           <div class="field" style="flex: 1; justify-content: flex-end">
-            <button
-              type="button"
-              class="btn"
-              :class="{ primary: scanSupported }"
+            <span class="label">امسح</span>
+            <CameraScanButton
+              label="امسح الباركود"
               data-capture-scan
-              @click="scanning ? stopScanner() : startScanner()"
-            >
-              <Icon name="scan-barcode" /> {{ scanning ? 'وقّف' : 'امسح' }}
-            </button>
+              @scan="applyBarcodeScan"
+            />
           </div>
-        </div>
-
-        <div v-if="scanning || !scanSupported" class="scanner" data-capture-scanner>
-          <video
-            v-show="scanning && scanSupported"
-            ref="videoEl"
-            class="scanner-video"
-            playsinline
-            muted
-          ></video>
-          <span class="muted">{{ scanNote ?? barcodeScannerLabel(scanSupported) }}</span>
         </div>
 
         <p v-if="knownProduct !== null" class="muted" data-capture-known>
@@ -575,6 +578,12 @@ onUnmounted(() => {
         <div v-if="serialized" class="field">
           <label for="mshop-imeis">أرقام الـ <bdi dir="auto">IMEI</bdi> — سطر لكل قطعة</label>
           <textarea id="mshop-imeis" v-model="imeiText" rows="3" dir="ltr" data-capture-imeis></textarea>
+          <CameraScanButton
+            label="امسح الـ IMEI"
+            hint="أول ١٥ رقم اللي قدامك على علبة الموبايل."
+            data-capture-scan-imei
+            @scan="applyImeiScan"
+          />
           <small class="hint">{{ num(imeis.length) }} رقم ظاهر من اللي كتبته</small>
         </div>
 
@@ -624,6 +633,102 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <section class="card" data-capture-expense>
+      <div class="card-h">
+        <h3>تسجيل مصروف</h3>
+        <span class="tag"><Icon name="hand-coins" /> بيتبعت زي الصنف بالظبط</span>
+      </div>
+
+      <div class="stack" style="gap: 8px">
+        <div class="row" style="gap: 8px">
+          <div class="field" style="flex: 2">
+            <label for="mshop-exp-cat">البند</label>
+            <input
+              id="mshop-exp-cat"
+              v-model="expenseCategory"
+              type="text"
+              maxlength="80"
+              placeholder="إيجار، كهربا، مرتب، صيانة…"
+              data-capture-expense-category
+              @input="expenseTouched = true"
+            />
+          </div>
+          <div class="field" style="flex: 1">
+            <label for="mshop-exp-amount">المبلغ (جنيه)</label>
+            <input
+              id="mshop-exp-amount"
+              v-model="expenseAmountText"
+              type="text"
+              inputmode="decimal"
+              dir="ltr"
+              data-capture-expense-amount
+              @input="expenseTouched = true"
+            />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="mshop-exp-note">ملاحظة (اختياري)</label>
+          <input
+            id="mshop-exp-note"
+            v-model="expenseNote"
+            type="text"
+            :maxlength="MAX_EXPENSE_NOTE_CHARS"
+            placeholder="إيجار شهر أكتوبر — دفعت لمحمد"
+            data-capture-expense-note
+            @input="expenseTouched = true"
+          />
+        </div>
+
+        <div class="field">
+          <span class="label">الفلوس جاية منين؟</span>
+          <div class="row" style="gap: 6px">
+            <button
+              type="button"
+              class="chip"
+              :class="{ on: expensePaidFrom === 'outside' }"
+              data-capture-expense-from="outside"
+              @click="expensePaidFrom = 'outside'"
+            >
+              من برّه الدرج
+            </button>
+            <button
+              type="button"
+              class="chip"
+              :class="{ on: expensePaidFrom === 'drawer' }"
+              data-capture-expense-from="drawer"
+              @click="expensePaidFrom = 'drawer'"
+            >
+              من الدرج
+            </button>
+          </div>
+          <small class="hint">
+            «من الدرج» بيتسجّل بس لو فيه وردية مفتوحة على الكمبيوتر. لو الدرج مقفول، اختار
+            «من برّه الدرج» — غير كده الكمبيوتر هيرفض المسودة ويقول السبب.
+          </small>
+        </div>
+
+        <p v-if="expenseProblem !== null" class="warn" data-capture-expense-error>
+          {{ expenseProblem }}
+        </p>
+
+        <div class="row" style="gap: 8px">
+          <button
+            type="button"
+            class="btn primary"
+            :disabled="expenseDraftError !== null || expenseSaving"
+            data-capture-expense-save
+            @click="saveExpense"
+          >
+            احفظ المصروف على الموبايل
+          </button>
+        </div>
+        <span class="muted">
+          بيتحفظ هنا مع باقي اللي مستني — وبيتبعت للكمبيوتر بنفس زر «ابعت للكمبيوتر» تحت.
+        </span>
+      </div>
+    </section>
+
     <section class="card" data-capture-outbox>
       <div class="card-h">
         <h3>اللي على الموبايل</h3>
@@ -632,6 +737,16 @@ onUnmounted(() => {
           {{ num(counts.failed) }} مرفوضة
         </span>
         <span class="sp"></span>
+        <button
+          type="button"
+          class="btn sm primary"
+          :disabled="pushing || waitingCount === 0"
+          data-outbox-push
+          @click="pushAll"
+        >
+          <Icon name="wifi" />
+          {{ pushing ? 'بيّبعت…' : `ابعت للكمبيوتر (${num(waitingCount)})` }}
+        </button>
         <button
           v-if="counts.delivered > 0"
           type="button"
@@ -647,10 +762,17 @@ onUnmounted(() => {
         مفيش صنف مستني البعته.
       </div>
       <div v-for="draft in outbox" :key="draft.id" class="s-row" data-outbox-row>
-        <span class="t-ico"><Icon name="boxes" /></span>
+        <span class="t-ico">
+          <Icon :name="draft.kind === 'expense' ? 'hand-coins' : 'boxes'" />
+        </span>
         <div class="t">
-          <b>{{ draft.productName }}</b>
-          <small>
+          <b>{{ draft.kind === 'expense' ? draft.expenseCategory : draft.productName }}</b>
+          <small v-if="draft.kind === 'expense'">
+            مصروف · {{ money(draft.expenseAmountMinor) }} ·
+            {{ draft.expensePaidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج' }}
+            <template v-if="draft.expenseNote !== ''"> · {{ draft.expenseNote }}</template>
+          </small>
+          <small v-else>
             {{ num(draft.quantity) }} قطعة
             <template v-if="draft.imeis.length > 0">
               · {{ num(draft.imeis.length) }} <bdi dir="auto">IMEI</bdi>
@@ -673,19 +795,6 @@ onUnmounted(() => {
   color: #8a3b12;
   font-size: 0.82rem;
   font-weight: 600;
-}
-
-.scanner {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.scanner-video {
-  width: 100%;
-  max-height: 220px;
-  border-radius: 10px;
-  background: #141517;
 }
 
 .chip.photo {

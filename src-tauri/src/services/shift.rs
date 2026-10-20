@@ -13,8 +13,8 @@ use crate::domain::identity::{DomainError, Permission, Role, Timestamp};
 use crate::domain::shift::{
     validate_cash_movement_amount, validate_counted_cash, validate_expense_amount,
     validate_opening_cash, CashMovementId, CashMovementKind, CashMovementReason,
-    CashMovementRecord, ExpenseCategory, ExpenseId, ExpenseNote, ExpenseRecord, ShiftCloseNote,
-    ShiftError, ShiftId, ShiftRecord, ShiftStatus, ShiftSummary,
+    CashMovementRecord, ExpenseCategory, ExpenseId, ExpenseNote, ExpenseRecord, PaidFrom,
+    ShiftCloseNote, ShiftError, ShiftId, ShiftRecord, ShiftStatus, ShiftSummary,
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
@@ -197,6 +197,200 @@ pub async fn open_shift(
     Ok(summary)
 }
 
+/// One row of the expenses section: the stored expense and who recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpenseRow {
+    pub record: ExpenseRecord,
+    pub created_by_name: String,
+}
+
+/// What one category cost inside the period the section is showing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpenseCategoryTotal {
+    pub category: String,
+    pub total_minor: i64,
+    pub count: u64,
+}
+
+/// The expenses section's answer for one window (`ADR-043`).
+///
+/// The three totals are what a shopkeeper actually asks: how much left the shop, how
+/// much of that came out of the till, and how much was paid from anywhere else. They
+/// are computed from the same rows that are returned, so a total can never disagree
+/// with the list underneath it.
+#[derive(Debug, Clone)]
+pub struct ExpenseOverview {
+    pub rows: Vec<ExpenseRow>,
+    pub total_minor: i64,
+    pub drawer_minor: i64,
+    pub outside_minor: i64,
+    pub count: u64,
+    pub by_category: Vec<ExpenseCategoryTotal>,
+    /// Categories this shop has used before, for the quick buttons in the form.
+    pub known_categories: Vec<String>,
+    /// Set while a shift is open, so the form can offer «من الدرج» honestly.
+    pub open_shift_id: Option<String>,
+}
+
+/// Record an expense that may or may not have left the drawer (`ADR-043`).
+///
+/// Owner-only, because this is the shop's money rather than a till action: a seller
+/// still records drawer expenses from the shift screen, which stays on `Sell`.
+///
+/// `paid_from` is parsed rather than defaulted. A caller that says neither word is
+/// refused, because the default would decide — silently — whether a bill reduced the
+/// cash somebody is about to count.
+pub async fn record_shop_expense(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    category: &str,
+    amount_minor: i64,
+    note: Option<&str>,
+    paid_from: &str,
+) -> Result<ExpenseRecord, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageCatalog)?;
+
+    let paid_from = PaidFrom::parse(paid_from.trim()).ok_or(ShiftError::InvalidPaidFrom)?;
+    let category = ExpenseCategory::new(category)?;
+    let amount = validate_expense_amount(amount_minor)?;
+    let note = ExpenseNote::parse_optional(note)?;
+    let actor = session.user_id();
+    let now = Timestamp::now();
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let shift_id = match paid_from {
+        PaidFrom::Drawer => Some(
+            repo::find_open_shift(&mut tx)
+                .await
+                .map_err(|_| DomainError::StorageUnavailable)?
+                .ok_or(ShiftError::NotOpen)?
+                .id,
+        ),
+        // An outside expense names no shift at all: attaching it to whatever happened
+        // to be open would subtract it from a drawer it never left.
+        PaidFrom::Outside => None,
+    };
+
+    let expense = ExpenseRecord {
+        id: ExpenseId::generate(),
+        shift_id: shift_id.clone(),
+        paid_from,
+        category,
+        amount,
+        note,
+        created_by: actor,
+        created_at: now,
+    };
+
+    repo::insert_expense(&mut tx, &expense)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    audit::append(
+        &mut tx,
+        actor,
+        audit::event::EXPENSE_RECORDED,
+        now,
+        Some(
+            serde_json::json!({
+                "shift_id": shift_id.as_ref().map(|id| id.as_str()),
+                "paid_from": expense.paid_from.as_str(),
+                "expense_id": expense.id.as_str(),
+                "category": expense.category.as_str(),
+                "amount_minor": expense.amount.as_minor(),
+                "note": expense.note.as_ref().map(|n| n.as_str()),
+            })
+            .to_string(),
+        ),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(expense)
+}
+
+/// The expenses section: one window, its rows, and the totals they add up to.
+///
+/// Owner-only for the same reason as recording: it is a view of the shop's spending,
+/// not of one till's drawer.
+pub async fn expenses_overview(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    from_ms: Option<i64>,
+    to_ms: Option<i64>,
+) -> Result<ExpenseOverview, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageCatalog)?;
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let rows = repo::list_expenses_between(&mut conn, from_ms, to_ms)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let known = repo::expense_category_counts(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let open_shift_id = repo::open_shift_id(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let mut total_minor = 0i64;
+    let mut drawer_minor = 0i64;
+    let mut outside_minor = 0i64;
+    let mut by_category: Vec<ExpenseCategoryTotal> = Vec::new();
+    for row in &rows {
+        let amount = row.record.amount.as_minor();
+        total_minor += amount;
+        match row.record.paid_from {
+            PaidFrom::Drawer => drawer_minor += amount,
+            PaidFrom::Outside => outside_minor += amount,
+        }
+        let label = row.record.category.as_str();
+        match by_category
+            .iter_mut()
+            .find(|entry| entry.category == label)
+        {
+            Some(entry) => {
+                entry.total_minor += amount;
+                entry.count += 1;
+            }
+            None => by_category.push(ExpenseCategoryTotal {
+                category: label.to_string(),
+                total_minor: amount,
+                count: 1,
+            }),
+        }
+    }
+    by_category.sort_by(|a, b| {
+        b.total_minor
+            .cmp(&a.total_minor)
+            .then_with(|| a.category.cmp(&b.category))
+    });
+
+    Ok(ExpenseOverview {
+        count: rows.len() as u64,
+        rows,
+        total_minor,
+        drawer_minor,
+        outside_minor,
+        by_category,
+        known_categories: known.into_iter().map(|(name, _)| name).collect(),
+        open_shift_id,
+    })
+}
+
 /// Record a cash expense from the drawer during the currently open shift.
 pub async fn record_expense(
     pool: &SqlitePool,
@@ -226,7 +420,8 @@ pub async fn record_expense(
 
     let expense = ExpenseRecord {
         id: ExpenseId::generate(),
-        shift_id: open_shift.id.clone(),
+        shift_id: Some(open_shift.id.clone()),
+        paid_from: PaidFrom::Drawer,
         category,
         amount,
         note,
@@ -246,6 +441,7 @@ pub async fn record_expense(
         Some(
             serde_json::json!({
                 "shift_id": open_shift.id.as_str(),
+                "paid_from": expense.paid_from.as_str(),
                 "expense_id": expense.id.as_str(),
                 "category": expense.category.as_str(),
                 "amount_minor": expense.amount.as_minor(),
