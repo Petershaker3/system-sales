@@ -26,7 +26,8 @@ use crate::data::repositories::settings::app_settings as repo;
 use crate::domain::catalog::Disposition;
 use crate::domain::catalog::ProductId;
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Session, Timestamp};
-use crate::domain::unit::ReceiptKind;
+use crate::data::repositories::inventory::unit as unit_repo;
+use crate::domain::unit::{ReceiptKind, TrackingMode};
 use crate::services::catalog::images as image_use_cases;
 use crate::services::catalog::product::{self as catalog_product, NewProduct};
 use crate::services::catalog::CatalogContext;
@@ -1477,6 +1478,25 @@ async fn product_for_draft(
     )
     .await
     .map_err(|error| CompanionLinkError::Carried(error.code()))?;
+    if !draft.imeis.is_empty() || disposition == Disposition::Serialized {
+        // A product created for a capture that carries IMEIs is serial-tracked from
+        // its first receipt. `products.tracking` defaults to `none`, and a receipt
+        // that names IMEIs against such a product is refused — the phone would be
+        // told its own capture is not receivable after the desk had already made
+        // the item. The shop's own used-phone creation sets the same mode.
+        let mut conn = catalog
+            .pool
+            .acquire()
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        unit_repo::set_product_tracking(
+            &mut conn,
+            &created.id.as_str(),
+            TrackingMode::SerialOptional,
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    }
     Ok(created.id.as_str())
 }
 
@@ -1496,26 +1516,51 @@ pub async fn accept_intake(
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageCatalog)?;
     let now_ms = Timestamp::now().as_millis();
-    let mut conn = pool
-        .acquire()
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-    let raw = repo::get(&mut conn, COMPANION_INTAKES_KEY)
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-    let mut queue: Vec<CompanionIntakeDraft> = raw
-        .and_then(|value| serde_json::from_str::<Vec<CompanionIntakeDraft>>(&value).ok())
-        .unwrap_or_default();
-    let Some(position) = queue.iter().position(|draft| draft.id == intake_id) else {
-        return Err(CompanionLinkError::IntakeGone);
+    let actor = session.user_id().as_str();
+
+    // The queue read is its own connection, released before any other service is
+    // asked to work. An in-memory shop has exactly one connection to give, so a
+    // connection held across `create`/`receive_with_units` would make their first
+    // query wait for a slot that only this function could free — and the desk would
+    // be told "product not found" for a receipt that never ran (`ADR-042`).
+    let draft = {
+        let mut conn = pool
+            .acquire()
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        let raw = repo::get(&mut conn, COMPANION_INTAKES_KEY)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        intake_queue(raw)
+            .into_iter()
+            .find(|draft| draft.id == intake_id)
+            .ok_or(CompanionLinkError::IntakeGone)?
     };
-    let draft = queue[position].clone();
     if !matches!(draft.disposition.as_str(), "quantity" | "serialized") {
         return Err(CompanionLinkError::IntakeNotReceivable);
     }
 
     let product_id = product_for_draft(catalog, &session, &draft).await?;
-    queue[position].product_id = Some(product_id.clone());
+    // The item is written down before the receipt is attempted, so a stock refusal
+    // leaves a draft that names what it already created and a second try does not
+    // invent the item twice.
+    {
+        let mut conn = pool
+            .acquire()
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        let raw = repo::get(&mut conn, COMPANION_INTAKES_KEY)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        let mut queue = intake_queue(raw);
+        if let Some(row) = queue.iter_mut().find(|row| row.id == intake_id) {
+            row.product_id = Some(product_id.clone());
+        }
+        let json = serde_json::to_string(&queue).map_err(|_| DomainError::StorageUnavailable)?;
+        repo::set(&mut conn, COMPANION_INTAKES_KEY, &json, &actor, now_ms)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let mut note: Option<String> = None;
     if let Some(uuid) = Uuid::parse_str(&product_id).ok() {
@@ -1564,35 +1609,38 @@ pub async fn accept_intake(
     .await
     .map_err(|error| CompanionLinkError::Carried(error.code()))?;
 
-    queue.remove(position);
-    let json = serde_json::to_string(&queue).map_err(|_| DomainError::StorageUnavailable)?;
-    repo::set(
-        &mut conn,
-        COMPANION_INTAKES_KEY,
-        &json,
-        &session.user_id().as_str(),
-        now_ms,
-    )
-    .await
-    .map_err(|_| DomainError::StorageUnavailable)?;
-    repo::set(
-        &mut conn,
-        COMPANION_LAST_LINK_KEY,
-        &now_ms.to_string(),
-        &session.user_id().as_str(),
-        now_ms,
-    )
-    .await
-    .map_err(|_| DomainError::StorageUnavailable)?;
-
     let mut applied = draft;
     applied.product_id = Some(product_id);
     applied.note = note;
     applied.pushed_at = Some(now_ms);
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let raw = repo::get(&mut conn, COMPANION_INTAKES_KEY)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let mut queue = intake_queue(raw);
+    queue.retain(|row| row.id != intake_id);
+    let json = serde_json::to_string(&queue).map_err(|_| DomainError::StorageUnavailable)?;
+    repo::set(&mut conn, COMPANION_INTAKES_KEY, &json, &actor, now_ms)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    repo::set(&mut conn, COMPANION_LAST_LINK_KEY, &now_ms.to_string(), &actor, now_ms)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
     let status = build_status(&mut conn, now_ms)
         .await
         .map_err(CompanionLinkError::from)?;
     Ok((status, applied))
+}
+
+/// Read the stored inbox back into drafts. A value that cannot be parsed is an
+/// empty queue, never a fabricated one.
+fn intake_queue(raw: Option<String>) -> Vec<CompanionIntakeDraft> {
+    raw.and_then(|value| serde_json::from_str::<Vec<CompanionIntakeDraft>>(&value).ok())
+        .unwrap_or_default()
 }
 
 /// Refuse one inbox draft without applying it (`ADR-042`).
