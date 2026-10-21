@@ -4058,13 +4058,19 @@ fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
         "the expenses section needs its own door in the rail (`ADR-043`)"
     );
 
-    // One camera, every field. The decoder lives in the component, not in a screen.
-    for required in ["getUserMedia", "data-camera-scan", "createFrameDecoder"] {
+    // One camera, every field. The component opens the lens through the one
+    // helper in `src/ui/scan.ts` (owner request 2026-10-21: the main rear
+    // camera, never the wide-angle), and the decoder lives in the component.
+    for required in ["openMainRearCamera", "data-camera-scan", "createFrameDecoder"] {
         assert!(
             CAMERA_SCAN_BUTTON_VUE.contains(required),
             "CameraScanButton.vue must contain `{required}`: the camera is one component (`ADR-043`)"
         );
     }
+    assert!(
+        SCAN_TS.contains("getUserMedia"),
+        "src/ui/scan.ts is the only place that opens the camera, so no screen can grow its own (`ADR-043`)"
+    );
     assert!(
         SCAN_TS.contains("BarcodeDetector") && SCAN_TS.contains("classifyScan"),
         "src/ui/scan.ts owns the decoder (hardware first, ZXing as the fallback) and the 15-digit rule (`ADR-043`)"

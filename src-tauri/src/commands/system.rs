@@ -121,9 +121,9 @@ fn spawn_open(url: &str) -> Result<(), String> {
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| e.to_string())?;
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
 
-    // Each field/method answer is bound before it is read: `.l()` and `.i()`
-    // borrow from the `JValueOwned`, so chaining them off a temporary would
-    // drop the value they point into.
+    // Each field/method answer is bound before it is read, and `JValue::Object`
+    // borrows its `JObject` (`&JString` reaches `&JObject` through `Deref`):
+    // chaining reads off temporaries would drop the value being pointed into.
     let action_field = env
         .get_static_field("android/content/Intent", "ACTION_VIEW", "Ljava/lang/String;")
         .map_err(|e| e.to_string())?;
@@ -135,7 +135,7 @@ fn spawn_open(url: &str) -> Result<(), String> {
             "android/net/Uri",
             "parse",
             "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[JValue::Object(url_string.as_obj())],
+            &[JValue::Object(&url_string)],
         )
         .map_err(|e| e.to_string())?;
     let uri = uri_field.l().map_err(|e| e.to_string())?;
@@ -144,7 +144,7 @@ fn spawn_open(url: &str) -> Result<(), String> {
         .new_object(
             "android/content/Intent",
             "(Ljava/lang/String;Landroid/net/Uri;)V",
-            &[JValue::Object(action_view), JValue::Object(uri)],
+            &[JValue::Object(&action_view), JValue::Object(&uri)],
         )
         .map_err(|e| e.to_string())?;
 
