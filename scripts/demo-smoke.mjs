@@ -3362,6 +3362,49 @@ check(
     (await text('[data-expenses-row]')).includes('نت المحل')
 );
 
+// --- reminders & notes for the system as a whole (owner request 2026-10-22) --
+// The bell in the topbar: a dateless note, then a dated monthly bill that is
+// already overdue — the badge counts it, and «تم» moves it to next month
+// instead of deleting it.
+await page.click('[data-open-reminders]');
+await page.waitForSelector('[data-reminders-modal]', { timeout: 3000 });
+await fill('[data-reminder-text]', 'أشتري النواقص');
+await page.click('[data-reminder-add]');
+await sleep(150);
+check(
+  'the topbar bell opens the reminders, and a dateless line stays a note',
+  (await count('[data-reminders-empty]')) === 0 &&
+    (await count('[data-reminder-row]')) === 1 &&
+    (await text('[data-reminders-modal]')).includes('أشتري النواقص') &&
+    (await text('[data-reminders-modal]')).includes('ملاحظة من غير ميعاد')
+);
+await fill('[data-reminder-text]', 'أسد إيجار المحل');
+await fill('[data-reminder-due]', '2026-10-01');
+await page.select('[data-reminder-repeat]', 'monthly');
+await page.click('[data-reminder-add]');
+await sleep(150);
+check(
+  'a dated bill that passed shows as overdue and puts a badge on the bell',
+  (await count('[data-reminder-row]')) === 2 &&
+    (await text('[data-reminders-modal]')).includes('متأخر') &&
+    (await count('[data-reminders-badge]')) === 1
+);
+await shot('72-reminders-bell');
+const overdueId = await page.$eval(
+  '.reminder-row.due',
+  (el) => el.getAttribute('data-reminder-row')
+);
+await page.click(`[data-reminder-done="${overdueId}"]`);
+await sleep(150);
+check(
+  '«تم» on a monthly bill moves it to next month instead of deleting it',
+  (await count('[data-reminder-row]')) === 2 &&
+    (await text('[data-reminders-modal]')).includes('كل شهر') &&
+    !(await text('[data-reminders-modal]')).includes('متأخر')
+);
+await page.keyboard.press('Escape');
+await page.waitForSelector('[data-reminders-modal]', { hidden: true, timeout: 2000 });
+
 // --- a phone records an expense, the computer applies it (ADR-043) ---------
 // The owner's complaint had two halves: no expenses section, and nothing recorded on
 // the phone could be sent. This is the second half, end to end: the phone pushes a

@@ -19,9 +19,11 @@
 //! still cannot turn this into "run anything".
 //!
 //! No new crate enters the tree for this (the deliberately-absent list in
-//! `Cargo.toml` stays as it is): Windows gets `cmd /C start`, Android fires the
-//! `ACTION_VIEW` intent over the JNI crates the Tauri runtime already resolves,
-//! and a Linux desktop (CI and `tauri dev`) gets `xdg-open`.
+//! `Cargo.toml` stays as it is): Windows hands the address to `explorer.exe`
+//! (straight to ShellExecute — `cmd`'s parser chews long percent-encoded
+//! links), Android fires the `ACTION_VIEW` intent over the JNI crates the
+//! Tauri runtime already resolves, and a Linux desktop (CI and `tauri dev`)
+//! gets `xdg-open`.
 
 use serde::Serialize;
 
@@ -86,22 +88,15 @@ pub async fn open_external_url(url: String) -> Result<(), SystemCommandError> {
 
 #[cfg(target_os = "windows")]
 fn spawn_open(url: &str) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    /// `CREATE_NO_WINDOW`: the shop's counter must not flash a console every
-    /// time a receipt goes out on WhatsApp.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    // `start` takes an (empty) title then the quoted address; inside the quotes
-    // `cmd` treats `?`, `%` and friends as literal characters, and the URL was
-    // validated above to contain no quote, whitespace or control character that
-    // could close them. `raw_arg` keeps `std` from re-quoting the pieces.
-    Command::new("cmd")
-        .creation_flags(CREATE_NO_WINDOW)
-        .raw_arg("/C start \"\" \"")
-        .raw_arg(url)
-        .raw_arg("\"")
+    // Not `cmd /C start`: the owner's first real daily summary died on it
+    // («Windows cannot find …») — cmd's own line limit (8191 chars) and its
+    // `%pair%` scanning chew on long percent-encoded `wa.me` links before
+    // `start` ever sees them. `explorer.exe` hands the address straight to
+    // ShellExecute: no shell parser in between, and the CreateProcess bound
+    // (32767) is far above this command's `MAX_URL_LEN`. It also flashes no
+    // console window, so `CREATE_NO_WINDOW` is not needed.
+    std::process::Command::new("explorer")
+        .arg(url)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())

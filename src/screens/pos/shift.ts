@@ -125,14 +125,19 @@ export function formatShiftWhatsAppReport(
   return lines.join('\n');
 }
 
-/** Build the `https://wa.me/...` URL and open it (or record it under WebDriver). */
-export function sendShiftReportViaWhatsApp(
+/** Build the `https://wa.me/...` URL and open it through the OS.
+ *
+ * `opened` says what actually happened (see `ui/open-link.ts`), so the caller's
+ * toast can stay honest: under WebDriver or with no browser door, nothing opens
+ * and the report is only recorded in the hook below.
+ */
+export async function sendShiftReportViaWhatsApp(
   summary: ShiftSummary,
   shopName: string,
   ownerPhone: string,
   countedCashMinor: number,
   closeNote: string | null = null
-): { url: string; text: string } {
+): Promise<{ url: string; text: string; opened: boolean }> {
   const text = formatShiftWhatsAppReport(summary, shopName, countedCashMinor, closeNote);
   const local = normalizeEgyptianPhone(ownerPhone);
   const intl = local ? `2${local}` : '';
@@ -159,11 +164,10 @@ export function sendShiftReportViaWhatsApp(
       expectedCashMinor: summary.totals.expectedCashMinor,
       differenceMinor: countedCashMinor - summary.totals.expectedCashMinor,
     };
-
-    // The real door out of the WebView (`ui/open-link.ts`): in the app the OS
-    // opens WhatsApp or the browser; under WebDriver nothing opens at all.
-    void openInSystemBrowser(url);
   }
 
-  return { url, text };
+  // Without a real owner number there is nobody to open a chat with: the
+  // caller guards this before asking (a `wa.me/` with no number is a dead end).
+  const opened = local !== '' && (await openInSystemBrowser(url));
+  return { url, text, opened };
 }

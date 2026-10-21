@@ -100,3 +100,22 @@
 /* A dashed accent chip in the top bar (mockup: «محل فاضي للتجربة»); here it marks the browser demo. */
 .status.fresh-tag { border: 1px dashed var(--accent-text); color: var(--accent-text); background: transparent; font: inherit; font-size: .8rem; border-radius: var(--r-s); }
 .status.fresh-tag svg.i { color: var(--accent-text); }
+/* The reminders bell (owner request 2026-10-22): a quiet button whose badge
+   counts what is due today or overdue. */
+.reminder-bell { position: relative; }
+.bell-badge {
+  position: absolute;
+  top: -5px;
+  inset-inline-end: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bad, #d33);
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  pointer-events: none;
+}

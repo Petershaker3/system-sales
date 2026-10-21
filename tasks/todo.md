@@ -359,6 +359,14 @@
 - [x] **#8 QR حقيقي:** `buildPairingQrMatrix` async بـ`@zxing/library` (EC=M، UTF-8، margin 0)، `CompanionPairQr.vue` لوحة بيضاء فورًا + موديولات لما تجهز + quiet zone ٤، و`DevicesPrinterCard` بقت تستعمل نفس المكوّن لكود المتابعة. round-trip decode في `companion.test.ts` 13/13.
 - **الدليل:** `npm run typecheck` نظيف، `npm run test:unit` **211/211**، `npm run build` ‏1.72s. `cargo` مش هنا — `system.rs` والـ`Cargo.lock` (إضافة jni/ndk-context لقسم الحزمة) بيتحققوا على CI بـ`cargo test --locked`. `demo-smoke.mjs` معدّلة (التالف، التوستات، البنود الثابتة) بس Playwright مش متثبت في الـsandbox فمتشغلتش محليًا.
 
+### دفعة 2026-10-22 — ٤ طلبات من المالك بعد أول تشغيل ✅ (2026-10-22)
+
+- [x] **(أ) واتساب فشل على ويندوز** («Windows cannot find» + الرقم المتخيل 201000000000): `spawn_open` على ويندوز بقت `explorer.exe` بدل `cmd /C start` (حد الـ8191 ومسح `%XX%` كانوا بيشوهوا الروابط الطويلة)، و`ownerWhatsAppNumber()` بتعامل `DEFAULT_SHOP_PHONE` كـ«مش متحدد» — ملخص اليوم وتقرير الوردية بيرفضوا الرقم الوهمي بتوست واضح، و`sendShiftReportViaWhatsApp` بقت بترجّع `opened` والتوستات صادقة.
+- [x] **(ب) «ثبّت البند الحالي» جنب «سجّل المصروف»** والمبلغ اختياري وقت التثبيت: `FixedExpense.amountMinor` بقت nullable، البند من غير مبلغ يتملى في النموذج وقت الدفع، والاختبارات اتحدثت (14/14).
+- [x] **(ج) التذكيرات والملاحظات لكل السيستم**: `ui/reminders.ts` + `shell/RemindersModal.vue` + جرس بـbadge في الـtopbar — تاريخ وتكرار اختياري (مرة/أسبوعي/شهري)، «تم» على المتكرر بتأجله، والتخزين `localStorage mshop.reminders.v1` (7 اختبارات).
+- [x] **(د) دمج «موبايل جديد» مع المخزن والتكلفة**: `NewPhoneModal` فيها عدد+تكلفة اختياريين — `createPhone` ← `receiveStock` في خطوة واحدة، والـIMEI لسه مع الاستلام بالـIMEI؛ نفس تحذير «اتسجّل بس الاستلام فشل» بتاع الصنف.
+- **الدليل:** typecheck نظيف، `npm run test:unit` **219/219**، `npm run build` ok، وdemo-smoke اتوسعت ببلوك التذكيرات. `cargo` مش هنا — تغيير `system.rs` (explorer) بيتحقق على CI (Windows job بالذات).
+
 ## ملاحظات تقنية منقولة (حتى لا تضيع)
 
 - **الترحيلات المطبَّقة لا تُعدَّل أبدًا.**

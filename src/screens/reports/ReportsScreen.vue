@@ -16,7 +16,7 @@ import { currentShiftSummary, type CurrentShiftState } from '../../api/shift';
 import { shortagesOverview, type ShortagesOverview } from '../../api/shortages';
 import { walletsOverview, type WalletsOverview } from '../../api/wallet';
 import type { ScreenId } from '../../shell/nav';
-import { appearance } from '../../ui/appearance';
+import { appearance, ownerWhatsAppNumber } from '../../ui/appearance';
 import {
   countWord,
   dg,
@@ -484,11 +484,11 @@ async function sendDailySummaryWhatsApp(): Promise<void> {
   } catch {
     // Non-blocking clipboard fallback
   }
-  // The owner's WhatsApp is the shop's number (`ui.shop_phone`). No invented
-  // fallback: a summary «sent» to a made-up number is the fake the owner
-  // complained about — without a number, the message is ready and copied, and
-  // the toast says exactly that.
-  const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone);
+  // The owner's WhatsApp is the shop's number (`ui.shop_phone`) — and the
+  // shipped placeholder counts as no number: the owner watched Windows fail on
+  // a summary addressed to the made-up `01000000000`. Without a real number
+  // the message is ready and copied, and the toast says exactly that.
+  const ownerPhone = normalizeEgyptianPhone(ownerWhatsAppNumber());
   if (!ownerPhone) {
     toast(
       'ملخص اليوم جاهز ومتنسخ — حدد رقم واتساب المحل في الإعدادات ← بيانات المحل عشان يتبعت',

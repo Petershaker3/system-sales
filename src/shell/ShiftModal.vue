@@ -18,7 +18,7 @@ import {
   sendShiftReportViaWhatsApp,
   shiftDifferenceState,
 } from '../screens/pos/shift';
-import { appearance } from '../ui/appearance';
+import { appearance, ownerWhatsAppNumber } from '../ui/appearance';
 import {
   fmtTime,
   money,
@@ -158,17 +158,34 @@ async function submitOpenShift(): Promise<void> {
   }
 }
 
-function sendWhatsAppReport(): void {
+async function sendWhatsAppReport(): Promise<void> {
   const open = props.shiftState.openShift;
   if (!open) return;
-  sendShiftReportViaWhatsApp(
+  // The shipped placeholder counts as no number: the report is not «sent» to a
+  // made-up `wa.me/201000000000` — the owner is told where to set the real one.
+  const ownerPhone = ownerWhatsAppNumber();
+  if (ownerPhone === '') {
+    toast(
+      'تقرير الوردية جاهز — حدد رقم واتساب المحل في الإعدادات ← بيانات المحل عشان يتبعت',
+      'err',
+      6000,
+    );
+    return;
+  }
+  const { opened } = await sendShiftReportViaWhatsApp(
     open,
     appearance.shopName,
-    appearance.shopPhone,
+    ownerPhone,
     countedCashMinor.value,
     closeNote.value.trim() || null
   );
-  toast('تم تجهيز وفتح تقرير الوردية على واتساب للمالك', 'ok');
+  toast(
+    opened
+      ? 'واتساب المحل اتفتح بتقرير الوردية — دوس إرسال هناك'
+      : 'تقرير الوردية جاهز — ابعتة على واتساب المحل',
+    opened ? 'ok' : 'info',
+    6000,
+  );
 }
 
 async function submitCloseShift(): Promise<void> {

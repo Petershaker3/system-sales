@@ -168,19 +168,20 @@ function saveFixedExpenses(next: FixedExpense[]): void {
   }
 }
 
-/** Pin whatever the form holds right now as a bill that repeats. */
+/** Pin whatever the form holds right now — the name is the only requirement;
+ * the amount may wait until the bill is actually paid. */
 function pinCurrentExpense(): void {
   const label = category.value.trim();
-  const amountMinor = parseMoney(amountText.value);
-  const problem = fixedExpenseProblem(label, amountMinor);
-  if (problem !== '' || amountMinor === null) {
-    toast(problem === '' ? 'اكتب المبلغ بشكل صحيح' : problem, 'err');
+  const problem = fixedExpenseProblem(label);
+  if (problem !== '') {
+    toast(problem, 'err');
     return;
   }
+  const amountMinor = parseMoney(amountText.value);
   const entry: FixedExpense = {
     id: `fx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     category: label,
-    amountMinor,
+    amountMinor: amountMinor !== null && amountMinor > 0 ? amountMinor : null,
     note: noteText.value.trim() || null,
     paidFrom: paidFrom.value,
   };
@@ -198,24 +199,31 @@ function pinCurrentExpense(): void {
 /** Pour a pinned bill back into the form — to edit it before recording. */
 function fillFromFixed(entry: FixedExpense): void {
   category.value = entry.category;
-  amountText.value = moneyInputValue(entry.amountMinor);
+  amountText.value = entry.amountMinor === null ? '' : moneyInputValue(entry.amountMinor);
   noteText.value = entry.note ?? '';
   chosenPaidFrom.value = entry.paidFrom;
 }
 
-/** One tap: the pinned bill becomes an ordinary audited expense row. */
+/** One tap: the pinned bill becomes an ordinary audited expense row. A pin
+ * without an amount cannot be recorded blind — it fills the form instead. */
 async function recordFixed(entry: FixedExpense): Promise<void> {
   if (saving.value) return;
+  if (entry.amountMinor === null) {
+    fillFromFixed(entry);
+    toast('اكتب مبلغ «' + entry.category + '» في النموذج وسجّله', 'info', 5000);
+    return;
+  }
+  const amountMinor = entry.amountMinor;
   saving.value = true;
   try {
     await recordShopExpense(
       entry.category,
-      entry.amountMinor,
+      amountMinor,
       entry.note,
       effectivePaidFrom(openShiftId.value, entry.paidFrom)
     );
     await load();
-    toast(`اتسجل مصروف «${entry.category}» بمبلغ ${money(entry.amountMinor)}`, 'ok');
+    toast(`اتسجل مصروف «${entry.category}» بمبلغ ${money(amountMinor)}`, 'ok');
     emit('changed');
   } catch (error) {
     toast(describeError(error), 'err');
@@ -354,16 +362,29 @@ onMounted(() => {
           {{ drawerAvailabilityNote(openShiftId) }}
         </p>
 
-        <button
-          type="button"
-          class="btn primary"
-          :disabled="saving"
-          data-expenses-save
-          @click="submitExpense"
-        >
-          <Icon name="plus" />
-          {{ saving ? 'بيتسجل…' : 'سجّل المصروف' }}
-        </button>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button
+            type="button"
+            class="btn primary"
+            :disabled="saving"
+            data-expenses-save
+            @click="submitExpense"
+          >
+            <Icon name="plus" />
+            {{ saving ? 'بيتسجل…' : 'سجّل المصروف' }}
+          </button>
+          <!-- Pinning lives beside the recording (owner request 2026-10-22):
+               same form, one more button — and only the name is required. -->
+          <button
+            type="button"
+            class="btn ghost"
+            data-fixed-expenses-pin
+            title="احفظ البند ده في «البنود الثابتة» عشان تسجله بعدها بضغطة"
+            @click="pinCurrentExpense"
+          >
+            <Icon name="save" /> ثبّت البند الحالي
+          </button>
+        </div>
         <p class="muted" style="margin: 10px 0 0; font-size: 0.82rem">
           المصروف بيتسجل مرة واحدة ومابيتعدّلش — لو غلطت سجّل الحركة الصح واكتب في الملاحظة إنها
           تصحيح للغلطة.
@@ -376,18 +397,10 @@ onMounted(() => {
       <section class="card" data-fixed-expenses>
         <div class="row" style="justify-content: space-between; align-items: center; gap: 8px">
           <h3 style="margin: 0">البنود الثابتة</h3>
-          <button
-            type="button"
-            class="btn sm ghost"
-            data-fixed-expenses-pin
-            @click="pinCurrentExpense"
-          >
-            <Icon name="save" /> ثبّت البند الحالي
-          </button>
         </div>
         <p class="muted" style="margin: 6px 0 10px; font-size: 0.82rem">
-          بند بيتكرر كل شهر؟ اكتبه في النموذج واضغط «ثبّت البند الحالي» — بعدها سجّله بضغطة واحدة،
-          أو اضغط على اسمه يتملى في النموذج لو عايز تعدّل فيه الأول.
+          بند بيتكرر كل شهر؟ ثبّته من الزرار جنب «سجّل المصروف» — المبلغ اختياري وقت التثبيت.
+          بعدها سجّله بضغطة واحدة، أو اضغط على اسمه يتملى في النموذج لو عايز تعدّل فيه الأول.
         </p>
         <p
           v-if="fixedExpenses.length === 0"
@@ -412,11 +425,14 @@ onMounted(() => {
             >
               <b><bdi dir="auto">{{ entry.category }}</bdi></b>
               <span class="muted" style="font-size: 0.8rem">
-                {{ money(entry.amountMinor) }} · {{ paidFromLabel(entry.paidFrom) }}
+                <template v-if="entry.amountMinor !== null">{{ money(entry.amountMinor) }} · </template>
+                <template v-else>من غير مبلغ ثابت · </template>
+                {{ paidFromLabel(entry.paidFrom) }}
                 <template v-if="entry.note !== null"> · <bdi dir="auto">{{ entry.note }}</bdi></template>
               </span>
             </button>
             <button
+              v-if="entry.amountMinor !== null"
               type="button"
               class="btn sm"
               :disabled="saving"

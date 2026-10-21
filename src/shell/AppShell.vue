@@ -25,9 +25,10 @@ import {
   shopLogo,
   toggleTheme,
 } from '../ui/appearance';
-import { fmtTime } from '../ui/format';
+import { dg, fmtTime } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
+import { remindersDue } from '../ui/reminders';
 import { toast } from '../ui/toast';
 import PosScreen from '../screens/pos/PosScreen.vue';
 import SalesScreen from '../screens/sales/SalesScreen.vue';
@@ -42,6 +43,7 @@ import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import GuideScreen from '../screens/guide/GuideScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import { openModeHint, openMode } from './open-mode';
+import RemindersModal from './RemindersModal.vue';
 import ShiftModal from './ShiftModal.vue';
 import { isPhone } from './device';
 import { avatarColour, navFor, roleName, TITLES } from './nav';
@@ -200,6 +202,7 @@ const shiftState = ref<CurrentShiftState>({
 });
 const drawerModalOpen = ref(false);
 const shiftModalOpen = ref(false);
+const remindersModalOpen = ref(false);
 
 async function refreshShiftState(): Promise<void> {
   try {
@@ -355,6 +358,21 @@ async function switchTheme(): Promise<void> {
           </template>
           <template v-else>مفيش وردية مفتوحة</template>
         </span>
+        <!-- The system-wide reminders (owner request 2026-10-22): the bell
+             counts what is due today or overdue, on every screen. -->
+        <button
+          type="button"
+          class="btn sm ghost reminder-bell"
+          data-open-reminders
+          title="التذكيرات والملاحظات"
+          @click="remindersModalOpen = true"
+        >
+          <Icon name="bell" />
+          <span class="hide-sm">التذكيرات</span>
+          <span v-if="remindersDue > 0" class="bell-badge num" data-reminders-badge>{{
+            dg(remindersDue)
+          }}</span>
+        </button>
         <button
           type="button"
           class="btn sm ghost"
@@ -540,6 +558,7 @@ async function switchTheme(): Promise<void> {
         @close="shiftModalOpen = false"
         @changed="refreshShiftState"
       />
+      <RemindersModal v-if="remindersModalOpen" @close="remindersModalOpen = false" />
     </main>
   </div>
 </template>

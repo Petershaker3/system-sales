@@ -5,7 +5,9 @@
 // the model, the storage and RAM of a touch phone, and the sale price. The
 // name is previewed as it will be stored, and Rust builds it with the same
 // rule. Colours and the IMEI of each device come with the units of item 1.4;
-// the quantity and the cost come from receiving, as for any product.
+// the quantity and the cost can be typed right here (owner request
+// 2026-10-22): what is on the shelf is received the moment the phone is
+// registered — or from «استلام توريد», as before, when the fields stay empty.
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 import * as brandsApi from '../../api/brands';
@@ -13,14 +15,19 @@ import type { BrandEntry, DeviceType } from '../../api/brands';
 import { listCategories } from '../../api/categories';
 import type { CategoryEntry } from '../../api/categories';
 import { describeError } from '../../api/errors';
+import { receiveStock } from '../../api/inventory';
 import { dg, money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
-import { beep } from '../../ui/toast';
+import { beep, toast } from '../../ui/toast';
 import { asIconName } from '../pos/icons';
+import { plannedReceipt } from './item';
 import { brandsFor, phoneTitle, RAM_CHOICES, STORAGE_CHOICES, storageLabel } from './phone';
 
-const emit = defineEmits<{ close: []; created: [name: string, productId?: string] }>();
+const emit = defineEmits<{
+  close: [];
+  created: [name: string, productId?: string, receivedQty?: number];
+}>();
 
 const categories = ref<CategoryEntry[]>([]);
 const brands = ref<BrandEntry[]>([]);
@@ -35,6 +42,10 @@ const model = ref('');
 const storageGb = ref<number | null>(null);
 const ramGb = ref<number | null>(null);
 const price = ref('');
+// The goods already on the shelf, typed in the same form (owner request
+// 2026-10-22) — the merge the item form got, for phones too.
+const qty = ref('');
+const cost = ref('');
 const newBrand = ref<string | null>(null);
 const modelInput = ref<HTMLInputElement | null>(null);
 
@@ -98,8 +109,15 @@ function missing(): string {
   if (device.value === 'touch' && storageGb.value === null) return 'اختار المساحة';
   const minor = parseMoney(price.value);
   if (minor === null || minor <= 0) return 'اكتب سعر البيع';
+  // The receipt typed in the form is validated before the phone exists, so a
+  // bad count never leaves a registered phone with a half-typed receipt.
+  const plan = plannedReceipt(qty.value, cost.value);
+  if (typeof plan === 'string') return plan;
   return '';
 }
+
+/** True when the form itself will put devices on the shelf at save time. */
+const receiptPlanned = computed(() => qty.value.trim() !== '');
 
 async function save(): Promise<void> {
   if (busy.value) return;
@@ -120,7 +138,25 @@ async function save(): Promise<void> {
       ramGb: device.value === 'touch' ? ramGb.value : null,
       salePriceMinor: parseMoney(price.value),
     });
-    emit('created', made.product.name, made.product.id);
+    // One registration, one receipt: the count and cost typed here become a
+    // routine receive. A failure after the phone exists is announced, never
+    // swallowed — the phone is registered, the receipt is not.
+    let received = 0;
+    const plan = plannedReceipt(qty.value, cost.value);
+    if (plan !== null && typeof plan !== 'string') {
+      try {
+        await receiveStock(made.product.id, plan.qty, plan.costMinor);
+        received = plan.qty;
+      } catch (err) {
+        beep();
+        toast(
+          'الموبايل اتسجّل، بس الاستلام اللي في النموذج فشل: ' + describeError(err),
+          'err',
+          6000
+        );
+      }
+    }
+    emit('created', made.product.name, made.product.id, received);
   } catch (err) {
     error.value = describeError(err);
     beep();
@@ -139,7 +175,7 @@ onMounted(async () => {
 <template>
   <Modal
     title="موبايل جديد"
-    sub="الشركة والموديل والمساحة. الكمية والتكلفة من «استلام توريد» اللي هيفتح عليه على طول"
+    sub="الشركة والموديل والمساحة — ولو الأجهزة موجودة عندك، اكتب العدد والتكلفة ويتسجلوا استلام على طول"
     size="md"
     @close="emit('close')"
   >
@@ -253,13 +289,44 @@ onMounted(async () => {
         <span v-if="parseMoney(price) !== null" class="hint">{{ money(parseMoney(price) ?? 0) }}</span>
       </div>
 
+      <!-- The devices already on the shelf, in the same form (owner request
+           2026-10-22): the count and the unit cost register a receipt the
+           moment the phone exists — no second trip to «استلام توريد». -->
+      <div class="np-grid2">
+        <div class="field">
+          <label for="np-qty">العدد الموجود في المحل <span class="muted">(اختياري)</span></label>
+          <input
+            id="np-qty"
+            v-model="qty"
+            class="num"
+            dir="ltr"
+            inputmode="numeric"
+            placeholder="0"
+            autocomplete="off"
+          />
+        </div>
+        <div class="field">
+          <label for="np-cost">تكلفة الوحدة <span class="muted">(مع العدد)</span></label>
+          <input
+            id="np-cost"
+            v-model="cost"
+            class="num"
+            dir="ltr"
+            inputmode="decimal"
+            placeholder="0"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
       <div v-if="title !== ''" class="ni-name">
         <Icon name="tag" /> هيتسجّل باسم <b><bdi dir="auto">{{ title }}</bdi></b
         ><span v-if="device === 'touch' && ramGb !== null" class="num">، رام {{ dg(ramGb) }}GB</span>
       </div>
       <div class="muted ni-foot">
         <Icon name="info" />
-        <span>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء، والـ IMEI لكل جهاز بيتسجّل مع الاستلام بالـ IMEI لما يجهز.</span>
+        <span v-if="receiptPlanned">العدد والتكلفة هيتسجلوا استلام مع الموبايل على طول — والـ IMEI لكل جهاز بيتسجّل مع الاستلام بالـ IMEI لما تجهز.</span>
+        <span v-else>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء، والـ IMEI لكل جهاز بيتسجّل مع الاستلام بالـ IMEI لما يجهز.</span>
       </div>
       <p class="err-msg" role="alert">{{ error }}</p>
     </form>
@@ -278,6 +345,22 @@ onMounted(async () => {
 }
 .new-phone {
   gap: 14px;
+}
+/* Two fields side by side: the count and the unit cost of the shelf stock. */
+.np-grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.np-grid2 .field {
+  margin-bottom: 0;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .np-grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .ni-row {
   display: grid;

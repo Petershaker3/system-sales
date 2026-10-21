@@ -148,7 +148,7 @@ test('fixed expenses round-trip through storage unchanged', () => {
 test('broken or hostile storage yields an empty wall, not a crash', () => {
   assert.deepEqual(parseFixedExpenses('مش JSON'), []);
   assert.deepEqual(parseFixedExpenses('{"category":"إيجار"}'), [], 'an object is not a list');
-  assert.deepEqual(parseFixedExpenses('[{"id":"a"}]'), [], 'a row without a name or amount is dropped');
+  assert.deepEqual(parseFixedExpenses('[{"id":"a"}]'), [], 'a row without a name is dropped');
   assert.deepEqual(
     parseFixedExpenses('[{"id":"a","category":"إيجار","amountMinor":150000,"note":7,"paidFrom":"pocket"}]'),
     [{ id: 'a', category: 'إيجار', amountMinor: 150_000, note: null, paidFrom: 'outside' }],
@@ -172,9 +172,20 @@ test('the wall keeps its size and refuses the same bill twice', () => {
   assert.deepEqual(removeFixedExpense(once, 'مش موجود'), once);
 });
 
-test('a bill is pinned or recorded only when it has a name and a real amount', () => {
-  assert.equal(fixedExpenseProblem('', 100), 'اكتب اسم البند الأول');
-  assert.equal(fixedExpenseProblem('إيجار', null), 'اكتب المبلغ بشكل صحيح');
-  assert.equal(fixedExpenseProblem('إيجار', 0), 'اكتب المبلغ بشكل صحيح');
-  assert.equal(fixedExpenseProblem('إيجار', 100), '');
+test('a bill is pinned by its name — the amount may wait (owner request 2026-10-22)', () => {
+  assert.equal(fixedExpenseProblem(''), 'اكتب اسم البند الأول');
+  assert.equal(fixedExpenseProblem('   '), 'اكتب اسم البند الأول');
+  assert.equal(fixedExpenseProblem('إيجار'), '');
+});
+
+test('a pin without an amount round-trips and stays distinct from one with', () => {
+  const nameOnly: FixedExpense = { id: 'fx-3', category: 'إيجار المحل', amountMinor: null, note: null, paidFrom: 'outside' };
+  assert.deepEqual(parseFixedExpenses(serializeFixedExpenses([nameOnly])), [nameOnly]);
+  assert.equal(addFixedExpense([nameOnly], { ...nameOnly, id: 'fx-4' }).length, 1, 'the same name-only bill pinned again changes nothing');
+  assert.equal(addFixedExpense([nameOnly], { ...nameOnly, id: 'fx-5', amountMinor: 100 }).length, 2, 'adding the amount is a different pin');
+  assert.deepEqual(
+    parseFixedExpenses('[{"id":"a","category":"إيجار","amountMinor":-5}]'),
+    [{ id: 'a', category: 'إيجار', amountMinor: null, note: null, paidFrom: 'outside' }],
+    'a hostile amount falls back to no amount, never to a negative one',
+  );
 });

@@ -155,15 +155,16 @@ export const MAX_FIXED_EXPENSES = 24;
 export interface FixedExpense {
   id: string;
   category: string;
-  amountMinor: number;
+  /** `null` = pinned by name only; the amount is typed at recording time. */
+  amountMinor: number | null;
   note: string | null;
   paidFrom: PaidFrom;
 }
 
-/** What is missing before the form can be pinned (or recorded). Empty = ready. */
-export function fixedExpenseProblem(category: string, amountMinor: number | null): string {
+/** What is missing before the form can be pinned. Only the name is required —
+ * the owner pins «إيجار المحل» even before this month's amount is known. */
+export function fixedExpenseProblem(category: string): string {
   if (category.trim() === '') return 'اكتب اسم البند الأول';
-  if (amountMinor === null || amountMinor <= 0) return 'اكتب المبلغ بشكل صحيح';
   return '';
 }
 
@@ -179,8 +180,8 @@ function asFixedExpense(value: unknown, fallbackId: string): FixedExpense | null
   const amountMinor =
     typeof rawAmount === 'number' && Number.isInteger(rawAmount) && rawAmount > 0
       ? rawAmount
-      : 0;
-  if (category === '' || amountMinor === 0) return null;
+      : null;
+  if (category === '') return null;
   const note =
     typeof rawNote === 'string' && rawNote.trim() !== '' ? rawNote.trim().slice(0, 300) : null;
   const paidFrom: PaidFrom = raw['paidFrom'] === 'drawer' ? 'drawer' : 'outside';

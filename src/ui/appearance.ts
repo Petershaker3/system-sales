@@ -366,6 +366,17 @@ export function enabledPayMethods(
 /** The single, reactive appearance every component reads. */
 export const appearance: Appearance = reactive({ ...DEFAULT_APPEARANCE });
 
+/**
+ * The shop's WhatsApp number for the owner's own reports. The shipped
+ * placeholder counts as *not configured*: a summary «sent» to a made-up
+ * number is the same lie as one never sent — the owner watched Windows fail
+ * on `wa.me/201000000000` (2026-10-22).
+ */
+export function ownerWhatsAppNumber(): string {
+  const raw = appearance.shopPhone.trim();
+  return raw === DEFAULT_SHOP_PHONE ? '' : raw;
+}
+
 /** Reactive optional 192×192 JPEG shop logo (`data:image/jpeg;base64,...` or `null`). */
 export const shopLogo = ref<string | null>(null);
 
