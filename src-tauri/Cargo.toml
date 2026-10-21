@@ -100,6 +100,14 @@ windows-native-keyring-store = "=1.1.0"
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "=1.0.0"
 
+# Opening a web address (`wa.me`, GSMArena) on the handset: the WebView cannot
+# open a second window, so `commands/system.rs` fires the `ACTION_VIEW` intent
+# itself. Both crates are already resolved in `Cargo.lock` by the Tauri runtime
+# (tao/wry use the same JNI path for the camera permission) — naming them here
+# adds no new package to the tree, only a direct edge to two old ones.
+jni = "=0.21.1"
+ndk-context = "=0.1.1"
+
 [dev-dependencies]
 # Real SQLite databases in a temp dir for integration tests. spec:138 requires
 # atomicity to be proven against real SQLite/SQLx, not mocks.
@@ -116,7 +124,9 @@ tempfile = "=3.24.0"
 #   rdev ........................... Windows HID. Barcode BLOCKED, and its
 #                                   presence in the spike is NOT evidence of
 #                                   a V1 need (Gate C finding).
-#   tauri-plugin-opener ............ demo plugin, not a product need.
+#   tauri-plugin-opener ............ the one web address the app opens (wa.me,
+#                                   GSMArena) goes through `commands/system.rs`,
+#                                   which needs no plugin on any platform.
 #   any sync/outbox/cursor crate ... sync is OUT OF SCOPE in V1 (ADR-008).
 #   @supabase/supabase-js .......... removed from package.json; not an
 #                                   approved backend.

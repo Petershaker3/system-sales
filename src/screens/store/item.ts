@@ -76,6 +76,39 @@ export interface ItemDraft {
   readonly priceMinor: number | null;
 }
 
+/**
+ * The goods already on the shelf, typed at registration (owner request
+ * 2026-10-21: «تفاصيل البضاعة عشان تتسجل» — all of it in one form, like the
+ * approved mockup's `niItem`): a count and a unit cost, received into stock
+ * the moment the product exists, instead of a second trip to «استلام توريد»
+ * to type what was already known here.
+ */
+export interface PlannedReceipt {
+  readonly qty: number;
+  readonly costMinor: number;
+}
+
+/**
+ * Read the count and the cost of the goods on hand.
+ *
+ * - `null`: both fields empty — the product registers alone and the receiving
+ *   stays the next step, exactly as before.
+ * - a string: what is wrong, in the shop's words (a count without a cost is
+ *   refused loudly: every unit needs a cost — `ADR-013`).
+ * - a `PlannedReceipt`: what to receive right after the product is created.
+ */
+export function plannedReceipt(qtyRaw: string, costRaw: string): PlannedReceipt | string | null {
+  const q = qtyRaw.trim();
+  const c = costRaw.trim();
+  if (q === '' && c === '') return null;
+  if (q === '') return 'اكتب العدد الموجود، أو سيب الخانتين فاضيين';
+  const qty = Number(q);
+  if (!Number.isInteger(qty) || qty <= 0) return 'العدد لازم يكون رقم صحيح أكبر من صفر';
+  const costMinor = parseMoney(c);
+  if (costMinor === null || costMinor < 0) return 'اكتب تكلفة الوحدة للبضاعة الموجودة';
+  return { qty, costMinor };
+}
+
 export function itemProblem(categories: readonly CategoryEntry[], draft: ItemDraft): string {
   if (categories.length === 0) return 'مفيش تصنيف بالعدد. ضيف واحد من الإعدادات.';
   if (draft.categoryId === '') return 'اختار التصنيف';
@@ -192,6 +225,10 @@ export function variantTitle(base: string, combo: readonly string[]): string {
 export interface VariantRowDraft {
   readonly barcode: string;
   readonly price: string;
+  /** Units of this type already on the shelf (optional, «العدد» in the mockup). */
+  readonly qty?: string;
+  /** Unit cost of those units; empty falls back to the form's cost («التكلفة»). */
+  readonly cost?: string;
 }
 
 export interface VariantsDraft {
@@ -203,6 +240,8 @@ export interface VariantsDraft {
   readonly dim2Values: readonly string[];
   /** Default sale price in piastres (`null` = empty or invalid). */
   readonly priceMinor: number | null;
+  /** The default unit cost a row without its own inherits («الفاضي = اللي فوق»). */
+  readonly defaultCost?: string;
   readonly rows: Readonly<Record<string, VariantRowDraft>>;
 }
 
@@ -254,6 +293,15 @@ export function variantsProblem(
       const rowPrice = parseMoney(rawPrice);
       if (rowPrice === null || rowPrice <= 0) return `«${label}»: اكتب سعر البيع`;
     }
+  }
+
+  // The units on the shelf: a row's own cost, or the form's cost above it, or
+  // a loud refusal — a count without a cost is a receipt nobody can audit.
+  for (const combo of combos) {
+    const row = draft.rows[comboKey(combo)];
+    const rowCost = (row?.cost ?? '').trim() !== '' ? row!.cost! : draft.defaultCost ?? '';
+    const plan = plannedReceipt(row?.qty ?? '', rowCost);
+    if (typeof plan === 'string') return `«${comboLabel(combo)}»: ${plan}`;
   }
 
   return '';

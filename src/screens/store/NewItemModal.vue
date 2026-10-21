@@ -14,6 +14,7 @@ import * as catalogApi from '../../api/catalog';
 import { createCategory, listCategories } from '../../api/categories';
 import type { CategoryEntry } from '../../api/categories';
 import { describeError } from '../../api/errors';
+import { receiveStock } from '../../api/inventory';
 import { normalize } from '../../ui/arabic';
 import { kindsWord, money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
@@ -27,11 +28,11 @@ import {
   barcodeProblem,
   comboKey,
   dimensionSuggestions,
-
   isShopCode,
   itemCategories,
   itemProblem,
   newCategoryParent,
+  plannedReceipt,
   VARIANT_DIMENSIONS,
   variantCombos,
   variantsProblem,
@@ -39,7 +40,11 @@ import {
   type VariantRowDraft,
 } from './item';
 
-const emit = defineEmits<{ close: []; created: [name: string, productId?: string] }>();
+const emit = defineEmits<{
+  close: [];
+  /** `receivedQty` is how many units the form itself put on the shelf. */
+  created: [name: string, productId?: string, receivedQty?: number];
+}>();
 
 const categories = ref<CategoryEntry[]>([]);
 const loaded = ref(false);
@@ -49,8 +54,17 @@ const error = ref('');
 
 const categoryId = ref('');
 const name = ref('');
+/** The mockup's «الماركة» (e.g. Anker): registers into the product's name. */
+const brand = ref('');
 const barcode = ref('');
 const price = ref('');
+/**
+ * The goods already on the shelf, typed here rather than in a second trip to
+ * «استلام توريد» (owner request 2026-10-21): a count and a unit cost, received
+ * the moment the product exists. Both empty = registration alone, as before.
+ */
+const qty = ref('');
+const cost = ref('');
 const newCategory = ref<string | null>(null);
 
 // Product variants («الصنف ده ليه تفرعات», ADR-018 §4).
@@ -67,6 +81,26 @@ const dimInput0 = ref<HTMLInputElement | null>(null);
 /** Counted-goods categories in the mockup's order. */
 const cats = computed(() => itemCategories(categories.value));
 const priceMinor = computed(() => parseMoney(price.value));
+
+/**
+ * The name that registers: the brand rides in front of the item's own name
+ * («Anker شاحن سريع 20W»), because a product keeps one stored name and the
+ * brand is part of what the shopkeeper searches and prints.
+ */
+const registeredName = computed(() => {
+  const item = name.value.trim().split(/\s+/).filter(Boolean).join(' ');
+  const maker = brand.value.trim().split(/\s+/).filter(Boolean).join(' ');
+  if (maker === '' || item === '') return item;
+  return `${maker} ${item}`;
+});
+
+/** Whether the form itself puts goods on the shelf when it saves. */
+const receiptPlanned = computed(() => {
+  if (variantsOn.value) {
+    return combos.value.some((c) => (rows.value[comboKey(c)]?.qty ?? '').trim() !== '');
+  }
+  return qty.value.trim() !== '';
+});
 const shopCode = computed(() => isShopCode(barcode.value.trim()));
 const chosen = computed(() => categories.value.find((c) => c.id === categoryId.value) ?? null);
 
@@ -212,6 +246,55 @@ function setRowPrice(combo: readonly string[], value: string): void {
   error.value = '';
 }
 
+/** The row's units on the shelf, and their cost (empty = the form's cost). */
+function rowQty(combo: readonly string[]): string {
+  return rows.value[comboKey(combo)]?.qty ?? '';
+}
+
+function setRowQty(combo: readonly string[], value: string): void {
+  const key = comboKey(combo);
+  const prev = rows.value[key] ?? { barcode: '', price: '' };
+  rows.value = { ...rows.value, [key]: { ...prev, qty: value } };
+  error.value = '';
+}
+
+function rowCost(combo: readonly string[]): string {
+  return rows.value[comboKey(combo)]?.cost ?? '';
+}
+
+function setRowCost(combo: readonly string[], value: string): void {
+  const key = comboKey(combo);
+  const prev = rows.value[key] ?? { barcode: '', price: '' };
+  rows.value = { ...rows.value, [key]: { ...prev, cost: value } };
+  error.value = '';
+}
+
+/**
+ * Receive what a row of the variant table says is already on the shelf.
+ *
+ * Returns the number of units received. A refusal here does not undo the
+ * registration — the products exist and the receiving stays available in
+ * «استلام توريد», so the failure is reported, not swallowed.
+ */
+async function receiveRow(
+  productId: string,
+  rowQtyRaw: string,
+  rowCostRaw: string,
+): Promise<number> {
+  const plan = plannedReceipt(rowQtyRaw, rowCostRaw.trim() !== '' ? rowCostRaw : cost.value);
+  if (plan === null || typeof plan === 'string') return 0;
+  try {
+    await receiveStock(productId, plan.qty, plan.costMinor);
+    return plan.qty;
+  } catch (err) {
+    receiveWarnings.value.push(describeError(err));
+    return 0;
+  }
+}
+
+/** What was registered but could not be received in the same step. */
+const receiveWarnings = ref<string[]>([]);
+
 async function makeVariantCodes(): Promise<void> {
   if (busy.value || makingCode.value) return;
   const missingKeys = combos.value
@@ -244,8 +327,23 @@ async function makeVariantCodes(): Promise<void> {
   }
 }
 
+/** Say out loud what registered but could not be received in the same step. */
+function reportReceiveWarnings(): void {
+  if (receiveWarnings.value.length > 0) {
+    toast(
+      'الصنف اتسجّل، بس الاستلام اللي في النموذج فشل: ' +
+        receiveWarnings.value.join('؛ '),
+      'err',
+      6000,
+    );
+  }
+  receiveWarnings.value = [];
+}
+
 async function save(): Promise<void> {
   if (busy.value) return;
+  receiveWarnings.value = [];
+
   if (variantsOn.value) {
     if (dim1Query.value.trim() !== '') pushDimValue(0, dim1Query.value);
     if (dim2Query.value.trim() !== '') pushDimValue(1, dim2Query.value);
@@ -258,6 +356,7 @@ async function save(): Promise<void> {
       dim2Label: dim2Label.value,
       dim2Values: dim2Values.value,
       priceMinor: priceMinor.value,
+      defaultCost: cost.value,
       rows: rows.value,
     });
     if (why !== '') {
@@ -279,7 +378,7 @@ async function save(): Promise<void> {
       });
       const made = await catalogApi.createVariants({
         categoryId: categoryId.value,
-        name: name.value,
+        name: registeredName.value,
         dimension1: dim1Label.value,
         values1: dim1Values.value,
         dimension2: dim2Values.value.length > 0 ? dim2Label.value : null,
@@ -287,7 +386,26 @@ async function save(): Promise<void> {
         defaultPriceMinor: priceMinor.value!,
         rows: rowInputs,
       });
-      emit('created', `${made.parent.name} (${kindsWord(made.variants.length)})`);
+      // The types with a count go straight onto the shelf («الأنواع اللي ليها
+      // عدد بس هي اللي بتنزل في الاستلام» — the approved mockup's rule).
+      let received = 0;
+      for (const combo of combos.value) {
+        const row = rows.value[comboKey(combo)];
+        const variant = made.variants.find(
+          (v) =>
+            v.variant1 === combo[0] &&
+            (combo.length < 2 ? v.variant2 === null : v.variant2 === combo[1]),
+        );
+        if (variant === undefined) continue;
+        received += await receiveRow(variant.product.id, row?.qty ?? '', row?.cost ?? '');
+      }
+      reportReceiveWarnings();
+      emit(
+        'created',
+        `${made.parent.name} (${kindsWord(made.variants.length)})`,
+        undefined,
+        received,
+      );
     } catch (err) {
       error.value = describeError(err);
       beep();
@@ -308,18 +426,31 @@ async function save(): Promise<void> {
     beep();
     return;
   }
+  // The goods on hand are validated before anything is written: a count
+  // without a cost must be refused here, not after the product exists.
+  const plan = plannedReceipt(qty.value, cost.value);
+  if (typeof plan === 'string') {
+    error.value = plan;
+    beep();
+    return;
+  }
   busy.value = true;
   try {
     const made = await catalogApi.createProduct({
-      name: name.value,
+      name: registeredName.value,
       disposition: 'quantity',
       barcode: barcode.value.trim() === '' ? null : barcode.value.trim(),
       salePriceMinor: priceMinor.value,
       categoryId: categoryId.value,
     });
+    let received = 0;
+    if (plan !== null) {
+      received += await receiveRow(made.id, qty.value, cost.value);
+    }
+    reportReceiveWarnings();
     // The id rides along so «استلام توريد» opens on this product (the variants path above
     // does not: a parent is a group of types, and each type is received on its own).
-    emit('created', made.name, made.id);
+    emit('created', made.name, made.id, received);
   } catch (err) {
     error.value = describeError(err);
     beep();
@@ -336,8 +467,8 @@ onMounted(async () => {
 <template>
   <Modal
     title="صنف جديد"
-    sub="إكسسوار أو أي صنف بالعدد. الكمية والتكلفة من «استلام توريد» اللي هيفتح عليه على طول"
-    size="md"
+    sub="إكسسوار أو أي صنف بالعدد — تفاصيله كلها هنا: الماركة والباركود والسعر، وعدد وتكلفة البضاعة الموجودة عندك"
+    size="wide"
     @close="emit('close')"
   >
     <p v-if="!loaded" class="muted">لحظة…</p>
@@ -378,15 +509,26 @@ onMounted(async () => {
         >
       </div>
 
-      <div class="field">
-        <label for="ni-name">اسم الصنف</label>
-        <input
-          id="ni-name"
-          v-model="name"
-          placeholder="مثلًا: جراب سيليكون شفاف"
-          autocomplete="off"
-          data-autofocus
-        />
+      <div class="ni-grid2">
+        <div class="field">
+          <label for="ni-name">اسم الصنف</label>
+          <input
+            id="ni-name"
+            v-model="name"
+            placeholder="مثلًا: جراب سيليكون شفاف"
+            autocomplete="off"
+            data-autofocus
+          />
+        </div>
+        <div class="field">
+          <label for="ni-ibrand">الماركة <span class="muted">(اختياري)</span></label>
+          <input
+            id="ni-ibrand"
+            v-model="brand"
+            placeholder="مثلًا: Anker"
+            autocomplete="off"
+          />
+        </div>
       </div>
 
       <label class="ni-switch">
@@ -427,7 +569,41 @@ onMounted(async () => {
         <span v-else-if="barcodeProblem(barcode) !== ''" class="hint">{{ barcodeProblem(barcode) }}</span>
       </div>
 
-      <template v-else>
+      <!-- The goods already on the shelf, in the same form (owner request
+           2026-10-21): the count and the unit cost register a receipt the
+           moment the product exists — no second trip to «استلام توريد». -->
+      <div v-if="!variantsOn" class="ni-grid2">
+        <div class="field">
+          <label for="ni-qty">العدد الموجود في المحل <span class="muted">(اختياري)</span></label>
+          <input
+            id="ni-qty"
+            v-model="qty"
+            class="num"
+            dir="ltr"
+            inputmode="numeric"
+            placeholder="0"
+            autocomplete="off"
+          />
+        </div>
+        <div class="field">
+          <label for="ni-cost">تكلفة الوحدة <span class="muted">(مع العدد)</span></label>
+          <input
+            id="ni-cost"
+            v-model="cost"
+            class="num"
+            dir="ltr"
+            inputmode="decimal"
+            placeholder="0"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+      <p v-if="!variantsOn" class="hint receive-hint">
+        اكتب العدد وتكلفة الوحدة لو البضاعة موجودة عندك — تتسجل استلام مع الصنف على طول.
+        سيبهم فاضيين، والاستلام من «استلام توريد» زي الأول.
+      </p>
+
+      <template v-if="variantsOn">
         <!-- Dimension 1 (required) -->
         <div class="ni-dim">
           <div class="field">
@@ -525,6 +701,8 @@ onMounted(async () => {
                 <tr>
                   <th>النوع</th>
                   <th>الباركود</th>
+                  <th class="ta-n">العدد</th>
+                  <th class="ta-n">التكلفة</th>
                   <th class="ta-n">السعر</th>
                 </tr>
               </thead>
@@ -552,6 +730,30 @@ onMounted(async () => {
                   <td class="ta-n">
                     <input
                       class="rc-in num"
+                      data-f="qty"
+                      dir="ltr"
+                      inputmode="numeric"
+                      :value="rowQty(c)"
+                      placeholder="0"
+                      autocomplete="off"
+                      @input="setRowQty(c, ($event.target as HTMLInputElement).value)"
+                    />
+                  </td>
+                  <td class="ta-n">
+                    <input
+                      class="rc-in num"
+                      data-f="cost"
+                      dir="ltr"
+                      inputmode="decimal"
+                      :value="rowCost(c)"
+                      :placeholder="cost.trim()"
+                      autocomplete="off"
+                      @input="setRowCost(c, ($event.target as HTMLInputElement).value)"
+                    />
+                  </td>
+                  <td class="ta-n">
+                    <input
+                      class="rc-in num"
                       data-f="price"
                       dir="ltr"
                       inputmode="numeric"
@@ -567,7 +769,7 @@ onMounted(async () => {
           </div>
           <div class="row wrap ni-var-f">
             <span class="muted">
-              {{ kindsWord(combos.length) }}. السعر الفاضي = اللي فوق
+              {{ kindsWord(combos.length) }}. السعر والتكلفة الفاضيين = اللي فوق. الأنواع اللي ليها عدد بتتسجل استلام عند الحفظ
             </span>
             <span class="sp"></span>
             <button
@@ -583,14 +785,28 @@ onMounted(async () => {
         </div>
       </template>
 
-      <div class="field price-field">
-        <label for="ni-price">{{ variantsOn ? 'سعر البيع الافتراضي' : 'سعر البيع' }}</label>
-        <input id="ni-price" v-model="price" class="num" dir="ltr" inputmode="numeric" autocomplete="off" />
-        <span v-if="priceMinor !== null" class="hint">{{ money(priceMinor) }}</span>
+      <div class="ni-grid2">
+        <div class="field price-field">
+          <label for="ni-price">{{ variantsOn ? 'سعر البيع الافتراضي' : 'سعر البيع' }}</label>
+          <input id="ni-price" v-model="price" class="num" dir="ltr" inputmode="numeric" autocomplete="off" />
+          <span v-if="priceMinor !== null" class="hint">{{ money(priceMinor) }}</span>
+        </div>
+        <div v-if="variantsOn" class="field price-field">
+          <label for="ni-cost-default">التكلفة الافتراضية للوحدة <span class="muted">(اختياري)</span></label>
+          <input
+            id="ni-cost-default"
+            v-model="cost"
+            class="num"
+            dir="ltr"
+            inputmode="decimal"
+            autocomplete="off"
+          />
+          <span class="hint">الفاضي في عمود التكلفة = اللي هنا</span>
+        </div>
       </div>
 
-      <div v-if="name.trim() !== '' && chosen !== null" class="ni-name">
-        <Icon name="tag" /> هيتسجّل باسم <b><bdi dir="auto">{{ name.trim() }}</bdi></b>
+      <div v-if="registeredName !== '' && chosen !== null" class="ni-name">
+        <Icon name="tag" /> هيتسجّل باسم <b><bdi dir="auto">{{ registeredName }}</bdi></b>
         <template v-if="variantsOn && combos.length > 0">
           بـ <b>{{ kindsWord(combos.length) }}</b>
         </template>
@@ -598,7 +814,10 @@ onMounted(async () => {
       </div>
       <div class="muted ni-foot">
         <Icon name="info" />
-        <span>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء للوحدة. الصور جاية في الخطوة الجاية.</span>
+        <span v-if="receiptPlanned">
+          العدد والتكلفة اللي كتبتها هتتسجل استلام مع الصنف على طول — هتلاقيه في المخزن من غير خطوة تانية.
+        </span>
+        <span v-else>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء للوحدة. الصور جاية في الخطوة الجاية.</span>
       </div>
       <p class="err-msg" role="alert">{{ error }}</p>
     </form>
@@ -622,6 +841,25 @@ onMounted(async () => {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+/* Two fields side by side (name+brand, count+cost, price+default cost). */
+.ni-grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.ni-grid2 .field {
+  margin-bottom: 0;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .ni-grid2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.receive-hint {
+  margin: -6px 0 0;
 }
 .ni-row > .label {
   font-size: 0.82rem;

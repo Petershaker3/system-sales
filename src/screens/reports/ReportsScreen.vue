@@ -31,6 +31,7 @@ import {
   pcsWord,
 } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import { openInSystemBrowser } from '../../ui/open-link';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
 import {
@@ -483,32 +484,45 @@ async function sendDailySummaryWhatsApp(): Promise<void> {
   } catch {
     // Non-blocking clipboard fallback
   }
-  const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone || '01000000000');
-  if (
-    ownerPhone &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
-    const url = buildWhatsAppUrl(ownerPhone, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  // The owner's WhatsApp is the shop's number (`ui.shop_phone`). No invented
+  // fallback: a summary «sent» to a made-up number is the fake the owner
+  // complained about — without a number, the message is ready and copied, and
+  // the toast says exactly that.
+  const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone);
+  if (!ownerPhone) {
+    toast(
+      'ملخص اليوم جاهز ومتنسخ — حدد رقم واتساب المحل في الإعدادات ← بيانات المحل عشان يتبعت',
+      'err',
+      6000,
+    );
+    return;
   }
-  toast('اتبعت ملخص اليوم على واتساب المالك', 'ok');
+  const url = buildWhatsAppUrl(ownerPhone, msg);
+  // Through the OS, not `window.open`: the WebView has no second window, so
+  // the old path said «اتبعت» while nothing left the app (`ui/open-link.ts`).
+  const opened = url !== '' && (await openInSystemBrowser(url));
+  toast(
+    opened
+      ? 'اتفتح واتساب المالك بالملخص جاهز — دوس إرسال هناك'
+      : 'ملخص اليوم جاهز ومتنسخ — ابعتة على واتساب المالك',
+    opened ? 'ok' : 'info',
+    6000,
+  );
 }
 
-function sendOverdueRepairWhatsApp(customerName: string, customerPhone: string, deviceName: string, ticketNo: string, isReady: boolean): void {
+async function sendOverdueRepairWhatsApp(customerName: string, customerPhone: string, deviceName: string, ticketNo: string, isReady: boolean): Promise<void> {
   const norm = normalizeEgyptianPhone(customerPhone);
   const msg = isReady
     ? `أهلاً ${customerName}، نذكرك إن جهازك (${deviceName} — تذكرة ${ticketNo}) جاهز للاستلام في ${appearance.shopName || 'المحل'}.`
     : `أهلاً ${customerName}، بخصوص جهازك (${deviceName} — تذكرة ${ticketNo}) في ${appearance.shopName || 'المحل'}، جاري استكمال الصيانة وهنبلغك فور انتهاء العمل.`;
-  if (
-    norm &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
-    const url = buildWhatsAppUrl(norm, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
-  }
-  toast(`تم تجهيز رسالة واتساب للعميل ${customerName}`, 'ok');
+  const url = norm ? buildWhatsAppUrl(norm, msg) : '';
+  const opened = url !== '' && (await openInSystemBrowser(url));
+  toast(
+    opened
+      ? `واتساب العميل ${customerName} اتفتح بالرسالة — دوس إرسال هناك`
+      : `تم تجهيز رسالة واتساب للعميل ${customerName}`,
+    'ok',
+  );
 }
 
 function setReportMonth(d: Date): void {

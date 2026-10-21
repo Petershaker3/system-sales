@@ -16,6 +16,7 @@ import {
   cameraFailureNote,
   classifyScan,
   createFrameDecoder,
+  openMainRearCamera,
   scannerSupport,
   type FrameDecoder,
   type ScanReading,
@@ -64,10 +65,9 @@ async function start(): Promise<void> {
     return;
   }
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false,
-    });
+    // The main rear camera, not whichever lens the WebView picks for
+    // «environment» — a wide-angle lens bends the code at the edges (scan.ts).
+    mediaStream = await openMainRearCamera();
   } catch (error) {
     note.value = cameraFailureNote(error);
     toast(note.value, 'err');

@@ -14,6 +14,7 @@ import CatalogPanel from '../../components/CatalogPanel.vue';
 import StockPanel from '../../components/StockPanel.vue';
 import { fmtDate, fmtTime, money, num } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
 import NewItemKindModal from './NewItemKindModal.vue';
 import NewItemModal from './NewItemModal.vue';
@@ -42,6 +43,12 @@ const showLabels = ref(false);
 const showStockCount = ref(false);
 const labelsInitialProductId = ref<string | null>(null);
 const labelsInitialUnitId = ref<string | null>(null);
+/**
+ * «التالف» is one button with a count, not a partition on the goods tab: the
+ * shelf's everyday list must not carry the damaged corner on its face
+ * (owner request 2026-10-21). The window behind the button is the same table.
+ */
+const showDamaged = ref(false);
 /** Bumped after an item is registered, so the panels read the catalogue again. */
 const reload = ref(0);
 const damagedItems = ref<readonly DamagedStockRow[]>([]);
@@ -97,15 +104,17 @@ function pick(kindPicked: 'phone' | 'used' | 'item'): void {
 /** The product «استلام توريد» should open on, set the moment one is registered. */
 const justCreated = ref('');
 
-function registered(name: string, productId = ''): void {
+function registered(name: string, productId = '', receivedQty = 0): void {
   newPhone.value = false;
   newItem.value = false;
   justCreated.value = productId;
   reload.value += 1;
   toast(
-    productId === ''
-      ? `اتسجّل «${name}». استلم الكمية بسعر الشراء من «استلام توريد»`
-      : `اتسجّل «${name}» و«استلام توريد» فتح عليه — حطّ الكمية وسعر الشراء`,
+    receivedQty > 0
+      ? `اتسجّل «${name}» ودخل المخزن بـ ${num(receivedQty)} قطعة بالتكلفة اللي كتبتها`
+      : productId === ''
+        ? `اتسجّل «${name}». استلم الكمية بسعر الشراء من «استلام توريد»`
+        : `اتسجّل «${name}» و«استلام توريد» فتح عليه — حطّ الكمية وسعر الشراء`,
     'ok',
     4500,
   );
@@ -167,6 +176,22 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       >
         <Icon name="search" /> فحص الـ IMEI
       </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-damaged
+        title="مخزن التالف (مرتجعات تالفة)"
+        @click="showDamaged = true"
+      >
+        <Icon name="triangle-alert" /> التالف
+        <span
+          v-if="damagedTotalQty > 0"
+          class="inv-badge num"
+          data-damaged-badge
+        >
+          {{ num(damagedTotalQty) }}
+        </span>
+      </button>
     </div>
 
     <div class="inv-seg" role="tablist" aria-label="تبويبات المخزن" data-store-tabs style="align-self: flex-start">
@@ -200,103 +225,6 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
     </div>
 
     <template v-if="activeTab === 'items'">
-    <section
-      class="card"
-      style="margin-bottom: 16px; padding: 16px"
-      data-damaged-stock-card
-    >
-      <div
-        class="row"
-        style="justify-content: space-between; align-items: center; margin-bottom: 10px"
-      >
-        <div>
-          <h3 style="margin: 0">
-            <Icon name="triangle-alert" /> مخزون تالف (مرتجعات تالفة)
-          </h3>
-          <small class="muted">
-            الأصناف المرتجعة بحالة «تالف» بتدخل هنا بتكلفة السطر الأصلية ومبترجعش للمخزن المتاح للبيع.
-          </small>
-        </div>
-        <div class="chips">
-          <span class="tag danger" data-damaged-total-qty>
-            إجمالي التالف: <b class="num">{{ num(damagedTotalQty) }}</b> قطعة
-          </span>
-          <span
-            v-if="damagedTotalCostMinor !== null"
-            class="tag"
-            data-damaged-total-cost
-          >
-            تكلفة التالف: <b class="num">{{ money(damagedTotalCostMinor) }}</b>
-          </span>
-        </div>
-      </div>
-
-      <div v-if="damagedItems.length === 0" class="muted" data-damaged-empty>
-        مفيش أي أصناف في مخزون التالف حالياً.
-      </div>
-      <div v-else class="table-wrap">
-        <table class="t" data-damaged-table>
-          <thead>
-            <tr>
-              <th>الصنف</th>
-              <th>الفاتورة / المرتجع</th>
-              <th class="ta-n">الكمية</th>
-              <th class="ta-n">تكلفة الوحدة</th>
-              <th class="ta-n">إجمالي التكلفة</th>
-              <th>السبب</th>
-              <th>التاريخ</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="d in damagedItems"
-              :key="d.id"
-              :data-damaged-row="d.returnReference"
-            >
-              <td>
-                <b><bdi dir="auto">{{ d.productName }}</bdi></b>
-                <span
-                  v-if="d.imei"
-                  class="tag mono"
-                  dir="ltr"
-                  style="margin-inline-start: 6px"
-                >
-                  IMEI: {{ d.imei }}
-                </span>
-              </td>
-              <td>
-                <span class="mono" dir="ltr">{{ d.saleReference }}</span>
-                <span class="muted"> · </span>
-                <span class="mono" dir="ltr">{{ d.returnReference }}</span>
-              </td>
-              <td class="ta-n num">
-                <b>{{ num(d.quantity) }}</b>
-              </td>
-              <td class="ta-n num">
-                {{
-                  d.unitCostMinor !== undefined
-                    ? money(d.unitCostMinor)
-                    : '—'
-                }}
-              </td>
-              <td class="ta-n num">
-                <b>{{
-                  d.totalCostMinor !== undefined
-                    ? money(d.totalCostMinor)
-                    : '—'
-                }}</b>
-              </td>
-              <td><bdi dir="auto">{{ d.reason }}</bdi></td>
-              <td class="muted">
-                {{ fmtDate(new Date(d.occurredAt)) }} ·
-                {{ fmtTime(new Date(d.occurredAt)) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
     <div class="legacy-grid">
       <section class="card legacy-panel">
         <CatalogPanel :key="`c${reload}`" @print-label="openLabelsModal($event, null)" />
@@ -345,6 +273,105 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       @close="showStockCount = false"
       @reconciled="reload += 1"
     />
+
+    <!-- «التالف»: one button, one window — the same table the goods tab used
+         to carry as a partition (owner request 2026-10-21). -->
+    <Modal
+      v-if="showDamaged"
+      title="مخزن التالف"
+      sub="الأصناف المرتجعة بحالة «تالف» — بتكلفة السطر الأصلية، ومبترجعش للمخزن المتاح للبيع"
+      size="wide"
+      data-damaged-stock-modal
+      @close="showDamaged = false"
+    >
+      <div data-damaged-stock-card>
+        <div
+          class="row"
+          style="justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px"
+        >
+          <h3 style="margin: 0">
+            <Icon name="triangle-alert" /> مرتجعات تالفة
+          </h3>
+          <div class="chips">
+            <span class="tag danger" data-damaged-total-qty>
+              إجمالي التالف: <b class="num">{{ num(damagedTotalQty) }}</b> قطعة
+            </span>
+            <span
+              v-if="damagedTotalCostMinor !== null"
+              class="tag"
+              data-damaged-total-cost
+            >
+              تكلفة التالف: <b class="num">{{ money(damagedTotalCostMinor) }}</b>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="damagedItems.length === 0" class="muted" data-damaged-empty>
+          مفيش أي أصناف في مخزون التالف حالياً.
+        </div>
+        <div v-else class="table-wrap">
+          <table class="t" data-damaged-table>
+            <thead>
+              <tr>
+                <th>الصنف</th>
+                <th>الفاتورة / المرتجع</th>
+                <th class="ta-n">الكمية</th>
+                <th class="ta-n">تكلفة الوحدة</th>
+                <th class="ta-n">إجمالي التكلفة</th>
+                <th>السبب</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="d in damagedItems"
+                :key="d.id"
+                :data-damaged-row="d.returnReference"
+              >
+                <td>
+                  <b><bdi dir="auto">{{ d.productName }}</bdi></b>
+                  <span
+                    v-if="d.imei"
+                    class="tag mono"
+                    dir="ltr"
+                    style="margin-inline-start: 6px"
+                  >
+                    IMEI: {{ d.imei }}
+                  </span>
+                </td>
+                <td>
+                  <span class="mono" dir="ltr">{{ d.saleReference }}</span>
+                  <span class="muted"> · </span>
+                  <span class="mono" dir="ltr">{{ d.returnReference }}</span>
+                </td>
+                <td class="ta-n num">
+                  <b>{{ num(d.quantity) }}</b>
+                </td>
+                <td class="ta-n num">
+                  {{
+                    d.unitCostMinor !== undefined
+                      ? money(d.unitCostMinor)
+                      : '—'
+                  }}
+                </td>
+                <td class="ta-n num">
+                  <b>{{
+                    d.totalCostMinor !== undefined
+                      ? money(d.totalCostMinor)
+                      : '—'
+                  }}</b>
+                </td>
+                <td><bdi dir="auto">{{ d.reason }}</bdi></td>
+                <td class="muted">
+                  {{ fmtDate(new Date(d.occurredAt)) }} ·
+                  {{ fmtTime(new Date(d.occurredAt)) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 

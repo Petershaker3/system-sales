@@ -48,6 +48,113 @@ export interface ScannerSupport {
   readonly note: string;
 }
 
+// ---------------------------------------------------------------------------
+// The main rear camera (owner request 2026-10-21)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which of the phone's rear lenses a WebView hands over for
+ * `facingMode: environment` is the WebView's choice, and on a multi-lens
+ * handset it is often the *wide-angle* one: the picture bends at the edges and
+ * a barcode held straight reads crooked. The owner's rule is the shop's rule —
+ * the scanner uses the main camera («الكاميرا الأساسية»).
+ *
+ * The web platform has no «main lens» flag, so the lens is chosen by the only
+ * thing the platform does report: the device label. Android WebViews label the
+ * lenses «camera2 0, facing back», «camera2 2, facing back»… with the main lens
+ * first; iPhones name them «Back Camera», «Back Ultra Wide Camera», «Back
+ * Telephoto Camera». Both agree on one thing: the *auxiliary* lenses carry a
+ * word in the label, and the main one does not.
+ */
+
+/** Labels that mark a rear lens as an auxiliary one, not the main camera. */
+const AUX_LENS_LABEL = /ultra|wide|macro|depth|tele|aux|portrait|fisheye|bokeh|zoom|dual|triple|periscope/i;
+
+/** Labels that mark a camera as the rear-facing one. */
+const REAR_LENS_LABEL = /back|rear|environment|خلف/i;
+
+/** One video input as `enumerateDevices` reports it. */
+export interface CameraDevice {
+  readonly deviceId: string;
+  readonly label: string;
+}
+
+export interface MainCameraChoice {
+  /** The lens to open, or `null` when the current one should stay. */
+  readonly deviceId: string | null;
+  /** Why: the label named the main lens, or it is simply the first rear one. */
+  readonly reason: 'named-main' | 'first-rear' | 'keep';
+}
+
+/**
+ * Pick the main rear camera out of the device list — pure, so the rule is
+ * tested without a handset.
+ *
+ * The rules, in order:
+ * 1. No labels (permission not granted yet, or a desktop with one webcam):
+ *    keep whatever is open.
+ * 2. Rear lenses whose label carries no auxiliary word: the first of them is
+ *    the main camera. If the open one is already it, keep it.
+ * 3. Every rear lens is named as auxiliary (some handsets label the main one
+ *    «wide»): keep the first rear lens, which is still the one the platform
+ *    lists first — unless the open camera already is it.
+ * 4. No rear lens at all (a desktop webcam): keep what is open.
+ */
+export function pickMainRearCamera(
+  devices: readonly CameraDevice[],
+  currentDeviceId: string | null,
+): MainCameraChoice {
+  const labeled = devices.filter((d) => d.deviceId !== '' && d.label.trim() !== '');
+  if (labeled.length === 0) return { deviceId: null, reason: 'keep' };
+
+  const rears = labeled.filter((d) => REAR_LENS_LABEL.test(d.label));
+  if (rears.length === 0) return { deviceId: null, reason: 'keep' };
+
+  const mains = rears.filter((d) => !AUX_LENS_LABEL.test(d.label));
+  const pool = mains.length > 0 ? mains : rears;
+  const reason = mains.length > 0 ? 'named-main' : 'first-rear';
+  const chosen = pool[0]!;
+  if (chosen.deviceId === currentDeviceId) return { deviceId: null, reason: 'keep' };
+  return { deviceId: chosen.deviceId, reason };
+}
+
+/** The request the scanner opens with, before any label is known. */
+function rearCameraConstraints(): MediaStreamConstraints {
+  return { video: { facingMode: { ideal: 'environment' } }, audio: false };
+}
+
+/**
+ * Open the main rear camera, in two honest steps.
+ *
+ * The first `getUserMedia` is what earns the permission and what a single-lens
+ * machine (or a desktop webcam) keeps. Only then do the devices carry labels,
+ * and only if the open lens is an auxiliary one — and a better rear lens is
+ * listed — is the stream swapped, `deviceId`-exact. Any failure of the second
+ * step keeps the first stream: a wide-angle reading still reads.
+ */
+export async function openMainRearCamera(): Promise<MediaStream> {
+  const first = await navigator.mediaDevices.getUserMedia(rearCameraConstraints());
+  try {
+    const track = first.getVideoTracks()[0] ?? null;
+    const current = track?.getSettings().deviceId ?? null;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs: CameraDevice[] = devices
+      .filter((d) => d.kind === 'videoinput')
+      .map((d) => ({ deviceId: d.deviceId, label: d.label }));
+    const choice = pickMainRearCamera(inputs, current);
+    if (choice.deviceId === null) return first;
+    const better = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: choice.deviceId } },
+      audio: false,
+    });
+    first.getTracks().forEach((t) => t.stop());
+    return better;
+  } catch {
+    // Enumeration or the swap refused: the first stream stays the answer.
+    return first;
+  }
+}
+
 /** Whether this machine can open a camera at all. */
 export function scannerSupport(): ScannerSupport {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {

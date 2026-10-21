@@ -33,6 +33,7 @@ import {
 } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
+import { openInSystemBrowser } from '../../ui/open-link';
 import { toast } from '../../ui/toast';
 import {
   buildWhatsAppUrl,
@@ -457,15 +458,13 @@ async function resendReceiptWhatsApp(sale: SaleHistoryEntry): Promise<void> {
       warrantyDate,
     });
     const url = buildWhatsAppUrl(targetPhone, message);
-    if (
-      url &&
-      typeof window !== 'undefined' &&
-      !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-    ) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    // Out through the OS (`ui/open-link.ts`): `window.open` goes nowhere in the
+    // WebView, and the toast only claims a hand-off that really happened.
+    const opened = url !== '' && (await openInSystemBrowser(url));
     toast(
-      `اتبعت الإيصال تاني على واتساب ${targetPhone} (صورة الإيصال + رسالة)`,
+      opened
+        ? `واتساب ${targetPhone} اتفتح بالإيصال تاني — دوس إرسال هناك`
+        : `الإيصال تاني جاهز لواتساب ${targetPhone} والصورة متنسخة`,
       'ok'
     );
   } catch (err) {

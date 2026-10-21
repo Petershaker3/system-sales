@@ -28,8 +28,10 @@ import {
 import { approxKilobytes, shrinkImageFile } from '../screens/store/image';
 import CameraScanButton from '../ui/CameraScanButton.vue';
 import { money, moneyInputValue, moneyUnitWord } from '../ui/format';
+import { gsmArenaUrl } from '../ui/gsmarena';
 import Icon from '../ui/Icon.vue';
 import type { IconName } from '../ui/icons';
+import { openInSystemBrowser } from '../ui/open-link';
 import type { ScanReading } from '../ui/scan';
 import { asIconName } from '../screens/pos/icons';
 
@@ -99,6 +101,30 @@ function productIcon(product: Product): IconName {
     ? categories.value.find((c) => c.id === product.categoryId)
     : undefined;
   return asIconName(cat?.icon ?? '') ?? 'package';
+}
+
+/**
+ * A registered phone: an IMEI-tracked product, or one in a phone/used category.
+ * Only a phone gets the GSMArena mark — an accessory has no spec sheet there
+ * (owner request 2026-10-21).
+ */
+function isPhoneProduct(product: Product): boolean {
+  if (product.disposition === 'serialized') return true;
+  const cat = product.categoryId
+    ? categories.value.find((c) => c.id === product.categoryId)
+    : undefined;
+  return cat?.kind === 'phone' || cat?.kind === 'used';
+}
+
+/** The device's spec sheet on GSMArena, opened in the system's browser. */
+async function openSpecs(product: Product): Promise<void> {
+  const url = gsmArenaUrl(product.name);
+  if (url === '') return;
+  const opened = await openInSystemBrowser(url);
+  if (!opened) {
+    notice.value = '';
+    error.value = 'مش قادر أفتح GSMArena من الجهاز ده — جرّب تاني.';
+  }
 }
 
 
@@ -482,7 +508,22 @@ onMounted(() => {
             <Icon name="x" :size="12" />
           </button>
           <div class="item-main">
-            <span class="item-name">{{ product.name }}</span>
+            <span class="item-name">
+              {{ product.name }}
+              <!-- The quiet mark beside every registered phone: one tap opens
+                   the device's spec sheet on GSMArena (owner request 2026-10-21). -->
+              <button
+                v-if="isPhoneProduct(product) && gsmArenaUrl(product.name) !== ''"
+                type="button"
+                class="icon-btn xs specs-mark"
+                :data-gsmarena="product.id"
+                title="إمكانيات الجهاز على GSMArena"
+                aria-label="إمكانيات الجهاز على GSMArena"
+                @click="openSpecs(product)"
+              >
+                <Icon name="external-link" :size="12" />
+              </button>
+            </span>
             <span class="hint">
               {{ dispositionLabel(product.disposition) }} · {{ categoryLabel(product) }} ·
               {{ priceLabel(product) }} · {{ statusLabel(product.status) }}
@@ -566,5 +607,20 @@ onMounted(() => {
 }
 .item-name {
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* Deliberately quiet: it sits beside the name and only wakes up on hover. */
+.specs-mark {
+  opacity: 0.45;
+  color: var(--muted);
+  flex: none;
+}
+.specs-mark:hover,
+.specs-mark:focus-visible {
+  opacity: 1;
+  color: var(--accent-text);
 }
 </style>

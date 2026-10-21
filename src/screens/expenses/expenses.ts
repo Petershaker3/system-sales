@@ -140,3 +140,96 @@ export function topCategory(
   }
   return best;
 }
+
+// Fixed-expense templates (owner request 2026-10-21): a recurring bill — the
+// rent, the electricity, the line — gets pinned once and recorded in one tap
+// after that. The templates live on this device only (`localStorage`); every
+// tap still records an ordinary audited `record_shop_expense` row, so the
+// ledger, its rules and its audit stay exactly as they were (`ADR-043`).
+
+export const FIXED_EXPENSES_KEY = 'mshop.fixed-expenses.v1';
+
+/** A wall of pinned bills stops being a shortcut; 24 is generous. */
+export const MAX_FIXED_EXPENSES = 24;
+
+export interface FixedExpense {
+  id: string;
+  category: string;
+  amountMinor: number;
+  note: string | null;
+  paidFrom: PaidFrom;
+}
+
+/** What is missing before the form can be pinned (or recorded). Empty = ready. */
+export function fixedExpenseProblem(category: string, amountMinor: number | null): string {
+  if (category.trim() === '') return 'اكتب اسم البند الأول';
+  if (amountMinor === null || amountMinor <= 0) return 'اكتب المبلغ بشكل صحيح';
+  return '';
+}
+
+function asFixedExpense(value: unknown, fallbackId: string): FixedExpense | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  const rawId = raw['id'];
+  const rawCategory = raw['category'];
+  const rawAmount = raw['amountMinor'];
+  const rawNote = raw['note'];
+  const id = typeof rawId === 'string' && rawId.trim() !== '' ? rawId.trim() : fallbackId;
+  const category = typeof rawCategory === 'string' ? rawCategory.trim().slice(0, 80) : '';
+  const amountMinor =
+    typeof rawAmount === 'number' && Number.isInteger(rawAmount) && rawAmount > 0
+      ? rawAmount
+      : 0;
+  if (category === '' || amountMinor === 0) return null;
+  const note =
+    typeof rawNote === 'string' && rawNote.trim() !== '' ? rawNote.trim().slice(0, 300) : null;
+  const paidFrom: PaidFrom = raw['paidFrom'] === 'drawer' ? 'drawer' : 'outside';
+  return { id, category, amountMinor, note, paidFrom };
+}
+
+/** Read the stored templates. Anything unreadable is treated as an empty list. */
+export function parseFixedExpenses(raw: string | null): FixedExpense[] {
+  if (raw === null || raw.trim() === '') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: FixedExpense[] = [];
+  parsed.forEach((entry, index) => {
+    const fixed = asFixedExpense(entry, `fx-${index}`);
+    if (fixed !== null && out.every((kept) => kept.id !== fixed.id)) out.push(fixed);
+  });
+  // Same side as `addFixedExpense`: when the wall overflows, the oldest pins
+  // give way — never the newest.
+  return out.slice(-MAX_FIXED_EXPENSES);
+}
+
+export function serializeFixedExpenses(list: readonly FixedExpense[]): string {
+  return JSON.stringify(list);
+}
+
+/**
+ * Append a template unless the very same bill is already pinned (same name,
+ * amount, note and source). When the wall is full the oldest pin gives way.
+ */
+export function addFixedExpense(
+  list: readonly FixedExpense[],
+  entry: FixedExpense
+): FixedExpense[] {
+  const duplicate = list.some(
+    (kept) =>
+      kept.category === entry.category &&
+      kept.amountMinor === entry.amountMinor &&
+      kept.note === entry.note &&
+      kept.paidFrom === entry.paidFrom
+  );
+  if (duplicate) return [...list];
+  return [...list, entry].slice(-MAX_FIXED_EXPENSES);
+}
+
+export function removeFixedExpense(list: readonly FixedExpense[], id: string): FixedExpense[] {
+  return list.filter((kept) => kept.id !== id);
+}

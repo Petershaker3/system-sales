@@ -305,54 +305,37 @@ export function resolveMobileScanToPos(
 }
 
 /**
- * Deterministic 21×21 QR matrix for pairing phones over shop Wi-Fi (`pair-qr`).
+ * The pairing QR, really encoded (`@zxing/library`, loaded lazily so the writer
+ * stays out of the first bundle).
+ *
+ * What stood here before was decoration: a grid of finder patterns and hashed
+ * bits that looked like a QR and scanned as nothing. The handset points its
+ * camera at this square to join the shop's Wi-Fi link (`ADR-042`), so the square
+ * must decode — error correction `M`, UTF-8 for the Arabic shop name, and no
+ * baked-in margin: the component draws the quiet zone around the modules.
  */
-export function buildPairingQrMatrix(payload: string, size = 21): boolean[][] {
-  const n = Math.max(21, size);
-  const grid: boolean[][] = Array.from({ length: n }, () =>
-    Array.from({ length: n }, () => false),
+export async function buildPairingQrMatrix(payload: string): Promise<boolean[][]> {
+  const zxing = await import('@zxing/library');
+  const hints = new Map<import('@zxing/library').EncodeHintType, unknown>();
+  hints.set(zxing.EncodeHintType.ERROR_CORRECTION, 'M');
+  hints.set(zxing.EncodeHintType.CHARACTER_SET, 'UTF-8');
+  hints.set(zxing.EncodeHintType.MARGIN, 0);
+  // 0×0 lets the writer pick the smallest version that fits the payload.
+  const bits = new zxing.QRCodeWriter().encode(
+    payload,
+    zxing.BarcodeFormat.QR_CODE,
+    0,
+    0,
+    hints,
   );
-
-  const drawFinder = (r0: number, c0: number) => {
-    for (let r = 0; r < 7; r += 1) {
-      for (let c = 0; c < 7; c += 1) {
-        const border = r === 0 || r === 6 || c === 0 || c === 6;
-        const inner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-        grid[r0 + r]![c0 + c] = border || inner;
-      }
-    }
-  };
-
-  drawFinder(0, 0);
-  drawFinder(0, n - 7);
-  drawFinder(n - 7, 0);
-
-  // Timing lines
-  for (let i = 8; i < n - 8; i += 1) {
-    grid[6]![i] = i % 2 === 0;
-    grid[i]![6] = i % 2 === 0;
+  const rows = bits.getHeight();
+  const cols = bits.getWidth();
+  const grid: boolean[][] = [];
+  for (let y = 0; y < rows; y += 1) {
+    const row: boolean[] = [];
+    for (let x = 0; x < cols; x += 1) row.push(bits.get(x, y));
+    grid.push(row);
   }
-
-  // Deterministic hash bits from payload
-  let seed = 2166136261;
-  for (let i = 0; i < payload.length; i += 1) {
-    seed ^= payload.charCodeAt(i);
-    seed = Math.imul(seed, 16777619) >>> 0;
-  }
-
-  for (let r = 0; r < n; r += 1) {
-    for (let c = 0; c < n; c += 1) {
-      const inTopLeft = r < 8 && c < 8;
-      const inTopRight = r < 8 && c >= n - 8;
-      const inBottomLeft = r >= n - 8 && c < 8;
-      const isTiming = r === 6 || c === 6;
-      if (inTopLeft || inTopRight || inBottomLeft || isTiming) continue;
-      seed ^= (r * 31 + c * 17) & 0xff;
-      seed = Math.imul(seed, 16777619) >>> 0;
-      grid[r]![c] = (seed & 1) === 1;
-    }
-  }
-
   return grid;
 }
 

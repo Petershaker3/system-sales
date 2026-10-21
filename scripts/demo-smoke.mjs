@@ -1787,18 +1787,30 @@ check(
     (await count('.cart .lines .empty')) === 1
 );
 
-// Navigate to «المخزن» and verify «مخزون تالف» card shows the damaged returned item at its original line cost
+// Navigate to «المخزن»: the damaged stock is one button with a count («التالف»),
+// not a partition on the goods tab; its window shows the returned item at its original line cost
 await clickText('.rail .nav-btn', 'المخزن');
-await page.waitForSelector('[data-damaged-stock-card]', { timeout: 3000 });
+await page.waitForSelector('[data-open-damaged]', { timeout: 3000 });
 await sleep(250);
 check(
-  'Store screen («المخزن») displays «مخزون تالف» card with the damaged returned item and its cost',
+  'the goods tab carries no damaged partition — one «التالف» button with the count instead',
+  (await count('[data-damaged-stock-card]')) === 0 &&
+    (await text('[data-open-damaged]')).includes('التالف') &&
+    (await text('[data-damaged-badge]')).includes('1')
+);
+await page.click('[data-open-damaged]');
+await page.waitForSelector('[data-damaged-stock-modal]', { timeout: 3000 });
+await sleep(250);
+check(
+  '«التالف» opens the damaged stock window with the damaged returned item and its cost',
   (await text('[data-damaged-total-qty]')).includes('1') &&
     (await count('[data-damaged-table] tbody tr')) === 1 &&
     (await text('[data-damaged-table]')).includes('كابل تايب سي 1 متر'),
   await text('[data-damaged-stock-card]')
 );
 await shot('47-store-damaged-stock');
+await page.keyboard.press('Escape');
+await page.waitForSelector('[data-damaged-stock-modal]', { hidden: true, timeout: 3000 });
 
 // --- Plan item 1.12: Automatic backup policy (ADR-027) ----------------------
 await clickText('.rail .nav-btn', 'الإعدادات');
@@ -2064,8 +2076,8 @@ if ((await count('[data-sales-detail-wa-phone]')) > 0) {
 await page.click('[data-sales-detail-resend]');
 await sleep(200);
 check(
-  'Clicking «ابعت الإيصال تاني واتساب» in invoice detail modal sends the receipt and shows confirmation toast',
-  (await text('#toasts')).includes('اتبعت الإيصال تاني على واتساب')
+  'Clicking «ابعت الإيصال تاني واتساب» in invoice detail modal prepares the receipt and shows an honest toast (nothing opens under WebDriver)',
+  (await text('#toasts')).includes('الإيصال تاني جاهز لواتساب')
 );
 await shot('50-sales-history-owner');
 await page.click('[data-sales-detail-close]');
@@ -2719,7 +2731,9 @@ check(
       waSummaryBody.includes('فلوس السوفت وير لوحدها') &&
       waSummaryBody.includes('المفروض في الدرج') &&
       waSummaryBody.includes('التنبيهات الذكية') &&
-      (await text('#toasts')).includes('اتبعت ملخص اليوم على واتساب المالك'),
+      // The toast must never claim «اتبعت»: under WebDriver the browser door
+      // stays shut, and the shop has no phone configured in the demo.
+      (await text('#toasts')).includes('ملخص اليوم جاهز'),
     waSummaryBody.slice(0, 120)
   );
   await shot('61-smart-alerts-whatsapp');
@@ -3295,6 +3309,58 @@ check(
   (await text('[data-expenses-row]')).includes('من الدرج')
 );
 await shot('70-expenses-two-sources');
+
+// --- the pinned bills (owner request 2026-10-21) ------------------------------
+// The rent repeats every month: pin it once from the form, then one tap records
+// the same audited row — and the pin itself can be removed without touching the
+// ledger.
+await fill('[data-expenses-category]', 'نت المحل');
+await fill('[data-expenses-amount]', '350');
+await fill('[data-expenses-note]', 'الاشتراك الشهري');
+await page.click('[data-expenses-paid-from="outside"]');
+await sleep(150);
+await page.click('[data-fixed-expenses-pin]');
+await sleep(200);
+const pinnedId = await page.$eval('[data-fixed-expense]', (el) => el.getAttribute('data-fixed-expense'));
+check(
+  'the form can be pinned as a fixed bill, and the wall shows it with its amount and note',
+  pinnedId !== null &&
+    pinnedId !== '' &&
+    (await text('[data-fixed-expense]')).includes('نت المحل') &&
+    (await text('[data-fixed-expense]')).includes('350') &&
+    (await text('[data-fixed-expense]')).includes('الاشتراك الشهري') &&
+    (await text('#toasts')).includes('ثبّتّ')
+);
+await shot('71-expenses-fixed-pin');
+
+const outsideBeforePin = await text('[data-expenses-outside]');
+await page.click('[data-fixed-expense-record]');
+await sleep(700);
+check(
+  'one tap on a pinned bill records an ordinary expense row and moves the total',
+  (await text('[data-expenses-row]')).includes('نت المحل') &&
+    (await text('[data-expenses-outside]')) !== outsideBeforePin
+);
+
+// Tapping the name pours the bill back into the form for editing.
+await fill('[data-expenses-category]', 'حاجة تانية');
+await page.click('[data-fixed-expense] .fixed-info');
+await sleep(150);
+check(
+  'tapping a pinned bill fills the form back with its name, amount and note',
+  (await page.$eval('[data-expenses-category]', (el) => el.value)) === 'نت المحل' &&
+    (await page.$eval('[data-expenses-amount]', (el) => el.value)).includes('350') &&
+    (await page.$eval('[data-expenses-note]', (el) => el.value)) === 'الاشتراك الشهري'
+);
+
+await page.click('[data-fixed-expense-remove]');
+await sleep(150);
+check(
+  'unpinning removes the bill from the wall but leaves its recorded rows alone',
+  (await count('[data-fixed-expense]')) === 0 &&
+    (await count('[data-fixed-expenses-empty]')) === 1 &&
+    (await text('[data-expenses-row]')).includes('نت المحل')
+);
 
 // --- a phone records an expense, the computer applies it (ADR-043) ---------
 // The owner's complaint had two halves: no expenses section, and nothing recorded on

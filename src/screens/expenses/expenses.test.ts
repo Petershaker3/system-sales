@@ -5,13 +5,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  addFixedExpense,
   categorySharePercent,
   EXPENSE_SECTION_CATEGORIES,
   drawerAvailabilityNote,
   effectivePaidFrom,
   expensePeriodBounds,
   EXPENSE_PERIODS,
+  type FixedExpense,
+  fixedExpenseProblem,
+  MAX_FIXED_EXPENSES,
   paidFromLabel,
+  parseFixedExpenses,
+  removeFixedExpense,
+  serializeFixedExpenses,
   suggestedCategories,
   topCategory,
 } from './expenses.ts';
@@ -113,4 +120,61 @@ test('the top category is the biggest spend, and nothing when nothing was spent'
   );
   assert.equal(topCategory([]), null);
   assert.equal(topCategory([{ category: 'صفر', totalMinor: 0 }]), null, 'zero is not a spend');
+});
+
+// The pinned bills (owner request 2026-10-21): storage round-trips, garbage in
+// storage is not garbage on screen, and the wall has a size.
+const rent: FixedExpense = {
+  id: 'fx-1',
+  category: 'إيجار المحل',
+  amountMinor: 150_000,
+  note: 'شهر أكتوبر',
+  paidFrom: 'outside',
+};
+const power: FixedExpense = {
+  id: 'fx-2',
+  category: 'كهربا',
+  amountMinor: 45_000,
+  note: null,
+  paidFrom: 'drawer',
+};
+
+test('fixed expenses round-trip through storage unchanged', () => {
+  assert.deepEqual(parseFixedExpenses(serializeFixedExpenses([rent, power])), [rent, power]);
+  assert.deepEqual(parseFixedExpenses(null), []);
+  assert.deepEqual(parseFixedExpenses(''), []);
+});
+
+test('broken or hostile storage yields an empty wall, not a crash', () => {
+  assert.deepEqual(parseFixedExpenses('مش JSON'), []);
+  assert.deepEqual(parseFixedExpenses('{"category":"إيجار"}'), [], 'an object is not a list');
+  assert.deepEqual(parseFixedExpenses('[{"id":"a"}]'), [], 'a row without a name or amount is dropped');
+  assert.deepEqual(
+    parseFixedExpenses('[{"id":"a","category":"إيجار","amountMinor":150000,"note":7,"paidFrom":"pocket"}]'),
+    [{ id: 'a', category: 'إيجار', amountMinor: 150_000, note: null, paidFrom: 'outside' }],
+    'an unknown source falls back to the owner’s pocket, never to the drawer',
+  );
+});
+
+test('the wall keeps its size and refuses the same bill twice', () => {
+  const full: FixedExpense[] = [];
+  for (let i = 0; i < MAX_FIXED_EXPENSES + 5; i += 1) {
+    full.push({ ...rent, id: `fx-${i}`, category: `بند ${i}` });
+  }
+  const parsed = parseFixedExpenses(serializeFixedExpenses(full));
+  assert.equal(parsed.length, MAX_FIXED_EXPENSES);
+  assert.equal(parsed[0]!.category, `بند 5`, 'when the wall is full the oldest pins give way');
+
+  const once = addFixedExpense([], rent);
+  assert.deepEqual(addFixedExpense(once, { ...rent, id: 'fx-other' }), once, 'the same bill pinned again changes nothing');
+  assert.equal(addFixedExpense(once, { ...rent, amountMinor: 160_000 }).length, 2, 'a new rent is a new bill');
+  assert.deepEqual(removeFixedExpense(once, 'fx-1'), []);
+  assert.deepEqual(removeFixedExpense(once, 'مش موجود'), once);
+});
+
+test('a bill is pinned or recorded only when it has a name and a real amount', () => {
+  assert.equal(fixedExpenseProblem('', 100), 'اكتب اسم البند الأول');
+  assert.equal(fixedExpenseProblem('إيجار', null), 'اكتب المبلغ بشكل صحيح');
+  assert.equal(fixedExpenseProblem('إيجار', 0), 'اكتب المبلغ بشكل صحيح');
+  assert.equal(fixedExpenseProblem('إيجار', 100), '');
 });

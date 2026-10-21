@@ -16,6 +16,7 @@ import {
   itemProblem,
   MAX_VARIANTS,
   newCategoryParent,
+  plannedReceipt,
   VARIANT_DIMENSIONS,
   variantCombos,
   variantsProblem,
@@ -253,3 +254,68 @@ test('variantsProblem validates dimensions, the 60-variant cap, row barcodes and
   );
 });
 
+
+// The goods on the shelf, typed in the registration form itself (owner request
+// 2026-10-21): a count and a cost become a receipt; a count without a cost is
+// refused; empty fields keep the old two-step walk to «استلام توريد».
+test('plannedReceipt: both empty = registration alone, as before', () => {
+  assert.equal(plannedReceipt('', ''), null);
+  assert.equal(plannedReceipt('  ', ''), null);
+});
+
+test('plannedReceipt: a count and a cost become one receipt, in piastres', () => {
+  assert.deepEqual(plannedReceipt('5', '12.50'), { qty: 5, costMinor: 1250 });
+  assert.deepEqual(plannedReceipt('1', '0'), { qty: 1, costMinor: 0 }, 'a free batch is a cost of zero, not a missing one');
+});
+
+test('plannedReceipt: a count without a cost is refused loudly', () => {
+  assert.equal(typeof plannedReceipt('5', ''), 'string');
+  assert.equal(typeof plannedReceipt('5', 'abc'), 'string');
+  assert.equal(typeof plannedReceipt('0', '10'), 'string', 'zero units is not a receipt');
+  assert.equal(typeof plannedReceipt('-3', '10'), 'string');
+  assert.equal(typeof plannedReceipt('2.5', '10'), 'string', 'half a piece does not go on a shelf');
+});
+
+test('plannedReceipt: a cost without a count asks for the count', () => {
+  assert.equal(typeof plannedReceipt('', '10'), 'string');
+});
+
+test('variantsProblem: a row with a count needs its cost — its own or the form’s', () => {
+  const cats = [
+    {
+      id: 'c1',
+      name: 'إكسسوارات',
+      parentId: null,
+      kind: 'item',
+      icon: 'tag',
+      hidden: false,
+      sortOrder: 0,
+      products: 0,
+      isDefault: true,
+      deletable: false,
+    },
+  ] as unknown as readonly CategoryEntry[];
+  const base = {
+    categoryId: 'c1',
+    name: 'جراب',
+    dim1Label: 'الموبايل' as const,
+    dim1Values: ['Galaxy A16'],
+    dim2Label: 'اللون' as const,
+    dim2Values: [],
+    priceMinor: 15000,
+    rows: { 'Galaxy A16': { barcode: '', price: '', qty: '3', cost: '' } },
+  };
+  assert.equal(
+    variantsProblem(cats, base),
+    '«Galaxy A16»: اكتب تكلفة الوحدة للبضاعة الموجودة',
+  );
+  assert.equal(variantsProblem(cats, { ...base, defaultCost: '25' }), '');
+  assert.equal(
+    variantsProblem(cats, {
+      ...base,
+      rows: { 'Galaxy A16': { barcode: '', price: '', qty: '3', cost: '25' } },
+    }),
+    '',
+  );
+  assert.equal(variantsProblem(cats, { ...base, rows: { 'Galaxy A16': { barcode: '', price: '' } } }), '');
+});

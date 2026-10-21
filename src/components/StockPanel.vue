@@ -43,8 +43,10 @@ import { withOwnerApproval } from '../shell/approval';
 import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
 import { money, moneyUnitWord } from '../ui/format';
+import { gsmArenaUrl } from '../ui/gsmarena';
 import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
+import { openInSystemBrowser } from '../ui/open-link';
 import type { ScanReading } from '../ui/scan';
 import { toast } from '../ui/toast';
 
@@ -104,6 +106,24 @@ const selectedIsSerial = computed(() => {
       posProd.brandId !== null)
   );
 });
+
+/**
+ * The GSMArena mark beside the registered devices (owner request 2026-10-21):
+ * every IMEI in the box is one model, so the model's spec sheet hangs on the
+ * box's head, not on each chip. Empty when the product is no phone.
+ */
+const specsUrl = computed(() =>
+  selectedIsSerial.value && selectedProduct.value !== null
+    ? gsmArenaUrl(selectedProduct.value.name)
+    : '',
+);
+
+async function openSpecs(): Promise<void> {
+  const url = specsUrl.value;
+  if (url === '') return;
+  const opened = await openInSystemBrowser(url);
+  if (!opened) error.value = 'مش قادر أفتح GSMArena من الجهاز ده — جرّب تاني.';
+}
 
 /**
  * Land the product the shop just registered in the receive form, and put the cursor on
@@ -453,7 +473,20 @@ void loadPickers();
       </dl>
 
       <div v-if="selectedIsSerial && units.length > 0" class="units-box">
-        <div class="units-head">أجهزة متسجّل ليها IMEI في المخزن ({{ units.length }})</div>
+        <div class="units-head">
+          أجهزة متسجّل ليها IMEI في المخزن ({{ units.length }})
+          <button
+            v-if="specsUrl !== ''"
+            type="button"
+            class="icon-btn xs specs-mark"
+            data-units-gsmarena
+            title="إمكانيات الجهاز على GSMArena"
+            aria-label="إمكانيات الجهاز على GSMArena"
+            @click="openSpecs"
+          >
+            <Icon name="external-link" :size="12" />
+          </button>
+        </div>
         <div class="units-chips">
           <span v-for="u in units" :key="u.id" class="unit-tag" :data-unit-imei="u.imei">
             <b class="mono" dir="ltr">{{ u.imei }}</b>
@@ -642,6 +675,20 @@ void loadPickers();
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Deliberately quiet: it wakes up on hover, like the mark in the catalogue. */
+.units-head .specs-mark {
+  opacity: 0.45;
+  color: var(--muted);
+  flex: none;
+}
+.units-head .specs-mark:hover,
+.units-head .specs-mark:focus-visible {
+  opacity: 1;
+  color: var(--accent-text);
 }
 .units-chips,
 .imei-chips {

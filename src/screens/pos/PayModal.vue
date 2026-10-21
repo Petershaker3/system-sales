@@ -20,6 +20,7 @@ import {
 import { dg, money, moneyInputValue, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
+import { openInSystemBrowser } from '../../ui/open-link';
 import { toast } from '../../ui/toast';
 import { changeDue } from './cart';
 import WalletNumberChips from './WalletNumberChips.vue';
@@ -321,16 +322,15 @@ async function dispatchWhatsAppReceipt(
     copied,
   };
 
-  if (typeof navigator !== 'undefined' && navigator.webdriver !== true && url) {
-    try {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch {
-      // Ignore popup blocker
-    }
-  }
+  // Out through the OS (`ui/open-link.ts`): in the app `window.open` is a dead
+  // end inside the WebView, so the receipt never actually reached WhatsApp —
+  // this opens it in the real browser and only claims so if it opened.
+  const opened = url !== '' && (await openInSystemBrowser(url));
 
   toast(
-    `اتبعت الإيصال على واتساب ${normalized} (صورة الإيصال + رسالة)`,
+    opened
+      ? `واتساب ${normalized} اتفتح بالإيصال — الرسالة جاهزة${copied ? ' والصورة متنسخة: الصقها في الشات' : ''}، دوس إرسال`
+      : `الإيصال جاهز لواتساب ${normalized}${copied ? ' والصورة متنسخة' : ''}`,
     'ok'
   );
 }

@@ -6,6 +6,7 @@
 
 import type { ShiftSummary } from '../../api/shift.ts';
 import { money as egp } from '../../ui/format.ts';
+import { openInSystemBrowser } from '../../ui/open-link.ts';
 import { normalizeEgyptianPhone } from './receipt.ts';
 
 /** Standard Egyptian banknotes & coins counted at shift close (`docs/ui/mockup-v1/pos.js`). */
@@ -159,10 +160,9 @@ export function sendShiftReportViaWhatsApp(
       differenceMinor: countedCashMinor - summary.totals.expectedCashMinor,
     };
 
-    const isWebDriver = typeof navigator !== 'undefined' && navigator.webdriver === true;
-    if (!isWebDriver && typeof window.open === 'function') {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    // The real door out of the WebView (`ui/open-link.ts`): in the app the OS
+    // opens WhatsApp or the browser; under WebDriver nothing opens at all.
+    void openInSystemBrowser(url);
   }
 
   return { url, text };

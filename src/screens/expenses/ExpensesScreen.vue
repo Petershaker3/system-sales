@@ -21,16 +21,23 @@ import {
   type PaidFrom,
 } from '../../api/expenses';
 import type { Session } from '../../api/identity';
-import { dg, money, parseMoney } from '../../ui/format';
+import { dg, money, moneyInputValue, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import {
+  addFixedExpense,
   categorySharePercent,
   drawerAvailabilityNote,
   effectivePaidFrom,
   expensePeriodBounds,
   EXPENSE_PERIODS,
+  FIXED_EXPENSES_KEY,
+  fixedExpenseProblem,
+  type FixedExpense,
   paidFromLabel,
+  parseFixedExpenses,
+  removeFixedExpense,
+  serializeFixedExpenses,
   suggestedCategories,
   topCategory,
   type ExpensePeriodKey,
@@ -53,6 +60,9 @@ const category = ref('');
 const amountText = ref('');
 const noteText = ref('');
 const chosenPaidFrom = ref<PaidFrom>('outside');
+
+/** The bills pinned on this device — see `./expenses.ts` (`FixedExpense`). */
+const fixedExpenses = ref<FixedExpense[]>([]);
 
 const openShiftId = computed<string | null>(() => overview.value?.openShiftId ?? null);
 const rows = computed<readonly ExpenseRow[]>(() => overview.value?.rows ?? []);
@@ -139,7 +149,87 @@ function fmtDay(ms: number): string {
   return `${day}/${month} · ${time}`;
 }
 
+// --- The pinned bills (owner request 2026-10-21) ------------------------------
+
+function loadFixedExpenses(): void {
+  try {
+    fixedExpenses.value = parseFixedExpenses(window.localStorage.getItem(FIXED_EXPENSES_KEY));
+  } catch {
+    fixedExpenses.value = [];
+  }
+}
+
+function saveFixedExpenses(next: FixedExpense[]): void {
+  fixedExpenses.value = next;
+  try {
+    window.localStorage.setItem(FIXED_EXPENSES_KEY, serializeFixedExpenses(next));
+  } catch {
+    // Private mode or a full disk: the pins stay for this visit only.
+  }
+}
+
+/** Pin whatever the form holds right now as a bill that repeats. */
+function pinCurrentExpense(): void {
+  const label = category.value.trim();
+  const amountMinor = parseMoney(amountText.value);
+  const problem = fixedExpenseProblem(label, amountMinor);
+  if (problem !== '' || amountMinor === null) {
+    toast(problem === '' ? 'اكتب المبلغ بشكل صحيح' : problem, 'err');
+    return;
+  }
+  const entry: FixedExpense = {
+    id: `fx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    category: label,
+    amountMinor,
+    note: noteText.value.trim() || null,
+    paidFrom: paidFrom.value,
+  };
+  const before = fixedExpenses.value.length;
+  const next = addFixedExpense(fixedExpenses.value, entry);
+  saveFixedExpenses(next);
+  toast(
+    next.length === before
+      ? `«${label}» مثبّتة بالفعل بنفس المبلغ`
+      : `ثبّتّ «${label}» — من البنود الثابتة تسجلها بضغطة واحدة`,
+    'ok'
+  );
+}
+
+/** Pour a pinned bill back into the form — to edit it before recording. */
+function fillFromFixed(entry: FixedExpense): void {
+  category.value = entry.category;
+  amountText.value = moneyInputValue(entry.amountMinor);
+  noteText.value = entry.note ?? '';
+  chosenPaidFrom.value = entry.paidFrom;
+}
+
+/** One tap: the pinned bill becomes an ordinary audited expense row. */
+async function recordFixed(entry: FixedExpense): Promise<void> {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    await recordShopExpense(
+      entry.category,
+      entry.amountMinor,
+      entry.note,
+      effectivePaidFrom(openShiftId.value, entry.paidFrom)
+    );
+    await load();
+    toast(`اتسجل مصروف «${entry.category}» بمبلغ ${money(entry.amountMinor)}`, 'ok');
+    emit('changed');
+  } catch (error) {
+    toast(describeError(error), 'err');
+  } finally {
+    saving.value = false;
+  }
+}
+
+function unpinFixed(entry: FixedExpense): void {
+  saveFixedExpenses(removeFixedExpense(fixedExpenses.value, entry.id));
+}
+
 onMounted(() => {
+  loadFixedExpenses();
   void load();
 });
 </script>
@@ -280,6 +370,75 @@ onMounted(() => {
         </p>
       </section>
 
+      <!-- The bills that repeat (owner request 2026-10-21): pin the form once,
+           then the same rent or electricity is one tap away. The pins live on
+           this device; every tap records an ordinary audited expense row. -->
+      <section class="card" data-fixed-expenses>
+        <div class="row" style="justify-content: space-between; align-items: center; gap: 8px">
+          <h3 style="margin: 0">البنود الثابتة</h3>
+          <button
+            type="button"
+            class="btn sm ghost"
+            data-fixed-expenses-pin
+            @click="pinCurrentExpense"
+          >
+            <Icon name="save" /> ثبّت البند الحالي
+          </button>
+        </div>
+        <p class="muted" style="margin: 6px 0 10px; font-size: 0.82rem">
+          بند بيتكرر كل شهر؟ اكتبه في النموذج واضغط «ثبّت البند الحالي» — بعدها سجّله بضغطة واحدة،
+          أو اضغط على اسمه يتملى في النموذج لو عايز تعدّل فيه الأول.
+        </p>
+        <p
+          v-if="fixedExpenses.length === 0"
+          class="muted"
+          style="margin: 0"
+          data-fixed-expenses-empty
+        >
+          لسه مفيش بنود مثبّتة.
+        </p>
+        <div v-else class="fixed-list">
+          <div
+            v-for="entry in fixedExpenses"
+            :key="entry.id"
+            class="fixed-row"
+            :data-fixed-expense="entry.id"
+          >
+            <button
+              type="button"
+              class="fixed-info"
+              :title="`املى «${entry.category}» في النموذج`"
+              @click="fillFromFixed(entry)"
+            >
+              <b><bdi dir="auto">{{ entry.category }}</bdi></b>
+              <span class="muted" style="font-size: 0.8rem">
+                {{ money(entry.amountMinor) }} · {{ paidFromLabel(entry.paidFrom) }}
+                <template v-if="entry.note !== null"> · <bdi dir="auto">{{ entry.note }}</bdi></template>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="btn sm"
+              :disabled="saving"
+              :data-fixed-expense-record="entry.id"
+              @click="recordFixed(entry)"
+            >
+              <Icon name="plus" /> سجّل
+            </button>
+            <button
+              type="button"
+              class="icon-btn sm ghost"
+              :data-fixed-expense-remove="entry.id"
+              title="شيل التثبيت"
+              aria-label="شيل التثبيت"
+              @click="unpinFixed(entry)"
+            >
+              <Icon name="x" />
+            </button>
+          </div>
+        </div>
+      </section>
+
       <!-- Where the money went. -->
       <section class="card" data-expenses-by-category>
         <div class="row" style="justify-content: space-between; align-items: baseline">
@@ -366,6 +525,40 @@ onMounted(() => {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
   gap: 14px;
   align-items: start;
+}
+
+/* The pinned bills: one quiet row per bill — tap the name to fill the form,
+   «سجّل» to record it as it stands. */
+.fixed-list {
+  display: grid;
+  gap: 6px;
+}
+.fixed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.fixed-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+  color: inherit;
+  font: inherit;
+}
+.fixed-info:hover b {
+  color: var(--accent-text);
 }
 
 /* One bar per category, sized by its share of the window's spending. */

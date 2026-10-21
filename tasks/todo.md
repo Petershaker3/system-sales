@@ -346,6 +346,19 @@
   - **الدليل:** typecheck نظيف، **159** اختبار وحدة (منهم 7 جديدة على الـhelpers)، demo-smoke **244/244**، phone-shots **28/28** (منهم «a phone is never shown a pairing QR» و«after a push the phone says the computer received it — and no more than that»)، وحارسين في `src-tauri/tests/architecture/main.rs`: `the_companion_link_reports_the_wire_and_never_invents_state` و`each_half_of_the_link_lives_on_the_machine_that_owns_it`، و8 حالات تكامل في `tests/integration/companion.rs`. **CI على `2bc7b70` (تشغيل `39407596507`): الخمس شغلانات خضرا** — `Rust (cargo test, Linux)` و`Frontend` و`Windows (cargo test + installer)` و`Android (APK aarch64)` و`Publish` (`cargo` مش متثبت في الـsandbox، فالـCI هو المترجم: كشف `&UserId::as_str`، و`Default` для `Hello`، والاتصال الوحيد اللي كان ماسكه `accept_intake`، والـ`tracking` الافتراضي، وحالة الاختبار بعد الدوران).
   - **فاضل:** توقيع المالك على `ADR-042`؛ تجربة على جهازين (موبايل أندرويد + كمبيوتر على نفس الـWi‑Fi) للتصوير والمسح والكليرتكست في WebView؛ بناء الـAPK على جهازه (`scripts/android-build.ps1 -Apk -Device`)؛ و«الاستلام لسه عملية المالك» — الموبايل ما بيعملش receipt بنفسه، وده مقصود (`ADR-015`).
 
+### دفعة 2026-10-21 — طلبات المالك الثمانية ✅ (2026-10-21)
+
+- [x] **الطلب:** ثماني ملاحظات من المالك على البناء الحالي: الكاميرا الواسعة، علامة GSMArena، الشريط الجانبي المقطوع، فورم الصنف الناقص «زي ما اتفقنا»، كارت التالف الكبير، واتساب «فيك»، بند المصاريف الثابت، والتأكد إن باركود الربط يشتغل.
+- [x] **#1 الكاميرا الأساسية:** `pickMainRearCamera` + `openMainRearCamera` في `src/ui/scan.ts` (تفضيل عدسة خلفية بلا كلمات ultra-wide/macro/telephoto، وأي فشل يسيب أول صورة شغالة) — `CameraScanButton.vue` بقى يناديها. 8/8 اختبارات.
+- [x] **#2 GSMArena:** `src/ui/gsmarena.ts` (نزع «مستعمل فئة X» ورموز التخزين/الرامات ثم `results.php3?sQuickSearch=yes&sName=…`) + أيقونة `external-link` هادية جنب كل موبايل في `CatalogPanel` ورأس صندوق الـIMEI في `StockPanel`. 5/5 اختبارات.
+- [x] **#3 الشريط الجانبي:** `.rail{overflow-y:auto}` و`.nav-btn{flex:none}` في `shell.css`.
+- [x] **#4 فورم «صنف جديد» كامل:** ماركة + اسم (`registeredName`)، عدد وتكلفة للصنف العادي (`plannedReceipt`)، أعمدة عدد/تكلفة + تكلفة افتراضية للأنواع، والحفظ يسجّل **ويستلم** في خطوة واحدة (`createProduct` ← `receiveStock`)، وفشل الاستلام بعد التسجيل مش بيبلع. 20/20 اختبارات `item.test.ts`.
+- [x] **#5 التالف زرار:** `[data-open-damaged]` (أيقونة + عدّاد) بيفتح `Modal` بكل علامات `data-damaged-*` القديمة، و`demo-smoke.mjs` اتعدّلت.
+- [x] **#6 واتساب حقيقي:** أمر Rust جديد `open_external_url` (`commands/system.rs` — http(s) فقط، ويندوز/أندرويد/لينكس) + `api/system.ts` + `ui/open-link.ts`، والات الست (`ReportsScreen` ملخص اليوم والـoverdue — بلا رقم `01000000000` المخترع، `PayModal`، `SalesScreen`، `RepairsScreen`، `shift.ts`) بتسلم الرابط لنظام التشغيل، والتوستات بقت صادقة («اتفتح — دوس إرسال» / «جاهز ومتنسخ»).
+- [x] **#7 البنود الثابتة:** قوالب `FixedExpense` في `localStorage mshop.fixed-expenses.v1` (helpers نقية + اختبارات 13/13)، تسجيلها `record_shop_expense` المدقق نفسه — بلا مخطط جديد.
+- [x] **#8 QR حقيقي:** `buildPairingQrMatrix` async بـ`@zxing/library` (EC=M، UTF-8، margin 0)، `CompanionPairQr.vue` لوحة بيضاء فورًا + موديولات لما تجهز + quiet zone ٤، و`DevicesPrinterCard` بقت تستعمل نفس المكوّن لكود المتابعة. round-trip decode في `companion.test.ts` 13/13.
+- **الدليل:** `npm run typecheck` نظيف، `npm run test:unit` **211/211**، `npm run build` ‏1.72s. `cargo` مش هنا — `system.rs` والـ`Cargo.lock` (إضافة jni/ndk-context لقسم الحزمة) بيتحققوا على CI بـ`cargo test --locked`. `demo-smoke.mjs` معدّلة (التالف، التوستات، البنود الثابتة) بس Playwright مش متثبت في الـsandbox فمتشغلتش محليًا.
+
 ## ملاحظات تقنية منقولة (حتى لا تضيع)
 
 - **الترحيلات المطبَّقة لا تُعدَّل أبدًا.**

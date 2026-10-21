@@ -23,6 +23,7 @@ import WalletNumberChips from '../pos/WalletNumberChips.vue';
 import Icon from '../../ui/Icon.vue';
 import CameraScanButton from '../../ui/CameraScanButton.vue';
 import type { ScanReading } from '../../ui/scan';
+import { openInSystemBrowser } from '../../ui/open-link';
 import Modal from '../../ui/Modal.vue';
 import {
   buildRepairWhatsAppUrl,
@@ -547,9 +548,9 @@ function sendTicketWhatsApp(
     errorBanner.value = 'رقم تليفون العميل غير صالح لإرسال رسالة واتساب.';
     return;
   }
-  if (!navigator.webdriver) {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  // Out through the OS (`ui/open-link.ts`), not a `window.open` the WebView
+  // cannot honour; the banner stays honest — the message is prepared either way.
+  void openInSystemBrowser(url);
   okBanner.value =
     kind === 'ready'
       ? `تم تجهيز رسالة واتساب للعميل ${ticket.customerName} إن الجهاز جاهز للاستلام`

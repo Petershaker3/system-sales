@@ -158,9 +158,6 @@ describe('LAN Companion & Mobile Helper (Plan 3.2 / ADR-037)', () => {
     });
     assert.equal(sellerLook[0]!.costMinor, null);
 
-    const qr = buildPairingQrMatrix('MSHOP-PAIR|v1|سنتر بيتر|192.168.1.10:8787|PAIR-8787');
-    assert.equal(qr.length, 21);
-    assert.equal(qr[0]![0], true);
   });
 
   it('builds Phase 4 remote owner snapshot with separate repair/software money and canonical ETA e-Receipt v1.2 draft', () => {
@@ -334,5 +331,70 @@ describe('the link reports the wire (ADR-042)', () => {
     assert.match(intakeProgressLabel({ pushedAt: null, pushError: 'مرفوض' }, 10, digits), /الكمبيوتر ردّ: مرفوض/);
     assert.equal(barcodeScannerLabel(false), 'كاميرا المتصفح على الجهاز ده ما بتقرأش الباركود — اكتب الرقم أو الصقه');
     assert.match(barcodeScannerLabel(false), /^\D+$/, 'an excuse needs no numbers');
+  });
+});
+
+// The pairing QR is what a handset's camera must decode to join the shop's
+// link (`ADR-042`). What stood here before was decoration that scanned as
+// nothing; these tests hold the real thing to what a scanner needs.
+describe('the pairing QR is a real QR code (owner request 2026-10-21)', () => {
+  const payload = 'MSHOP-PAIR|v1|سنتر بيتر للموبايلات|192.168.1.10:8787|PAIR-8787';
+
+  /** The 7×7 finder every QR carries in three of its corners. */
+  function finderAt(grid: boolean[][], r0: number, c0: number): void {
+    for (let r = 0; r < 7; r += 1) {
+      for (let c = 0; c < 7; c += 1) {
+        const border = r === 0 || r === 6 || c === 0 || c === 6;
+        const inner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        assert.equal(
+          grid[r0 + r]![c0 + c],
+          border || inner,
+          `finder module ${r},${c} at corner ${r0},${c0}`,
+        );
+      }
+    }
+  }
+
+  it('encodes the payload as a square a scanner recognises', async () => {
+    const qr = await buildPairingQrMatrix(payload);
+    assert.ok(qr.length >= 21, `version 1 or bigger, got ${qr.length}`);
+    assert.ok(qr.every((row) => row.length === qr.length), 'a QR is square');
+    finderAt(qr, 0, 0);
+    finderAt(qr, 0, qr.length - 7);
+    finderAt(qr, qr.length - 7, 0);
+  });
+
+  it('is deterministic, and a new pair code is a new picture', async () => {
+    const again = await buildPairingQrMatrix(payload);
+    const rotated = await buildPairingQrMatrix(payload.replace('PAIR-8787', 'PAIR-4242'));
+    assert.deepEqual(again, await buildPairingQrMatrix(payload));
+    assert.notDeepEqual(again, rotated);
+  });
+
+  it('decodes back to exactly the payload, Arabic shop name included', async () => {
+    const {
+      BinaryBitmap,
+      HybridBinarizer,
+      QRCodeReader,
+      RGBLuminanceSource,
+    } = await import('@zxing/library');
+    const qr = await buildPairingQrMatrix(payload);
+
+    // The screen shows the modules on a white plate with a four-module quiet
+    // zone around them (`CompanionPairQr.vue`); decode what the camera sees.
+    const quiet = 4;
+    const n = qr.length + quiet * 2;
+    const luminances = new Int32Array(n * n).fill(0xff);
+    qr.forEach((row, r) => {
+      row.forEach((cell, c) => {
+        if (cell) luminances[(r + quiet) * n + (c + quiet)] = 0;
+      });
+    });
+
+    const bitmap = new BinaryBitmap(
+      new HybridBinarizer(new RGBLuminanceSource(luminances, n, n)),
+    );
+    const decoded = new QRCodeReader().decode(bitmap);
+    assert.equal(decoded.getText(), payload);
   });
 });

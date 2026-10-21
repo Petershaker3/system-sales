@@ -134,6 +134,7 @@ pub fn run() {
             commands::shortage::resolve_shortage,
             commands::shortage::delete_shortage,
             commands::shortage::add_all_suggested_shortages,
+            commands::system::open_external_url,
             commands::repair::repairs_overview,
             commands::repair::create_repair,
             commands::repair::update_repair_status,

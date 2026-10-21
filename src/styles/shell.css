@@ -6,7 +6,13 @@
 .rail {
   background: var(--surface); border-inline-end: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; padding: 12px 0 10px; gap: 4px; min-height: 0;
+  /* Every button is reachable on a short window: the rail scrolls instead of
+     squeezing or hiding the icons at the end (owner request 2026-10-21). */
+  overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
 }
+.rail::-webkit-scrollbar { width: 6px; }
+.rail::-webkit-scrollbar-thumb { background: var(--border-strong, var(--border)); border-radius: 3px; }
+.rail::-webkit-scrollbar-track { background: transparent; }
 .logo {
   width: 48px; height: 48px; border-radius: var(--r-m); background: var(--accent-fill); color: var(--on-accent);
   display: grid; place-items: center; font-weight: 700; font-size: 1.25rem; overflow: hidden; flex: none;
@@ -16,6 +22,8 @@
 .nav-btn {
   position: relative; width: 72px; padding: 9px 4px 7px; border-radius: var(--r-m); border: 0; background: transparent;
   color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: .8rem; font-weight: 600;
+  /* A full rail scrolls; it never flattens its own buttons. */
+  flex: none;
 }
 .nav-btn svg.i { width: 23px; height: 23px; }
 .nav-btn:hover { background: var(--surface-3); color: var(--text); }
