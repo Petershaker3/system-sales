@@ -4203,3 +4203,88 @@ fn the_camera_is_declared_asked_for_and_allowed_to_show_a_stream() {
         "android:init must run the manifest patch, or a fresh checkout breaks the camera (`ADR-043`)"
     );
 }
+
+const REPAIR_DOMAIN: &str = include_str!("../../src/domain/repair.rs");
+
+/// `ADR-046`: one press on any repair ticket reverses it and its money.
+#[test]
+fn undoing_a_repair_reverses_its_money_and_is_reachable_from_the_card() {
+    assert!(
+        REPAIR_SERVICE.contains("require_sensitivity(Sensitivity::Sensitive, now)?"),
+        "giving money back is sensitive work: it needs the owner's PIN (`ADR-017`, `ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains("approval_service::consume_in_tx"),
+        "the approval is spent inside the same transaction as the undo (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_DOMAIN.contains(r#"AlreadyCancelled => "REPAIR_ALREADY_CANCELLED""#),
+        "the second undo has its own code, not the delivery one (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains(r#"let was_delivered = existing.status.as_str() == "delivered";"#),
+        "cancel_repair must handle a delivered ticket instead of refusing it (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains(r#"existing.status.as_str() == "cancelled""#),
+        "a second undo is refused instead of refunding twice (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains("refunded_minor") && REPAIR_SERVICE.contains("approved_by"),
+        "the audit names the money that went back and who approved it (`ADR-046`)"
+    );
+    // The button is on the card itself, for every stage, not buried in a screen.
+    assert!(
+        REPAIRS_SCREEN_VUE.contains(":data-repair-undo=\"r.ticketNo\""),
+        "every ticket card carries the one-press undo (`ADR-046`)"
+    );
+    assert!(
+        REPAIRS_SCREEN_VUE.contains("data-undo-confirm") && REPAIRS_SCREEN_VUE.contains("withOwnerApproval"),
+        "the undo asks for the owner's PIN and confirms what goes back (`ADR-046`)"
+    );
+}
+
+const REPORTS_SCREEN_VUE: &str = include_str!("../../../src/screens/reports/ReportsScreen.vue");
+const ANALYTICS_TS: &str = include_str!("../../../src/screens/sales/analytics.ts");
+
+/// `ADR-047`: the reports tell the whole shop, then grade the day in one word.
+#[test]
+fn reports_cover_every_section_and_rate_the_day_in_one_word() {
+    for required in [
+        "export function rateDay",
+        "export function rateMonthVerdict",
+        "'ممتاز'",
+        "'جيد'",
+        "'متوسط'",
+        "'تحت المتوسط'",
+    ] {
+        assert!(
+            ANALYTICS_TS.contains(required),
+            "analytics.ts must contain `{required}`: the rating is a tested rule, not a screen's guess (`ADR-047`)"
+        );
+    }
+    assert!(
+        ANALYTICS_TS.contains("netMinor: grossMinor - input.expensesMinor"),
+        "the day's net must be the sections minus the expenses (`ADR-047`)"
+    );
+    for required in [
+        "data-reports-day-rating",
+        "data-day-rating-word",
+        "data-day-rating-line",
+        "data-day-section=\"goods\"",
+        "data-day-section=\"hardware\"",
+        "data-day-section=\"software\"",
+        "data-day-section=\"wallets\"",
+        "data-day-section=\"expenses\"",
+        "data-day-net",
+        "data-reports-month-expenses",
+        "data-reports-month-net",
+        "data-reports-verdict-word",
+        "expensesOverview",
+    ] {
+        assert!(
+            REPORTS_SCREEN_VUE.contains(required),
+            "ReportsScreen.vue must contain `{required}`: an amount with no section is a number nobody can act on (`ADR-047`)"
+        );
+    }
+}

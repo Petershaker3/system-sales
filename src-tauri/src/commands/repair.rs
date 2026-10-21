@@ -309,6 +309,7 @@ pub async fn deliver_repair(
     Ok(RepairTicketDto::from(ticket))
 }
 
+/// The one-press undo of a repair (`ADR-046`): reverses its money with the owner's PIN.
 #[tauri::command]
 pub async fn cancel_repair(
     ctx: Ctx<'_>,

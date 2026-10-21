@@ -268,7 +268,8 @@ export const ErrorCode = {
   COMPANION_INTAKE_GONE: 'COMPANION_INTAKE_GONE',
   COMPANION_INTAKE_NOT_RECEIVABLE: 'COMPANION_INTAKE_NOT_RECEIVABLE',
   REPAIR_NOT_FOUND: 'REPAIR_NOT_FOUND',
-  REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED'
+  REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED',
+  REPAIR_ALREADY_CANCELLED: 'REPAIR_ALREADY_CANCELLED'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -679,6 +680,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'تذكرة الصيانة دي مش موجودة.',
   [ErrorCode.REPAIR_ALREADY_DELIVERED]:
     'التذكرة دي اتسلّمت أو اتلغت قبل كده.',
+  [ErrorCode.REPAIR_ALREADY_CANCELLED]:
+    'التذكرة دي اتراجع عنها قبل كده — الفلوس رجعت مرة واحدة بس.',
 
   // الموبايلات المستعملة وفحص الـ IMEI (البند 2.2، ADR-032)
   [ErrorCode.IMEI_SECONDARY_MATCHES_PRIMARY]:

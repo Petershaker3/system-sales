@@ -8,7 +8,7 @@ import type {
   SaleHistoryLine,
   SaleHistoryPayment,
 } from '../../api/sales.ts';
-import { num, toLatinDigits } from '../../ui/format.ts';
+import { money, num, toLatinDigits } from '../../ui/format.ts';
 
 export type SalesRangeId = 'today' | 'yesterday' | 'week' | 'month' | 'month-x' | '';
 export type SalesViewTab = 'inv' | 'day' | 'prod' | 'cat';
@@ -1342,3 +1342,189 @@ export function chgFormat(ch: number | null): {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// The day's rating (`ADR-047`)
+// ---------------------------------------------------------------------------
+//
+// The month tab ranks a month against the shop's own history. A day has no such
+// history to rank against at 2 p.m., so it is rated on what the owner can act
+// on: did the day move, did it keep a margin, did the expenses eat it, and was
+// the shop busy. The four words are the owner's own (`تحت المتوسط / متوسط / جيد /
+// ممتاز`), not a percentage the counter has to interpret.
+
+export type DayRatingKey = 'excellent' | 'good' | 'average' | 'below' | 'idle';
+export type DayRatingWord = 'ممتاز' | 'جيد' | 'متوسط' | 'تحت المتوسط' | 'لسه بدري';
+
+export interface DayRatingInput {
+  /** Goods sold today, in piastres. */
+  readonly salesMinor: number;
+  /** Profit on those goods. */
+  readonly goodsProfitMinor: number;
+  /** Repair + software net profit today, `null` when the role may not see cost. */
+  readonly servicesProfitMinor: number | null;
+  /** Wallet/quick-service commissions today. */
+  readonly walletFeesMinor: number;
+  /** Everything that left the shop today, drawer and outside together. */
+  readonly expensesMinor: number;
+  readonly invoices: number;
+  /** Percent change of sales against yesterday at the same hour, `null` without yesterday. */
+  readonly vsYesterday: number | null;
+}
+
+export interface DayRating {
+  readonly key: DayRatingKey;
+  readonly word: DayRatingWord;
+  readonly tone: 'good' | 'ok' | 'warn' | 'danger';
+  readonly score: number;
+  /** What moved the rating, most important first, in the shop's words. */
+  readonly reasons: readonly string[];
+  /** Everything the day brought in, before expenses. */
+  readonly grossMinor: number;
+  /** What is left after the day's expenses: the number the owner actually made. */
+  readonly netMinor: number;
+  /** No sale, no service, no expense yet: the day has not started. */
+  readonly idle: boolean;
+}
+
+const DAY_RATING_WORDS: Record<DayRatingKey, DayRatingWord> = {
+  excellent: 'ممتاز',
+  good: 'جيد',
+  average: 'متوسط',
+  below: 'تحت المتوسط',
+  // A day that has not started is not a bad day: it gets a word of its own
+  // instead of accusing the shop of a slow morning.
+  idle: 'لسه بدري',
+};
+
+const DAY_RATING_TONES: Record<DayRatingKey, DayRating['tone']> = {
+  excellent: 'good',
+  good: 'ok',
+  average: 'ok',
+  below: 'warn',
+  idle: 'ok',
+};
+
+/**
+ * Rate the working day in one word (`ADR-047`), with the reasons kept so the
+ * owner can see *why* it says «جيد» instead of trusting a colour.
+ */
+export function rateDay(input: DayRatingInput): DayRating {
+  const servicesProfit = input.servicesProfitMinor ?? 0;
+  const grossMinor = input.goodsProfitMinor + servicesProfit + input.walletFeesMinor;
+  const netMinor = grossMinor - input.expensesMinor;
+  const idle =
+    input.salesMinor === 0 &&
+    servicesProfit === 0 &&
+    input.walletFeesMinor === 0 &&
+    input.expensesMinor === 0;
+
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (input.salesMinor > 0 || input.vsYesterday !== null) {
+    const ch = input.vsYesterday;
+    if (ch === null) {
+      reasons.push('مفيش يوم قبله في السجل نقارن بيه');
+    } else if (ch >= 10) {
+      score += 2;
+      reasons.push(`المبيعات زادت ${num(Math.round(ch))}% عن امبارح لنفس الوقت`);
+    } else if (ch >= 0) {
+      score += 1;
+      reasons.push('المبيعات ماشية زي امبارح أو أحسن شوية');
+    } else if (ch >= -10) {
+      reasons.push(`المبيعات أقل ${num(Math.round(Math.abs(ch)))}% من امبارح — فرق بسيط`);
+    } else {
+      score -= 1;
+      reasons.push(`المبيعات نزلت ${num(Math.round(Math.abs(ch)))}% عن امبارح`);
+    }
+  }
+
+  const marginPct = input.salesMinor > 0 ? Math.round((input.goodsProfitMinor / input.salesMinor) * 100) : null;
+  if (marginPct !== null) {
+    if (marginPct >= 15) {
+      score += 1;
+      reasons.push(`هامش الربح ${num(marginPct)}% — صحي`);
+    } else if (marginPct < 5) {
+      score -= 1;
+      reasons.push(`هامش الربح ${num(marginPct)}% بس — البيع بيخرج بربح ضعيف`);
+    }
+  }
+
+  if (input.expensesMinor > 0) {
+    if (input.expensesMinor > grossMinor) {
+      score -= 1;
+      reasons.push(`مصاريف النهارده ${money(input.expensesMinor)} أكبر من ربح اليوم كله`);
+    } else if (grossMinor > 0 && input.expensesMinor * 4 <= grossMinor) {
+      score += 1;
+      reasons.push(`مصاريف النهارده ${money(input.expensesMinor)} — أقل من ربع الربح`);
+    } else {
+      reasons.push(`مصاريف النهارده ${money(input.expensesMinor)}`);
+    }
+  }
+
+  if (input.invoices >= 5) {
+    score += 1;
+    reasons.push(`${num(input.invoices)} فواتير — المحل شغال`);
+  } else if (input.invoices > 0) {
+    reasons.push(`${num(input.invoices)} ${input.invoices === 1 ? 'فاتورة' : 'فواتير'} لحد دلوقتي`);
+  }
+
+  if (
+    servicesProfit > 0 &&
+    (input.salesMinor > 0 || input.walletFeesMinor > 0)
+  ) {
+    score += 1;
+    reasons.push('النهارده فيه بيع وصيانة/خدمات مع بعض — الدخل مش على مصدر واحد');
+  }
+
+  const key: DayRatingKey = idle
+    ? 'idle'
+    : score >= 4
+      ? 'excellent'
+      : score >= 2
+        ? 'good'
+        : score >= 0
+          ? 'average'
+          : 'below';
+
+  return {
+    key,
+    word: DAY_RATING_WORDS[key],
+    tone: idle ? 'ok' : DAY_RATING_TONES[key],
+    score,
+    reasons: reasons.slice(0, 3),
+    grossMinor,
+    netMinor,
+    idle,
+  };
+}
+
+/**
+ * The month's verdict in the same four words as the day (`ADR-047`), so the two
+ * tabs of «التقارير» never grade two different vocabularies. The month has an
+ * advantage the day does not: it is ranked against the shop's own history, so
+ * the rank decides the word instead of an absolute target nobody agreed on.
+ */
+export function rateMonthVerdict(
+  verdict: EvaluationVerdict,
+  rank: number | null,
+  of: number
+): { readonly key: DayRatingKey; readonly word: DayRatingWord } {
+  switch (verdict.key) {
+    case 'best':
+    case 'top3':
+      return { key: 'excellent', word: 'ممتاز' };
+    case 'low3':
+      return { key: 'below', word: 'تحت المتوسط' };
+    case 'mid':
+      if (rank === null || of <= 0) return { key: 'average', word: 'متوسط' };
+      return rank <= Math.ceil(of / 2)
+        ? { key: 'good', word: 'جيد' }
+        : { key: 'average', word: 'متوسط' };
+    case 'early':
+    case 'few':
+    default:
+      return { key: 'idle', word: 'لسه بدري' };
+  }
+}

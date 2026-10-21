@@ -2359,6 +2359,24 @@ check(
   intakeSubmitBlocked === false && walkIn !== undefined && !walkIn.text.includes('0100'),
   walkIn ? `${walkIn.no} · ${walkIn.text.replace(/\s+/g, ' ').slice(0, 120)}` : 'no walk-in card'
 );
+
+// One press, anywhere: undo the ticket we just wrote (`ADR-046`).
+await page.click(`[data-repair-undo="${walkIn?.no}"]`);
+await page.waitForSelector('[data-undo-confirm]', { timeout: 3000 });
+check(
+  'the undo sheet says exactly what goes back to the customer before anything moves',
+  (await text('[data-undo-refund]')).includes('0'),
+  await text('[data-undo-refund]')
+);
+await page.click('[data-undo-confirm]');
+await page.waitForSelector('[data-undo-confirm]', { hidden: true, timeout: 3000 });
+await sleep(250);
+check(
+  'undoing the ticket takes it off the board and the banner says what happened',
+  (await count(`[data-ticket-no="${walkIn?.no}"]`)) === 0 &&
+    (await text('[data-repairs-ok-banner]')).includes(`التراجع عن تذكرة ${walkIn?.no}`),
+  await text('[data-repairs-ok-banner]')
+);
   await page.evaluate(() => {
     document.querySelector('.content')?.scrollTo(0, 0);
     document.querySelectorAll('.toast').forEach((el) => el.remove());
@@ -2607,6 +2625,39 @@ check(
   );
   await shot('59-reports-today');
 
+  // --- ADR-047: the day in one word, and every section in one place ---------
+  const dayRatingKey = await page.$eval('[data-reports-day-rating]', (el) =>
+    el.getAttribute('data-day-rating'),
+  );
+  check(
+    'the day opens on a rating in one word — one of the owner\'s four, or «لسه بدري»',
+    (await count('[data-reports-day-rating]')) === 1 &&
+      ['excellent', 'good', 'average', 'below', 'idle'].includes(dayRatingKey ?? ''),
+    String(dayRatingKey)
+  );
+  const daySections = await page.$$eval('[data-day-section]', (els) =>
+    els.map((el) => el.getAttribute('data-day-section')),
+  );
+  check(
+    'the same card covers every section of the shop: goods, repair, software, wallets, expenses',
+    daySections.join(',') === 'goods,hardware,software,wallets,expenses',
+    daySections.join(',')
+  );
+  const expensesRow = await text('[data-day-section="expenses"]');
+  const netToday = await text('[data-day-net]');
+  check(
+    'the expenses it counted and the net after them are on the card, in money',
+    expensesRow.includes('−') && expensesRow.includes('من الدرج') && netToday.length > 0,
+    `${expensesRow.replace(/\s+/g, ' ')} | صافي ${netToday}`
+  );
+  check(
+    'the rating card explains itself, so «جيد» is never just a colour',
+    (await text('[data-day-rating-line]')).length > 0 &&
+      (await count('[data-day-rating-word]')) === 1,
+    await text('[data-day-rating-line]')
+  );
+  await shot('59b-reports-day-rating');
+
   // --- Phase 3 Item 3.1: Smart Alerts & Daily WhatsApp Summary (ADR-036) ---
   check(
     'Smart Alerts section in «النهارده» displays shortages, overdue repairs, and stagnant items (+30 days)',
@@ -2648,6 +2699,20 @@ check(
       (await count('[data-reports-month-row]')) >= 3 &&
       (await text('[data-reports-repairs-summary]')).includes('فلوس الصيانة لوحدها') &&
       (await text('[data-reports-repairs-summary]')).includes('فلوس السوفت وير لوحدها')
+  );
+  check(
+    'the month is graded in the same four words as the day, with its rank under it',
+    ['ممتاز', 'جيد', 'متوسط', 'تحت المتوسط', 'لسه بدري'].includes(
+      await text('[data-reports-verdict-word]')
+    ),
+    await text('[data-reports-verdict-word]')
+  );
+  check(
+    'the month names its expenses and the net every section leaves after them',
+    (await count('[data-reports-month-expenses]')) === 1 &&
+      (await text('[data-reports-month-net]')).length > 0 &&
+      (await text('[data-reports-month-expenses]')).includes('من الدرج'),
+    `${(await text('[data-reports-month-expenses]')).replace(/\s+/g, ' ')} | ${await text('[data-reports-month-net]')}`
   );
   await shot('60-reports-month');
 

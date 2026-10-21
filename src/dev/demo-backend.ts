@@ -5092,11 +5092,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return repairTicketDto(rep, u.role === 'manager');
   },
   cancel_repair: (args) => {
+    // The one-press undo (`ADR-046`): delivered tickets too, because every repair
+    // number in the demo is summed from the row — leaving `delivered` is the refund.
     const u = requireUser();
     const id = str(args, 'id').trim();
     const rep = demoRepairs.find((r) => r.id === id) ?? fail('REPAIR_NOT_FOUND');
-    if (rep.status === 'delivered' || rep.status === 'cancelled') {
-      fail('REPAIR_ALREADY_DELIVERED');
+    if (rep.status === 'cancelled') {
+      fail('REPAIR_ALREADY_CANCELLED');
     }
     rep.status = 'cancelled';
     if (typeof args?.['note'] === 'string' && args['note'].trim()) {

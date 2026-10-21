@@ -322,6 +322,8 @@ pub enum RepairError {
     PayWalletInvalid,
     NotFound,
     AlreadyDelivered,
+    /// The ticket was already undone; a second undo would refund twice (`ADR-046`).
+    AlreadyCancelled,
 }
 
 impl RepairError {
@@ -336,6 +338,7 @@ impl RepairError {
             RepairError::PayWalletInvalid => "REPAIR_PAY_WALLET_INVALID",
             RepairError::NotFound => "REPAIR_NOT_FOUND",
             RepairError::AlreadyDelivered => "REPAIR_ALREADY_DELIVERED",
+            RepairError::AlreadyCancelled => "REPAIR_ALREADY_CANCELLED",
         }
     }
 }

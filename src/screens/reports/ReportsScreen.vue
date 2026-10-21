@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import { listCategories, type Category } from '../../api/categories';
 import { describeError } from '../../api/errors';
+import { expensesOverview, type ExpenseOverview } from '../../api/expenses';
 import { listUsers, type Session, type UserSummary } from '../../api/identity';
 import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosProduct } from '../../api/pos';
@@ -17,6 +18,7 @@ import { walletsOverview, type WalletsOverview } from '../../api/wallet';
 import type { ScreenId } from '../../shell/nav';
 import { appearance } from '../../ui/appearance';
 import {
+  countWord,
   dg,
   fmtDay,
   fmtDayDate,
@@ -45,6 +47,8 @@ import {
   monthStart,
   nMonthsLabel,
   pct,
+  rateDay,
+  rateMonthVerdict,
   sameMonth,
   todayReport,
   type EvaluationNote,
@@ -75,7 +79,9 @@ const shiftState = ref<CurrentShiftState | null>(null);
 const todayWallets = ref<WalletsOverview | null>(null);
 const monthWallets = ref<WalletsOverview | null>(null);
 const todayRepairs = ref<RepairsOverview | null>(null);
+const todayExpenses = ref<ExpenseOverview | null>(null);
 const monthRepairs = ref<RepairsOverview | null>(null);
+const monthExpenses = ref<ExpenseOverview | null>(null);
 const shortagesData = ref<ShortagesOverview | null>(null);
 const posProducts = ref<readonly PosProduct[]>([]);
 const allUnits = ref<readonly ProductUnit[]>([]);
@@ -188,6 +194,10 @@ const monthMarginPct = computed(() =>
   monthRep.value.T.salesMinor
     ? Math.round((monthRep.value.T.profitMinor / monthRep.value.T.salesMinor) * 100)
     : 0,
+);
+
+const monthRating = computed(() =>
+  rateMonthVerdict(monthRep.value.verdict, monthRep.value.rank, monthRep.value.of),
 );
 
 const verdictText = computed(() => {
@@ -350,6 +360,53 @@ const todaySoftwareRevenueMinor = computed(
   () => todayRepairs.value?.software.totalRevenueMinor ?? 0,
 );
 
+// --- كل اللي حصل النهارده، وتقييمه في كلمة (`ADR-047`) ---------------------
+//
+// The tab used to answer «كام بعت» only. The owner asked for the whole shop:
+// goods, repairs, software, wallet commissions and the expenses that left it —
+// then one word for the day, the way he would say it himself.
+const todayGoodsProfitMinor = computed(() => todayData.value.profitMinor);
+
+const todayServicesProfitMinor = computed(() => {
+  const repairs = todayRepairs.value;
+  if (!repairs) return null;
+  if (
+    repairs.hardware.netProfitMinor === null &&
+    repairs.software.netProfitMinor === null
+  ) {
+    return null;
+  }
+  return (
+    (repairs.hardware.netProfitMinor ?? 0) + (repairs.software.netProfitMinor ?? 0)
+  );
+});
+
+const todayExpensesMinor = computed(() => todayExpenses.value?.totalMinor ?? 0);
+const todayDrawerExpensesMinor = computed(() => todayExpenses.value?.drawerMinor ?? 0);
+const todayOutsideExpensesMinor = computed(() => todayExpenses.value?.outsideMinor ?? 0);
+
+const todayRating = computed(() =>
+  rateDay({
+    salesMinor: todayData.value.salesMinor,
+    goodsProfitMinor: todayGoodsProfitMinor.value,
+    servicesProfitMinor: todayServicesProfitMinor.value,
+    walletFeesMinor: todayServicesFeeMinor.value,
+    expensesMinor: todayExpensesMinor.value,
+    invoices: todayData.value.invoices,
+    vsYesterday: todayData.value.vsYesterday,
+  }),
+);
+
+/** One line that says the same thing as the word, in money. */
+const todayRatingLine = computed(() => {
+  const r = todayRating.value;
+  if (r.idle) return 'لسه مفيش حركة النهارده — التقييم بيبدأ أول ما تبيع أو تستلم شغل';
+  if (r.netMinor < 0) {
+    return `صافي النهارده ${money(r.netMinor)} — المصاريف سبقت الربح`;
+  }
+  return `صافي النهارده ${money(r.netMinor)} بعد ${money(todayExpensesMinor.value)} مصاريف`;
+});
+
 const expectedDrawerCashMinor = computed(
   () => shiftState.value?.openShift?.totals.expectedCashMinor ?? 0,
 );
@@ -371,6 +428,18 @@ const monthSoftwareRevenueMinor = computed(
 
 const monthWalletFeesMinor = computed(
   () => monthWallets.value?.servicesWindow.servicesFeeMinor ?? 0,
+);
+
+const monthExpensesMinor = computed(() => monthExpenses.value?.totalMinor ?? 0);
+
+/** What the month made after the money that left it (`ADR-047`). */
+const monthNetMinor = computed(
+  () =>
+    monthRep.value.T.profitMinor +
+    (monthRepairs.value?.hardware.netProfitMinor ?? 0) +
+    (monthRepairs.value?.software.netProfitMinor ?? 0) +
+    monthWalletFeesMinor.value -
+    monthExpensesMinor.value,
 );
 
 const smartAlerts = computed(() =>
@@ -515,12 +584,14 @@ async function loadMonthAuxiliary(monthDate: Date): Promise<void> {
   const fromMs = monthStart(monthDate).getTime();
   const toMs = addDays(monthEnd(monthDate), 1).getTime() - 1;
   const todayStartMs = dayStart(nowDate.value).getTime();
-  const [wOv, rOv] = await Promise.all([
+  const [wOv, rOv, eOv] = await Promise.all([
     walletsOverview(todayStartMs, fromMs, toMs).catch(() => null),
     repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
+    expensesOverview(fromMs, toMs).catch(() => null),
   ]);
   monthWallets.value = wOv;
   monthRepairs.value = rOv;
+  monthExpenses.value = eOv;
 }
 
 async function loadAll(): Promise<void> {
@@ -536,6 +607,7 @@ async function loadAll(): Promise<void> {
       shiftData,
       wToday,
       rToday,
+      eToday,
       shOv,
       posCat,
       unitsList,
@@ -546,6 +618,7 @@ async function loadAll(): Promise<void> {
       currentShiftSummary().catch(() => null),
       walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(() => null),
       repairsOverview({ fromTs: todayStartMs, toTs: todayEndMs }).catch(() => null),
+      expensesOverview(todayStartMs, todayEndMs).catch(() => null),
       shortagesOverview().catch(() => null),
       posCatalog().catch(() => ({ products: [], categories: [], brands: [], units: [] })),
       listAllProductUnits().catch(() => [] as ProductUnit[]),
@@ -556,6 +629,7 @@ async function loadAll(): Promise<void> {
     shiftState.value = shiftData;
     todayWallets.value = wToday;
     todayRepairs.value = rToday;
+    todayExpenses.value = eToday;
     shortagesData.value = shOv;
     posProducts.value = posCat.products;
     allUnits.value = unitsList;
@@ -581,6 +655,8 @@ function exportCsv(): void {
     ['إيراد الصيانة (ج.م)', String(monthHardwareRevenueMinor.value / 100)],
     ['إيراد السوفت وير (ج.م)', String(monthSoftwareRevenueMinor.value / 100)],
     ['عمولات المحافظ (ج.م)', String(monthWalletFeesMinor.value / 100)],
+    ['مصاريف الشهر (ج.م)', String(monthExpensesMinor.value / 100)],
+    ['صافي الشهر بعد المصاريف (ج.م)', String(monthNetMinor.value / 100)],
   ];
   const csv = lines.map((row) => row.join(',')).join('\n');
   if (
@@ -700,6 +776,79 @@ onBeforeUnmount(() => {
 
     <!-- ======================= تبويب النهارده ======================= -->
     <template v-if="activeTab === 'today'">
+      <!-- تقييم النهارده في كلمة، فوق كل حاجة (`ADR-047`) -->
+      <section
+        class="card day-rating"
+        :class="todayRating.tone"
+        data-reports-day-rating
+        :data-day-rating="todayRating.key"
+      >
+        <div class="dr-word">
+          <small>تقييم النهارده</small>
+          <strong data-day-rating-word>{{ todayRating.word }}</strong>
+        </div>
+        <div class="dr-body">
+          <p class="dr-line" data-day-rating-line>{{ todayRatingLine }}</p>
+          <ul v-if="todayRating.reasons.length" class="dr-reasons">
+            <li v-for="(why, i) in todayRating.reasons" :key="i">{{ why }}</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- كل اللي حصل النهارده: كل قسم وفلوسه، والمصاريف اللي خرجت، والصافي -->
+      <section class="card" data-reports-day-sections>
+        <div class="card-h">
+          <h3><Icon name="receipt" /> كل اللي حصل النهارده</h3>
+          <span class="muted small">من أول اليوم لحد دلوقتي</span>
+        </div>
+        <div class="dl">
+          <div class="li" data-day-section="goods">
+            <span>
+              بيع بضاعة ({{ todayData.invoices ? countWord(todayData.invoices, 'فاتورة', 'فاتورتين', 'فواتير') : 'مفيش فواتير' }})
+            </span>
+            <span class="sp"></span>
+            <b class="num">{{ money(todayData.salesMinor) }}</b>
+            <small class="muted">ربح {{ money(todayGoodsProfitMinor) }}</small>
+          </div>
+          <div class="li" data-day-section="hardware">
+            <span>صيانة</span>
+            <span class="sp"></span>
+            <b class="num">{{ money(todayHardwareRevenueMinor) }}</b>
+            <small class="muted">
+              صافي
+              {{ money(todayRepairs?.hardware.netProfitMinor ?? todayHardwareRevenueMinor) }}
+            </small>
+          </div>
+          <div class="li" data-day-section="software">
+            <span>سوفت وير</span>
+            <span class="sp"></span>
+            <b class="num">{{ money(todaySoftwareRevenueMinor) }}</b>
+            <small class="muted">
+              صافي
+              {{ money(todayRepairs?.software.netProfitMinor ?? todaySoftwareRevenueMinor) }}
+            </small>
+          </div>
+          <div class="li" data-day-section="wallets">
+            <span>عمولات محافظ وخدمات</span>
+            <span class="sp"></span>
+            <b class="num">{{ money(todayServicesFeeMinor) }}</b>
+          </div>
+          <div class="li danger-t" data-day-section="expenses">
+            <span>مصاريف ({{ num(todayExpenses?.count ?? 0) }} بند)</span>
+            <span class="sp"></span>
+            <b class="num">− {{ money(todayExpensesMinor) }}</b>
+            <small class="muted">
+              من الدرج {{ money(todayDrawerExpensesMinor) }} · من برّه
+              {{ money(todayOutsideExpensesMinor) }}
+            </small>
+          </div>
+        </div>
+        <div class="dr-total" :class="todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
+          <span>صافي النهارده بعد المصاريف</span>
+          <strong class="num" data-day-net>{{ money(todayRating.netMinor) }}</strong>
+        </div>
+      </section>
+
       <div class="cards" data-reports-today-kpis>
         <div class="card kpi" data-reports-today-kpi="sales">
           <div class="label">مبيعات النهارده</div>
@@ -1230,7 +1379,8 @@ onBeforeUnmount(() => {
               "
             />
             <div>
-              <b>{{ verdictText }}</b>
+              <b data-reports-verdict-word>{{ monthRating.word }}</b>
+              <small>{{ verdictText }}</small>
               <small v-if="monthRep.rank">
                 الترتيب بمتوسط مبيعات اليوم{{
                   monthRep.live ? '، من غير النهارده' : ''
@@ -1543,6 +1693,20 @@ onBeforeUnmount(() => {
               {{ num(monthWallets?.servicesWindow.servicesCount ?? 0) }} عملية خدمة
             </div>
           </div>
+
+          <div class="card kpi" data-reports-month-expenses>
+            <div class="label"><Icon name="hand-coins" /> مصاريف الشهر</div>
+            <div class="value num danger-t">{{ money(monthExpensesMinor) }}</div>
+            <div class="sub muted">
+              من الدرج {{ money(monthExpenses?.drawerMinor ?? 0) }} · من برّه
+              {{ money(monthExpenses?.outsideMinor ?? 0) }}
+            </div>
+          </div>
+        </div>
+
+        <div class="dr-total" :class="monthNetMinor < 0 ? 'danger-t' : 'ok-t'">
+          <span>صافي الشهر بعد المصاريف (كل الأقسام)</span>
+          <strong class="num" data-reports-month-net>{{ money(monthNetMinor) }}</strong>
         </div>
       </div>
 
@@ -1670,3 +1834,77 @@ onBeforeUnmount(() => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* تقييم النهارده (`ADR-047`): كلمة واحدة كبيرة، والسبب جنبها. */
+.day-rating {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  margin-bottom: 14px;
+  border-inline-start: 5px solid var(--border);
+}
+
+.day-rating.good { border-inline-start-color: var(--ok); }
+.day-rating.ok { border-inline-start-color: var(--accent-text); }
+.day-rating.warn { border-inline-start-color: var(--warn); }
+.day-rating.danger { border-inline-start-color: var(--danger); }
+
+.dr-word {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  min-width: 130px;
+  padding-inline-end: 16px;
+  border-inline-end: 1px solid var(--border);
+}
+
+.dr-word small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dr-word strong {
+  font-size: 1.6rem;
+  line-height: 1.2;
+}
+
+.day-rating.good .dr-word strong { color: var(--ok); }
+.day-rating.ok .dr-word strong { color: var(--accent-text); }
+.day-rating.warn .dr-word strong { color: var(--warn); }
+.day-rating.danger .dr-word strong { color: var(--danger); }
+
+.dr-body {
+  display: grid;
+  gap: 6px;
+  align-content: center;
+}
+
+.dr-line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.dr-reasons {
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: grid;
+  gap: 2px;
+}
+
+.dr-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-weight: 700;
+}
+
+.dr-total strong { font-size: 1.15rem; }
+</style>

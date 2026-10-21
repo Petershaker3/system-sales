@@ -16,6 +16,7 @@ import {
 } from '../../api/repairs';
 import { listCustomers, type Customer } from '../../api/customer';
 import { appearance } from '../../ui/appearance';
+import { withOwnerApproval } from '../../shell/approval';
 import { describeError } from '../../api/errors';
 import { money, moneyInputValue, moneyUnitWord } from '../../ui/format';
 import WalletNumberChips from '../pos/WalletNumberChips.vue';
@@ -487,21 +488,53 @@ async function saveDetailChanges(): Promise<void> {
   }
 }
 
-async function handleCancelTicket(): Promise<void> {
-  if (!detailTarget.value) return;
-  detailSubmitting.value = true;
+// --- One press undo (`ADR-046`) ---------------------------------------------
+//
+// Every repair number — the drawer, the wallet balance, today's revenue and
+// profit — is summed from the ticket row, so a delivered ticket is undone by
+// leaving `delivered`: the money it brought in stops counting, which is exactly
+// the refund. Nothing here edits or deletes a row; the audit log keeps who
+// undid what, when, and how much went back.
+const undoTarget = ref<RepairTicket | null>(null);
+const undoReason = ref('');
+const undoSubmitting = ref(false);
+
+/** What the customer gets back if this ticket is undone, in money. */
+const undoRefundMinor = computed<number>(() => {
+  const ticket = undoTarget.value;
+  if (!ticket) return 0;
+  return ticket.status === 'delivered' ? ticket.finalPriceMinor : ticket.depositMinor;
+});
+
+function askUndo(ticket: RepairTicket): void {
+  undoTarget.value = ticket;
+  undoReason.value = '';
+  errorBanner.value = '';
+  detailTarget.value = null;
+}
+
+async function confirmUndo(): Promise<void> {
+  const ticket = undoTarget.value;
+  if (!ticket) return;
+  undoSubmitting.value = true;
   try {
-    const cancelled = await cancelRepair(
-      detailTarget.value.id,
-      detailNote.value.trim() || 'إلغاء التذكرة'
+    const refund = undoRefundMinor.value;
+    const outcome = await withOwnerApproval(
+      () => cancelRepair(ticket.id, undoReason.value.trim() || 'تراجع عن العملية'),
+      `التراجع عن تذكرة ${ticket.ticketNo}`
     );
-    detailTarget.value = null;
-    okBanner.value = `تم إلغاء تذكرة ${cancelled.ticketNo}`;
+    if (outcome.status === 'cancelled') return;
+    undoTarget.value = null;
+    okBanner.value =
+      refund > 0
+        ? `تم التراجع عن تذكرة ${outcome.value.ticketNo} ورجّعنا ${money(refund)} للعميل`
+        : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
     await loadOverview();
+    emit('changed');
   } catch (e) {
-    detailError.value = describeError(e);
+    errorBanner.value = describeError(e);
   } finally {
-    detailSubmitting.value = false;
+    undoSubmitting.value = false;
   }
 }
 
@@ -942,6 +975,17 @@ onMounted(async () => {
                     المرحلة الجاية ←
                   </button>
                 </template>
+
+                <!-- One press, every stage (`ADR-046`) -->
+                <button
+                  type="button"
+                  class="btn sm danger ghost"
+                  title="تراجع عن العملية — يرجّع الفلوس والحسابات زي ما كانت"
+                  :data-repair-undo="r.ticketNo"
+                  @click="askUndo(r)"
+                >
+                  <Icon name="rotate-ccw" />
+                </button>
               </div>
             </div>
           </div>
@@ -1362,6 +1406,75 @@ onMounted(async () => {
       </template>
     </Modal>
 
+    <!-- نافذة التراجع عن العملية (`ADR-046`): كل التذاكر، بضغطة واحدة -->
+    <Modal
+      v-if="undoTarget"
+      :title="`تراجع عن تذكرة ${undoTarget.ticketNo}`"
+      :sub="`${undoTarget.deviceName} · ${customerLabel(undoTarget)}`"
+      size="md"
+      @close="undoTarget = null"
+    >
+      <div style="display: grid; gap: 12px">
+        <div class="note" style="margin: 0">
+          <Icon name="info" />
+          <span>
+            التراجع بيرجّع العملية والحسابات زي ما كانت قبلها: التذكرة بتتقفل، والفلوس
+            اللي اتاخدت عليها بتخرج من تحصيل اليوم ومن رصيد المحفظة اللي اتحصّلت فيها.
+          </span>
+        </div>
+
+        <div class="card" style="padding: 12px; background: var(--surface-2)">
+          <div class="row" style="justify-content: space-between">
+            <span class="muted">هيرجع للعميل:</span>
+            <strong class="num" :class="{ 'danger-txt': undoRefundMinor > 0 }" data-undo-refund>
+              {{ egp(undoRefundMinor) }}
+            </strong>
+          </div>
+          <div
+            v-if="undoTarget.status === 'delivered'"
+            class="muted small"
+            style="margin-top: 6px"
+          >
+            التذكرة دي كانت اتسلّمت — التراجع بيلغي التحصيل كله ({{ egp(undoTarget.finalPriceMinor) }})
+            مش العربون بس.
+          </div>
+          <div
+            v-else-if="undoRefundMinor > 0"
+            class="muted small"
+            style="margin-top: 6px"
+          >
+            العربون اللي اتاخد وقت الاستلام هيرجع كاش.
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="lbl">سبب التراجع (اختياري)</span>
+          <input
+            v-model="undoReason"
+            type="text"
+            class="input"
+            placeholder="مثلًا: العميل رجع الجهاز أو غلطة في التسجيل"
+            data-undo-reason
+          />
+        </label>
+
+        <div v-if="errorBanner" class="banner err" role="alert">{{ errorBanner }}</div>
+      </div>
+
+      <template #foot>
+        <button type="button" class="btn" @click="undoTarget = null">سيبها زي ما هي</button>
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="undoSubmitting"
+          data-undo-confirm
+          @click="confirmUndo"
+        >
+          {{ undoSubmitting ? 'بيتراجع...' : 'أيوه، تراجع' }}
+        </button>
+      </template>
+    </Modal>
+
     <!-- نافذة تفاصيل وتعديل التذكرة المفتوحة -->
     <Modal
       v-if="detailTarget"
@@ -1444,9 +1557,9 @@ onMounted(async () => {
           class="btn danger ghost"
           :disabled="detailSubmitting"
           data-detail-cancel-ticket
-          @click="handleCancelTicket"
+          @click="detailTarget && askUndo(detailTarget)"
         >
-          إلغاء التذكرة
+          تراجع عن العملية
         </button>
         <div style="flex: 1"></div>
         <button
