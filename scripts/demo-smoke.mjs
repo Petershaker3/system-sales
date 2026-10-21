@@ -2377,6 +2377,44 @@ check(
     (await text('[data-repairs-ok-banner]')).includes(`التراجع عن تذكرة ${walkIn?.no}`),
   await text('[data-repairs-ok-banner]')
 );
+
+// The money half: a ticket collected in the same minute it was written leaves
+// the day's revenue when it is undone, and comes back to it when it is not.
+const hwBeforeUndo = await text('[data-hw-revenue]');
+await page.click('[data-repairs-new]');
+await page.waitForSelector('[data-intake-device]', { timeout: 3000 });
+await page.click('[data-intake-deliver-now]');
+await page.type('[data-intake-device]', 'إنفينكس Hot 40');
+await page.click('[data-intake-issue-chip="شاشة"]');
+await page.type('[data-intake-price]', '900');
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-phone]', { hidden: true, timeout: 3000 });
+await sleep(250);
+const paidTicketNo = ((await text('[data-repairs-ok-banner]')).match(/R-\d+/) ?? [''])[0];
+const hwAfterCollect = await text('[data-hw-revenue]');
+check(
+  'a ticket collected on the spot adds its money to the hardware revenue',
+  paidTicketNo !== '' && hwAfterCollect !== hwBeforeUndo,
+  `${paidTicketNo}: ${hwBeforeUndo} → ${hwAfterCollect}`
+);
+
+await page.click(`[data-repair-undo="${paidTicketNo}"]`);
+await page.waitForSelector('[data-undo-confirm]', { timeout: 3000 });
+check(
+  'the undo of a collected ticket says the whole collection goes back, not just a deposit',
+  (await text('[data-undo-refund]')).includes('900') &&
+    (await text('.modal')).includes('كانت اتسلّمت'),
+  await text('[data-undo-refund]')
+);
+await page.click('[data-undo-confirm]');
+await page.waitForSelector('[data-undo-confirm]', { hidden: true, timeout: 3000 });
+await sleep(300);
+check(
+  'undoing it takes the money back out of the hardware revenue and off the board',
+  (await text('[data-hw-revenue]')) === hwBeforeUndo &&
+    (await count(`[data-ticket-no="${paidTicketNo}"]`)) === 0,
+  `${hwAfterCollect} → ${await text('[data-hw-revenue]')}`
+);
   await page.evaluate(() => {
     document.querySelector('.content')?.scrollTo(0, 0);
     document.querySelectorAll('.toast').forEach((el) => el.remove());

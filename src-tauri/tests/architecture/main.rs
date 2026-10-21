@@ -4267,7 +4267,7 @@ fn reports_cover_every_section_and_rate_the_day_in_one_word() {
         );
     }
     assert!(
-        ANALYTICS_TS.contains("netMinor: grossMinor - input.expensesMinor"),
+        ANALYTICS_TS.contains("const netMinor = grossMinor - input.expensesMinor;"),
         "the day's net must be the sections minus the expenses (`ADR-047`)"
     );
     for required in [
