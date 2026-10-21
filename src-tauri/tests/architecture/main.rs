@@ -4059,12 +4059,16 @@ fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
     );
 
     // One camera, every field. The decoder lives in the component, not in a screen.
-    for required in ["BarcodeDetector", "getUserMedia", "data-camera-scan", "classifyScan"] {
+    for required in ["getUserMedia", "data-camera-scan", "createFrameDecoder"] {
         assert!(
             CAMERA_SCAN_BUTTON_VUE.contains(required),
             "CameraScanButton.vue must contain `{required}`: the camera is one component (`ADR-043`)"
         );
     }
+    assert!(
+        SCAN_TS.contains("BarcodeDetector") && SCAN_TS.contains("classifyScan"),
+        "src/ui/scan.ts owns the decoder (hardware first, ZXing as the fallback) and the 15-digit rule (`ADR-043`)"
+    );
     assert!(
         SCAN_TS.contains("export function classifyScan"),
         "src/ui/scan.ts owns the 15-digit rule for every field (`ADR-043`)"
@@ -4244,7 +4248,6 @@ fn undoing_a_repair_reverses_its_money_and_is_reachable_from_the_card() {
     );
 }
 
-const REPORTS_SCREEN_VUE: &str = include_str!("../../../src/screens/reports/ReportsScreen.vue");
 const ANALYTICS_TS: &str = include_str!("../../../src/screens/sales/analytics.ts");
 
 /// `ADR-047`: the reports tell the whole shop, then grade the day in one word.

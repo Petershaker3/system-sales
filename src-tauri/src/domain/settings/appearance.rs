@@ -717,7 +717,12 @@ mod tests {
         );
         assert!(a.set("ui.money_unit", "piastre").is_ok());
         assert_eq!(a.money_unit, "piastre");
-        assert!(a.set("ui.money_unit", "EGP").is_ok(), "stored lower case");
+        assert_eq!(
+            a.set("ui.money_unit", "EGP").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID"),
+            "the two words are exact, exactly like every other choice"
+        );
+        assert!(a.set("ui.money_unit", "egp").is_ok());
         assert_eq!(a.money_unit, "egp");
         assert_eq!(
             a.set("ui.money_unit", "dollar").map_err(|e| e.code()),
