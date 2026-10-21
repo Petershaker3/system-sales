@@ -760,7 +760,7 @@ onMounted(async () => {
               <template v-else-if="exchangeDiff.direction === 'customer_receives'">
                 ترد للعميل فرق: {{ money(exchangeDiff.absDifferenceMinor) }}
               </template>
-              <template v-else>استبدال بدون فرق (0 ج.م)</template>
+              <template v-else>استبدال بدون فرق ({{ money(0) }})</template>
             </b>
           </div>
         </div>

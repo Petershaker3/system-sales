@@ -1878,6 +1878,33 @@ check(
   settingsTabLabels.join('، ')
 );
 
+// --- ADR-044: the unit on the glass is a setting; the stored amount never moves --
+await page.click('[data-settings-tab="look"]');
+await sleep(200);
+const moneyUnitCard = await text('[data-money-unit-card]');
+check(
+  'the Shape tab offers «وحدة الفلوس» with pounds chosen and a live example',
+  moneyUnitCard.includes('وحدة الفلوس') &&
+    moneyUnitCard.includes('جنيه') &&
+    moneyUnitCard.includes('1,500 ج.م'),
+  moneyUnitCard
+);
+await page.click('[data-money-unit="piastre"]');
+await sleep(250);
+const piastreCard = await text('[data-money-unit-card]');
+check(
+  'choosing piastres redraws the same amount in piastres before the owner leaves the screen',
+  piastreCard.includes('150,000 قرش') && !piastreCard.includes('1,500 ج.م'),
+  piastreCard
+);
+await page.click('[data-money-unit="egp"]');
+await sleep(250);
+check(
+  'switching back to pounds redraws it as pounds again, so one press is enough',
+  (await text('[data-money-unit-sample]')).includes('1,500 ج.م'),
+  await text('[data-money-unit-sample]')
+);
+
 await page.click('[data-settings-tab="devices"]');
 await sleep(150);
 const devicesVisible = await page.$eval(
@@ -2297,6 +2324,40 @@ await sleep(200);
 check(
   'Advancing R-1096 moves it from «استلام» to «فحص»',
   (await count('[data-kanban-col="diagnosing"] [data-ticket-no="R-1096"]')) === 1
+);
+
+// A walk-in needs no name and no number (`ADR-045`): the device and the fault are
+// the ticket, and the card says «بدون اسم» instead of showing an empty line.
+await page.click('[data-repairs-new]');
+await page.waitForSelector('[data-intake-customer]', { timeout: 3000 });
+const intakeCustomerField = await page.$eval(
+  '[data-intake-customer]',
+  (el) => el.closest('label')?.textContent ?? ''
+);
+const intakePhoneField = await page.$eval(
+  '[data-intake-phone]',
+  (el) => el.closest('label')?.textContent ?? ''
+);
+check(
+  'the intake form says the customer name and phone are optional',
+  intakeCustomerField.includes('اختياري') && intakePhoneField.includes('اختياري'),
+  `${intakeCustomerField.trim()} | ${intakePhoneField.trim()}`
+);
+await page.type('[data-intake-device]', 'أوبو A18');
+await page.click('[data-intake-issue-chip="بطارية"]');
+await page.type('[data-intake-price]', '450');
+const intakeSubmitBlocked = await page.$eval('[data-intake-submit]', (el) => el.disabled);
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-customer]', { hidden: true, timeout: 3000 });
+await sleep(250);
+const walkInTickets = await page.$$eval('[data-kanban-col="received"] .ticket', (els) =>
+  els.map((el) => ({ no: el.getAttribute('data-ticket-no'), text: el.textContent ?? '' }))
+);
+const walkIn = walkInTickets.find((t) => t.text.includes('بدون اسم'));
+check(
+  'a ticket saved with no name and no phone lands in «استلام» and reads «بدون اسم»',
+  intakeSubmitBlocked === false && walkIn !== undefined && !walkIn.text.includes('0100'),
+  walkIn ? `${walkIn.no} · ${walkIn.text.replace(/\s+/g, ' ').slice(0, 120)}` : 'no walk-in card'
 );
   await page.evaluate(() => {
     document.querySelector('.content')?.scrollTo(0, 0);

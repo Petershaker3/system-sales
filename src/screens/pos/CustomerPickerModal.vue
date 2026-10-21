@@ -10,7 +10,7 @@ import {
 } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import WalletNumberChips from './WalletNumberChips.vue';
-import { money, num, parseMoney } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
@@ -76,7 +76,7 @@ async function submitNewCustomer(): Promise<void> {
 
 function openRepay(customer: Customer): void {
   repayTarget.value = customer;
-  repayAmountText.value = String(customer.balanceMinor / 100);
+  repayAmountText.value = moneyInputValue(customer.balanceMinor);
   repayMethod.value = 'cash';
   repayWalletId.value = null;
   repayNote.value = '';
@@ -139,7 +139,7 @@ async function submitRepay(): Promise<void> {
         </div>
       </div>
       <div class="field">
-        <label for="repay-amount-in">المبلغ المدفوع (ج.م)</label>
+        <label for="repay-amount-in">المبلغ المدفوع ({{ moneyUnitWord() }})</label>
         <input
           id="repay-amount-in"
           v-model="repayAmountText"
@@ -297,7 +297,7 @@ async function submitRepay(): Promise<void> {
           :disabled="busy"
           @click="submitRepay"
         >
-          <Icon name="check" /> تسجيل السداد ({{ num(parseMoney(repayAmountText) ? parseMoney(repayAmountText)! / 100 : 0) }} ج.م)
+          <Icon name="check" /> تسجيل السداد ({{ money(parseMoney(repayAmountText) ?? 0) }})
         </button>
         <button
           type="button"

@@ -27,6 +27,7 @@ import {
 } from '../api/images';
 import { approxKilobytes, shrinkImageFile } from '../screens/store/image';
 import CameraScanButton from '../ui/CameraScanButton.vue';
+import { money, moneyInputValue, moneyUnitWord } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import type { IconName } from '../ui/icons';
 import type { ScanReading } from '../ui/scan';
@@ -112,7 +113,7 @@ async function loadCategories(): Promise<void> {
 
 function priceLabel(product: Product): string {
   if (product.salePriceMinor === null) return 'غير محدد';
-  return `${(product.salePriceMinor / 100).toFixed(2)} ج.م`;
+  return money(product.salePriceMinor);
 }
 
 function dispositionLabel(disposition: Disposition): string {
@@ -220,7 +221,7 @@ function startEdit(product: Product): void {
   // Null must render as an empty field, not as "0.00", or the operator would
   // save a free price onto a product that simply had none.
   formPriceMinor.value =
-    product.salePriceMinor === null ? '' : (product.salePriceMinor / 100).toFixed(2);
+    product.salePriceMinor === null ? '' : moneyInputValue(product.salePriceMinor);
   formCategory.value = product.categoryId ?? '';
 }
 
@@ -410,7 +411,7 @@ onMounted(() => {
       </label>
 
       <label class="field">
-        <span>سعر البيع (اختياري)</span>
+        <span>سعر البيع (اختياري) — {{ moneyUnitWord() }}</span>
         <input
           v-model="formPriceMinor"
           inputmode="decimal"

@@ -8,6 +8,8 @@
 // The digit style (Latin 123 or Arabic-Indic ١٢٣) is a display setting
 // (Settings → الشكل). It lives in this module so every formatter agrees.
 
+import { ref } from 'vue';
+
 export type Digits = 'latin' | 'arabic';
 
 let digits: Digits = 'latin';
@@ -39,11 +41,46 @@ export function dg(text: string | number): string {
 }
 
 /**
- * Piastres → «150 ج.م» / «150.5 ج.م». The division is for display only: the
- * formatter rounds to two decimals, and the result is never computed with.
+ * What the shop types and reads (`Settings → الشكل → وحدة الفلوس`).
+ *
+ * The database always stores piastres (`ADR-010`); this is the unit on the glass.
+ * «جنيه» is the default because that is how a counter speaks, and «قرش» exists for
+ * the shops that price small accessories in piastres. It is a `ref` on purpose:
+ * every `money()` drawn on a screen re-renders the moment the owner changes the
+ * choice, without a page reload.
+ */
+export type MoneyUnit = 'egp' | 'piastre';
+
+const moneyUnit = ref<MoneyUnit>('egp');
+
+export function setMoneyUnit(next: MoneyUnit): void {
+  moneyUnit.value = next;
+}
+
+export function currentMoneyUnit(): MoneyUnit {
+  return moneyUnit.value;
+}
+
+/** The word beside a money field: «جنيه» or «قرش». */
+export function moneyUnitWord(): string {
+  return moneyUnit.value === 'egp' ? 'جنيه' : 'قرش';
+}
+
+/**
+ * Piastres → «150 ج.م» / «150.5 ج.م», or «150,000 قرش» in piastre mode. The
+ * division is for display only: the formatter rounds to two decimals, and the
+ * result is never computed with.
  */
 export function money(minor: number): string {
+  if (moneyUnit.value === 'piastre') return `${num(minor)} قرش`;
   return `${num(minor / 100)} ج.م`;
+}
+
+/** A stored amount → the text a money field should be seeded with, in the current unit. */
+export function moneyInputValue(minor: number): string {
+  if (moneyUnit.value === 'piastre') return String(Math.round(minor));
+  const pounds = minor / 100;
+  return Number.isInteger(pounds) ? String(pounds) : pounds.toFixed(2);
 }
 
 /** Arabic-Indic and Persian digits → Latin, so input typed either way parses. */
@@ -59,6 +96,13 @@ export function toLatinDigits(text: string): string {
  */
 export function parseMoney(text: string): number | null {
   const t = toLatinDigits(text).replace(/[,\s٬]/g, '').replace('٫', '.');
+  if (moneyUnit.value === 'piastre') {
+    // One piastre is the smallest unit, so a fraction of one is not a number this
+    // field can hold — it is refused rather than rounded behind the shop's back.
+    if (!/^\d+$/.test(t)) return null;
+    const minor = Number(t);
+    return Number.isSafeInteger(minor) ? minor : null;
+  }
   if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
   const [whole = '0', frac = ''] = t.split('.');
   const minor = Number(whole) * 100 + Number(frac.padEnd(2, '0'));

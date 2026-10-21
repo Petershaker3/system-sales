@@ -238,12 +238,13 @@ pub fn validate_customer(
 ) -> Result<(String, String), RepairError> {
     let name = customer_name.trim();
     let phone = customer_phone.trim();
-    let name_len = name.chars().count();
-    let phone_len = phone.chars().count();
-    if name_len == 0 || name_len > MAX_REPAIR_CUSTOMER_NAME_CHARS {
+    // Empty is a fact, not a missing step: a walk-in ticket is written with the
+    // device and the fault, and the name is offered rather than demanded
+    // (`docs/decisions/ADR-045-optional-repair-customer.md`, migration `0033`). The caps stay.
+    if name.chars().count() > MAX_REPAIR_CUSTOMER_NAME_CHARS {
         return Err(RepairError::CustomerRequired);
     }
-    if phone_len == 0 || phone_len > MAX_REPAIR_CUSTOMER_PHONE_CHARS {
+    if phone.chars().count() > MAX_REPAIR_CUSTOMER_PHONE_CHARS {
         return Err(RepairError::CustomerRequired);
     }
     Ok((name.to_owned(), phone.to_owned()))

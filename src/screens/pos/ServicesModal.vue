@@ -23,7 +23,7 @@ import {
   walletBalanceAfterCustomerOp,
 } from '../wallets/wallets';
 import { appearance } from '../../ui/appearance';
-import { money, num, parseMoney } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord, num, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import type { IconName } from '../../ui/icons';
 import Modal from '../../ui/Modal.vue';
@@ -121,9 +121,7 @@ watch(
   () => {
     if (isAutoFee.value && !svcFeeTouched.value) {
       svcFeeText.value =
-        svcAmtMinor.value > 0
-          ? String(Math.round(autoWalletFeeMinor.value / 100))
-          : '';
+        svcAmtMinor.value > 0 ? moneyInputValue(autoWalletFeeMinor.value) : '';
     }
   },
   { immediate: true }
@@ -334,7 +332,7 @@ async function submitWalletOp(): Promise<void> {
 function pickCardVal(valEgp: number): void {
   cardAmtText.value = String(valEgp);
   if (isAutoFee.value && !cardFeeTouched.value) {
-    cardFeeText.value = String(Math.round(autoCardFeeMinor.value / 100));
+    cardFeeText.value = moneyInputValue(autoCardFeeMinor.value);
   }
 }
 
@@ -358,7 +356,7 @@ async function submitCardOp(): Promise<void> {
   try {
     await recordServiceOp(
       'card',
-      `كارت شحن ${op.name} ${Math.round(cardAmtMinor.value / 100)}`,
+      `كارت شحن ${op.name} ${money(cardAmtMinor.value)}`,
       op.id,
       cardAmtMinor.value,
       feeMinor,
@@ -521,7 +519,7 @@ async function submitBillOp(): Promise<void> {
 
           <div class="g3">
             <div class="field">
-              <label class="lbl" for="svc-amt">المبلغ (ج.م)</label>
+              <label class="lbl" for="svc-amt">المبلغ ({{ moneyUnitWord() }})</label>
               <input
                 id="svc-amt"
                 ref="svcAmtInput"
@@ -536,7 +534,7 @@ async function submitBillOp(): Promise<void> {
             </div>
 
             <div class="field">
-              <label class="lbl" for="svc-fee">العمولة (ج.م)</label>
+              <label class="lbl" for="svc-fee">العمولة ({{ moneyUnitWord() }})</label>
               <input
                 id="svc-fee"
                 ref="svcFeeInput"
@@ -692,13 +690,13 @@ async function submitBillOp(): Promise<void> {
               :data-svc-card-val="v"
               @click="pickCardVal(v)"
             >
-              <span class="num"><b>{{ num(v) }}</b> ج.م</span>
+              <span class="num"><b>{{ money(v) }}</b></span>
             </button>
           </div>
 
           <div class="g3">
             <div class="field">
-              <label class="lbl" for="card-amt">قيمة الكارت (ج.م)</label>
+              <label class="lbl" for="card-amt">قيمة الكارت ({{ moneyUnitWord() }})</label>
               <input
                 id="card-amt"
                 v-model="cardAmtText"
@@ -711,7 +709,7 @@ async function submitBillOp(): Promise<void> {
               />
             </div>
             <div class="field">
-              <label class="lbl" for="card-fee">العمولة / الخدمة (ج.م)</label>
+              <label class="lbl" for="card-fee">العمولة / الخدمة ({{ moneyUnitWord() }})</label>
               <input
                 id="card-fee"
                 ref="cardFeeInput"
@@ -767,7 +765,7 @@ async function submitBillOp(): Promise<void> {
 
           <div class="g3">
             <div class="field">
-              <label class="lbl" for="bill-amt">مبلغ الفاتورة (ج.م)</label>
+              <label class="lbl" for="bill-amt">مبلغ الفاتورة ({{ moneyUnitWord() }})</label>
               <input
                 id="bill-amt"
                 v-model="billAmtText"
@@ -794,7 +792,7 @@ async function submitBillOp(): Promise<void> {
               />
             </div>
             <div class="field">
-              <label class="lbl" for="bill-fee">رسوم الخدمة (ج.م)</label>
+              <label class="lbl" for="bill-fee">رسوم الخدمة ({{ moneyUnitWord() }})</label>
               <input
                 id="bill-fee"
                 ref="billFeeInput"

@@ -24,7 +24,7 @@ import {
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
 import { posCatalog, type PosProduct } from '../../api/pos';
-import { dg, money, num, parseMoney } from '../../ui/format';
+import { dg, money, num, parseMoney, moneyUnitWord } from '../../ui/format';
 import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
 import type { ScanReading } from '../../ui/scan';
@@ -650,7 +650,7 @@ onUnmounted(() => {
             <input id="mshop-qty" v-model.number="quantity" type="number" min="1" data-capture-qty />
           </div>
           <div class="field" style="flex: 1">
-            <label for="mshop-cost">التكلفة (جنيه)</label>
+            <label for="mshop-cost">التكلفة ({{ moneyUnitWord() }})</label>
             <input
               id="mshop-cost"
               v-model="costPounds"
@@ -753,7 +753,7 @@ onUnmounted(() => {
             />
           </div>
           <div class="field" style="flex: 1">
-            <label for="mshop-exp-amount">المبلغ (جنيه)</label>
+            <label for="mshop-exp-amount">المبلغ ({{ moneyUnitWord() }})</label>
             <input
               id="mshop-exp-amount"
               v-model="expenseAmountText"

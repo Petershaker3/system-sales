@@ -12,7 +12,7 @@ import {
   type ShiftSummary,
 } from '../api/shift';
 import { DEFAULT_EXPENSE_CATEGORIES } from '../screens/pos/shift';
-import { fmtTime, money, parseMoney } from '../ui/format';
+import { fmtTime, money, parseMoney, moneyUnitWord } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import Modal from '../ui/Modal.vue';
 import { toast } from '../ui/toast';
@@ -230,7 +230,7 @@ const ledgerItems = computed<LedgerItem[]>(() => {
 
         <div class="row" style="gap: 10px; margin-top: 10px; align-items: flex-end">
           <div class="field" style="flex: 1">
-            <label class="lbl">المبلغ (ج.م)</label>
+            <label class="lbl">المبلغ ({{ moneyUnitWord() }})</label>
             <input
               v-model="expenseAmountText"
               class="in"
@@ -306,7 +306,7 @@ const ledgerItems = computed<LedgerItem[]>(() => {
 
         <div class="row" style="gap: 10px; margin-top: 10px; align-items: flex-end">
           <div class="field" style="flex: 1">
-            <label class="lbl">المبلغ (ج.م)</label>
+            <label class="lbl">المبلغ ({{ moneyUnitWord() }})</label>
             <input
               v-model="movementAmountText"
               class="in"

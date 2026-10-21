@@ -24,7 +24,7 @@ import {
   type ServiceFeeMode,
   setAppearance,
 } from '../../ui/appearance';
-import { money, num, parseMoney } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord, num, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 
@@ -74,10 +74,10 @@ function summaryToRow(ws: WalletSummary): EditableWalletRow {
     company: w.company ?? '',
     number: w.number,
     color: w.color,
-    openingEgp: String(Math.round(w.openingBalanceMinor / 100)),
-    minAlertEgp: String(Math.round(w.minAlertMinor / 100)),
-    maxLimitEgp: String(Math.round(w.maxLimitMinor / 100)),
-    dailyLimitEgp: String(Math.round(w.dailyLimitMinor / 100)),
+    openingEgp: moneyInputValue(w.openingBalanceMinor),
+    minAlertEgp: moneyInputValue(w.minAlertMinor),
+    maxLimitEgp: moneyInputValue(w.maxLimitMinor),
+    dailyLimitEgp: moneyInputValue(w.dailyLimitMinor),
     payMethod: w.payMethod ?? '',
     sort: w.sort,
     hidden: w.hidden,
@@ -486,7 +486,7 @@ async function saveAutoFeeSettings(): Promise<void> {
             />
           </div>
           <div class="field">
-            <label class="lbl">الرصيد الافتتاحي (ج.م)</label>
+            <label class="lbl">الرصيد الافتتاحي ({{ moneyUnitWord() }})</label>
             <input
               v-model="view.row.openingEgp"
               class="in mono"
@@ -690,7 +690,7 @@ async function saveAutoFeeSettings(): Promise<void> {
         />
       </div>
       <div class="field">
-        <label class="lbl" for="set-feeMin">أقل عمولة (ج.م)</label>
+        <label class="lbl" for="set-feeMin">أقل عمولة ({{ moneyUnitWord() }})</label>
         <input
           id="set-feeMin"
           v-model="feeMinInput"
@@ -702,7 +702,7 @@ async function saveAutoFeeSettings(): Promise<void> {
         />
       </div>
       <div class="field">
-        <label class="lbl" for="set-billFee">رسوم دفع الفواتير (ج.م)</label>
+        <label class="lbl" for="set-billFee">رسوم دفع الفواتير ({{ moneyUnitWord() }})</label>
         <input
           id="set-billFee"
           v-model="billFeeInput"

@@ -66,6 +66,7 @@ pub async fn update(
         AppearanceKey::Font => validated.font,
         AppearanceKey::Scale => validated.scale,
         AppearanceKey::Digits => validated.digits,
+        AppearanceKey::MoneyUnit => validated.money_unit,
         AppearanceKey::Images => validated.images,
         AppearanceKey::ImeiMode => validated.imei_mode,
         AppearanceKey::PayMethods => validated.pay_methods,

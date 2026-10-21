@@ -17,7 +17,7 @@ import {
 import { listCustomers, type Customer } from '../../api/customer';
 import { appearance } from '../../ui/appearance';
 import { describeError } from '../../api/errors';
-import { money } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord } from '../../ui/format';
 import WalletNumberChips from '../pos/WalletNumberChips.vue';
 import Icon from '../../ui/Icon.vue';
 import CameraScanButton from '../../ui/CameraScanButton.vue';
@@ -49,6 +49,15 @@ const emit = defineEmits<{
 }>();
 
 const egp = money;
+
+/**
+ * A ticket without a name is not incomplete — it is a walk-in (`ADR-044`). The card
+ * says so instead of showing an empty line the shop would read as a bug.
+ */
+function customerLabel(t: { readonly customerName: string }): string {
+  const name = t.customerName.trim();
+  return name === '' ? 'بدون اسم' : name;
+}
 
 const loading = ref(false);
 const errorBanner = ref('');
@@ -293,10 +302,6 @@ async function submitIntake(): Promise<void> {
     .filter(Boolean)
     .join(' + ');
 
-  if (!intakeCustomerName.value.trim() || !intakePhone.value.trim()) {
-    intakeError.value = 'اكتب اسم العميل ورقم تليفونه.';
-    return;
-  }
   if (!intakeDevice.value.trim()) {
     intakeError.value = 'اكتب موديل الجهاز الأول.';
     return;
@@ -377,10 +382,10 @@ function openDeliverModal(ticket: RepairTicket): void {
     ticket.finalPriceMinor > 0
       ? ticket.finalPriceMinor
       : ticket.estimatedPriceMinor;
-  deliverFinalPriceEgp.value = String(Math.round(defaultFinal / 100));
+  deliverFinalPriceEgp.value = moneyInputValue(defaultFinal);
   deliverPartsCostEgp.value =
     ticket.partsCostMinor !== null
-      ? String(Math.round(ticket.partsCostMinor / 100))
+      ? moneyInputValue(ticket.partsCostMinor)
       : '0';
   deliverPayMethod.value = ticket.payMethod || 'cash';
   deliverPayWalletId.value = null;
@@ -444,10 +449,10 @@ function openDetailModal(ticket: RepairTicket): void {
   detailTarget.value = ticket;
   detailStatus.value = ticket.status;
   detailTech.value = ticket.technicianName ?? '';
-  detailEstPriceEgp.value = String(Math.round(ticket.estimatedPriceMinor / 100));
+  detailEstPriceEgp.value = moneyInputValue(ticket.estimatedPriceMinor);
   detailPartsCostEgp.value =
     ticket.partsCostMinor !== null
-      ? String(Math.round(ticket.partsCostMinor / 100))
+      ? moneyInputValue(ticket.partsCostMinor)
       : '0';
   detailNote.value = ticket.note ?? '';
 }
@@ -855,10 +860,13 @@ onMounted(async () => {
 
             <div class="cust">
               <Icon name="user" />
-              <span><bdi dir="auto">{{ r.customerName }}</bdi></span>
-              <span class="mono" dir="ltr" style="margin-inline-start: auto">{{
-                r.customerPhone
-              }}</span>
+              <span><bdi dir="auto">{{ customerLabel(r) }}</bdi></span>
+              <span
+                v-if="r.customerPhone"
+                class="mono"
+                dir="ltr"
+                style="margin-inline-start: auto"
+              >{{ r.customerPhone }}</span>
             </div>
 
             <div class="tk-f">
@@ -883,6 +891,7 @@ onMounted(async () => {
               <div class="row" style="gap: 4px; flex-wrap: wrap">
                 <template v-if="r.status === 'ready'">
                   <button
+                    v-if="r.customerPhone"
                     type="button"
                     class="btn sm ok"
                     title="ابعت للعميل إن الجهاز جاهز على واتساب"
@@ -903,6 +912,7 @@ onMounted(async () => {
 
                 <template v-else-if="r.status === 'delivered'">
                   <button
+                    v-if="r.customerPhone"
                     type="button"
                     class="btn sm ghost"
                     title="إيصال واتساب"
@@ -956,7 +966,7 @@ onMounted(async () => {
         <div style="display: grid; gap: 12px; align-content: start">
           <div class="form-grid">
             <label class="field">
-              <span class="lbl">تليفون العميل *</span>
+              <span class="lbl">تليفون العميل (اختياري)</span>
               <input
                 v-model="intakePhone"
                 type="tel"
@@ -969,7 +979,7 @@ onMounted(async () => {
               />
             </label>
             <label class="field">
-              <span class="lbl">اسم العميل *</span>
+              <span class="lbl">اسم العميل (اختياري)</span>
               <input
                 v-model="intakeCustomerName"
                 type="text"
@@ -1015,7 +1025,7 @@ onMounted(async () => {
             </label>
 
             <label class="field">
-              <span class="lbl">{{ intakeDeliverNow ? 'السعر النهائي (ج.م) *' : 'التكلفة المتوقعة (ج.م)' }}</span>
+              <span class="lbl">{{ intakeDeliverNow ? `السعر النهائي (${moneyUnitWord()}) *` : `التكلفة المتوقعة (${moneyUnitWord()})` }}</span>
               <input
                 v-model="intakePriceEgp"
                 type="number"
@@ -1030,7 +1040,7 @@ onMounted(async () => {
 
             <label v-if="canSeeCost" class="field">
               <span class="lbl">
-                {{ intakeKind === 'software' ? 'تكلفة داخلية (ج.م)' : 'تكلفة القطعة (ج.م)' }}
+                {{ intakeKind === 'software' ? `تكلفة داخلية (${moneyUnitWord()})` : `تكلفة القطعة (${moneyUnitWord()})` }}
               </span>
               <input
                 v-model="intakePartsCostEgp"
@@ -1063,7 +1073,7 @@ onMounted(async () => {
             </template>
             <template v-else>
               <label class="field">
-                <span class="lbl">عربون مدفوع كاش (ج.م)</span>
+                <span class="lbl">عربون مدفوع كاش ({{ moneyUnitWord() }})</span>
                 <input
                   v-model="intakeDepositEgp"
                   type="number"
@@ -1212,7 +1222,7 @@ onMounted(async () => {
     <Modal
       v-if="deliverTarget"
       :title="`تسليم وتحصيل — تذكرة ${deliverTarget.ticketNo}`"
-      :sub="`${deliverTarget.deviceName} · ${deliverTarget.customerName} (${serviceKindLabel(deliverTarget.serviceKind)})`"
+      :sub="`${deliverTarget.deviceName} · ${customerLabel(deliverTarget)} (${serviceKindLabel(deliverTarget.serviceKind)})`"
       size="md"
       @close="deliverTarget = null"
     >
@@ -1223,7 +1233,7 @@ onMounted(async () => {
 
         <div class="form-grid">
           <label class="field">
-            <span class="lbl">السعر النهائي للعميل (ج.م) *</span>
+            <span class="lbl">السعر النهائي للعميل ({{ moneyUnitWord() }}) *</span>
             <input
               v-model="deliverFinalPriceEgp"
               type="number"
@@ -1239,8 +1249,8 @@ onMounted(async () => {
             <span class="lbl">
               {{
                 deliverTarget.serviceKind === 'software'
-                  ? 'التكلفة الداخلية (ج.م)'
-                  : 'تكلفة قطع الغيار (ج.م)'
+                  ? `التكلفة الداخلية (${moneyUnitWord()})`
+                  : `تكلفة قطع الغيار (${moneyUnitWord()})`
               }}
             </span>
             <input
@@ -1356,7 +1366,7 @@ onMounted(async () => {
     <Modal
       v-if="detailTarget"
       :title="`تفاصيل تذكرة ${detailTarget.ticketNo}`"
-      :sub="`${detailTarget.deviceName} · ${detailTarget.customerName}`"
+      :sub="`${detailTarget.deviceName} · ${customerLabel(detailTarget)}`"
       size="md"
       @close="detailTarget = null"
     >
@@ -1390,7 +1400,7 @@ onMounted(async () => {
           </label>
 
           <label class="field">
-            <span class="lbl">التكلفة المتوقعة (ج.م)</span>
+            <span class="lbl">التكلفة المتوقعة ({{ moneyUnitWord() }})</span>
             <input
               v-model="detailEstPriceEgp"
               type="number"
@@ -1403,7 +1413,7 @@ onMounted(async () => {
           </label>
 
           <label v-if="canSeeCost" class="field">
-            <span class="lbl">تكلفة قطع الغيار / التكلفة الداخلية (ج.م)</span>
+            <span class="lbl">تكلفة قطع الغيار / التكلفة الداخلية ({{ moneyUnitWord() }})</span>
             <input
               v-model="detailPartsCostEgp"
               type="number"

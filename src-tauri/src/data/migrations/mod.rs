@@ -152,6 +152,12 @@ pub const WALLET_GROUPS_AND_PAYMENT_ATTRIBUTION: &str =
 pub const WALLET_IN_EVERY_MONEY_FLOW: &str =
     include_str!("0031_wallet_in_every_money_flow.sql");
 
+/// `0033`: a repair ticket no longer needs a customer name and phone before the
+/// device can be written down. The two columns keep their length caps and lose
+/// their non-empty CHECKs; empty prints as «بدون اسم» on the screen.
+pub const OPTIONAL_REPAIR_CUSTOMER: &str =
+    include_str!("0033_optional_repair_customer.sql");
+
 /// `0032`: an expense says where its money came from — the drawer during an open
 /// shift, or anywhere else.
 ///

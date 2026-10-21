@@ -10,14 +10,15 @@ import type { AppearanceKey } from '../api/appearance';
 import * as imagesApi from '../api/images';
 import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './color.ts';
 import type { Grounds, Rgb } from './color.ts';
-import { setDigits } from './format.ts';
-import type { Digits } from './format.ts';
+import { setDigits, setMoneyUnit } from './format.ts';
+import type { Digits, MoneyUnit } from './format.ts';
 import type { IconName } from './icons.ts';
 
 export type Look = 'plate' | 'box';
 export type ThemeChoice = 'light' | 'dark' | 'auto';
 export type FontChoice = 'auto' | 'plex' | 'cairo' | 'tajawal' | 'readex';
 export type Scale = 'normal' | 'large';
+export type MoneyUnitChoice = MoneyUnit;
 export type ImagesChoice = 'on' | 'off';
 export type ImeiModeChoice = 'optional' | 'required';
 export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit';
@@ -183,6 +184,7 @@ export interface Appearance {
   font: FontChoice;
   scale: Scale;
   digits: Digits;
+  moneyUnit: MoneyUnitChoice;
   images: ImagesChoice;
   imeiMode: ImeiModeChoice;
   payMethods: string;
@@ -216,6 +218,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   font: 'auto',
   scale: 'normal',
   digits: 'latin',
+  moneyUnit: 'egp',
   images: 'on',
   imeiMode: 'optional',
   payMethods: DEFAULT_PAY_METHODS,
@@ -280,6 +283,11 @@ export function normalizeAppearance(raw: unknown): Appearance {
     font: oneOf(r['font'], ['auto', 'plex', 'cairo', 'tajawal', 'readex'] as const, DEFAULT_APPEARANCE.font),
     scale: oneOf(r['scale'], ['normal', 'large'] as const, DEFAULT_APPEARANCE.scale),
     digits: oneOf(r['digits'], ['latin', 'arabic'] as const, DEFAULT_APPEARANCE.digits),
+    moneyUnit: oneOf(
+      r['moneyUnit'],
+      ['egp', 'piastre'] as const,
+      DEFAULT_APPEARANCE.moneyUnit
+    ),
     images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
     imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
     payMethods: normalizePayMethods(r['payMethods']),
@@ -406,6 +414,7 @@ export function applyAppearance(a: Appearance = appearance): void {
   root.dataset['scale'] = a.scale;
   root.style.setProperty('--accent', a.accent);
   setDigits(a.digits);
+  setMoneyUnit(a.moneyUnit);
 
   // The grounds depend on the look, the theme and the accent tint, so they are
   // read after those are set, with the previous muted correction removed.
@@ -428,6 +437,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   font: 'ui.font',
   scale: 'ui.scale',
   digits: 'ui.digits',
+  moneyUnit: 'ui.money_unit',
   images: 'ui.images',
   imeiMode: 'ui.imei_mode',
   payMethods: 'ui.pay_methods',

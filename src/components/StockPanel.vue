@@ -42,6 +42,7 @@ import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
 import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
+import { money, moneyUnitWord } from '../ui/format';
 import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
 import type { ScanReading } from '../ui/scan';
@@ -396,7 +397,7 @@ function formatPiastres(minor: number | null): string {
   if (minor === null) return '—';
   const whole = Math.trunc(minor / 100);
   const rest = Math.abs(minor % 100);
-  return `${whole}.${String(rest).padStart(2, '0')} ج.م`;
+  return money(whole * 100 + rest);
 }
 
 void loadPickers();
@@ -497,7 +498,7 @@ void loadPickers();
           <input id="stock-qty" v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
         </label>
         <label class="field">
-          <span>سعر الوحدة (قرش)</span>
+          <span>سعر الوحدة ({{ moneyUnitWord() }})</span>
           <input id="stock-cost" v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
         </label>
         <label v-if="receiptMode === 'supplier'" class="field">

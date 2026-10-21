@@ -30,6 +30,7 @@ import CategoriesCard from './CategoriesCard.vue';
 import DevicesPrinterCard from './DevicesPrinterCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
+import MoneyUnitCard from './MoneyUnitCard.vue';
 import OwnerAccountCard from './OwnerAccountCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
@@ -103,7 +104,8 @@ async function onResetSettings(): Promise<void> {
       appearance.accent !== DEFAULT_APPEARANCE.accent ||
       appearance.font !== DEFAULT_APPEARANCE.font ||
       appearance.scale !== DEFAULT_APPEARANCE.scale ||
-      appearance.digits !== DEFAULT_APPEARANCE.digits;
+      appearance.digits !== DEFAULT_APPEARANCE.digits ||
+      appearance.moneyUnit !== DEFAULT_APPEARANCE.moneyUnit;
     if (lookChanged) {
       try {
         await setAppearance({
@@ -112,6 +114,7 @@ async function onResetSettings(): Promise<void> {
           font: DEFAULT_APPEARANCE.font,
           scale: DEFAULT_APPEARANCE.scale,
           digits: DEFAULT_APPEARANCE.digits,
+          moneyUnit: DEFAULT_APPEARANCE.moneyUnit,
         });
       } catch {
         // Look keys require a fresh password if not already re-authenticated;
@@ -175,6 +178,7 @@ async function onResetSettings(): Promise<void> {
 
         <!-- 2. الشكل -->
         <div v-show="showSection('look')" class="s-sec" data-settings-panel="look">
+          <MoneyUnitCard />
           <AppearanceCard />
         </div>
 

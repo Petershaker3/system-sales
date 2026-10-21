@@ -180,6 +180,9 @@ jobs:
       - name: Init & build Android APK (aarch64)
         run: |
           npx tauri android init --ci 2>&1 | tee android.log
+          # The generated manifest has no camera: a WebView without the declared
+          # runtime permission cannot open it, whatever the web code asks for.
+          node scripts/android-camera-permission.mjs 2>&1 | tee -a android.log
           npx tauri android build --debug --target aarch64 --apk 2>&1 | tee -a android.log; exit ${PIPESTATUS[0]}
       - name: Annotate Android build
         if: always()

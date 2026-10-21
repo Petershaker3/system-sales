@@ -4092,3 +4092,114 @@ fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
         );
     }
 }
+
+const TAURI_CONF_JSON: &str = include_str!("../../tauri.conf.json");
+const PACKAGE_JSON: &str = include_str!("../../../package.json");
+const ANDROID_CAMERA_SCRIPT: &str =
+    include_str!("../../../scripts/android-camera-permission.mjs");
+const FORMAT_TS: &str = include_str!("../../../src/ui/format.ts");
+const SETTINGS_APPEARANCE_RS: &str =
+    include_str!("../../src/domain/settings/appearance.rs");
+const MONEY_UNIT_CARD_VUE: &str =
+    include_str!("../../../src/screens/settings/MoneyUnitCard.vue");
+const OPTIONAL_REPAIR_CUSTOMER_SQL: &str =
+    include_str!("../../src/data/migrations/0033_optional_repair_customer.sql");
+
+/// `ADR-044`: the glass reads in the unit the shop chose; the database keeps piastres.
+#[test]
+fn money_unit_is_a_persisted_setting_and_storage_stays_in_piastres() {
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains(r#"AppearanceKey::MoneyUnit => "ui.money_unit""#),
+        "the money unit must have a stored key, not a screen-only variable (`ADR-044`)"
+    );
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains(r#"AppearanceKey::MoneyUnit => matches!(value, "egp" | "piastre")"#),
+        "only pounds and piastres are units (`ADR-044`)"
+    );
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains("pub const DEFAULT_MONEY_UNIT: &str = \"egp\""),
+        "the shop reads pounds until it says otherwise (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("export function moneyUnitWord"),
+        "field labels must ask the formatter for the unit instead of hard-coding «ج.م» (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("export function moneyInputValue"),
+        "a stored amount seeding a money field must follow the chosen unit (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("return `${num(minor)} قرش`;")
+            && FORMAT_TS.contains("return `${num(minor / 100)} ج.م`;"),
+        "both units print from the same stored piastres (`ADR-010`, `ADR-044`)"
+    );
+    for required in ["data-money-unit=\"egp\"", "data-money-unit=\"piastre\"", "moneyUnitWord()"] {
+        assert!(
+            MONEY_UNIT_CARD_VUE.contains(required),
+            "MoneyUnitCard.vue must let the owner pick the unit and show the word (`ADR-044`)"
+        );
+    }
+    assert!(
+        SETTINGS_SCREEN_VUE.contains("MoneyUnitCard"),
+        "the unit card lives in Settings → الشكل (`ADR-044`)"
+    );
+}
+
+/// `ADR-045`: a walk-in repair is written with the device and the fault.
+#[test]
+fn repair_and_software_accept_a_ticket_without_a_customer_name_or_phone() {
+    let sql = sql_only(OPTIONAL_REPAIR_CUSTOMER_SQL);
+    assert!(
+        sql.contains("customer_name text not null default '' check (length(customer_name) <= 120)"),
+        "customer_name must be optional and capped, not trim()>0 (`ADR-045`)"
+    );
+    assert!(
+        sql.contains("customer_phone text not null default '' check (length(customer_phone) <= 64)"),
+        "customer_phone must be optional and capped, not trim()>0 (`ADR-045`)"
+    );
+    for kept in [
+        "ticket_no text not null unique",
+        "device_name text not null check (length(trim(device_name)) > 0",
+        "issue text not null check (length(trim(issue)) > 0",
+        "status in ('received', 'diagnosing', 'waiting', 'ready', 'delivered', 'cancelled')",
+        "pay_wallet_id text null references wallets (id)",
+        "delivered_at is null or delivered_at >= created_at",
+        "create index idx_repairs_status_created",
+    ] {
+        assert!(
+            sql.contains(kept),
+            "the rebuild must keep `{kept}`: only the customer rule changes (`ADR-045`)"
+        );
+    }
+    for required in ["'بدون اسم'", "اختياري"] {
+        assert!(
+            REPAIRS_SCREEN_VUE.contains(required),
+            "RepairsScreen.vue must say the name is optional and print a fallback (`ADR-045`)"
+        );
+    }
+}
+
+/// The camera is a permission the app declares, asks for, and frames (`ADR-043` §10).
+#[test]
+fn the_camera_is_declared_asked_for_and_allowed_to_show_a_stream() {
+    assert!(
+        LIB.contains(".on_permission_request"),
+        "lib.rs must answer the webview's camera request instead of leaving it to the platform default (`ADR-043`)"
+    );
+    assert!(
+        LIB.contains("PermissionKind::Camera") && LIB.contains("PermissionResponse::Allow"),
+        "a camera request must be allowed when the OS permission is granted (`ADR-043`)"
+    );
+    assert!(
+        TAURI_CONF_JSON.contains("media-src 'self' blob: mediastream:"),
+        "a blocked media-src would leave the video element black on Windows (`ADR-043`)"
+    );
+    assert!(
+        ANDROID_CAMERA_SCRIPT.contains("android.permission.CAMERA"),
+        "the Android manifest must declare CAMERA before the runtime request can succeed (`ADR-043`)"
+    );
+    assert!(
+        PACKAGE_JSON.contains("scripts/android-camera-permission.mjs"),
+        "android:init must run the manifest patch, or a fresh checkout breaks the camera (`ADR-043`)"
+    );
+}

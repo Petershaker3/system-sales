@@ -27,7 +27,15 @@ import {
   walletStateBadge,
   type WalletPeriodKey,
 } from './wallets';
-import { countWord, fmtTime, money, num, parseMoney } from '../../ui/format';
+import {
+  countWord,
+  fmtTime,
+  money,
+  moneyInputValue,
+  moneyUnitWord,
+  num,
+  parseMoney,
+} from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import type { IconName } from '../../ui/icons';
 import Modal from '../../ui/Modal.vue';
@@ -237,7 +245,7 @@ function openCountModal(): void {
       : first;
   wcWalId.value = cur;
   const w = walletMap.value.get(cur);
-  wcRealText.value = w ? String(Math.round(w.balanceMinor / 100)) : '0';
+  wcRealText.value = w ? moneyInputValue(w.balanceMinor) : '0';
   wcReason.value = '';
   wcNoteText.value = '';
   countOpen.value = true;
@@ -246,7 +254,7 @@ function openCountModal(): void {
 watch(wcWalId, (id) => {
   const w = walletMap.value.get(id);
   if (w) {
-    wcRealText.value = String(Math.round(w.balanceMinor / 100));
+    wcRealText.value = moneyInputValue(w.balanceMinor);
     wcReason.value = '';
   }
 });
@@ -985,7 +993,7 @@ onBeforeUnmount(() => {
 
         <div class="g2">
           <div class="field">
-            <label class="lbl" for="wm-amt">المبلغ (ج.م)</label>
+            <label class="lbl" for="wm-amt">المبلغ ({{ moneyUnitWord() }})</label>
             <input
               id="wm-amt"
               v-model="wmAmtText"
@@ -1119,7 +1127,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="field">
-            <label class="lbl" for="wc-real">الفعلي في التطبيق (ج.م)</label>
+            <label class="lbl" for="wc-real">الفعلي في التطبيق ({{ moneyUnitWord() }})</label>
             <input
               id="wc-real"
               v-model="wcRealText"

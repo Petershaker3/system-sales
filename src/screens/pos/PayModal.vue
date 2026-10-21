@@ -17,7 +17,7 @@ import {
   type PayMethodId,
   shopLogo,
 } from '../../ui/appearance';
-import { dg, money, num, parseMoney, pcsWord } from '../../ui/format';
+import { dg, money, moneyInputValue, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
@@ -702,7 +702,7 @@ function onEnter(): void {
               class="big-in num"
               inputmode="decimal"
               autocomplete="off"
-              :placeholder="num(dueMinor / 100)"
+              :placeholder="moneyInputValue(dueMinor)"
               data-autofocus
             />
           </div>
@@ -712,7 +712,7 @@ function onEnter(): void {
               :key="s"
               type="button"
               class="chip"
-              @click="cashText = String(s / 100)"
+              @click="cashText = moneyInputValue(s)"
             >
               {{ s === dueMinor ? 'بالظبط' : money(s) }}
             </button>
@@ -752,7 +752,7 @@ function onEnter(): void {
                 class="num"
                 inputmode="decimal"
                 autocomplete="off"
-                :placeholder="num(dueMinor / 100)"
+                :placeholder="moneyInputValue(dueMinor)"
               />
             </div>
             <div class="field">
@@ -820,7 +820,7 @@ function onEnter(): void {
               class="num"
               inputmode="decimal"
               autocomplete="off"
-              :placeholder="num(dueMinor / 100)"
+              :placeholder="moneyInputValue(dueMinor)"
             />
           </div>
         </template>
@@ -837,7 +837,7 @@ function onEnter(): void {
                 class="num"
                 inputmode="decimal"
                 autocomplete="off"
-                :placeholder="num(dueMinor / 100)"
+                :placeholder="moneyInputValue(dueMinor)"
               />
             </div>
             <div class="field">

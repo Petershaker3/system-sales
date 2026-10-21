@@ -8,11 +8,18 @@
 //
 // Nothing leaves the device: the video frame is drawn onto a canvas and decoded here.
 
-import { onUnmounted, ref } from 'vue';
+import { nextTick, onUnmounted, ref } from 'vue';
 
 import Icon from './Icon.vue';
 import { toast } from './toast';
-import { classifyScan, SCAN_FORMATS, scannerSupport, type ScanReading } from './scan';
+import {
+  cameraFailureNote,
+  classifyScan,
+  createFrameDecoder,
+  scannerSupport,
+  type FrameDecoder,
+  type ScanReading,
+} from './scan';
 
 const props = withDefaults(
   defineProps<{
@@ -31,18 +38,13 @@ const emit = defineEmits<{
   scan: [reading: ScanReading];
 }>();
 
-type DetectorResult = { readonly rawValue?: string | undefined };
-type Detector = {
-  detect: (source: CanvasImageSource) => Promise<readonly DetectorResult[]>;
-};
-type DetectorCtor = new (options: { formats: readonly string[] }) => Detector;
-
 const support = scannerSupport();
 const scanning = ref(false);
 const note = ref<string | null>(null);
 const videoEl = ref<HTMLVideoElement | null>(null);
 let mediaStream: MediaStream | null = null;
 let scanTimer: ReturnType<typeof setInterval> | undefined;
+let decoder: FrameDecoder | null = null;
 
 function stop(): void {
   if (scanTimer !== undefined) {
@@ -51,6 +53,7 @@ function stop(): void {
   }
   mediaStream?.getTracks().forEach((track) => track.stop());
   mediaStream = null;
+  decoder = null;
   scanning.value = false;
 }
 
@@ -60,43 +63,58 @@ async function start(): Promise<void> {
     toast(support.note, 'info');
     return;
   }
-  const Ctor = (window as unknown as { BarcodeDetector: DetectorCtor }).BarcodeDetector;
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' } },
       audio: false,
     });
-  } catch {
-    note.value =
-      'الكاميرا اترفضت — اكتب الرقم بإيدك، أو اتأكد إن التطبيق مأذون له بالكاميرا.';
+  } catch (error) {
+    note.value = cameraFailureNote(error);
     toast(note.value, 'err');
     return;
   }
   note.value = null;
   scanning.value = true;
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
+  // The <video> is behind `v-if="scanning || note !== null"`, so it exists only
+  // after Vue has painted the open panel — asking for it a frame too early reads
+  // `null` and the preview stays black while the timer keeps decoding nothing.
+  await nextTick();
   const video = videoEl.value;
   if (video !== null) {
     video.srcObject = mediaStream;
     await video.play().catch(() => undefined);
   }
-  const detector = new Ctor({ formats: SCAN_FORMATS });
+
+  // The decoder is chosen after the camera opened, so a device that cannot decode
+  // says so without first asking for a permission it will never use.
+  try {
+    decoder = await createFrameDecoder();
+  } catch {
+    stop();
+    note.value =
+      'مش قادر أجهّز قارئ الباركود على الجهاز ده — اكتب الرقم أو الصقه، والطريقة دي شغالة زي ما هي.';
+    toast(note.value, 'err');
+    return;
+  }
+
   const grab = document.createElement('canvas');
   scanTimer = setInterval(() => {
     const source = videoEl.value;
-    if (source === null || source.videoWidth === 0) return;
-    grab.width = source.videoWidth;
-    grab.height = source.videoHeight;
+    const active = decoder;
+    if (source === null || active === null || source.videoWidth === 0) return;
+    // The bundled reader is pure JavaScript: a full 4K frame on a shop tablet is
+    // wasted work. 640px is enough for a retail code and keeps the phone cool.
+    const width = active.kind === 'zxing' ? Math.min(source.videoWidth, 640) : source.videoWidth;
+    const height = Math.round((source.videoHeight / source.videoWidth) * width);
+    grab.width = width;
+    grab.height = height;
     const ctx = grab.getContext('2d');
     if (ctx === null) return;
-    ctx.drawImage(source, 0, 0);
-    void detector.detect(grab).then((found) => {
-      const first = found[0]?.rawValue?.trim();
-      if (first === undefined || first === '') return;
+    ctx.drawImage(source, 0, 0, width, height);
+    void active.decode(grab).then((text) => {
+      if (text === null) return;
       stop();
-      emit('scan', classifyScan(first));
+      emit('scan', classifyScan(text));
     });
   }, 420);
 }

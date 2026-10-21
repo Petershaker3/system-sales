@@ -317,6 +317,7 @@ const appearance = {
   font: 'auto',
   scale: 'normal',
   digits: 'latin',
+  moneyUnit: 'egp',
   images: 'on',
   imeiMode: 'optional',
   payMethods: 'cash,vf,instapay,card,install,credit',
@@ -2231,6 +2232,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.font': 'font',
       'ui.scale': 'scale',
       'ui.digits': 'digits',
+      'ui.money_unit': 'moneyUnit',
       'ui.images': 'images',
       'ui.imei_mode': 'imeiMode',
       'ui.pay_methods': 'payMethods',
@@ -4952,7 +4954,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const serviceKind = str(args, 'serviceKind').trim() === 'software' ? 'software' : 'hardware';
     const customerName = str(args, 'customerName').trim();
     const customerPhone = str(args, 'customerPhone').trim();
-    if (!customerName || !customerPhone) fail('REPAIR_CUSTOMER_REQUIRED');
+    // A walk-in ticket does not need a name or a number (`ADR-045`); the caps are
+    // the same ones the schema keeps.
+    if (customerName.length > 120 || customerPhone.length > 64) {
+      fail('REPAIR_CUSTOMER_REQUIRED');
+    }
     const deviceName = str(args, 'deviceName').trim();
     if (!deviceName) fail('REPAIR_DEVICE_REQUIRED');
     const issue = str(args, 'issue').trim();

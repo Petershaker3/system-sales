@@ -48,11 +48,11 @@ defineProps<{
           <bdi dir="rtl">{{ line.name }}</bdi>
           <bdi v-if="line.quantity > 1" dir="ltr"> ×{{ num(line.quantity) }}</bdi>
         </span>
-        <span class="num">{{ num(line.lineTotalMinor / 100) }}</span>
+        <span class="num">{{ money(line.lineTotalMinor) }}</span>
       </div>
       <div v-if="(line.discountMinor ?? 0) > 0" class="r s">
         <span>خصم على الصنف</span>
-        <span class="num">− {{ num((line.discountMinor ?? 0) / 100) }}</span>
+        <span class="num">− {{ money(line.discountMinor ?? 0) }}</span>
       </div>
       <div v-if="line.imei" class="s">
         IMEI: <bdi dir="ltr">{{ line.imei }}</bdi>
@@ -67,11 +67,11 @@ defineProps<{
     <hr />
     <div class="r">
       <span>الإجمالي</span>
-      <span class="num">{{ num(sale.grossSubtotalMinor / 100) }}</span>
+      <span class="num">{{ money(sale.grossSubtotalMinor) }}</span>
     </div>
     <div v-if="sale.discountMinor > 0" class="r">
       <span>خصم</span>
-      <span class="num">− {{ num(sale.discountMinor / 100) }}</span>
+      <span class="num">− {{ money(sale.discountMinor) }}</span>
     </div>
     <div class="r tot">
       <span>المطلوب</span>
@@ -83,11 +83,11 @@ defineProps<{
       class="r s"
     >
       <span>{{ methodLabel(p.method, p.reference) }}</span>
-      <span class="num">{{ num(p.amountMinor / 100) }}</span>
+      <span class="num">{{ money(p.amountMinor) }}</span>
     </div>
     <div v-if="sale.changeMinor > 0" class="r s">
       <span>الباقي للعميل</span>
-      <span class="num">{{ num(sale.changeMinor / 100) }}</span>
+      <span class="num">{{ money(sale.changeMinor) }}</span>
     </div>
     <hr />
     <div class="rc-foot">

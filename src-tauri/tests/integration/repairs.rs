@@ -438,3 +438,69 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
     assert_eq!(shift_summary.totals.vf_sales_minor, 600_00);
     assert_eq!(shift_summary.totals.services_fee_minor, 350_00);
 }
+
+#[tokio::test]
+async fn a_walk_in_ticket_needs_no_customer_name_or_phone() {
+    // `ADR-045`: the device and the fault are the ticket; the name is offered.
+    let (pool, tokens, _manager_uid, _seller_uid, _product_id) = setup_shop_for_repairs().await;
+
+    let ticket = repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "software".to_owned(),
+            customer_name: String::new(),
+            customer_phone: "   ".to_owned(),
+            device_name: "شاومي ريدمي 12".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "فورمات وتحديث".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 150_00,
+            parts_cost_minor: None,
+            deposit_minor: 0,
+            pay_method: Some("cash".to_owned()),
+            technician_name: None,
+            warranty_days: None,
+            note: None,
+            deliver_now: false,
+            pay_wallet_id: None,
+        },
+    )
+    .await
+    .expect("a walk-in ticket without a name");
+
+    assert_eq!(ticket.customer_name, "");
+    assert_eq!(ticket.customer_phone, "", "whitespace is trimmed to nothing");
+
+    // The cap still holds: an over-long name is a mistake, not a customer.
+    let refused = repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "hardware".to_owned(),
+            customer_name: "ا".repeat(121),
+            customer_phone: String::new(),
+            device_name: "سامسونج A34".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "شاشة مكسورة".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 100_00,
+            parts_cost_minor: None,
+            deposit_minor: 0,
+            pay_method: Some("cash".to_owned()),
+            technician_name: None,
+            warranty_days: None,
+            note: None,
+            deliver_now: false,
+            pay_wallet_id: None,
+        },
+    )
+    .await
+    .err()
+    .expect("over-long name refused");
+    assert_eq!(refused.code(), "REPAIR_CUSTOMER_REQUIRED");
+}

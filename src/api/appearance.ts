@@ -15,6 +15,8 @@ export interface AppearanceDto {
   readonly font: string;
   readonly scale: string;
   readonly digits: string;
+  /** `egp` (default) or `piastre`: what money fields type and show (`ADR-044`). */
+  readonly moneyUnit?: string;
   readonly images?: string;
   readonly imeiMode?: string;
   readonly payMethods?: string;
@@ -48,6 +50,7 @@ export type AppearanceKey =
   | 'ui.font'
   | 'ui.scale'
   | 'ui.digits'
+  | 'ui.money_unit'
   | 'ui.images'
   | 'ui.imei_mode'
   | 'ui.pay_methods'

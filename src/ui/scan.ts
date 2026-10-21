@@ -48,27 +48,99 @@ export interface ScannerSupport {
   readonly note: string;
 }
 
-/** Whether this browser can decode a code from the camera at all. */
+/** Whether this machine can open a camera at all. */
 export function scannerSupport(): ScannerSupport {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return { supported: false, note: 'الكاميرا مش متاحة جوه التطبيق ده.' };
   }
-  const hasDetector =
-    typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector ===
-    'function';
   const hasCamera = navigator.mediaDevices?.getUserMedia !== undefined;
-  if (hasDetector && hasCamera) {
-    return { supported: true, note: '' };
-  }
   if (!hasCamera) {
     return {
       supported: false,
       note: 'الجهاز ده ما بيدّيش كاميرا للتطبيق — اكتب الرقم أو الصقه، والطريقة دي شغالة زي ما هي.',
     };
   }
+  return { supported: true, note: '' };
+}
+
+/**
+ * What to tell a person when the camera refused to open.
+ *
+ * The Android WebView has two doors to open before the lens is allowed: the OS
+ * runtime permission and the WebView's own permission request. If either stays
+ * shut the screen must not shrug — it says which one to open.
+ */
+export function cameraFailureNote(error: unknown): string {
+  const name =
+    error instanceof Object && 'name' in error
+      ? String((error as { name?: unknown }).name ?? '')
+      : '';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'مفيش كاميرا على الجهاز ده — اكتب الرقم أو الصقه، والطريقة دي شغالة زي ما هي.';
+  }
+  if (name === 'NotReadableError' || name === 'AbortError') {
+    return 'الكاميرا مشغولة ببرنامج تاني — اقفل البرنامج التاني وجرّب تاني.';
+  }
+  return (
+    'الكاميرا مرفوضة للتطبيق. من إعدادات الموبايل: التطبيقات ← البرنامج ده ← ' +
+    'الأذونات ← الكاميرا ← اسمح، وبعدها جرّب تاني. لو مش لاقيها، اكتب الرقم أو الصقه.'
+  );
+}
+
+/** One decoded frame: the text inside the first code the camera saw. */
+export interface FrameDecoder {
+  /** Which engine answered: the platform detector or the bundled reader. */
+  readonly kind: 'native' | 'zxing';
+  decode: (canvas: HTMLCanvasElement) => Promise<string | null>;
+}
+
+type DetectorResult = { readonly rawValue?: string | undefined };
+type Detector = {
+  detect: (source: CanvasImageSource) => Promise<readonly DetectorResult[]>;
+};
+type DetectorCtor = new (options: { formats: readonly string[] }) => Detector;
+
+/**
+ * Pick the decoder this device can actually run.
+ *
+ * Chrome on Android and Windows 11 ship `BarcodeDetector`; older Android WebViews
+ * and some desktop WebViews do not. There the bundled ZXing reader (pure
+ * JavaScript, no network and no Google service) reads the same frame. The camera
+ * therefore opens wherever there is a camera, not only on machines with a
+ * particular WebView version — which is the difference between "a button that
+ * exists" and "a button that reads".
+ */
+export async function createFrameDecoder(): Promise<FrameDecoder> {
+  const Ctor = (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector;
+  if (typeof Ctor === 'function') {
+    const detector = new (Ctor as DetectorCtor)({ formats: SCAN_FORMATS });
+    return {
+      kind: 'native',
+      decode: async (canvas) => {
+        const found = await detector.detect(canvas);
+        const first = found[0]?.rawValue?.trim();
+        return first !== undefined && first !== '' ? first : null;
+      },
+    };
+  }
+
+  const { BrowserMultiFormatReader } = await import('@zxing/browser');
+  const reader = new BrowserMultiFormatReader(undefined, {
+    delayBetweenScanAttempts: 0,
+    delayBetweenScanSuccess: 0,
+  });
   return {
-    supported: false,
-    note: 'كاميرا الجهاز ده ما بتقراش الباركود — اكتب الرقم أو الصقه، والطريقة دي شغالة زي ما هي.',
+    kind: 'zxing',
+    decode: async (canvas) => {
+      try {
+        const result = reader.decodeFromCanvas(canvas);
+        const text = result.getText().trim();
+        return text !== '' ? text : null;
+      } catch {
+        // `NotFoundException` is the normal answer while the frame has no code in it.
+        return null;
+      }
+    },
   };
 }
 

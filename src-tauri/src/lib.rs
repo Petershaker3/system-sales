@@ -36,6 +36,18 @@ const DB_FILENAME: &str = "shop.db";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // The camera is how a barcode and an IMEI are read (`ADR-043`). A WebView
+        // refuses `getUserMedia` unless the host answers its permission request:
+        // on Android the answer is JNI to `WebChromeClient.onPermissionRequest`,
+        // which also raises the OS runtime prompt, and on Windows it is WebView2's
+        // own prompt. Everything except the camera keeps the platform default, so
+        // this handler grants nothing nobody asked for.
+        .on_permission_request(|_webview, kind| match kind {
+            tauri::webview::PermissionKind::Camera => {
+                tauri::webview::PermissionResponse::Allow
+            }
+            _ => tauri::webview::PermissionResponse::Default,
+        })
         .invoke_handler(tauri::generate_handler![
             commands::identity::bootstrap_status,
             commands::identity::claim_open_account,

@@ -97,7 +97,7 @@ test('buildRepairWhatsAppUrl generates intake, ready, and delivered WhatsApp lin
   assert.ok(readyUrl && readyUrl.startsWith('https://wa.me/201012345678?text='));
   const decoded = decodeURIComponent(readyUrl!.split('text=')[1] ?? '');
   assert.ok(decoded.includes('جاهز للاستلام'));
-  assert.ok(decoded.includes('2700 ج.م'));
+  assert.ok(decoded.includes('2,700 ج.م'));
 
   const swDelivered = sampleTicket({
     serviceKind: 'software',
