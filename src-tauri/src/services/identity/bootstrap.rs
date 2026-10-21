@@ -27,17 +27,28 @@ use crate::domain::identity::{
 };
 use crate::services::identity::crypto;
 
-/// Whether the application should show first-run setup.
+/// Whether this device has no account at all.
+///
+/// Reported by `bootstrap_status` for the log and the banner; it opens no screen
+/// (`ADR-039`). The one path that still creates an account on an empty device is
+/// `open_mode::claim_open_account`, which calls [`create_first_manager`] itself.
 pub async fn bootstrap_needed(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
     let mut conn = pool.acquire().await?;
     Ok(user_repo::count_all(&mut conn).await? == 0)
 }
 
-/// Create the first manager and open a session for it.
+/// Create the first manager on a device that has no accounts.
 ///
 /// Returns the new user's id, display name and role. It never returns a session
 /// token: the token is written straight to the OS credential store and is not
 /// observable by the caller.
+///
+/// Two callers, and that is the whole list (`ADR-039`): the settings card's claim,
+/// when the open row could not be made and the device is empty, and the integration
+/// fixtures that need a shop with a real owner before they test anything else. There
+/// is no first-run command in front of it any more — hiding a screen was never what
+/// made this single-shot, and the check that it is one is the same
+/// `count_claimed == 0` inside the transaction that the claim runs.
 pub async fn create_first_manager(
     pool: &SqlitePool,
     display_name: &str,

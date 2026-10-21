@@ -180,6 +180,9 @@ jobs:
       - name: Init & build Android APK (aarch64)
         run: |
           npx tauri android init --ci 2>&1 | tee android.log
+          # The generated manifest has no camera: a WebView without the declared
+          # runtime permission cannot open it, whatever the web code asks for.
+          node scripts/android-camera-permission.mjs 2>&1 | tee -a android.log
           npx tauri android build --debug --target aarch64 --apk 2>&1 | tee -a android.log; exit ${PIPESTATUS[0]}
       - name: Annotate Android build
         if: always()
@@ -197,7 +200,9 @@ jobs:
   release:
     name: Publish Latest Release (.exe + .apk)
     needs: [windows, android]
-    if: always() && (needs.windows.result == 'success' || needs.android.result == 'success')
+    # Both halves, or nothing: uploading a fresh APK beside yesterday's installer
+    # would publish a pair that never existed together.
+    if: always() && needs.windows.result == 'success' && needs.android.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -208,17 +213,50 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+      - name: Name both files after the version they were built from
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p dist-release
+          EXE="Mobile.Shop.System_${VERSION}_x64-setup.exe"
+          APK="Mobile.Shop.System_${VERSION}_arm64.apk"
+          cp "$(find release-assets -type f -name '*.exe' | head -n1)" "dist-release/$EXE"
+          cp "$(find release-assets -type f -name '*.apk' | head -n1)" "dist-release/$APK"
+          ( cd dist-release && sha256sum "$EXE" "$APK" > SHA256SUMS.txt )
+          {
+            echo "commit:   ${{ github.sha }}"
+            echo "branch:   ${{ github.ref_name }}"
+            echo "run:      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "built:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            ( cd dist-release && ls -lh "$EXE" "$APK" )
+          } > dist-release/BUILD-INFO.txt
+          ls -lh dist-release/
       - name: Publish to GitHub Release v1.0.0-latest
         run: |
-          mkdir -p dist-release
-          find release-assets -type f \( -name "*.exe" -o -name "*.apk" \) -exec cp -v {} dist-release/ \;
-          ls -lh dist-release/
+          set -euo pipefail
+          sed "s/__VERSION__/${VERSION}/g" .github/release-notes.md > /tmp/release-notes.md
           git tag -f v1.0.0-latest "${{ github.sha }}"
           git push origin -f v1.0.0-latest
           if gh release view v1.0.0-latest >/dev/null 2>&1; then
+            # The description is re-read from the repository on every build, so the
+            # download page cannot drift away from what the files actually are.
+            gh release edit v1.0.0-latest \
+              --title "Mobile Shop System v${VERSION} (Windows .exe + Android .apk)" \
+              --notes-file /tmp/release-notes.md
+            # An old build's file under an old name would sit beside the new one and
+            # be downloaded by mistake.
+            gh release view v1.0.0-latest --json assets --jq '.assets[].name' \
+              | grep -E '\.(exe|apk)$' \
+              | grep -vxE "Mobile\.Shop\.System_${VERSION}_x64-setup\.exe|Mobile\.Shop\.System_${VERSION}_arm64\.apk" \
+              | while read -r stale; do
+                  echo "removing stale asset: $stale"
+                  gh release delete-asset v1.0.0-latest "$stale" -y
+                done || true
             gh release upload v1.0.0-latest dist-release/* --clobber
           else
             gh release create v1.0.0-latest dist-release/* \
-              --title "Mobile Shop System v1.0.0 (Windows .exe + Android .apk)" \
-              --notes "Latest automated build of Mobile Shop System (Phases 1–4 + In-App System Guide) for Windows Desktop (.exe) and Android (.apk)."
+              --title "Mobile Shop System v${VERSION} (Windows .exe + Android .apk)" \
+              --notes-file /tmp/release-notes.md
           fi

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Paying (`docs/ui/mockup-v1/pos.js`, «الدفع» & «تم البيع»; `ADR-020`, `ADR-022`,
 // `docs/PLAN.md` §8, §10).
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 
 import type { Customer } from '../../api/customer';
 import { describeError } from '../../api/errors';
@@ -17,11 +17,12 @@ import {
   type PayMethodId,
   shopLogo,
 } from '../../ui/appearance';
-import { dg, money, num, parseMoney, pcsWord } from '../../ui/format';
+import { dg, money, moneyInputValue, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
 import { changeDue } from './cart';
+import WalletNumberChips from './WalletNumberChips.vue';
 import type { CartLine } from './cart';
 import {
   cashSuggestions,
@@ -72,6 +73,12 @@ const splitPayments = ref<DraftPayment[]>([]);
 const cashText = ref('');
 const nonCashAmountText = ref('');
 const referenceText = ref('');
+/**
+ * Which wallet number took the money, kept per method (`ADR-041`). Per method rather than one
+ * running choice because a split sale can pay part by vf and part by instapay, and each part
+ * belongs to the number the operator named for it.
+ */
+const walletByMethod = reactive<Record<string, string | null>>({});
 const installProvider = ref<string>(INSTALLMENT_PROVIDERS[0] ?? 'valU');
 const customerName = ref('');
 const receiptMode = ref<ReceiptMode>(
@@ -233,6 +240,7 @@ function addSplitPayment(): void {
     method: method.value,
     amountMinor: amount,
     reference: buildReferenceFor(method.value),
+    walletId: walletByMethod[method.value] ?? null,
   });
   cashText.value = '';
   nonCashAmountText.value = '';
@@ -419,6 +427,7 @@ async function pay(): Promise<void> {
         method: method.value,
         amountMinor: dueMinor.value,
         reference: buildReferenceFor(method.value),
+        walletId: walletByMethod[method.value] ?? null,
       });
     }
   }
@@ -693,7 +702,7 @@ function onEnter(): void {
               class="big-in num"
               inputmode="decimal"
               autocomplete="off"
-              :placeholder="num(dueMinor / 100)"
+              :placeholder="moneyInputValue(dueMinor)"
               data-autofocus
             />
           </div>
@@ -703,7 +712,7 @@ function onEnter(): void {
               :key="s"
               type="button"
               class="chip"
-              @click="cashText = String(s / 100)"
+              @click="cashText = moneyInputValue(s)"
             >
               {{ s === dueMinor ? 'بالظبط' : money(s) }}
             </button>
@@ -743,7 +752,7 @@ function onEnter(): void {
                 class="num"
                 inputmode="decimal"
                 autocomplete="off"
-                :placeholder="num(dueMinor / 100)"
+                :placeholder="moneyInputValue(dueMinor)"
               />
             </div>
             <div class="field">
@@ -758,6 +767,12 @@ function onEnter(): void {
                 placeholder="مثال: 994412"
               />
             </div>
+            <WalletNumberChips
+              :method="method"
+              :model-value="walletByMethod[method] ?? null"
+              :disabled="busy"
+              @update:model-value="(v: string | null) => (walletByMethod[method] = v)"
+            />
           </div>
         </template>
 
@@ -805,7 +820,7 @@ function onEnter(): void {
               class="num"
               inputmode="decimal"
               autocomplete="off"
-              :placeholder="num(dueMinor / 100)"
+              :placeholder="moneyInputValue(dueMinor)"
             />
           </div>
         </template>
@@ -822,7 +837,7 @@ function onEnter(): void {
                 class="num"
                 inputmode="decimal"
                 autocomplete="off"
-                :placeholder="num(dueMinor / 100)"
+                :placeholder="moneyInputValue(dueMinor)"
               />
             </div>
             <div class="field">
@@ -837,6 +852,12 @@ function onEnter(): void {
                 placeholder="آخر 4 أرقام أو مرجع العملية"
               />
             </div>
+            <WalletNumberChips
+              :method="method"
+              :model-value="walletByMethod[method] ?? null"
+              :disabled="busy"
+              @update:model-value="(v: string | null) => (walletByMethod[method] = v)"
+            />
           </div>
         </template>
 

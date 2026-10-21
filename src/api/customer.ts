@@ -66,12 +66,15 @@ export async function recordCustomerPayment(
   amountMinor: number,
   method: 'cash' | 'vf' | 'instapay' | 'card',
   note?: string | null,
+  walletId?: string | null,
 ): Promise<Customer> {
   return invoke<Customer>('record_customer_payment', {
     customerId,
     amountMinor,
     method,
     note: note ?? null,
+    // Which number of the shop the customer sent it to (`ADR-041`).
+    walletId: walletId ?? null,
   });
 }
 

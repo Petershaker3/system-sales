@@ -97,6 +97,16 @@ input[dir="ltr"] { text-align: left; }
 .switch input:checked + span { background: var(--accent-fill); }
 .switch input:checked + span::after { inset-inline-start: 21px; }
 .switch input:disabled + span { opacity: .5; cursor: not-allowed; }
+/*
+ * A switch with its caption beside it: `<label class="switch-field">` wraps the box
+ * (`<span class="switch">` with the input and its track) and a `.cap` for the words.
+ * The caption must stay OUTSIDE `.switch` — `.switch span` paints every span inside the
+ * box as the track and takes it out of the flow, so a caption written in there lands on
+ * whatever field is below. That is how «شراء مستعمل من عميل» and the repair-intake row
+ * ended up with their text on top of the form.
+ */
+.switch-field { display: flex; align-items: center; gap: 10px; text-align: start; cursor: pointer; }
+.switch-field .cap { flex: 1 1 auto; min-width: 0; font-size: .9rem; color: var(--text-2); }
 .note {
   display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-m); background: var(--surface-2);
   border: 1px solid var(--border); font-size: .84rem; color: var(--text-2);

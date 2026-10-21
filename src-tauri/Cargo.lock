@@ -2141,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "mobile-shop-system"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "android-native-keyring-store",
  "argon2",

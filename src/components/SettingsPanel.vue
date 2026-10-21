@@ -20,6 +20,7 @@ import * as api from '../api/settings';
 import * as lifecycle from '../api/lifecycle';
 import { describeError } from '../api/errors';
 import type { SettingsSnapshot, DiscountKind } from '../api/settings';
+import { skipsPasswordReauth } from '../shell/open-mode';
 
 // --- re-authentication modal -----------------------------------------------
 // Mirrors UserManagement.vue: every read and every write of `ManageSettings`
@@ -31,6 +32,15 @@ const error = ref('');
 const busy = ref(false);
 
 async function withReauth(action: () => Promise<void>): Promise<void> {
+  if (skipsPasswordReauth()) {
+    // `ADR-039`: a shop that has not claimed an account has no password to prove,
+    // and its session already stands at the assurance this modal exists to reach.
+    // Rust decides that; this only keeps the panel from demanding a secret the shop
+    // has not got — and from refusing the action when the operator has nothing to
+    // type into it.
+    await action();
+    return;
+  }
   pendingAction.value = action;
   reauthPassword.value = '';
   error.value = '';

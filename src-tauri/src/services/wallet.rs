@@ -11,9 +11,9 @@ use crate::data::repositories::wallet as repo;
 use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::domain::wallet::{
     validate_non_negative_minor, validate_optional_note, validate_void_reason,
-    validate_wallet_color, validate_wallet_number, ServicesWindowTotals, WalletError, WalletId,
-    WalletName, WalletOpId, WalletOpKind, WalletOpRecord, WalletPayMethod, WalletRecord,
-    WalletSummary, WalletVia, MAX_SERVICE_REFERENCE_CHARS, MAX_SERVICE_TYPE_CHARS,
+    validate_wallet_color, validate_wallet_company, validate_wallet_number, ServicesWindowTotals,
+    WalletError, WalletId, WalletName, WalletOpId, WalletOpKind, WalletOpRecord, WalletPayMethod,
+    WalletRecord, WalletSummary, WalletVia, MAX_SERVICE_REFERENCE_CHARS, MAX_SERVICE_TYPE_CHARS,
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
@@ -38,6 +38,8 @@ pub struct UpdateWalletInput {
     pub max_limit_minor: i64,
     pub daily_limit_minor: i64,
     pub pay_method: Option<String>,
+    /// The company this number belongs to (`ADR-040`). Blank clears the grouping.
+    pub company: Option<String>,
     pub sort: i64,
     pub hidden: bool,
 }
@@ -603,6 +605,7 @@ pub async fn create_wallet(
     name_raw: &str,
     color_raw: &str,
     number_raw: Option<&str>,
+    company_raw: Option<&str>,
 ) -> Result<WalletRecord, WalletServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageCatalog)?;
@@ -610,6 +613,7 @@ pub async fn create_wallet(
     let name = WalletName::new(name_raw)?;
     let color = validate_wallet_color(color_raw)?;
     let number = validate_wallet_number(number_raw.unwrap_or(""))?;
+    let company = validate_wallet_company(company_raw)?;
     let actor = session.user_id();
     let now = Timestamp::now();
 
@@ -633,6 +637,7 @@ pub async fn create_wallet(
     let wallet = WalletRecord {
         id: WalletId::generate(),
         name,
+        company,
         number,
         color,
         opening_balance_minor: 0,
@@ -662,6 +667,96 @@ pub async fn create_wallet(
     Ok(wallet)
 }
 
+/// Why the shop wallet a payment named could not be resolved (`ADR-041`).
+///
+/// The two cases are kept apart on purpose: a caller that turns a storage failure into "that
+/// wallet does not take this method" sends the operator to fix an input that was never wrong, and
+/// a caller that turns a refusal into a storage error hides a mistake behind a retry.
+pub enum PaymentWalletFailure {
+    /// The read itself failed — the transaction must be rolled back and nothing written.
+    Storage(sqlx::Error),
+    /// The number named is unknown, does not receive that method, or was named for a method no
+    /// shop wallet holds at all.
+    NotEligible(WalletError),
+}
+
+/// The wallet one payment should be recorded on, for every flow that moves money (`ADR-041`).
+///
+/// A sale, a return, a customer settling a debt and a repair being settled all ask the same
+/// question and must get the same answer: the number the operator named when they named one, and
+/// the primary for the method otherwise. A named wallet that does not receive the method is an
+/// error, never a silent reassignment — quietly moving money to another wallet is how a till ends
+/// up balanced on paper and wrong in the drawer. A method no shop wallet holds (cash, card, the
+/// customer's own wallet) yields `None`, and naming a wallet for it is `WalletPayMethodInvalid`.
+pub async fn resolve_payment_wallet_id(
+    conn: &mut sqlx::SqliteConnection,
+    method_raw: &str,
+    chosen_raw: Option<&str>,
+) -> Result<Option<String>, PaymentWalletFailure> {
+    let chosen = chosen_raw.map(str::trim).filter(|s| !s.is_empty());
+    let method = match method_raw.trim() {
+        "vf" | "instapay" => WalletPayMethod::parse_optional(Some(method_raw))
+            .map_err(PaymentWalletFailure::NotEligible)?,
+        _ => None,
+    };
+    let Some(method) = method else {
+        return match chosen {
+            Some(_) => Err(PaymentWalletFailure::NotEligible(
+                WalletError::WalletPayMethodInvalid,
+            )),
+            None => Ok(None),
+        };
+    };
+
+    if let Some(chosen) = chosen {
+        let wallet = repo::find_wallet_by_id(conn, chosen)
+            .await
+            .map_err(PaymentWalletFailure::Storage)?
+            .ok_or(PaymentWalletFailure::NotEligible(
+                WalletError::WalletNotFound,
+            ))?;
+        if wallet.pay_method != Some(method) {
+            return Err(PaymentWalletFailure::NotEligible(
+                WalletError::WalletPayMethodInvalid,
+            ));
+        }
+        return Ok(Some(wallet.id.as_str().to_owned()));
+    }
+
+    let primary = repo::primary_payment_wallet(conn, method)
+        .await
+        .map_err(PaymentWalletFailure::Storage)?;
+    Ok(primary.map(|wallet| wallet.id.as_str().to_owned()))
+}
+
+/// The wallet numbers that can receive a sale paid with `method` (`ADR-040`).
+///
+/// A seller may read this: it is the choice the pay screen offers when one company holds more
+/// than one number. Deliberately not `wallets_overview` — the POS hot path must not pull every
+/// wallet's balances and period stats to name a number, so no totals are computed here.
+pub async fn payment_wallet_candidates(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    method_raw: &str,
+) -> Result<Vec<WalletRecord>, WalletServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+
+    let method = WalletPayMethod::parse_optional(Some(method_raw))?
+        .ok_or(WalletError::WalletPayMethodInvalid)?;
+
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let wallets = repo::list_payment_wallets(&mut conn, method)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(wallets)
+}
+
 /// Update an existing shop wallet's configuration (owner only).
 pub async fn update_wallet(
     pool: &SqlitePool,
@@ -679,6 +774,7 @@ pub async fn update_wallet(
     let max_limit_minor = validate_non_negative_minor(input.max_limit_minor)?;
     let daily_limit_minor = validate_non_negative_minor(input.daily_limit_minor)?;
     let pay_method = WalletPayMethod::parse_optional(input.pay_method.as_deref())?;
+    let company = validate_wallet_company(input.company.as_deref())?;
     let actor = session.user_id();
     let now = Timestamp::now();
 
@@ -701,12 +797,9 @@ pub async fn update_wallet(
         }
     }
 
-    if let Some(pm) = pay_method {
-        repo::clear_pay_method_on_other_wallets(&mut tx, pm, existing.id.as_str())
-            .await
-            .map_err(|_| DomainError::StorageUnavailable)?;
-    }
-
+    // No `pay_method` is taken away from another wallet here. Several numbers of one company
+    // may receive the same method since `ADR-040`; clearing the link elsewhere would silently
+    // re-point where tomorrow's money lands because someone edited an unrelated number.
     existing.name = name;
     existing.number = number;
     existing.color = color;
@@ -715,6 +808,7 @@ pub async fn update_wallet(
     existing.max_limit_minor = max_limit_minor;
     existing.daily_limit_minor = daily_limit_minor;
     existing.pay_method = pay_method;
+    existing.company = company;
     existing.sort = input.sort;
     existing.hidden = input.hidden;
 

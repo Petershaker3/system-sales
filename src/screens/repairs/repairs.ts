@@ -5,6 +5,7 @@ import type {
   RepairTicket,
 } from '../../api/repairs.ts';
 import { normalize as normalizeArabic } from '../../ui/arabic.ts';
+import { money } from '../../ui/format.ts';
 
 export interface RepairStatusMeta {
   readonly id: RepairStatusId;
@@ -199,10 +200,14 @@ export function buildRepairWhatsAppUrl(
     return null;
   }
   const track = ticket.serviceKind === 'software' ? 'السوفت وير' : 'الصيانة';
-  const estEgp = Math.round(ticket.estimatedPriceMinor / 100);
-  const finalEgp = Math.round((ticket.finalPriceMinor || ticket.estimatedPriceMinor) / 100);
-  const depEgp = Math.round(ticket.depositMinor / 100);
-  const remEgp = Math.max(0, finalEgp - depEgp);
+  // Totals are spoken in the shop's unit (`ADR-044`), and the remainder is
+  // subtracted in piastres so a half-pound never rounds away.
+  const finalMinor = ticket.finalPriceMinor || ticket.estimatedPriceMinor;
+  const remMinor = Math.max(0, finalMinor - ticket.depositMinor);
+  const estTxt = money(ticket.estimatedPriceMinor);
+  const finalTxt = money(finalMinor);
+  const depTxt = money(ticket.depositMinor);
+  const remTxt = money(remMinor);
 
   let text = '';
   if (kind === 'intake') {
@@ -210,20 +215,20 @@ export function buildRepairWhatsAppUrl(
       `أهلاً أ/ ${ticket.customerName}، تم استلام جهازك (${ticket.deviceName}) في ${shopName} — قسم ${track}.\n` +
       `رقم التذكرة: ${ticket.ticketNo}\n` +
       `البيان: ${ticket.issue}\n` +
-      `التكلفة المتوقعة: ${estEgp} ج.م` +
-      (depEgp > 0 ? ` (مدفوع عربون ${depEgp} ج.م والباقي ${remEgp} ج.م)` : '') +
+      `التكلفة المتوقعة: ${estTxt}` +
+      (ticket.depositMinor > 0 ? ` (مدفوع عربون ${depTxt} والباقي ${remTxt})` : '') +
       `\nالموعد المتوقع: ${ticket.dueLabel}`;
   } else if (kind === 'ready') {
     text =
       `أهلاً أ/ ${ticket.customerName}، جهازك (${ticket.deviceName}) بقى جاهز للاستلام في ${shopName}!\n` +
       `رقم التذكرة: ${ticket.ticketNo}\n` +
-      `المطلوب عند الاستلام: ${remEgp} ج.م\n` +
+      `المطلوب عند الاستلام: ${remTxt}\n` +
       `تنورنا في أي وقت.`;
   } else {
     text =
       `شكراً لزيارتك ${shopName} أ/ ${ticket.customerName}!\n` +
       `تم تسليم جهاز (${ticket.deviceName}) — تذكرة ${ticket.ticketNo} (${track}).\n` +
-      `إجمالي الحساب: ${finalEgp} ج.م` +
+      `إجمالي الحساب: ${finalTxt}` +
       (ticket.warrantyDays > 0 ? `\nضمان ${track}: ${ticket.warrantyDays} يوم.` : '');
   }
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;

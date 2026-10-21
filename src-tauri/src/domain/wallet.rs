@@ -12,6 +12,12 @@ pub const MAX_WALLET_NAME_CHARS: usize = 80;
 /// Maximum length in Unicode scalar values for a wallet number or InstaPay address.
 pub const MAX_WALLET_NUMBER_CHARS: usize = 80;
 
+/// Maximum length in Unicode scalar values for the company a wallet number belongs to.
+///
+/// A display label with no arithmetic behind it (`ADR-040`): it files several numbers of one
+/// provider together, which is why it gets the same room as a wallet name and no more.
+pub const MAX_WALLET_COMPANY_CHARS: usize = 80;
+
 /// Maximum length in Unicode scalar values for a service sub-type or reference.
 pub const MAX_SERVICE_TYPE_CHARS: usize = 80;
 pub const MAX_SERVICE_REFERENCE_CHARS: usize = 120;
@@ -99,6 +105,18 @@ pub fn validate_wallet_color(raw: &str) -> Result<String, WalletError> {
         return Err(WalletError::WalletColorInvalid);
     }
     Ok(trimmed.to_ascii_lowercase())
+}
+
+/// Validated optional company label: blank (or whitespace-only) becomes `None`, because a
+/// group nobody can name is worse than no group (`ADR-040`).
+pub fn validate_wallet_company(raw: Option<&str>) -> Result<Option<String>, WalletError> {
+    let Some(text) = raw.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Ok(None);
+    };
+    if text.chars().count() > MAX_WALLET_COMPANY_CHARS || text.chars().any(char::is_control) {
+        return Err(WalletError::WalletCompanyInvalid);
+    }
+    Ok(Some(text.to_owned()))
 }
 
 /// Validated optional wallet number or InstaPay handle (`0..=80` chars).
@@ -271,6 +289,9 @@ impl WalletAlertState {
 pub struct WalletRecord {
     pub id: WalletId,
     pub name: WalletName,
+    /// The company this number belongs to, or `None` when the wallet stands for the company
+    /// itself. Display grouping only — no balance or limit reads it (`ADR-040`).
+    pub company: Option<String>,
     pub number: String,
     pub color: String,
     pub opening_balance_minor: i64,
@@ -450,6 +471,8 @@ pub enum WalletError {
     WalletNameInvalid,
     WalletNameDuplicate,
     WalletNumberInvalid,
+    /// A company label too long, or carrying control characters (`ADR-040`).
+    WalletCompanyInvalid,
     WalletColorInvalid,
     WalletLimitInvalid,
     WalletPayMethodInvalid,
@@ -472,6 +495,7 @@ impl WalletError {
             WalletError::WalletNameInvalid => "WALLET_NAME_INVALID",
             WalletError::WalletNameDuplicate => "WALLET_NAME_DUPLICATE",
             WalletError::WalletNumberInvalid => "WALLET_NUMBER_INVALID",
+            WalletError::WalletCompanyInvalid => "WALLET_COMPANY_INVALID",
             WalletError::WalletColorInvalid => "WALLET_COLOR_INVALID",
             WalletError::WalletLimitInvalid => "WALLET_LIMIT_INVALID",
             WalletError::WalletPayMethodInvalid => "WALLET_PAY_METHOD_INVALID",

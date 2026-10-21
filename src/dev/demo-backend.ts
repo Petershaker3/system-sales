@@ -101,11 +101,55 @@ function drawCode(): string {
   return code;
 }
 
-const users: DemoUser[] = [
-  { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
-  { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
-  { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
-];
+// The demo starts the way a fresh device does — the shop running on its own
+// operator, no account claimed yet, the till already open (`ADR-039`). That is the
+// default now, on purpose: what an owner sees when they run the program for the first
+// time should be what the demo shows, not the state after somebody made an account.
+//
+// `?shop=1` is the other demo: three accounts, a lock card, and the fake-data shop the
+// browser suites walk through (their flows sign people in, so they need people).
+// `?openShop=1` is still accepted and means nothing — it is what happens with no flag.
+//
+// The decision itself is Rust's (`services/identity/open_mode.rs`); this is the same
+// shape, so the flow (banner → card → claim) can be tried without a database.
+// `?empty=1` is the third demo, and the state nobody wants: the device has no rows at
+// all and the start-up that prepares the shop did not run. It exists because
+// `ADR-039` deleted the form that used to open there, so what is left must be readable
+// — the lock card with nobody in it is the whole program's worst screen, and the only
+// one worth rehearsing is the one that tells the owner what to do.
+const emptyDevice =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('empty');
+const seededShop =
+  !emptyDevice &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('shop');
+const openShop = !seededShop && !emptyDevice;
+
+/** The open operator: a manager row with no password anybody knows and no PIN. */
+const openOwner: DemoUser = {
+  id: 'u-open',
+  displayName: 'المالك',
+  username: 'user-open',
+  role: 'manager',
+  // Stands for the random secret the real row hashes: it exists so the row is an
+  // ordinary account, and no password a person types matches it.
+  password: 'no-password-is-known-for-the-open-row',
+  pin: null,
+  disabled: false,
+};
+
+/** False only in the open-shop demo, and only until the owner claims the row. */
+let claimed = !openShop;
+
+const users: DemoUser[] = openShop
+  ? [openOwner]
+  : [
+      { id: 'u-peter', displayName: 'بيتر', username: 'peter', role: 'manager', password: DEMO_PASSWORD, pin: '1111', disabled: false },
+      { id: 'u-youssef', displayName: 'يوسف', username: 'youssef', role: 'sales', password: DEMO_PASSWORD, pin: '2222', disabled: false },
+      { id: 'u-marina', displayName: 'مارينا', username: 'marina', role: 'sales', password: DEMO_PASSWORD, pin: '3333', disabled: false },
+    ];
+
+if (emptyDevice) users.length = 0;
 
 const cat = (id: string, name: string, parentId: string | null, kind: DemoCategory['kind'], icon: string, sortOrder: number, isDefault = true): DemoCategory => ({
   id,
@@ -273,6 +317,7 @@ const appearance = {
   font: 'auto',
   scale: 'normal',
   digits: 'latin',
+  moneyUnit: 'egp',
   images: 'on',
   imeiMode: 'optional',
   payMethods: 'cash,vf,instapay,card,install,credit',
@@ -338,6 +383,15 @@ function demoLuhn(imei: string): boolean {
   return sum % 10 === 0;
 }
 let approvedOnce = false;
+
+/**
+ * Whether a sensitive command may run without a fresh owner PIN.
+ *
+ * `ADR-039`: in the open-shop demo the operator is the owner, and Rust mints the
+ * approval for the open session itself, so nothing here waits for a PIN no account
+ * has. Everywhere else the shipped rule stands: one approval, spent once.
+ */
+const ownerApprovalHolds = () => approvedOnce || !claimed;
 interface DemoProductImage {
   productId: string;
   file: string;
@@ -369,6 +423,8 @@ interface DemoCustomerLedgerEntry {
   kind: 'credit_sale' | 'payment' | 'sale_reversal';
   amountMinor: number;
   method: string | null;
+  /** The shop wallet that took a repayment (`ADR-041`). Absent on the rows that move no wallet money. */
+  walletId?: string | null;
   saleId: string | null;
   note: string | null;
   occurredAt: number;
@@ -405,7 +461,13 @@ interface DemoSale {
   customerId: string | null;
   isCancelled: boolean;
   occurredAt: number;
-  payments: { method: string; amountMinor: number; reference: string | null }[];
+  payments: {
+    method: string;
+    amountMinor: number;
+    reference: string | null;
+    /** The shop wallet this money was collected into (`ADR-040`). */
+    walletId: string | null;
+  }[];
   lines: DemoSaleLine[];
 }
 
@@ -458,7 +520,9 @@ function buildDemoHistoricalSales(): DemoSale[] {
       customerId: null,
       isCancelled: false,
       occurredAt: dt.getTime(),
-      payments: [{ method, amountMinor: total, reference: null }],
+      // Money that predates the wallet being named on the payment: the primary wallet of the
+      // method takes it, exactly as the `0030` backfill leaves it in a real ledger.
+      payments: [{ method, amountMinor: total, reference: null, walletId: null }],
       lines: items.map((it, lIdx) => ({
         id: `hist-line-${idx}-${lIdx + 1}`,
         lineNo: lIdx + 1,
@@ -641,7 +705,6 @@ interface DemoPairedDevice {
   model: string;
   pairedAt: number;
   lastSeenAt: number;
-  online: boolean;
 }
 
 const demoPairedDevices: DemoPairedDevice[] = [
@@ -651,15 +714,13 @@ const demoPairedDevices: DemoPairedDevice[] = [
     model: 'iPhone 15 Pro',
     pairedAt: Date.now() - 7 * 86_400_000,
     lastSeenAt: Date.now(),
-    online: true,
   },
   {
     id: 'dev-seller-1',
     name: 'موبايل يوسف',
     model: 'Redmi Note 13',
     pairedAt: Date.now() - 3 * 86_400_000,
-    lastSeenAt: Date.now() - 300_000,
-    online: true,
+    lastSeenAt: Date.now() - 300_000
   },
 ];
 
@@ -676,24 +737,108 @@ interface DemoCompanionScan {
 let demoCompanionScans: DemoCompanionScan[] = [];
 let demoRemoteEnabled = false;
 
+/**
+ * The intake queue, mirroring `CompanionIntakeDraft` in `domain/companion.rs`.
+ * The demo keeps the same shape so the desktop panel and the smoke test speak
+ * one language with both backends, and the same `id` so a draft pushed twice is
+ * still queued once.
+ */
+interface DemoIntakeDraft {
+  id: string;
+  source: 'phone' | 'scanner';
+  /** `'product'` or `'expense'`; one queue, two destinations (`ADR-043`). */
+  kind: 'product' | 'expense';
+  expenseCategory: string | null;
+  expenseAmountMinor: number;
+  expensePaidFrom: 'drawer' | 'outside' | null;
+  expenseNote: string | null;
+  createdAt: number;
+  pushedAt: number | null;
+  pushError: string | null;
+  pairCode: string;
+  productName: string;
+  barcode: string | null;
+  quantity: number;
+  unitCostMinor: number;
+  salePriceMinor: number | null;
+  imeis: string[];
+  photos: string[];
+  note: string | null;
+  deviceName: string | null;
+}
+
+/** A handset that talked to this computer: the wire decides, never a toggle. */
+const DEMO_ONLINE_WINDOW_MS = 30000;
+let demoIntakes: DemoIntakeDraft[] = [];
+let demoOutbox: DemoIntakeDraft[] = [];
+let demoHostAddress = '';
+let demoHostCode = '';
+let demoPairCode = 'PAIR-8787';
+let demoBlockedNames: string[] = [];
+let demoRejectedPushes = 0;
+let demoLastLinkAt: number | null = null;
+let demoSeq = 0;
+
+function demoIntakeDto(d: DemoIntakeDraft) {
+  return {
+    id: d.id,
+    source: d.source,
+    kind: d.kind,
+    expenseCategory: d.expenseCategory ?? '',
+    expenseAmountMinor: d.expenseAmountMinor,
+    expensePaidFrom: d.expensePaidFrom ?? '',
+    expenseNote: d.expenseNote ?? '',
+    createdAt: d.createdAt,
+    pushedAt: d.pushedAt,
+    pushError: d.pushError,
+    productName: d.productName,
+    barcode: d.barcode,
+    quantity: d.quantity,
+    unitCostMinor: d.unitCostMinor,
+    salePriceMinor: d.salePriceMinor,
+    imeis: [...d.imeis],
+    photos: [...d.photos],
+    note: d.note,
+    deviceName: d.deviceName,
+  };
+}
+
+/** The phone that is always on the wire in the demo, so the panel can show both labels. */
+function demoMarkLivePhoneTalking(): void {
+  const live = demoPairedDevices.find((d) => d.name === 'موبايل بيتر');
+  if (live !== undefined) {
+    live.lastSeenAt = now();
+  }
+}
+
 function demoCompanionStatusDto() {
   const shopName = appearance.shopName || 'موبايل ستور';
   const hostIp = '192.168.1.10';
   const port = 8787;
-  const pairCode = 'PAIR-8787';
   const remoteCode = 'RMT-9042';
+  demoMarkLivePhoneTalking();
   return {
     hostIp,
     port,
-    pairCode,
-    pairPayload: `MSHOP-PAIR|v1|${shopName}|${hostIp}:${port}|${pairCode}`,
+    pairCode: demoPairCode,
+    pairPayload: `MSHOP-PAIR|v1|${shopName}|${hostIp}:${port}|${demoPairCode}`,
     running: true,
-    pairedDevices: demoPairedDevices.map((d) => ({ ...d })),
+    pairedDevices: demoPairedDevices.map((d) => ({
+      ...d,
+      online: now() - d.lastSeenAt <= DEMO_ONLINE_WINDOW_MS,
+    })),
     pendingScans: demoCompanionScans.map((s) => ({ ...s })),
+    pendingIntakes: demoIntakes.map(demoIntakeDto),
+    outbox: demoOutbox.map(demoIntakeDto),
+    rejectedPushes: demoRejectedPushes,
     remoteEnabled: demoRemoteEnabled,
     remoteCode,
     remotePayload: `MSHOP-REMOTE|v1|${shopName}|${remoteCode}`,
-    lastRemoteSyncAt: demoRemoteEnabled ? now() : null,
+    // What this handset stored when it scanned the computer's QR. Empty until it has.
+    remoteHost: demoHostAddress,
+    // The link stamp is only ever a real link: the demo writes it when a phone
+    // connects or pushes, exactly like the listener does.
+    lastLinkAt: demoLastLinkAt,
   };
 }
 
@@ -714,7 +859,10 @@ interface DemoShift {
 
 interface DemoExpense {
   id: string;
-  shiftId: string;
+  /** `null` when the money did not leave the drawer (`ADR-043`). */
+  shiftId: string | null;
+  /** Where the money came from; only a drawer row reduces a shift's expected cash. */
+  paidFrom: 'drawer' | 'outside';
   category: string;
   amountMinor: number;
   note: string | null;
@@ -754,6 +902,8 @@ const cashMovements: DemoCashMovement[] = [];
 interface DemoWallet {
   id: string;
   name: string;
+  /** The company several numbers are filed under, `null` when it stands alone (`ADR-040`). */
+  company: string | null;
   number: string;
   color: string;
   openingBalanceMinor: number;
@@ -798,6 +948,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'vf',
     name: 'فودافون كاش',
+    company: null,
     number: '01001234567',
     color: '#e60000',
     openingBalanceMinor: 1_500_000,
@@ -813,6 +964,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'et',
     name: 'اتصالات كاش',
+    company: null,
     number: '01112345678',
     color: '#5cb85c',
     openingBalanceMinor: 500_000,
@@ -828,6 +980,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'or',
     name: 'أورنج كاش',
+    company: null,
     number: '01223456789',
     color: '#ff7900',
     openingBalanceMinor: 600_000,
@@ -843,6 +996,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'we',
     name: 'وي باي',
+    company: null,
     number: '01554567890',
     color: '#6b2fb5',
     openingBalanceMinor: 250_000,
@@ -858,6 +1012,7 @@ const demoWallets: DemoWallet[] = [
   {
     id: 'ip',
     name: 'إنستاباي',
+    company: null,
     number: 'alnoor@instapay',
     color: '#6b3fa0',
     openingBalanceMinor: 2_000_000,
@@ -1001,6 +1156,8 @@ interface DemoRepair {
   partsCostMinor: number;
   depositMinor: number;
   payMethod: 'cash' | 'vf' | 'instapay' | 'card';
+  /** The shop wallet the ticket's money was collected into (`ADR-041`). */
+  payWalletId?: string | null;
   technicianName: string | null;
   warrantyDays: number;
   note: string;
@@ -1114,6 +1271,72 @@ const demoRepairs: DemoRepair[] = [
   },
 ];
 
+/** The first wallet that receives `method`, hidden ones only as a last resort. */
+function demoSalePayeeWalletId(method: string): string | null {
+  const takers = demoWallets
+    .filter((x) => x.payMethod === method)
+    .sort(
+      (a, b) =>
+        Number(a.hidden) - Number(b.hidden) ||
+        a.sort - b.sort ||
+        (a.id < b.id ? -1 : 1)
+    );
+  return takers[0]?.id ?? null;
+}
+
+/**
+ * Which wallet number one payment is recorded on (`ADR-041`).
+ *
+ * The number the operator named when they named one — and a named number that does not take the
+ * method is refused rather than reassigned — otherwise the primary for the method. A method no
+ * shop wallet holds (cash, card, آجل, تقسيط) yields null, and naming a wallet for it is refused
+ * the same way the real service refuses it.
+ */
+function demoResolvePaymentWalletId(
+  method: string,
+  chosen: string | null,
+  code: string
+): string | null {
+  if (method !== 'vf' && method !== 'instapay') {
+    if (chosen) fail(code);
+    return null;
+  }
+  if (!chosen) return demoSalePayeeWalletId(method);
+  const w = demoWallets.find((x) => x.id === chosen);
+  if (w === undefined || w.payMethod !== method) fail(code);
+  return w === undefined ? null : w.id;
+}
+
+/** The wallet id a caller sent, or null when it sent nothing usable. */
+function walletIdArg(args: unknown, key: string): string | null {
+  const raw = (args as Record<string, unknown> | undefined)?.[key];
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+}
+
+/**
+ * Name the wallet on the seeded money that predates the choice, the way `0030` and `0031` name it
+ * on a real database: the number that received the method at that moment. The reading rule in
+ * `demoComputeWalletBalanceMinor` then has one shape in the demo and in Rust, with no fallback
+ * the real system never applies (`ADR-041`).
+ */
+function demoNameHistoricalWallets(): void {
+  for (const sale of sales) {
+    for (const pay of sale.payments) {
+      if (pay.walletId === null) pay.walletId = demoSalePayeeWalletId(pay.method);
+    }
+  }
+  for (const entry of customerLedger) {
+    if (entry.kind === 'payment' && !entry.walletId) {
+      entry.walletId = demoSalePayeeWalletId(entry.method ?? '');
+    }
+  }
+  for (const repair of demoRepairs) {
+    if (repair.status === 'delivered' && !repair.payWalletId) {
+      repair.payWalletId = demoSalePayeeWalletId(repair.payMethod);
+    }
+  }
+}
+
 function demoComputeWalletBalanceMinor(w: DemoWallet): number {
   let bal = w.openingBalanceMinor;
   for (const op of demoWalletOps) {
@@ -1129,24 +1352,24 @@ function demoComputeWalletBalanceMinor(w: DemoWallet): number {
       bal += op.amountMinor;
     }
   }
-  if (w.payMethod) {
-    for (const s of sales) {
-      const sign = s.kind === 'reversal' ? -1 : 1;
-      for (const p of s.payments) {
-        if (p.method === w.payMethod) {
-          bal += sign * p.amountMinor;
-        }
-      }
+  // Money is this wallet's when the row names it, and belongs to no wallet when it does not —
+  // one rule for the three streams, as in `compute_wallet_balance` (`ADR-041`). What a row names
+  // is decided when the money moves, never re-derived from the listing order, so the same sum
+  // cannot walk between two numbers of one company.
+  for (const sale of sales) {
+    const sign = sale.kind === 'reversal' ? -1 : 1;
+    for (const pay of sale.payments) {
+      if (pay.walletId === w.id) bal += sign * pay.amountMinor;
     }
-    for (const entry of customerLedger) {
-      if (entry.kind === 'payment' && entry.method === w.payMethod) {
-        bal += Math.abs(entry.amountMinor);
-      }
+  }
+  for (const entry of customerLedger) {
+    if (entry.kind === 'payment' && entry.walletId === w.id) {
+      bal += Math.abs(entry.amountMinor);
     }
-    for (const rep of demoRepairs) {
-      if (rep.status === 'delivered' && rep.payMethod === w.payMethod) {
-        bal += Math.max(0, rep.finalPriceMinor - rep.depositMinor);
-      }
+  }
+  for (const repair of demoRepairs) {
+    if (repair.status === 'delivered' && repair.payWalletId === w.id) {
+      bal += Math.max(0, repair.finalPriceMinor - repair.depositMinor);
     }
   }
   return bal;
@@ -1193,12 +1416,12 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     }
   }
   let salesInMinor = 0;
-  if (w.payMethod) {
+  {
     for (const s of sales) {
       if (s.occurredAt < fromMs || s.occurredAt > toMs) continue;
       const sign = s.kind === 'reversal' ? -1 : 1;
       for (const p of s.payments) {
-        if (p.method === w.payMethod) {
+        if (p.walletId === w.id) {
           salesInMinor += sign * p.amountMinor;
         }
       }
@@ -1206,7 +1429,7 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     for (const entry of customerLedger) {
       if (
         entry.kind === 'payment' &&
-        entry.method === w.payMethod &&
+        entry.walletId === w.id &&
         entry.occurredAt >= fromMs &&
         entry.occurredAt <= toMs
       ) {
@@ -1216,7 +1439,7 @@ function demoWalletPeriodStats(w: DemoWallet, fromMs: number, toMs: number) {
     for (const rep of demoRepairs) {
       if (
         rep.status === 'delivered' &&
-        rep.payMethod === w.payMethod &&
+        rep.payWalletId === w.id &&
         rep.deliveredAt !== null &&
         rep.deliveredAt >= fromMs &&
         rep.deliveredAt <= toMs
@@ -1335,8 +1558,11 @@ function buildDemoShiftSummary(shift: DemoShift) {
     }
   }
 
+  // Only drawer rows belong to a shift's cash (`ADR-043`). An outside expense is the
+  // shop's money, not the till's, so it is in the expenses section and nowhere near
+  // this subtraction.
   const shiftExpenses = expenses
-    .filter((e) => e.shiftId === shift.id)
+    .filter((e) => e.shiftId === shift.id && e.paidFrom === 'drawer')
     .sort((a, b) => b.createdAt - a.createdAt);
   const shiftMovements = cashMovements
     .filter((m) => m.shiftId === shift.id)
@@ -1403,7 +1629,9 @@ const settings = {
   maxDiscountValue: 0,
 };
 
-let current: DemoUser | null = null;
+// An open shop has no sign-in to wait for: the shell opens on its own operator,
+// which is what `session::resolve` answers in Rust when there is no token.
+let current: DemoUser | null = openShop ? openOwner : null;
 let freshUntil = 0;
 
 const session = () =>
@@ -1423,7 +1651,11 @@ function requireUser(): DemoUser {
 function requireManager(fresh = false): DemoUser {
   const user = requireUser();
   if (user.role !== 'manager') fail('PERMISSION_DENIED');
-  if (fresh && now() >= freshUntil) fail('REAUTHENTICATION_REQUIRED');
+  // `ADR-039`: while the shop is open its session already stands at the assurance a
+  // fresh password would prove — `open_mode::reauthenticate` answers Ok because there
+  // is no secret to re-type yet — so the mirror must not demand one either, or every
+  // cost read in the demo is a wall the real program does not have.
+  if (fresh && claimed && now() >= freshUntil) fail('REAUTHENTICATION_REQUIRED');
   return user;
 }
 
@@ -1476,6 +1708,26 @@ const str = (args: Args, key: string): string => {
 const numArg = (args: Args, key: string): number => {
   const v = args?.[key];
   return typeof v === 'number' ? v : NaN;
+};
+/** An optional numeric argument: `null` when absent, exactly what «الكل» sends. */
+const optNum = (args: Args, key: string): number | null => {
+  const v = args?.[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+};
+/** The display name behind a user id, for the expenses section's «اللي سجّله». */
+const userName = (id: string): string =>
+  users.find((u) => u.id === id)?.displayName ?? id;
+/**
+ * The two places an expense's money can come from, or a refusal.
+ *
+ * Never a default: mapping an unknown word to «من برّه الدرج» would quietly exclude
+ * it from the drawer's expected cash, and mapping it to «من الدرج» would quietly
+ * subtract it (`ADR-043`).
+ */
+const parsePaidFrom = (raw: string): 'drawer' | 'outside' => {
+  if (raw === 'drawer') return 'drawer';
+  if (raw === 'outside') return 'outside';
+  return fail('EXPENSE_PAID_FROM_INVALID');
 };
 const findProduct = (id: string) => products.find((x) => x.id === id) ?? fail('NO_PRODUCT_WITH_THIS_ID');
 
@@ -1830,12 +2082,50 @@ function buildDemoShortagesOverview() {
   return { items: active, suggestions };
 }
 
+// Every seeded row above now names its wallet, as a database upgraded through `0030`/`0031`
+// would. Placed here because the wallets and the repair seeds are declared further down than the
+// sales they are matched against.
+demoNameHistoricalWallets();
+
 const handlers: Record<string, (args: Args) => unknown> = {
   // identity
-  bootstrap_status: () => ({ needsSetup: false }),
+  // Three accounts exist in the demo data, so the shop is never open in the sense
+  // of `ADR-039`, and the claim has nothing to claim. Answered the way Rust answers a
+  // shop that already has an account, so the card in الإعدادات shows the same line a
+  // real second attempt would. `?empty=1` answers the way Rust answers a database with
+  // nothing in it and no open row: `needsSetup` true, `openMode` false — no screen
+  // opens on the first number any more, which is exactly the point of the line the
+  // lock card shows.
+  bootstrap_status: () => ({
+    needsSetup: emptyDevice,
+    openMode: !claimed,
+    openDisplayName: claimed ? null : openOwner.displayName,
+  }),
+  // The claim in `ADR-039`: the same row, with a name and a password of its own.
+  claim_open_account: (args) => {
+    if (claimed) fail('BOOTSTRAP_ALREADY_COMPLETED');
+    const name = str(args, 'displayName').trim();
+    const password = str(args, 'password');
+    if (name === '') fail('DISPLAY_NAME_REQUIRED');
+    if (password.length < 8) fail('PASSWORD_DOES_NOT_MEET_POLICY');
+    openOwner.displayName = name;
+    openOwner.password = password;
+    // `ADR-039`: `clear_secondary_secrets`. The open operator is a manager, so a PIN
+    // could be set on this row before anybody owned it; the owner's password is the
+    // only secret that survives the claim.
+    openOwner.pin = null;
+    claimed = true;
+    freshUntil = 0;
+    return session();
+  },
   whoami: () => session(),
+  // The open owner row is not an account anybody can sign in to, so it is not
+  // offered to sign in to either (`ADR-039`, as in `auth::list_users`). The
+  // «حساب المالك» card is where it is spoken about, until it is claimed.
   list_users_for_picker: () =>
-    users.map((u) => ({
+    users
+      .filter((u) => claimed || u !== openOwner)
+      .map((u) => ({
       id: u.id,
       displayName: u.displayName,
       username: u.username,
@@ -1871,6 +2161,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const pin = str(args, 'pin');
     if (!/^\d{4,6}$/.test(pin)) fail('PIN_DOES_NOT_MEET_POLICY');
     const target = users.find((u) => u.id === str(args, 'userId')) ?? fail('INVALID_CREDENTIALS');
+    // The open till is not an account to act on (`ADR-039`): no list names it, and
+    // the only manager who could is the row itself. `INVALID_CREDENTIALS` is what a
+    // missing id answers too (`ADR-017`: the two share a code so the response never
+    // discloses which identifiers exist), so this is Rust's answer, not a softer one.
+    if (target === openOwner && !claimed) fail('INVALID_CREDENTIALS');
     target.pin = pin;
   },
   // The owner's PIN approval (ADR-017 §3): any session may ask, only an active
@@ -1918,6 +2213,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
   password_change_required: () => false,
   reauthenticate: (args) => {
     const user = requireUser();
+    // `ADR-039`: an open shop has no password to prove, and its session already holds
+    // the level this call exists to grant. Rust answers the same way.
+    if (!claimed) return 'reauthenticated';
     if (user.password !== str(args, 'password')) fail('INVALID_CREDENTIALS');
     freshUntil = now() + 5 * 60_000;
     return 'reauthenticated';
@@ -1934,6 +2232,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.font': 'font',
       'ui.scale': 'scale',
       'ui.digits': 'digits',
+      'ui.money_unit': 'moneyUnit',
       'ui.images': 'images',
       'ui.imei_mode': 'imeiMode',
       'ui.pay_methods': 'payMethods',
@@ -2156,7 +2455,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
 
     const limitPct = Number(appearance.discountLimitPct ?? '5');
     if (totalDiscount > 0 && totalDiscount * 100 > grossSubtotal * limitPct) {
-      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
       approvedOnce = false;
     }
 
@@ -2186,6 +2485,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       method: string;
       amountMinor: number;
       reference: string | null;
+      walletId: string | null;
     }[] = [];
     for (const p of rawPayments) {
       const m = (p.method ?? '').trim();
@@ -2199,7 +2499,16 @@ const handlers: Record<string, (args: Args) => unknown> = {
       if (m === 'credit' && linkedCustomer === null) fail('SALE_CREDIT_REQUIRES_CUSTOMER');
       paySum += p.amountMinor;
       if (m === 'credit') creditSum += p.amountMinor;
-      cleanPayments.push({ method: m, amountMinor: p.amountMinor, reference: ref });
+      cleanPayments.push({
+        method: m,
+        amountMinor: p.amountMinor,
+        reference: ref,
+        walletId: demoResolvePaymentWalletId(
+          m,
+          walletIdArg(p as Record<string, unknown>, 'walletId'),
+          'SALE_PAYMENT_WALLET_INVALID'
+        ),
+      });
     }
     if (paySum !== total) fail('SALE_PAYMENT_TOTAL_MISMATCH');
 
@@ -2336,7 +2645,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   cancel_sale: (args) => {
     const user = requireManager(false);
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
 
     const saleId = str(args, 'saleId').trim();
@@ -2640,7 +2949,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   record_sale_return: (args) => {
     const user = requireUser();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
 
     const saleId = (str(args, 'originalSaleId') || str(args, 'saleId')).trim();
@@ -2749,6 +3058,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       method: string;
       amountMinor: number;
       reference: string | null;
+      walletId: string | null;
     }[] = [];
     if (rawRefundPayments && rawRefundPayments.length > 0) {
       let sum = 0;
@@ -2758,6 +3068,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
           method: p.method,
           amountMinor: p.amountMinor,
           reference: p.reference ?? null,
+          walletId: demoResolvePaymentWalletId(
+            p.method,
+            walletIdArg(p as Record<string, unknown>, 'walletId'),
+            'SALE_PAYMENT_WALLET_INVALID'
+          ),
         });
       }
       if (sum !== refundMinor) fail('SALE_PAYMENT_TOTAL_MISMATCH');
@@ -2771,6 +3086,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
             method: p.method,
             amountMinor: take,
             reference: p.reference,
+            walletId: p.walletId ?? demoSalePayeeWalletId(p.method),
           });
           remaining -= take;
         }
@@ -2780,10 +3096,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
           method: 'cash',
           amountMinor: remaining,
           reference: null,
+          walletId: null,
         });
       }
     } else {
-      cleanRefundPayments = [{ method: 'cash', amountMinor: 0, reference: null }];
+      cleanRefundPayments = [
+        { method: 'cash', amountMinor: 0, reference: null, walletId: null },
+      ];
     }
 
     const occurredAt = now();
@@ -2949,7 +3268,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   record_sale_exchange: (args) => {
     requireUser();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     // Keep approvedOnce = true for the inner record_sale_return call, and also allow any discount in the new sale
     const returnOutcome = handlers['record_sale_return']!({
       saleId: args?.['originalSaleId'],
@@ -3317,7 +3636,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   receive_opening_stock: (args) => {
     requireManager();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     return handlers['receive_stock']!(args);
   },
@@ -3369,7 +3688,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   reconcile_stock_count: (args) => {
     requireManager();
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     const rawItems = Array.isArray(args?.['items']) ? (args['items'] as Record<string, unknown>[]) : [];
     let adjustedProducts = 0;
@@ -3591,7 +3910,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const payoutFromDrawer = Boolean(args?.['payoutFromDrawer']);
     if (isOpeningStock) {
       requireManager();
-      if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+      if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
       approvedOnce = false;
     }
     const category =
@@ -3911,6 +4230,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const method = str(args, 'method').trim();
     if (!['cash', 'vf', 'instapay', 'card'].includes(method)) fail('CUSTOMER_PAYMENT_METHOD_INVALID');
     const note = str(args, 'note').trim() || null;
+    const paidIntoWalletId = demoResolvePaymentWalletId(
+      method,
+      walletIdArg(args, 'walletId'),
+      'CUSTOMER_PAYMENT_WALLET_INVALID'
+    );
     c.balanceMinor -= amountMinor;
     customerLedger.unshift({
       id: newId('cl'),
@@ -3918,6 +4242,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       kind: 'payment',
       amountMinor: -amountMinor,
       method,
+      walletId: paidIntoWalletId,
       saleId: null,
       note,
       occurredAt: now(),
@@ -3981,6 +4306,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     expenses.push({
       id: newId('exp'),
       shiftId: open.id,
+      paidFrom: 'drawer',
       category,
       amountMinor,
       note,
@@ -3988,6 +4314,99 @@ const handlers: Record<string, (args: Args) => unknown> = {
       createdAt: now(),
     });
     return buildDemoShiftSummary(open);
+  },
+
+  // The expenses section (`ADR-043`): one window, one list, two sources.
+  expenses_overview: (args) => {
+    requireUser();
+    const fromMs = optNum(args, 'fromMs');
+    const toMs = optNum(args, 'toMs');
+    const inWindow = expenses
+      .filter(
+        (e) =>
+          (fromMs === null || e.createdAt >= fromMs) &&
+          (toMs === null || e.createdAt <= toMs)
+      )
+      .sort((a, b) => b.createdAt - a.createdAt);
+    let totalMinor = 0;
+    let drawerMinor = 0;
+    let outsideMinor = 0;
+    const byCategory = new Map<string, { totalMinor: number; count: number }>();
+    for (const e of inWindow) {
+      totalMinor += e.amountMinor;
+      if (e.paidFrom === 'drawer') drawerMinor += e.amountMinor;
+      else outsideMinor += e.amountMinor;
+      const entry = byCategory.get(e.category) ?? { totalMinor: 0, count: 0 };
+      entry.totalMinor += e.amountMinor;
+      entry.count += 1;
+      byCategory.set(e.category, entry);
+    }
+    const known: string[] = [];
+    for (const e of [...expenses].sort((a, b) => b.createdAt - a.createdAt)) {
+      if (!known.includes(e.category)) known.push(e.category);
+    }
+    const open = shifts.find((s) => s.status === 'open') ?? null;
+    return {
+      rows: inWindow.map((e) => ({
+        id: e.id,
+        shiftId: e.shiftId,
+        paidFrom: e.paidFrom,
+        category: e.category,
+        amountMinor: e.amountMinor,
+        note: e.note,
+        createdBy: e.createdBy,
+        createdAt: e.createdAt,
+        createdByName: userName(e.createdBy),
+      })),
+      totalMinor,
+      drawerMinor,
+      outsideMinor,
+      count: inWindow.length,
+      byCategory: [...byCategory.entries()]
+        .map(([category, v]) => ({ category, totalMinor: v.totalMinor, count: v.count }))
+        .sort((a, b) =>
+          b.totalMinor - a.totalMinor || a.category.localeCompare(b.category)
+        ),
+      knownCategories: known.slice(0, 24),
+      openShiftId: open ? open.id : null,
+    };
+  },
+  record_shop_expense: (args) => {
+    const user = requireUser();
+    if (user.role !== 'manager') fail('AUTH_FORBIDDEN');
+    // Stated, never guessed: a blank or unknown source is refused rather than
+    // defaulted, because the default would decide whether the drawer shrinks.
+    const paidFrom = parsePaidFrom(str(args, 'paidFrom').trim());
+    const category = str(args, 'category').trim();
+    if (!category || category.length > 80) fail('EXPENSE_CATEGORY_INVALID');
+    const amountMinor = numArg(args, 'amountMinor');
+    if (!(amountMinor > 0)) fail('EXPENSE_AMOUNT_INVALID');
+    const note = str(args, 'note').trim() || null;
+    // A drawer expense needs a till somebody opened; an outside one must not borrow
+    // whatever shift happens to be open (`ADR-043`).
+    const open = shifts.find((s) => s.status === 'open') ?? null;
+    if (paidFrom === 'drawer' && open === null) fail('SHIFT_NOT_OPEN');
+    const row: DemoExpense = {
+      id: newId('exp'),
+      shiftId: paidFrom === 'drawer' && open !== null ? open.id : null,
+      paidFrom,
+      category,
+      amountMinor,
+      note,
+      createdBy: user.id,
+      createdAt: now(),
+    };
+    expenses.push(row);
+    return {
+      id: row.id,
+      shiftId: row.shiftId,
+      paidFrom: row.paidFrom,
+      category: row.category,
+      amountMinor: row.amountMinor,
+      note: row.note,
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+    };
   },
   record_cash_movement: (args) => {
     const user = requireUser();
@@ -4036,6 +4455,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
 
   // shop wallets and services ledger (Plan item 1.10, ADR-025)
+  payment_wallet_candidates: (args) => {
+    const method = str(args, 'method').trim();
+    return demoWallets
+      .filter((w) => !w.hidden && w.payMethod === method)
+      .sort((a, b) => a.sort - b.sort || (a.id < b.id ? -1 : 1))
+      .map((w) => ({ id: w.id, name: w.name, number: w.number }));
+  },
   wallets_overview: (args) => {
     requireUser();
     const todayFromMs = Math.max(0, numArg(args, 'todayFromMs'));
@@ -4260,10 +4686,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (demoWallets.some((w) => w.name === name)) fail('WALLET_NAME_DUPLICATE');
     const color = str(args, 'color').trim().toLowerCase() || '#0d7377';
     const number = str(args, 'number').trim();
+    const company = str(args, 'company').trim();
+    if (company.length > 80) fail('WALLET_COMPANY_INVALID');
     const maxSort = demoWallets.reduce((m, w) => Math.max(m, w.sort), 0);
     const wallet: DemoWallet = {
       id: newId('wal'),
       name,
+      company: company || null,
       number,
       color,
       openingBalanceMinor: 0,
@@ -4291,13 +4720,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const rawPay = str(args, 'payMethod').trim();
     const payMethod =
       rawPay === 'vf' || rawPay === 'instapay' ? rawPay : null;
-    if (payMethod) {
-      for (const other of demoWallets) {
-        if (other.id !== w.id && other.payMethod === payMethod) {
-          other.payMethod = null;
-        }
-      }
-    }
+    // Since `ADR-040` a method may be received by more than one number, so editing this
+    // wallet never clears the link on another one.
+    const company = str(args, 'company').trim();
+    if (company.length > 80) fail('WALLET_COMPANY_INVALID');
     w.name = name;
     w.number = str(args, 'number').trim();
     w.color = str(args, 'color').trim().toLowerCase() || w.color;
@@ -4306,6 +4732,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     w.maxLimitMinor = Math.max(0, numArg(args, 'maxLimitMinor'));
     w.dailyLimitMinor = Math.max(0, numArg(args, 'dailyLimitMinor'));
     w.payMethod = payMethod;
+    w.company = company || null;
     w.sort = numArg(args, 'sort');
     w.hidden = Boolean(args?.['hidden']);
     return { ...w };
@@ -4336,15 +4763,23 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (key === 'invoice_prefix') settings.invoicePrefix = str(args, 'value');
   },
   list_users_for_management: () => {
-    requireManager(true);
-    return users.map((u) => ({
+    // While the row is unclaimed the operator is the till itself, and Rust resolves
+    // that as a manager session with a fresh assurance (`open_mode::session`), so
+    // the gate is satisfied by construction — not skipped. Claimed, the ordinary
+    // "manager, password just proven" rule applies.
+    if (claimed) requireManager(true);
+    // Every row here can be disabled, re-roled, or given a temporary password, and
+    // the open row is not that kind of row (`ADR-039`, as in `users::list_managed`).
+    return users
+      .filter((u) => claimed || u !== openOwner)
+      .map((u) => ({
       userId: u.id,
       displayName: u.displayName,
       username: u.username,
       role: u.role,
       disabled: u.disabled,
       mustChangePassword: false,
-      credentialsMissing: false,
+      integrityFault: false,
     }));
   },
 
@@ -4368,7 +4803,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   },
   restore_saved_backup: (args) => {
     requireManager(false);
-    if (!approvedOnce) fail('OWNER_APPROVAL_REQUIRED');
+    if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
     const backupId = str(args, 'backupId').trim();
     const found =
@@ -4519,7 +4954,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const serviceKind = str(args, 'serviceKind').trim() === 'software' ? 'software' : 'hardware';
     const customerName = str(args, 'customerName').trim();
     const customerPhone = str(args, 'customerPhone').trim();
-    if (!customerName || !customerPhone) fail('REPAIR_CUSTOMER_REQUIRED');
+    // A walk-in ticket does not need a name or a number (`ADR-045`); the caps are
+    // the same ones the schema keeps.
+    if (customerName.length > 120 || customerPhone.length > 64) {
+      fail('REPAIR_CUSTOMER_REQUIRED');
+    }
     const deviceName = str(args, 'deviceName').trim();
     if (!deviceName) fail('REPAIR_DEVICE_REQUIRED');
     const issue = str(args, 'issue').trim();
@@ -4543,6 +4982,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const payMethod = (
       ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
     ) as DemoRepair['payMethod'];
+    const payWalletId = demoResolvePaymentWalletId(
+      payMethod,
+      walletIdArg(args, 'payWalletId'),
+      'REPAIR_PAY_WALLET_INVALID'
+    );
     const technicianName =
       typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()
         ? args['technicianName'].trim()
@@ -4577,6 +5021,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       partsCostMinor,
       depositMinor: deliverNow ? 0 : depositMinor,
       payMethod,
+      payWalletId,
       technicianName,
       warrantyDays,
       note,
@@ -4629,6 +5074,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     rep.payMethod = (
       ['cash', 'vf', 'instapay', 'card'].includes(payMethodRaw) ? payMethodRaw : 'cash'
     ) as DemoRepair['payMethod'];
+    rep.payWalletId = demoResolvePaymentWalletId(
+      rep.payMethod,
+      walletIdArg(args, 'payWalletId'),
+      'REPAIR_PAY_WALLET_INVALID'
+    );
     if (typeof args?.['technicianName'] === 'string' && args['technicianName'].trim()) {
       rep.technicianName = args['technicianName'].trim();
     }
@@ -4642,11 +5092,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return repairTicketDto(rep, u.role === 'manager');
   },
   cancel_repair: (args) => {
+    // The one-press undo (`ADR-046`): delivered tickets too, because every repair
+    // number in the demo is summed from the row — leaving `delivered` is the refund.
     const u = requireUser();
     const id = str(args, 'id').trim();
     const rep = demoRepairs.find((r) => r.id === id) ?? fail('REPAIR_NOT_FOUND');
-    if (rep.status === 'delivered' || rep.status === 'cancelled') {
-      fail('REPAIR_ALREADY_DELIVERED');
+    if (rep.status === 'cancelled') {
+      fail('REPAIR_ALREADY_CANCELLED');
     }
     rep.status = 'cancelled';
     if (typeof args?.['note'] === 'string' && args['note'].trim()) {
@@ -4667,8 +5119,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       name,
       model,
       pairedAt: now(),
-      lastSeenAt: now(),
-      online: true,
+      lastSeenAt: now()
     });
     return demoCompanionStatusDto();
   },
@@ -4676,6 +5127,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireManager();
     const deviceId = str(args, 'deviceId').trim();
     const idx = demoPairedDevices.findIndex((d) => d.id === deviceId);
+    const gone = demoPairedDevices[idx];
+    if (gone !== undefined && demoBlockedNames.includes(gone.name) === false) demoBlockedNames.push(gone.name);
     if (idx !== -1) {
       demoPairedDevices.splice(idx, 1);
     }
@@ -4717,24 +5170,249 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return matched;
   },
   set_companion_remote: (args) => {
-    const user = requireUser();
-    if (user.role !== 'manager') throw { code: 'PERMISSION_DENIED' };
+    requireManager();
     demoRemoteEnabled = Boolean(args?.['enabled']);
+    // Like the Rust command: a flag is not a wire. Nothing here pretends a
+    // phone rang, so `lastRemoteSyncAt` stays whatever the traffic said.
+    return demoCompanionStatusDto();
+  },
+  companion_connect_host: (args) => {
+    requireUser();
+    const host = str(args, 'host').trim();
+    const code = str(args, 'pairCode').trim();
+    if (host === '') {
+      throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب عنوان كمبيوتر المتجر الأول.' };
+    }
+    demoHostAddress = host;
+    demoHostCode = code === '' ? demoPairCode : code;
+    const name = str(args, 'deviceName').trim() || 'موبايل';
+    if (demoBlockedNames.includes(name)) {
+      return { ok: false, detail: 'الموبايل ده مفصول من عند الكمبيوتر — اطلب من المالك يربطه تاني.', status: demoCompanionStatusDto() };
+
+    }
+    demoLastLinkAt = now();
+    demoPairedDevices.push({
+      id: `dev-${now()}-${demoPairedDevices.length + 1}`,
+      name,
+      model: str(args, 'deviceModel').trim() || 'موبايل',
+      pairedAt: now(),
+      lastSeenAt: now(),
+    });
+    return {
+      ok: true,
+      detail: `كمبيوتر المتجر رد والموبايل اتسجّل عنده — يبقى التصوير يتبعت له.`,
+      status: demoCompanionStatusDto(),
+    };
+  },
+  companion_probe_host: (args) => {
+    requireUser();
+    const host = str(args, 'host').trim();
+    // The demo answers one address, the way a real shop only answers the
+    // machine that is actually switched on.
+    if (host !== '192.168.1.10:8787') {
+      return { ok: false, latencyMs: 0, detail: 'العنوان ده ما ردّش. اتأكد إن البرنامج مفتوح على الكمبيوتر ورقم المنفذ صح.' };
+    }
+    demoLastLinkAt = now();
+    return { ok: true, latencyMs: 12, detail: 'كمبيوتر المتجر رد — دي نفس الخدمة اللي على الشبكة.' };
+  },
+  companion_save_capture: (args) => {
+    requireUser();
+    const draft = (args?.['draft'] ?? {}) as Record<string, unknown>;
+    args = draft;
+    // One queue, two kinds (`ADR-043`). An expense draft never touches the product
+    // fields, and a product draft never carries an amount.
+    const kind = str(args, 'kind') === 'expense' ? 'expense' : 'product';
+    if (kind === 'expense') {
+      const category = str(args, 'expenseCategory').trim();
+      if (category === '') {
+        throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب بند المصروف الأول.' };
+      }
+      const amount = numArg(args, 'expenseAmountMinor');
+      if (!(amount > 0)) {
+        throw { code: 'COMPANION_INTAKE_REFUSED', message: 'مبلغ المصروف لازم يكون أكبر من صفر.' };
+      }
+      const paidFromRaw = str(args, 'expensePaidFrom').trim();
+      if (paidFromRaw !== 'drawer' && paidFromRaw !== 'outside') {
+        throw { code: 'EXPENSE_PAID_FROM_INVALID' };
+      }
+      const entry: DemoIntakeDraft = {
+        id: `intake-${String(++demoSeq).padStart(6, '0')}`,
+        source: 'phone',
+        kind: 'expense',
+        expenseCategory: category,
+        expenseAmountMinor: amount,
+        expensePaidFrom: paidFromRaw,
+        expenseNote: str(args, 'expenseNote').trim() || null,
+        createdAt: now(),
+        pushedAt: null,
+        pushError: null,
+        pairCode: demoHostCode,
+        productName: '',
+        barcode: null,
+        quantity: 0,
+        unitCostMinor: 0,
+        salePriceMinor: null,
+        imeis: [],
+        photos: [],
+        note: null,
+        deviceName: str(args, 'deviceName').trim() || 'موبايل',
+      };
+      demoOutbox.unshift(entry);
+      return demoCompanionStatusDto();
+    }
+    const name = str(args, 'productName').trim();
+    if (name === '') {
+      throw { code: 'COMPANION_INTAKE_REFUSED', message: 'اكتب اسم الصنف الأول.' };
+    }
+    const imeis = Array.isArray(args?.['imeis'])
+      ? (args?.['imeis'] as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    const quantity = numArg(args, 'quantity');
+    const entry: DemoIntakeDraft = {
+      id: `intake-${String(++demoSeq).padStart(6, '0')}`,
+      source: 'phone',
+      kind: 'product',
+      expenseCategory: null,
+      expenseAmountMinor: 0,
+      expensePaidFrom: null,
+      expenseNote: null,
+      createdAt: now(),
+      pushedAt: null,
+      pushError: null,
+      pairCode: demoHostCode,
+      productName: name,
+      barcode: str(args, 'barcode').trim() || null,
+      quantity: quantity > 0 ? quantity : Math.max(1, imeis.length),
+      unitCostMinor: numArg(args, 'unitCostMinor'),
+      salePriceMinor: typeof args?.['salePriceMinor'] === 'number' ? (args['salePriceMinor'] as number) : null,
+      imeis,
+      photos: Array.isArray(args?.['photos'])
+        ? (args?.['photos'] as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
+      note: str(args, 'note').trim() || null,
+      deviceName: str(args, 'deviceName').trim() || 'موبايل',
+    };
+    demoOutbox.unshift(entry);
+    return demoCompanionStatusDto();
+  },
+  companion_push_captures: () => {
+    requireUser();
+    if (demoHostAddress === '') {
+      throw { code: 'COMPANION_NO_HOST', message: 'الموبايل مش موصل بأي كمبيوتر لحد دلوقتي.' };
+    }
+    const pending = demoOutbox.filter((d) => d.pushedAt === null);
+    for (const draft of pending) {
+      if (demoBlockedNames.includes(draft.deviceName ?? '')) {
+        demoRejectedPushes += 1;
+        continue;
+      }
+      draft.pushedAt = now();
+      if (!demoIntakes.some((x) => x.id === draft.id)) demoIntakes.unshift({ ...draft });
+    }
+    if (pending.length > 0) demoLastLinkAt = now();
+    return {
+      ok: true,
+      detail:
+        pending.length === 0
+          ? 'الكمبيوتر ما كانش فيه حاجة مستنياه.'
+          : 'الكمبيوتر أخد كل المسودات — هو اللي بيقرر امتى ينزّلها في الاستلام',
+      status: demoCompanionStatusDto(),
+    };
+  },
+  companion_clear_outbox: () => {
+    requireUser();
+    demoOutbox = demoOutbox.filter((d) => d.pushedAt === null);
+    return demoCompanionStatusDto();
+  },
+  companion_accept_intake: (args) => {
+    requireManager();
+    const intakeId = str(args, 'intakeId');
+    const idx = demoIntakes.findIndex((d) => d.id === intakeId);
+    if (idx < 0) {
+      throw { code: 'COMPANION_INTAKE_GONE', message: 'المسودة دي اتعملها حاجة من قبل كده.' };
+    }
+    const draft = demoIntakes[idx]!;
+    if (draft.kind === 'expense') {
+      // The desktop is what writes money down (`ADR-043`): the same handler the
+      // expenses screen calls, so a phone draft cannot take a shortcut.
+      const paidFrom = draft.expensePaidFrom ?? 'outside';
+      if (paidFrom === 'drawer' && !shifts.some((s) => s.status === 'open')) {
+        throw {
+          code: 'SHIFT_NOT_OPEN',
+          message: 'مفيش وردية مفتوحة على الكمبيوتر — افتحها أو سجّل المصروف «من برّه الدرج».',
+        };
+      }
+      handlers['record_shop_expense']!({
+        category: draft.expenseCategory ?? '',
+        amountMinor: draft.expenseAmountMinor,
+        note: draft.expenseNote,
+        paidFrom,
+      });
+      demoIntakes.splice(idx, 1);
+      demoLastLinkAt = now();
+      return {
+        status: demoCompanionStatusDto(),
+        draft: { ...demoIntakeDto(draft), note: 'اتسجّل في قسم المصاريف على الكمبيوتر' },
+      };
+    }
+    const existing =
+      draft.barcode !== null
+        ? products.find((x) => x.barcode === draft.barcode && x.status === 'active')
+        : products.find((x) => x.name === draft.productName && x.status === 'active');
+    const product =
+      existing ??
+      handlers['create_product']!({
+          name: draft.productName,
+          barcode: draft.barcode,
+          disposition: 'quantity',
+        }) as { id: string };
+    const productId = String(product.id);
+    const outcome = handlers['receive_stock']!({
+      productId,
+      quantity: draft.quantity,
+      unitCostMinor: draft.unitCostMinor,
+      imeis: draft.imeis,
+    });
+    for (const photo of draft.photos) {
+      handlers['set_product_image']!({ productId, dataUrl: photo });
+    }
+    demoIntakes.splice(idx, 1);
+    demoLastLinkAt = now();
+    void outcome;
+    return { status: demoCompanionStatusDto(), draft: demoIntakeDto(draft) };
+  },
+  companion_reject_intake: (args) => {
+    requireManager();
+    const intakeId = str(args, 'intakeId');
+    const idx = demoIntakes.findIndex((d) => d.id === intakeId);
+    if (idx < 0) return demoCompanionStatusDto();
+    demoIntakes.splice(idx, 1);
+    return demoCompanionStatusDto();
+  },
+  companion_rotate_pair_code: () => {
+    requireManager();
+    demoPairCode = `PAIR-9${String(++demoSeq).padStart(3, '0')}`;
     return demoCompanionStatusDto();
   },
 };
 
 /** Install the stand-in backend. Call once, before the app mounts. */
 export function install(): void {
-  mockIPC((cmd, args) => {
+  const run = (cmd: string, args: Args) => {
     const handler = handlers[cmd];
     if (handler === undefined) {
       // Not part of the demo (backups, user changes): refused, so nothing
       // pretends to have happened.
       throw { code: 'DEMO_UNAVAILABLE' };
     }
-    return handler(args as Args);
-  });
+    return handler(args);
+  };
+  mockIPC((cmd, args) => run(cmd, args as Args));
+  // The demo browser has one window, but the shop has two machines. This hook is
+  // how a smoke test can be the other one — it calls the same handlers the screens
+  // call, so a phone push it performs is the push the real app would have made.
+  // Demo build only (`VITE_DEMO=1`); the shipped app never loads this file.
+  (window as unknown as { __mshopDemoInvoke?: unknown }).__mshopDemoInvoke = run;
 }
 
 /** Shown on the sign-in card of the demo only. */

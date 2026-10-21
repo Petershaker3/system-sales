@@ -43,6 +43,7 @@ async fn the_choices_read_before_sign_in_with_the_approved_defaults() {
     assert_eq!(read.font, "auto");
     assert_eq!(read.scale, "normal");
     assert_eq!(read.digits, "latin");
+    assert_eq!(read.money_unit, "egp", "the shop reads pounds by default (`ADR-044`)");
     assert_eq!(read.images, "on");
     assert_eq!(read.imei_mode, "optional");
     assert_eq!(read.discount_limit_pct, "5");
@@ -74,6 +75,25 @@ async fn the_owner_updates_shop_and_receipt_settings_while_sellers_are_refused()
         .await
         .expect("owner updates shop name");
     assert_eq!(after_name.shop_name, "سنتر بيتر");
+
+    let after_unit =
+        appearance::update(&pool, tokens.as_ref(), "ui.money_unit", "piastre")
+            .await
+            .expect("owner switches money to piastres");
+    assert_eq!(after_unit.money_unit, "piastre");
+    let back_to_pounds =
+        appearance::update(&pool, tokens.as_ref(), "ui.money_unit", "egp")
+            .await
+            .expect("owner switches back to pounds");
+    assert_eq!(back_to_pounds.money_unit, "egp");
+    assert_eq!(
+        appearance::update(&pool, tokens.as_ref(), "ui.money_unit", "dollar")
+            .await
+            .err()
+            .map(|error| error.code()),
+        Some("SETTING_VALUE_INVALID"),
+        "only pounds and piastres exist"
+    );
 
     let after_phone =
         appearance::update(&pool, tokens.as_ref(), "ui.shop_phone", "01223344556")

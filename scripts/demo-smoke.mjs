@@ -19,6 +19,10 @@ import path from 'node:path';
 import { launch } from '../docs/ui/mockup-v1/tools/launch.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173/';
+// The demo opens on a shop with no account (`ADR-039`). This suite is the fake-data
+// shop — three accounts, a lock card, stock — because most of its flows sign somebody
+// in, and `?shop=1` is the flag that still has people in it.
+const BASE = `${URL}${URL.includes('?') ? '&' : '?'}shop=1`;
 const OUT = process.argv[3] || '/tmp/demo-shots';
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -41,6 +45,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
 const text = (sel) => page.$eval(sel, (el) => el.textContent?.trim() ?? '').catch(() => '');
 const count = (sel) => page.$$eval(sel, (els) => els.length);
+/**
+ * Type into a field the way a person does: assign the value and let `v-model` hear
+ * the `input` event. `page.type` reverses Arabic in the headless RTL renderer.
+ */
+const fill = (sel, value) =>
+  page.$eval(
+    sel,
+    (el, v) => {
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+    value
+  );
+
 async function clickText(selector, label) {
   const handles = await page.$$(selector);
   for (const h of handles) {
@@ -74,7 +92,7 @@ async function signIn(name, pin) {
 }
 const chipName = () => text('.user-chip .who');
 
-await page.goto(URL, { waitUntil: 'networkidle0' });
+await page.goto(BASE, { waitUntil: 'networkidle0' });
 await page.waitForSelector('.lock-card');
 check('sign-in card shows the three demo accounts', (await count('.user-card')) === 3);
 check('demo hint is shown on the sign-in card', (await text('.demo-hint')).includes('1111'));
@@ -498,6 +516,103 @@ await shot('20-new-item');
 await page.keyboard.press('Enter');
 await page.waitForSelector('#ni-name', { hidden: true, timeout: 3000 });
 check('the counted item is registered from «صنف جديد»', (await text('#toasts')).includes('اتسجّل «جراب سيليكون شفاف»'));
+// The hand-off the owner asked for: the product he just registered is what the receive
+// form is sitting on, with the cursor in the quantity box, so the cost is one field away.
+await page
+  .waitForFunction(() => document.activeElement?.id === 'stock-qty', { timeout: 3000 })
+  .catch(() => {});
+const handoff = await page.evaluate(() => {
+  const sel = document.querySelector('#stock-product');
+  const opt = sel && sel.options[sel.selectedIndex];
+  return {
+    label: (opt?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    active: document.activeElement?.id ?? '',
+  };
+});
+// The hand-off the owner asked for: the product he just registered is what «استلام
+// توريد» is sitting on, and the cursor is on the next real step — the quantity box where
+// the shop needs no password, the reveal button where it does.
+check(
+  'a saved item arrives already chosen in «استلام توريد» with the cursor on the next step',
+  handoff.label.includes('جراب سيليكون شفاف') &&
+    (handoff.active === 'stock-qty' || handoff.active === 'stock-reveal'),
+  JSON.stringify(handoff),
+);
+if (handoff.active === 'stock-reveal') {
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.overlay .modal input[type=password]', { timeout: 3000 });
+  await page.type('.overlay .modal input[type=password]', '1234');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#stock-qty', { timeout: 3000 });
+  check(
+    'two keys later the receive form is open on that product',
+    (await text('.position-title')).includes('جراب سيليكون شفاف'),
+  );
+}
+
+// The same hand-off on a device with no account yet (`ADR-039`): there is no password to
+// prove and no reveal button to stop at, so it goes the whole way into the quantity box.
+{
+  const open = await browser.newPage();
+  await open.setViewport({ width: 1366, height: 900 });
+  await open.goto(URL, { waitUntil: 'networkidle0' });
+  await open.waitForSelector('[data-open-mode-note]', { timeout: 5000 });
+  const click = (sel, text) =>
+    open.evaluate(
+      ([ss, tt]) => {
+        [...document.querySelectorAll(ss)]
+          .find((e) => (e.textContent ?? '').includes(tt))
+          ?.click();
+      },
+      [sel, text],
+    );
+  const typeIn = (sel, value) =>
+    open.evaluate(
+      ([ss, vv]) => {
+        const el = document.querySelector(ss);
+        if (el === null) return;
+        el.value = vv;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      [sel, value],
+    );
+  await click('.rail .nav-btn', 'المخزن');
+  await open.waitForSelector('.ni-kinds', { state: 'attached', timeout: 3000 }).catch(() => {});
+  await click('.page-h button', 'صنف جديد');
+  await open.waitForSelector('.ni-kind', { timeout: 3000 });
+  await click('.ni-kind', 'إكسسوار أو أي صنف بالعدد');
+  await open.waitForSelector('#ni-name', { timeout: 3000 });
+  // The category chips arrive with the catalogue, and the form refuses a product with
+  // no category - waiting for one is the validation, not politeness.
+  await open.waitForSelector('#ni-cats .chip', { timeout: 3000 });
+  await open.evaluate(() => {
+    const chip = [...document.querySelectorAll('#ni-cats .chip')].find(
+      (c) => !c.textContent.includes('تصنيف جديد'),
+    );
+    chip?.click();
+  });
+  // Real keystrokes, not a value set from outside: implicit submission needs the caret
+  // inside the form, and a field filled by script leaves the focus on the body.
+  await (await open.$('#ni-name')).type('جراب من غير حساب');
+  await (await open.$('#ni-price')).type('40');
+  await open.keyboard.press('Enter');
+  await open.waitForSelector('#ni-name', { hidden: true, timeout: 4000 });
+  await open
+    .waitForFunction(() => document.activeElement?.id === 'stock-qty', { timeout: 3000 })
+    .catch(() => {});
+  const landed = await open.evaluate(() => ({
+    active: document.activeElement?.id ?? '',
+    qty: document.getElementById('stock-qty')?.value ?? null,
+  }));
+  check(
+    'an open shop walks the new item straight into the quantity box, with no password in the way',
+    landed.active === 'stock-qty' && landed.qty === '',
+    JSON.stringify(landed),
+  );
+  await open.screenshot({ path: path.join(OUT, '66-handoff-open-shop.png') });
+  await open.close();
+}
+
 
 // the same barcode again is refused, as the real backend refuses it
 await clickText('.page-h button', 'صنف جديد');
@@ -788,6 +903,12 @@ check(
     (await text('.catalog .notice')).includes('اتشالت الصورة، والصنف رجع بالأيقونة')
 );
 
+check(
+  'the catalogue barcode box carries a camera mark, so a code can be read instead of typed',
+  (await count('[data-catalog-search-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-catalog-search-scan] [data-camera-scan]')) === ''
+);
+
 // --- optional IMEI units & receiving (ADR-019, plan item 1.4) --------------
 await page.evaluate(() => {
   const sel = document.querySelector('#stock-product');
@@ -807,6 +928,12 @@ await sleep(150);
 check(
   'selecting a phone in the stock panel shows the optional IMEI box and receipt mode switcher',
   (await count('#stock-imei-input')) === 1 && (await count('#stock-mode-opening')) === 1
+);
+
+check(
+  'the IMEI box in the stock panel carries a camera mark beside it',
+  (await count('[data-stock-imei-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-stock-imei-scan] [data-camera-scan]')) === ''
 );
 await page.type('#stock-imei-input', '356938035643800');
 await page.click('#stock-imei-add');
@@ -866,6 +993,11 @@ check(
 await page.click('.line-imei-btn');
 await page.waitForSelector('#imei-in');
 await sleep(100);
+check(
+  'the IMEI picker carries a camera mark beside its field',
+  (await count('[data-imei-picker-scan] [data-camera-scan]')) === 1 &&
+    (await text('[data-imei-picker-scan] [data-camera-scan]')) === ''
+);
 await page.type('#imei-in', '490154203237518');
 await sleep(120);
 check(
@@ -1746,6 +1878,33 @@ check(
   settingsTabLabels.join('، ')
 );
 
+// --- ADR-044: the unit on the glass is a setting; the stored amount never moves --
+await page.click('[data-settings-tab="look"]');
+await sleep(200);
+const moneyUnitCard = await text('[data-money-unit-card]');
+check(
+  'the Shape tab offers «وحدة الفلوس» with pounds chosen and a live example',
+  moneyUnitCard.includes('وحدة الفلوس') &&
+    moneyUnitCard.includes('جنيه') &&
+    moneyUnitCard.includes('1,500 ج.م'),
+  moneyUnitCard
+);
+await page.click('[data-money-unit="piastre"]');
+await sleep(250);
+const piastreCard = await text('[data-money-unit-card]');
+check(
+  'choosing piastres redraws the same amount in piastres before the owner leaves the screen',
+  piastreCard.includes('150,000 قرش') && !piastreCard.includes('1,500 ج.م'),
+  piastreCard
+);
+await page.click('[data-money-unit="egp"]');
+await sleep(250);
+check(
+  'switching back to pounds redraws it as pounds again, so one press is enough',
+  (await text('[data-money-unit-sample]')).includes('1,500 ج.م'),
+  await text('[data-money-unit-sample]')
+);
+
 await page.click('[data-settings-tab="devices"]');
 await sleep(150);
 const devicesVisible = await page.$eval(
@@ -2166,6 +2325,96 @@ check(
   'Advancing R-1096 moves it from «استلام» to «فحص»',
   (await count('[data-kanban-col="diagnosing"] [data-ticket-no="R-1096"]')) === 1
 );
+
+// A walk-in needs no name and no number (`ADR-045`): the device and the fault are
+// the ticket, and the card says «بدون اسم» instead of showing an empty line.
+await page.click('[data-repairs-new]');
+await page.waitForSelector('[data-intake-customer]', { timeout: 3000 });
+const intakeCustomerField = await page.$eval(
+  '[data-intake-customer]',
+  (el) => el.closest('label')?.textContent ?? ''
+);
+const intakePhoneField = await page.$eval(
+  '[data-intake-phone]',
+  (el) => el.closest('label')?.textContent ?? ''
+);
+check(
+  'the intake form says the customer name and phone are optional',
+  intakeCustomerField.includes('اختياري') && intakePhoneField.includes('اختياري'),
+  `${intakeCustomerField.trim()} | ${intakePhoneField.trim()}`
+);
+await page.type('[data-intake-device]', 'أوبو A18');
+await page.click('[data-intake-issue-chip="بطارية"]');
+await page.type('[data-intake-price]', '450');
+const intakeSubmitBlocked = await page.$eval('[data-intake-submit]', (el) => el.disabled);
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-customer]', { hidden: true, timeout: 3000 });
+await sleep(250);
+const walkInTickets = await page.$$eval('[data-kanban-col="received"] .ticket', (els) =>
+  els.map((el) => ({ no: el.getAttribute('data-ticket-no'), text: el.textContent ?? '' }))
+);
+const walkIn = walkInTickets.find((t) => t.text.includes('بدون اسم'));
+check(
+  'a ticket saved with no name and no phone lands in «استلام» and reads «بدون اسم»',
+  intakeSubmitBlocked === false && walkIn !== undefined && !walkIn.text.includes('0100'),
+  walkIn ? `${walkIn.no} · ${walkIn.text.replace(/\s+/g, ' ').slice(0, 120)}` : 'no walk-in card'
+);
+
+// One press, anywhere: undo the ticket we just wrote (`ADR-046`).
+await page.click(`[data-repair-undo="${walkIn?.no}"]`);
+await page.waitForSelector('[data-undo-confirm]', { timeout: 3000 });
+check(
+  'the undo sheet says exactly what goes back to the customer before anything moves',
+  (await text('[data-undo-refund]')).includes('0'),
+  await text('[data-undo-refund]')
+);
+await page.click('[data-undo-confirm]');
+await page.waitForSelector('[data-undo-confirm]', { hidden: true, timeout: 3000 });
+await sleep(250);
+check(
+  'undoing the ticket takes it off the board and the banner says what happened',
+  (await count(`[data-ticket-no="${walkIn?.no}"]`)) === 0 &&
+    (await text('[data-repairs-ok-banner]')).includes(`التراجع عن تذكرة ${walkIn?.no}`),
+  await text('[data-repairs-ok-banner]')
+);
+
+// The money half: a ticket collected in the same minute it was written leaves
+// the day's revenue when it is undone, and comes back to it when it is not.
+const hwBeforeUndo = await text('[data-hw-revenue]');
+await page.click('[data-repairs-new]');
+await page.waitForSelector('[data-intake-device]', { timeout: 3000 });
+await page.click('[data-intake-deliver-now]');
+await page.type('[data-intake-device]', 'إنفينكس Hot 40');
+await page.click('[data-intake-issue-chip="شاشة"]');
+await page.type('[data-intake-price]', '900');
+await page.click('[data-intake-submit]');
+await page.waitForSelector('[data-intake-phone]', { hidden: true, timeout: 3000 });
+await sleep(250);
+const paidTicketNo = ((await text('[data-repairs-ok-banner]')).match(/R-\d+/) ?? [''])[0];
+const hwAfterCollect = await text('[data-hw-revenue]');
+check(
+  'a ticket collected on the spot adds its money to the hardware revenue',
+  paidTicketNo !== '' && hwAfterCollect !== hwBeforeUndo,
+  `${paidTicketNo}: ${hwBeforeUndo} → ${hwAfterCollect}`
+);
+
+await page.click(`[data-repair-undo="${paidTicketNo}"]`);
+await page.waitForSelector('[data-undo-confirm]', { timeout: 3000 });
+check(
+  'the undo of a collected ticket says the whole collection goes back, not just a deposit',
+  (await text('[data-undo-refund]')).includes('900') &&
+    (await text('.modal')).includes('كانت اتسلّمت'),
+  await text('[data-undo-refund]')
+);
+await page.click('[data-undo-confirm]');
+await page.waitForSelector('[data-undo-confirm]', { hidden: true, timeout: 3000 });
+await sleep(300);
+check(
+  'undoing it takes the money back out of the hardware revenue and off the board',
+  (await text('[data-hw-revenue]')) === hwBeforeUndo &&
+    (await count(`[data-ticket-no="${paidTicketNo}"]`)) === 0,
+  `${hwAfterCollect} → ${await text('[data-hw-revenue]')}`
+);
   await page.evaluate(() => {
     document.querySelector('.content')?.scrollTo(0, 0);
     document.querySelectorAll('.toast').forEach((el) => el.remove());
@@ -2231,6 +2480,19 @@ check(
   // Register an opening-stock used phone («المستعمل اللي في المحل يوم البداية») with owner PIN approval
   await page.click('[data-open-used-phone]');
   await page.waitForSelector('[data-used-opening-toggle]', { timeout: 3000 });
+  check(
+    'the opening-stock toggle is a row with its caption beside the switch, not over the form',
+    await page.evaluate(() => {
+      const cap = document.querySelector('[data-used-opening-toggle] .cap');
+      const first = document.querySelector('.modal .field');
+      if (cap === null || first === null) return false;
+      const c = cap.getBoundingClientRect();
+      const f = first.getBoundingClientRect();
+      // The caption must have a place of its own: a caption painted as the switch's
+      // track sits inside a 44×26 box, and its text then covers the first field.
+      return c.height > 14 && c.bottom <= f.top + 1;
+    }),
+  );
   await page.click('[data-used-opening-toggle]');
   await page.click('[data-grade="B"]');
   await page.type('#nu-model', 'Galaxy A34');
@@ -2346,6 +2608,12 @@ check(
     (await text('[data-sc-kpi-missing-units]')).includes('3 جهاز')
   );
 
+  check(
+    'the stock-count scan row carries a camera mark beside the field',
+    (await count('[data-sc-scan-camera] [data-camera-scan]')) === 1 &&
+      (await text('[data-sc-scan-camera] [data-camera-scan]')) === ''
+  );
+
   await page.type('[data-sc-scan-input]', '356938035643809');
   await page.keyboard.press('Enter');
   await sleep(150);
@@ -2395,6 +2663,39 @@ check(
   );
   await shot('59-reports-today');
 
+  // --- ADR-047: the day in one word, and every section in one place ---------
+  const dayRatingKey = await page.$eval('[data-reports-day-rating]', (el) =>
+    el.getAttribute('data-day-rating'),
+  );
+  check(
+    'the day opens on a rating in one word — one of the owner\'s four, or «لسه بدري»',
+    (await count('[data-reports-day-rating]')) === 1 &&
+      ['excellent', 'good', 'average', 'below', 'idle'].includes(dayRatingKey ?? ''),
+    String(dayRatingKey)
+  );
+  const daySections = await page.$$eval('[data-day-section]', (els) =>
+    els.map((el) => el.getAttribute('data-day-section')),
+  );
+  check(
+    'the same card covers every section of the shop: goods, repair, software, wallets, expenses',
+    daySections.join(',') === 'goods,hardware,software,wallets,expenses',
+    daySections.join(',')
+  );
+  const expensesRow = await text('[data-day-section="expenses"]');
+  const netToday = await text('[data-day-net]');
+  check(
+    'the expenses it counted and the net after them are on the card, in money',
+    expensesRow.includes('−') && expensesRow.includes('من الدرج') && netToday.length > 0,
+    `${expensesRow.replace(/\s+/g, ' ')} | صافي ${netToday}`
+  );
+  check(
+    'the rating card explains itself, so «جيد» is never just a colour',
+    (await text('[data-day-rating-line]')).length > 0 &&
+      (await count('[data-day-rating-word]')) === 1,
+    await text('[data-day-rating-line]')
+  );
+  await shot('59b-reports-day-rating');
+
   // --- Phase 3 Item 3.1: Smart Alerts & Daily WhatsApp Summary (ADR-036) ---
   check(
     'Smart Alerts section in «النهارده» displays shortages, overdue repairs, and stagnant items (+30 days)',
@@ -2437,6 +2738,20 @@ check(
       (await text('[data-reports-repairs-summary]')).includes('فلوس الصيانة لوحدها') &&
       (await text('[data-reports-repairs-summary]')).includes('فلوس السوفت وير لوحدها')
   );
+  check(
+    'the month is graded in the same four words as the day, with its rank under it',
+    ['ممتاز', 'جيد', 'متوسط', 'تحت المتوسط', 'لسه بدري'].includes(
+      await text('[data-reports-verdict-word]')
+    ),
+    await text('[data-reports-verdict-word]')
+  );
+  check(
+    'the month names its expenses and the net every section leaves after them',
+    (await count('[data-reports-month-expenses]')) === 1 &&
+      (await text('[data-reports-month-net]')).length > 0 &&
+      (await text('[data-reports-month-expenses]')).includes('من الدرج'),
+    `${(await text('[data-reports-month-expenses]')).replace(/\s+/g, ' ')} | ${await text('[data-reports-month-net]')}`
+  );
   await shot('60-reports-month');
 
   const curMonthTitle = await text('[data-reports-month-title]');
@@ -2473,6 +2788,47 @@ check(
   );
   await shot('62-mobile-companion');
 
+// --- the link says what the wire said (ADR-042) ------------------------------
+// The panel used to print «٢ موبايل متصل» because an empty panel looked broken.
+// Now the only phones counted are the ones that spoke, and the demo keeps one
+// handset that keeps talking and one that has not spoken in five minutes.
+await clickText('.rail .nav-btn', 'الموبايل');
+await page.waitForSelector('[data-companion-host-panel]', { timeout: 3000 });
+await sleep(300);
+const linkTone = await text('[data-companion-link-tone]');
+check(
+  'the link line counts only handsets that actually spoke',
+  linkTone.includes('موبايل متصل') && !/[٢2] موبايل متصل/.test(linkTone),
+  linkTone
+);
+const deviceTags = await page.$$eval('[data-companion-device-tag]', (els) =>
+  els.map((e) => ({ t: e.textContent.trim(), ok: e.className.includes('ok') }))
+);
+check(
+  'a silent handset is labelled paired, never connected',
+  deviceTags.length === 2 &&
+    deviceTags.some((d) => d.ok && d.t.includes('متصل دلوقتي')) &&
+    deviceTags.some((d) => !d.ok && (d.t.includes('مقترن') || d.t.includes('آخر ظهور'))),
+  deviceTags.map((d) => `${d.t}${d.ok ? ' [ok]' : ''}`).join(' / ')
+);
+check(
+  'the intake inbox is empty until a phone pushes something',
+  (await count('[data-companion-intake-row]')) === 0 &&
+    (await text('[data-companion-inbox-empty]')).includes('مفيش مسودة')
+);
+check('the pairing QR is drawn, not described', (await count('[data-companion-qr] svg')) === 1);
+const payloadBefore = await text('[data-companion-payload]');
+await page.click('[data-companion-rotate]');
+await sleep(400);
+const payloadAfter = await text('[data-companion-payload]');
+check(
+  'a new pair code changes the line the phone reads',
+  payloadBefore !== payloadAfter && /PAIR-\d+/.test(payloadAfter) && !payloadBefore.includes(payloadAfter.split('|').pop()),
+  `${payloadBefore} → ${payloadAfter}`
+);
+await shot('62b-companion-link-panel');
+
+
   await page.click('[data-mobile-mode="remote"]');
   await sleep(200);
   const remoteSummaryTxt = await text('[data-mobile-remote-summary]');
@@ -2485,15 +2841,104 @@ check(
   );
   await shot('63-mobile-remote-owner');
 
-  await page.click('[data-mobile-scan-acc]');
+  check(
+    'the mobile helper barcode box carries a camera mark beside it',
+    (await count('[data-mobile-scan-camera] [data-camera-scan]')) === 1 &&
+      (await text('[data-mobile-scan-camera] [data-camera-scan]')).includes('امسح')
+  );
+
+  // The badge counts handsets the wire hears, instead of painting a green dot.
+  const scanBadge = await page.$eval('[data-mobile-scan-link]', (el) => ({
+    online: el.getAttribute('data-online'),
+    label: el.textContent?.trim() ?? '',
+  }));
+  check(
+    'the scanner badge reports the real number of handsets the wire hears',
+    scanBadge.online === '0'
+      ? scanBadge.label.includes('مش متصل')
+      : scanBadge.label.includes('متصل') && !scanBadge.label.includes('مش متصل'),
+    JSON.stringify(scanBadge)
+  );
+
+  await page.click('[data-mobile-scan-camera] [data-camera-scan]');
+  await sleep(600);
+  check(
+    'the mobile camera either opens or says plainly that this handset cannot read codes',
+    (await count('[data-mobile-scan-camera] [data-camera-scan-panel]')) >= 1
+  );
+  await shot('62c-mobile-scanner-camera');
+
+  // A typed code goes through the same resolver a camera reading does.
+  const scanTarget = await page.evaluate(() => {
+    try {
+      const res = window.__mshopDemoInvoke('pos_catalog', {});
+      const p = (res?.products ?? []).find(
+        (x) => x.disposition === 'quantity' && x.onHand > 0 && x.barcode
+      );
+      return p ? { barcode: p.barcode, name: p.name } : null;
+    } catch {
+      return null;
+    }
+  });
+  check(
+    'the shop still has an accessory a phone can send to the till',
+    scanTarget !== null,
+    JSON.stringify(scanTarget)
+  );
+  await fill('[data-mobile-scan-input]', scanTarget?.barcode ?? '');
+  await page.click('[data-mobile-scan-submit]');
+  await sleep(400);
+  check(
+    'the code the phone read is queued for the till, and the screen names it',
+    (await text('[data-mobile-last-scan]')).includes(scanTarget?.name ?? '~')
+  );
+
+  // The receipt card on the handset checks a typed IMEI before it counts it.
+  const luhnValid = (digits) => {
+    let sum = 0;
+    for (let i = digits.length - 1; i >= 0; i -= 1) {
+      let n = Number(digits[i]);
+      if ((digits.length - i) % 2 === 0) {
+        n *= 2;
+        if (n > 9) n -= 9;
+      }
+      sum += n;
+    }
+    return sum % 10 === 0;
+  };
+  const freshImei = (seed) => {
+    const base = String(seed).padStart(14, '0').slice(-14);
+    for (let c = 0; c < 10; c += 1) {
+      const candidate = `${base}${c}`;
+      if (luhnValid(candidate)) return candidate;
+    }
+    return null;
+  };
+  const newImei = freshImei('3582190412345');
+  await fill('[data-mobile-recv-imei-input]', '356938035643800');
+  await page.click('[data-mobile-recv-add]');
   await sleep(250);
+  check(
+    'the receipt card refuses an IMEI whose check digit is wrong',
+    (await count('[data-mobile-recv-imei-row]')) === 0
+  );
+  await fill('[data-mobile-recv-imei-input]', newImei);
+  await page.click('[data-mobile-recv-add]');
+  await sleep(250);
+  check(
+    'a valid IMEI typed on the handset is the one that enters the receipt list',
+    (await count('[data-mobile-recv-imei-row]')) === 1 &&
+      (await text('[data-mobile-recv-imei-row]')).includes(newImei),
+    `${newImei}`
+  );
+
   await page.click('[data-mobile-go-pos]');
   await page.waitForSelector('.pos', { timeout: 3000 });
-  await sleep(300);
+  await sleep(400);
   check(
-    'Scanning on the mobile helper and jumping to POS delivers the scanned item to the open invoice',
+    'the item the phone scanned lands on the open invoice at the till',
     (await text('.topbar h1')) === 'البيع' &&
-      (await count('.pos .line')) >= 1
+      (await text('.pos .line')).includes(scanTarget?.name ?? '~')
   );
 
 // --- the owner's PIN approval (ADR-017 §3) ---------------------------------
@@ -2625,6 +3070,324 @@ check(
   guideText.slice(0, 140),
 );
 await shot('64-system-guide');
+
+// --- The device with no accounts at all (`?empty=1`) ------------------------------
+// `ADR-039` deleted the first-run form, so this is the one state where the program can
+// leave a person at the lock card with nobody to sign in as. It has to say something.
+{
+  const dead = await browser.newPage();
+  await dead.setViewport({ width: 1366, height: 800 });
+  await dead.goto(`${BASE}${BASE.includes('?') ? '&' : '?'}empty=1`, {
+    waitUntil: 'networkidle0',
+  });
+  await sleep(400);
+  const noteText = await dead
+    .$$eval('.empty-device', (els) => els.map((el) => (el.textContent ?? '').trim()).join(' '))
+    .then((v) => v.replace(/\s+/g, ' ').trim())
+    .catch(() => '');
+  check(
+    'a device with no accounts says what to do instead of offering an empty picker',
+    noteText.includes('مفيش على الجهاز ده أي حساب') &&
+      noteText.includes('shop.db-wal') &&
+      (await dead.$$('.user-card')).length === 0,
+    noteText.slice(0, 80),
+  );
+  await dead.screenshot({ path: path.join(OUT, '65-lock-no-accounts.png') });
+  await dead.close();
+}
+
+// --- `ADR-040`: two numbers of one company, each with its own money ---
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+const vfBalBefore = await text('[data-wal-balance="vf"]');
+const walletCardsBefore = await count('[data-wal-card]');
+
+await clickText('.rail .nav-btn', 'الإعدادات');
+await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
+await sleep(250);
+await page.type('[data-wal-new-name]', 'فودافون كاش ٢');
+await page.type('[data-wal-new-number]', '01009999999');
+await page.type('[data-wal-new-company]', 'فودافون كاش');
+await page.click('[data-wal-add-submit]');
+await sleep(400);
+check(
+  'a second wallet number of the same company is created and filed under the company name',
+  (await count('[data-wal-settings-row]')) === walletCardsBefore + 1 &&
+    (await count('[data-wal-group]')) === 1 &&
+    (await text('[data-wal-group]')).includes('فودافون كاش'),
+  `rows=${await count('[data-wal-settings-row]')} header=${(await text('[data-wal-group]')).slice(0, 40)}`
+);
+
+// The second number is the second row of the group; link it to the method it sits under.
+const paySelects = await page.$$('[data-wal-set-pay]');
+if (paySelects[1]) await paySelects[1].select('vf');
+await sleep(450);
+const payValues = await page.$$eval('[data-wal-set-pay]', (els) =>
+  els.map((el) => el.value)
+);
+check(
+  'two numbers receive the same method — the first keeps it, so nothing moves by itself',
+  payValues.filter((v) => v === 'vf').length === 2 &&
+    (await count('[data-wal-settings-row]')) === walletCardsBefore + 1,
+  payValues.join(',')
+);
+check(
+  'a shared method says out loud where a sale lands until the cashier picks a number',
+  (await count('[data-wal-shared-note]')) === 1 &&
+    (await text('[data-wal-shared-note]')).includes('لحد ما الكاشير يختار')
+);
+
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+check(
+  'the wallets screen shows the new number and marks it with its company',
+  (await count('[data-wal-card]')) === walletCardsBefore + 1 &&
+    (await count('[data-wal-card-company]')) === 1 &&
+    (await text('[data-wal-card-company]')).includes('فودافون كاش')
+);
+check(
+  'linking a second number neither moves nor doubles the money of the first one',
+  (await text('[data-wal-balance="vf"]')) === vfBalBefore && vfBalBefore.length > 0,
+  `vf balance ${vfBalBefore}`
+);
+await shot('67-two-numbers-one-company');
+
+// --- `ADR-041`: every flow that moves money names the number that took it ---
+async function walletCards() {
+  return page.$$eval('[data-wal-card]', (els) =>
+    els.map((el) => ({
+      id: el.getAttribute('data-wal-card') ?? '',
+      balance: Number(
+        (el.querySelector('[data-wal-balance]')?.textContent ?? '0').replace(/[^\d.-]/g, '')
+      )
+    }))
+  );
+}
+
+const namedBefore = await walletCards();
+const lastBefore = namedBefore[namedBefore.length - 1] || { id: '', balance: -1 };
+const secondId = lastBefore.id;
+const primaryBefore = (namedBefore.find((w) => w.id === 'vf') || { balance: -1 }).balance;
+const secondBefore = lastBefore.balance;
+
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('.tile', { timeout: 3000 });
+await sleep(150);
+await clickText('.tiles .tile', 'كابل تايب سي 1 متر');
+await sleep(120);
+await page.keyboard.press('F12');
+await page.waitForSelector('.methods', { timeout: 3000 });
+await page.click('[data-method="vf"]');
+await sleep(300);
+check(
+  'the till asks which of the two numbers took the money, and offers both',
+  (await count('[data-wallet-choice]')) === 2,
+  `choices=${await count('[data-wallet-choice]')}`
+);
+const numberButtons = await page.$$('[data-wallet-choice]');
+if (numberButtons[1]) await numberButtons[1].click();
+await sleep(200);
+await shot('68a-pay-screen-names-the-number');
+await page.click('#confirm-pay-btn');
+await sleep(400);
+await page.keyboard.press('Escape');
+await sleep(250);
+
+await clickText('.rail .nav-btn', 'المحافظ');
+await page.waitForSelector('[data-wal-card]', { timeout: 3000 });
+await sleep(300);
+const namedAfter = await walletCards();
+const primaryAfter = (namedAfter.find((w) => w.id === 'vf') || { balance: -1 }).balance;
+const secondAfter = (namedAfter.find((w) => w.id === secondId) || { balance: -1 }).balance;
+check(
+  'the number named at the till is the one that grew; the other number of the company did not move',
+  secondAfter > secondBefore && primaryAfter === primaryBefore,
+  `picked ${secondBefore}→${secondAfter}, primary ${primaryBefore}→${primaryAfter}`
+);
+
+// The refund asks the same question, and stops asking it for cash.
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('[data-open-returns]', { timeout: 3000 });
+await sleep(150);
+await page.click('[data-open-returns]');
+await page.waitForSelector('[data-return-modal]', { timeout: 3000 });
+await sleep(250);
+await page.click('[data-return-method="vf"]');
+await sleep(250);
+check(
+  'the return modal names the number that pays the refund out',
+  (await count('[data-wallet-choice]')) === 2,
+  `choices=${await count('[data-wallet-choice]')}`
+);
+await page.click('[data-return-method="cash"]');
+await sleep(250);
+check(
+  'a method no wallet holds is not offered a number',
+  (await count('[data-wallet-choice]')) === 0
+);
+await page.keyboard.press('Escape');
+await sleep(200);
+await shot('68-money-names-its-wallet');
+
+// --- the expenses section (ADR-043) -----------------------------------------
+// The owner's second complaint: expenses only existed as a tab in the shift modal,
+// so rent and bills had nowhere to go. One section, two sources, and the drawer's
+// arithmetic untouched.
+await clickText('.rail .nav-btn', 'المصاريف');
+await page.waitForSelector('[data-expenses-screen]', { timeout: 5000 });
+await sleep(400);
+check(
+  'the rail has a door for «المصاريف», and it is not the shift modal',
+  (await count('[data-expenses-screen]')) === 1
+);
+
+const totalBefore = await text('[data-expenses-total]');
+const drawerBefore = await text('[data-expenses-drawer]');
+const outsideBefore = await text('[data-expenses-outside]');
+await fill('[data-expenses-category]', 'إيجار');
+await fill('[data-expenses-amount]', '1500');
+await fill('[data-expenses-note]', 'إيجار شهر أكتوبر');
+await page.click('[data-expenses-paid-from="outside"]');
+await sleep(150);
+await page.click('[data-expenses-save]');
+await sleep(700);
+const outsideAfter = await text('[data-expenses-outside]');
+const drawerAfterOutside = await text('[data-expenses-drawer]');
+check(
+  'an expense paid from outside the drawer is recorded and appears in the list',
+  (await count('[data-expenses-row]')) >= 1 &&
+    (await text('[data-expenses-row]')).includes('إيجار')
+);
+check(
+  'it moved the outside total and left the drawer total where it was',
+  outsideAfter !== outsideBefore && drawerAfterOutside === drawerBefore,
+  `${outsideBefore}→${outsideAfter}, drawer ${drawerBefore}→${drawerAfterOutside}`
+);
+check(
+  'the list says which source each row came from',
+  (await text('[data-expenses-row]')).includes('من برّه الدرج')
+);
+await shot('69-expenses-section');
+
+// A drawer expense is the same form with a different answer, and the drawer's own
+// total — not the outside one — is what moves.
+await fill('[data-expenses-category]', 'ضيافة');
+await fill('[data-expenses-amount]', '40');
+await page.click('[data-expenses-paid-from="drawer"]');
+await sleep(150);
+await page.click('[data-expenses-save]');
+await sleep(700);
+const drawerFinal = await text('[data-expenses-drawer]');
+const outsideFinal = await text('[data-expenses-outside]');
+check(
+  'a drawer expense is offered only while a shift is open, and says so',
+  (await text('[data-expenses-drawer-note]')).includes('وردية مفتوحة')
+);
+check(
+  'the drawer total grew while the outside total stayed put',
+  drawerFinal !== drawerAfterOutside && outsideFinal === outsideAfter,
+  `drawer ${drawerAfterOutside}→${drawerFinal}, outside ${outsideAfter}→${outsideFinal}`
+);
+check(
+  'the row it wrote is a drawer row, not an outside one',
+  (await text('[data-expenses-row]')).includes('من الدرج')
+);
+await shot('70-expenses-two-sources');
+
+// --- a phone records an expense, the computer applies it (ADR-043) ---------
+// The owner's complaint had two halves: no expenses section, and nothing recorded on
+// the phone could be sent. This is the second half, end to end: the phone pushes a
+// draft over the same wire, the desktop inbox shows it, and the owner's approval is
+// what writes it — into the expenses section, not into stock.
+const sentFromPhone = await page.evaluate(() => {
+  const invoke = window.__mshopDemoInvoke;
+  invoke('companion_connect_host', {
+    host: '192.168.1.10:8787',
+    pairCode: 'PAIR-8787',
+    deviceName: 'موبايل بيتر',
+    deviceModel: 'Pixel 8',
+  });
+  invoke('companion_save_capture', {
+    draft: {
+      kind: 'expense',
+      deviceName: 'موبايل بيتر',
+      expenseCategory: 'كهربا',
+      expenseAmountMinor: 27500,
+      expensePaidFrom: 'outside',
+      expenseNote: 'فاتورة كهربا شهر سبتمبر',
+    },
+  });
+  return invoke('companion_push_captures', {}).detail;
+});
+check('a phone can push an expense over the same link as a capture', sentFromPhone.includes('أخد'), sentFromPhone);
+
+await clickText('.rail .nav-btn', 'الموبايل');
+await page.waitForSelector('[data-companion-inbox]', { timeout: 5000 });
+await sleep(300);
+check(
+  'the computer has a titled inbox for what the phone sent — not a list under the QR',
+  (await text('[data-companion-inbox-count]')).includes('مستنية')
+);
+check(
+  'the arriving row is described as money, with its source',
+  (await text('[data-companion-intake-row]')).includes('كهربا') &&
+    (await text('[data-companion-intake-row]')).includes('من برّه الدرج')
+);
+check(
+  'the accept button says where it will go, so nobody fears it becomes stock',
+  (await text('[data-companion-accept]')).includes('سجّلها في المصاريف')
+);
+await shot('72-phone-expense-in-inbox');
+
+await page.click('[data-companion-accept]');
+await sleep(700);
+check(
+  'accepting it empties the inbox',
+  (await text('[data-companion-inbox-count]')).includes('مفيش')
+);
+
+const drawerBeforeAccept = await (async () => {
+  await clickText('.rail .nav-btn', 'المصاريف');
+  await page.waitForSelector('[data-expenses-screen]', { timeout: 5000 });
+  await sleep(300);
+  return await text('[data-expenses-drawer]');
+})();
+check(
+  'the phone expense did not move the drawer',
+  drawerBeforeAccept === (await text('[data-expenses-drawer]')),
+  `drawer ${drawerBeforeAccept}`
+);
+const outsideAfterPhone = await text('[data-expenses-outside]');
+check(
+  'the section counted the applied expense in its outside column',
+  outsideAfterPhone !== outsideFinal,
+  `${outsideFinal} → ${outsideAfterPhone}`
+);
+check(
+  'its row names the phone category and source',
+  (await page.$$eval('[data-expenses-row]', (rows) =>
+    rows.map((r) => r.textContent ?? '').join(' | ')
+  )).includes('كهربا')
+);
+await shot('73-phone-expense-applied');
+
+// --- the camera beside a barcode field (ADR-043) ---------------------------
+await clickText('.rail .nav-btn', 'البيع');
+await page.waitForSelector('#q', { timeout: 5000 });
+await sleep(250);
+check(
+  'the till search box — a barcode field — offers the camera',
+  (await count('.search-row [data-camera-scan]')) >= 1
+);
+await page.click('[data-pos-scan]');
+await sleep(500);
+check(
+  'pressing it either opens a camera or says plainly that this machine cannot read codes',
+  (await count('[data-camera-scan-panel]')) >= 1
+);
+await shot('71-camera-beside-barcode');
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();

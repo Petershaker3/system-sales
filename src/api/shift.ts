@@ -50,7 +50,10 @@ export interface ShiftTotals {
 
 export interface ExpenseRecord {
   readonly id: string;
-  readonly shiftId: string;
+  /** `null` when the money did not leave the drawer (`ADR-043`). */
+  readonly shiftId: string | null;
+  /** `'drawer'` or `'outside'`; only a drawer row reduces a shift's cash. */
+  readonly paidFrom: 'drawer' | 'outside';
   readonly category: string;
   readonly amountMinor: number;
   readonly note: string | null;

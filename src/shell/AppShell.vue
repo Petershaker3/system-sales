@@ -7,7 +7,7 @@
 // someone, and the menu becomes their PIN pad; their PIN signs them in and the
 // open invoices stay where they are. «قفل» on the rail and Ctrl+L lock the
 // screen (App.vue owns the lock).
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import * as api from '../api/identity';
 import type { Session, UserSummary } from '../api/identity';
@@ -35,15 +35,37 @@ import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
+import ExpensesScreen from '../screens/expenses/ExpensesScreen.vue';
 import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
+import PhoneCaptureScreen from '../screens/mobile/PhoneCaptureScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import GuideScreen from '../screens/guide/GuideScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
+import { openModeHint, openMode } from './open-mode';
 import ShiftModal from './ShiftModal.vue';
+import { isPhone } from './device';
 import { avatarColour, navFor, roleName, TITLES } from './nav';
 import type { ScreenId } from './nav';
 
 const props = defineProps<{ session: Session; busy: boolean; users: readonly UserSummary[] }>();
+
+/**
+ * The shop is running without an account (`ADR-039`).
+ *
+ * Presentation only, and it removes affordances rather than adding powers: there is
+ * nothing to lock, nobody to switch to, and no password to sign out and back in
+ * with. What an open shop may *do* is decided in Rust, not here.
+ */
+const open = computed(() => openMode.value.active);
+const openHint = computed(() => openModeHint());
+const settingsScreen = ref<InstanceType<typeof SettingsScreen> | null>(null);
+
+/** الإعدادات ← المستخدمين والصلاحيات, where the owner account is made. */
+async function openOwnerAccountForm(): Promise<void> {
+  screen.value = 'settings';
+  await nextTick();
+  settingsScreen.value?.openTab('users');
+}
 const emit = defineEmits<{
   signOut: [];
   lock: [];
@@ -63,13 +85,11 @@ const initialScreen = (): ScreenId => {
     ).__MSHOP_INITIAL_SCREEN__;
     if (requested) return requested;
   }
-  if (
-    typeof navigator !== 'undefined' &&
-    !navigator.webdriver &&
-    /Android/i.test(navigator.userAgent)
-  ) {
-    return 'mobile';
-  }
+  // The till is the first screen on every device, and on a phone that is a decision
+  // and not a default: this build used to open a handset on «الموبايل» — the desktop
+  // screen that previews the four helper screens inside phone frames (`ADR-037`) — so
+  // the owner's phone showed them a shrunken desktop page *about* their phone instead
+  // of the shop. The preview belongs on the computer that serves it.
   return 'pos';
 };
 const screen = ref<ScreenId>(initialScreen());
@@ -86,7 +106,7 @@ function openSalesMonthFromReports(key: string): void {
   salesFocusTarget.value = { kind: 'month', key };
   screen.value = 'sales';
 }
-const items = computed(() => navFor(props.session.role));
+const items = computed(() => navFor(props.session.role, isPhone()));
 const dark = computed(() => {
   void appearance.theme;
   return resolvedTheme() === 'dark';
@@ -284,7 +304,9 @@ async function switchTheme(): Promise<void> {
         <Icon :name="dark ? 'sun' : 'moon'" />
         <span>{{ dark ? 'فاتح' : 'غامق' }}</span>
       </button>
-      <button type="button" class="nav-btn" title="قفل الشاشة (Ctrl+L)" :disabled="busy" @click="emit('lock')">
+      <!-- No lock while the shop runs without an account (`ADR-039`): the lock ends
+           a session, and this shop has no session row to end. -->
+      <button v-if="!open" type="button" class="nav-btn" title="قفل الشاشة (Ctrl+L)" :disabled="busy" @click="emit('lock')">
         <Icon name="lock-keyhole" />
         <span>قفل</span>
       </button>
@@ -375,7 +397,8 @@ async function switchTheme(): Promise<void> {
             <span class="avatar" :style="{ background: avatarColour(session.userId) }">{{
               session.displayName.charAt(0)
             }}</span>
-            <span class="who">{{ session.displayName }}<small>{{ roleName(session.role) }}</small></span>
+            <span class="who">{{ session.displayName
+              }}<small>{{ open ? 'من غير حساب' : roleName(session.role) }}</small></span>
             <Icon name="chevron-down" class="chev" />
           </button>
 
@@ -384,7 +407,7 @@ async function switchTheme(): Promise<void> {
               <span class="avatar" :style="{ background: avatarColour(session.userId) }">{{
                 session.displayName.charAt(0)
               }}</span>
-              <span class="t"><b>{{ session.displayName }}</b><small>{{ roleName(session.role) }}، شغّال دلوقتي</small></span>
+              <span class="t"><b>{{ session.displayName }}</b><small>{{ open ? 'المحل شغال من غير حساب' : roleName(session.role) + '، شغّال دلوقتي' }}</small></span>
             </div>
             <template v-if="others.length > 0">
               <div class="sw-h">بدّل لـ</div>
@@ -401,16 +424,21 @@ async function switchTheme(): Promise<void> {
                 <Icon name="chevron-left" />
               </button>
             </template>
-            <div class="sw-sep" />
-            <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('setPin')">
-              <Icon name="key-round" /><span class="t">{{ me?.hasPin ? 'غيّر الـ PIN' : 'اعمل PIN' }}</span>
-            </button>
-            <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('lock')">
-              <Icon name="lock-keyhole" /><span class="t">قفل الشاشة</span><kbd>Ctrl+L</kbd>
-            </button>
-            <button type="button" class="sw-item sm" role="menuitem" :disabled="busy" @click="menuAction('signOut')">
-              <Icon name="log-out" /><span class="t">تسجيل الخروج</span>
-            </button>
+            <!-- While the shop is open the daily secret has nothing to protect
+                 (`ADR-039`): no lock, no sign-out, no PIN — and no second account to
+                 switch to either. The chip stays, because it is who the audit names. -->
+            <template v-if="!open">
+              <div class="sw-sep" />
+              <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('setPin')">
+                <Icon name="key-round" /><span class="t">{{ me?.hasPin ? 'غيّر الـ PIN' : 'اعمل PIN' }}</span>
+              </button>
+              <button type="button" class="sw-item sm" role="menuitem" @click="menuAction('lock')">
+                <Icon name="lock-keyhole" /><span class="t">قفل الشاشة</span><kbd>Ctrl+L</kbd>
+              </button>
+              <button type="button" class="sw-item sm" role="menuitem" :disabled="busy" @click="menuAction('signOut')">
+                <Icon name="log-out" /><span class="t">تسجيل الخروج</span>
+              </button>
+            </template>
           </div>
 
           <div v-else-if="menuOpen && swUser" class="sw-menu pin" role="dialog" aria-label="الـ PIN">
@@ -435,6 +463,15 @@ async function switchTheme(): Promise<void> {
           </div>
         </div>
       </header>
+
+      <!-- The shop is open: one line, one button, and the till carries on. -->
+      <div v-if="open" class="open-note" data-open-mode-note>
+        <Icon name="info" />
+        <span class="t">{{ openHint }}</span>
+        <button type="button" class="btn sm primary" data-open-account-btn @click="openOwnerAccountForm">
+          اعمل حساب المالك
+        </button>
+      </div>
 
       <div class="content">
         <PosScreen
@@ -467,13 +504,22 @@ async function switchTheme(): Promise<void> {
           @open-sales-month="openSalesMonthFromReports"
           @go-screen="screen = $event"
         />
+        <ExpensesScreen
+          v-else-if="screen === 'expenses'"
+          :session="session"
+          @changed="refreshShiftState"
+        />
         <MobileCompanionScreen
           v-else-if="screen === 'mobile'"
           :session="session"
           @go-screen="screen = $event"
           @changed="refreshShiftState"
         />
-        <SettingsScreen v-else-if="screen === 'settings'" />
+        <PhoneCaptureScreen
+          v-else-if="screen === 'capture'"
+          :session="session"
+        />
+        <SettingsScreen v-else-if="screen === 'settings'" ref="settingsScreen" />
         <GuideScreen
           v-else-if="screen === 'guide'"
           :session="session"

@@ -90,6 +90,9 @@ pub struct SalePaymentRecord {
     pub sale_id: String,
     pub payment_no: i64,
     pub method: String,
+    /// The shop wallet this money was collected into (`0030`). `None` for a method no wallet
+    /// receives, and for the money of a shop that had no wallet linked to the method.
+    pub wallet_id: Option<String>,
     pub amount_minor: i64,
     pub reference: Option<String>,
     pub occurred_at: i64,
@@ -443,13 +446,14 @@ pub async fn insert_sale_payment(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO sale_payments
-             (id, sale_id, payment_no, method, amount_minor, reference, occurred_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (id, sale_id, payment_no, method, wallet_id, amount_minor, reference, occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(&payment.id)
     .bind(&payment.sale_id)
     .bind(payment.payment_no)
     .bind(&payment.method)
+    .bind(payment.wallet_id.as_deref())
     .bind(payment.amount_minor)
     .bind(payment.reference.as_deref())
     .bind(payment.occurred_at)
@@ -463,7 +467,7 @@ pub async fn list_sale_payments(
     sale_id: &str,
 ) -> Result<Vec<SalePaymentRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, sale_id, payment_no, method, amount_minor, reference, occurred_at
+        "SELECT id, sale_id, payment_no, method, wallet_id, amount_minor, reference, occurred_at
          FROM sale_payments
          WHERE sale_id = ?1
          ORDER BY payment_no",
@@ -479,6 +483,7 @@ pub async fn list_sale_payments(
             sale_id: row.get("sale_id"),
             payment_no: row.get("payment_no"),
             method: row.get("method"),
+            wallet_id: row.get("wallet_id"),
             amount_minor: row.get("amount_minor"),
             reference: row.get("reference"),
             occurred_at: row.get("occurred_at"),

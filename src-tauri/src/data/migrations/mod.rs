@@ -137,11 +137,33 @@ pub const REPAIRS_AND_SOFTWARE: &str = include_str!("0027_repairs_and_software.s
 /// `intake_note` on `units`) for Plan item 2.2 (ADR-032).
 pub const USED_PHONE_DETAILS: &str = include_str!("0028_used_phone_details.sql");
 
+/// `0029`: one column, `users.provisional`, marking the row that stands for a
+/// shop that is running before it has an account (ADR-039).
+pub const OPEN_OWNER_ACCOUNT: &str = include_str!("0029_open_owner_account.sql");
 
+/// `0030`: `wallets.company` (numbers of one company grouped in the UI) and
+/// `sale_payments.wallet_id` (which wallet a payment was collected into), with the
+/// one-wallet-per-method index dropped and the history backfilled (ADR-040).
+pub const WALLET_GROUPS_AND_PAYMENT_ATTRIBUTION: &str =
+    include_str!("0030_wallet_groups_and_payment_attribution.sql");
 
+/// `0031`: `customer_ledger.wallet_id` and `repairs.pay_wallet_id`, so every money stream that
+/// can name a wallet does — with the history named once rather than re-derived (`ADR-041`).
+pub const WALLET_IN_EVERY_MONEY_FLOW: &str =
+    include_str!("0031_wallet_in_every_money_flow.sql");
 
+/// `0033`: a repair ticket no longer needs a customer name and phone before the
+/// device can be written down. The two columns keep their length caps and lose
+/// their non-empty CHECKs; empty prints as «بدون اسم» on the screen.
+pub const OPTIONAL_REPAIR_CUSTOMER: &str =
+    include_str!("0033_optional_repair_customer.sql");
 
-
-
-
-
+/// `0032`: an expense says where its money came from — the drawer during an open
+/// shift, or anywhere else.
+///
+/// Rebuilds `expenses` so `shift_id` may be `NULL`, adds `paid_from`, and keeps the
+/// two in step with a CHECK. A drawer row still requires an open shift and still
+/// reduces expected cash; an outside row names no shift, so it cannot touch a drawer
+/// it never left. Append-only triggers are recreated unchanged (`ADR-043`).
+pub const EXPENSES_OUTSIDE_THE_DRAWER: &str =
+    include_str!("0032_expenses_outside_the_drawer.sql");

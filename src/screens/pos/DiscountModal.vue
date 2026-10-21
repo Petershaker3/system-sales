@@ -5,7 +5,7 @@ import { computed, ref, watch } from 'vue';
 
 import { requestOwnerApproval } from '../../shell/approval';
 import { appearance, discountLimitPctNum } from '../../ui/appearance';
-import { money, parseCount, parseMoney } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord, parseCount, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import {
@@ -59,8 +59,7 @@ function syncInitialInput(): void {
   mode.value = 'amount';
   const current = currentTargetDiscountMinor.value;
   if (current > 0) {
-    const egp = current / 100;
-    valueText.value = Number.isInteger(egp) ? String(egp) : String(egp);
+    valueText.value = moneyInputValue(current);
   } else {
     valueText.value = '';
   }
@@ -224,7 +223,7 @@ function clearDiscount(): void {
             error = '';
           "
         >
-          مبلغ (ج.م)
+          مبلغ ({{ moneyUnitWord() }})
         </button>
         <button
           id="discount-mode-percent"

@@ -24,13 +24,15 @@ import {
   type ServiceFeeMode,
   setAppearance,
 } from '../../ui/appearance';
-import { money, num, parseMoney } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord, num, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 
 interface EditableWalletRow {
   id: string;
   name: string;
+  /** Company label, empty when the wallet stands on its own (`ADR-040`). */
+  company: string;
   number: string;
   color: string;
   openingEgp: string;
@@ -47,6 +49,7 @@ interface EditableWalletRow {
 const rows = ref<EditableWalletRow[]>([]);
 const newWalName = ref('');
 const newWalNumber = ref('');
+const newWalCompany = ref('');
 const newWalColor = ref('#0d7377');
 const busy = ref(false);
 
@@ -68,12 +71,13 @@ function summaryToRow(ws: WalletSummary): EditableWalletRow {
   return {
     id: w.id,
     name: w.name,
+    company: w.company ?? '',
     number: w.number,
     color: w.color,
-    openingEgp: String(Math.round(w.openingBalanceMinor / 100)),
-    minAlertEgp: String(Math.round(w.minAlertMinor / 100)),
-    maxLimitEgp: String(Math.round(w.maxLimitMinor / 100)),
-    dailyLimitEgp: String(Math.round(w.dailyLimitMinor / 100)),
+    openingEgp: moneyInputValue(w.openingBalanceMinor),
+    minAlertEgp: moneyInputValue(w.minAlertMinor),
+    maxLimitEgp: moneyInputValue(w.maxLimitMinor),
+    dailyLimitEgp: moneyInputValue(w.dailyLimitMinor),
     payMethod: w.payMethod ?? '',
     sort: w.sort,
     hidden: w.hidden,
@@ -124,6 +128,7 @@ async function saveWalletRow(
       maxLimitMinor: Math.max(0, maxMinor),
       dailyLimitMinor: Math.max(0, dailyMinor),
       payMethod: row.payMethod === '' ? null : row.payMethod,
+      company: row.company.trim() || null,
       sort: row.sort,
       hidden: row.hidden,
     });
@@ -137,12 +142,16 @@ async function saveWalletRow(
   }
 }
 
-async function moveWalletRow(idx: number, dir: -1 | 1): Promise<void> {
-  const targetIdx = idx + dir;
-  if (targetIdx < 0 || targetIdx >= rows.value.length || busy.value) return;
-  const a = rows.value[idx];
-  const b = rows.value[targetIdx];
-  if (!a || !b) return;
+async function moveWalletRow(
+  row: EditableWalletRow,
+  dir: -1 | 1
+): Promise<void> {
+  const list = walletRows.value;
+  const at = list.findIndex((v) => v.row.id === row.id);
+  if (at < 0) return;
+  const a = row;
+  const b = list[at + dir]?.row;
+  if (!b || busy.value) return;
   const tmpSort = a.sort;
   a.sort = b.sort;
   b.sort = tmpSort === b.sort ? b.sort + dir : tmpSort;
@@ -158,6 +167,7 @@ async function moveWalletRow(idx: number, dir: -1 | 1): Promise<void> {
       maxLimitMinor: Math.max(0, parseMoney(a.maxLimitEgp) ?? 0),
       dailyLimitMinor: Math.max(0, parseMoney(a.dailyLimitEgp) ?? 0),
       payMethod: a.payMethod === '' ? null : a.payMethod,
+      company: a.company.trim() || null,
       sort: a.sort,
       hidden: a.hidden,
     });
@@ -171,6 +181,7 @@ async function moveWalletRow(idx: number, dir: -1 | 1): Promise<void> {
       maxLimitMinor: Math.max(0, parseMoney(b.maxLimitEgp) ?? 0),
       dailyLimitMinor: Math.max(0, parseMoney(b.dailyLimitEgp) ?? 0),
       payMethod: b.payMethod === '' ? null : b.payMethod,
+      company: b.company.trim() || null,
       sort: b.sort,
       hidden: b.hidden,
     });
@@ -196,9 +207,80 @@ async function removeWalletRow(row: EditableWalletRow): Promise<void> {
   }
 }
 
-function pickWalletPreset(preset: { name: string; color: string }): void {
+/**
+ * Rows in display order. Numbers of one company sit together under that company's name; every
+ * wallet without a company is its own group, which is how a shop that never used the field
+ * keeps the list it already has (`ADR-040`). A group header is only drawn when a company
+ * actually holds more than one number, so one number under a company stays a plain row.
+ */
+interface WalletRowView {
+  row: EditableWalletRow;
+  groupHeader: string | null;
+  groupCount: number;
+  groupBalanceMinor: number;
+}
+
+const walletRows = computed<WalletRowView[]>(() => {
+  const byKey = new Map<string, EditableWalletRow[]>();
+  for (const r of rows.value) {
+    const key = r.company.trim() || r.name.trim();
+    const list = byKey.get(key);
+    if (list) list.push(r);
+    else byKey.set(key, [r]);
+  }
+  const heads: [string, EditableWalletRow[]][] = [];
+  for (const entry of byKey.entries()) {
+    if (entry[1][0]) heads.push(entry);
+  }
+  heads.sort((x, y) => (x[1][0]?.sort ?? 0) - (y[1][0]?.sort ?? 0));
+
+  const out: WalletRowView[] = [];
+  for (const [name, list] of heads) {
+    // More than one number under the same label is the whole rule: the label a group is
+    // filed under is the company if it has one, its own name otherwise.
+    const grouped = list.length > 1;
+    const balance = list.reduce((acc, r) => acc + r.balanceMinor, 0);
+    list.forEach((row, i) => {
+      out.push({
+        row,
+        groupHeader: grouped && i === 0 ? name : null,
+        groupCount: grouped ? list.length : 0,
+        groupBalanceMinor: balance,
+      });
+    });
+  }
+  return out;
+});
+
+/** Company labels already in use, to type a new number under one of them without retyping it. */
+const knownCompanies = computed<string[]>(() => {
+  const seen: string[] = [];
+  for (const r of rows.value) {
+    const c = r.company.trim();
+    if (c && !seen.includes(c)) seen.push(c);
+  }
+  return seen;
+});
+
+/** Whether some payment method is received by more than one number (`ADR-040`). */
+const sharedPayMethod = computed<boolean>(() => {
+  const seen = new Set<string>();
+  return rows.value.some((r) => {
+    if (!r.payMethod) return false;
+    if (seen.has(r.payMethod)) return true;
+    seen.add(r.payMethod);
+    return false;
+  });
+});
+
+function pickWalletPreset(preset: {
+  name: string;
+  color: string;
+  company?: string;
+}): void {
   newWalName.value = preset.name;
   newWalColor.value = preset.color;
+  newWalCompany.value = preset.company ?? '';
 }
 
 async function submitNewWallet(): Promise<void> {
@@ -213,10 +295,12 @@ async function submitNewWallet(): Promise<void> {
     await createWallet(
       name,
       newWalColor.value,
-      newWalNumber.value.trim() || null
+      newWalNumber.value.trim() || null,
+      newWalCompany.value.trim() || null
     );
     newWalName.value = '';
     newWalNumber.value = '';
+    newWalCompany.value = '';
     await loadWallets();
     toast(`اتضافت محفظة «${name}»`, 'ok');
   } catch (err) {
@@ -274,39 +358,68 @@ async function saveAutoFeeSettings(): Promise<void> {
       ضيف وعدّل أرقام المحافظ بتاعتك وحدودها وألوانها، أو اخفي اللي مش شغّال دلوقتي.
     </p>
 
+    <div
+      v-if="sharedPayMethod"
+      class="note"
+      style="margin: 0 0 10px"
+      data-wal-shared-note
+    >
+      <Icon name="info" />
+      <span>
+        فيه أكتر من رقم بيستقبل نفس الطريقة. لحد ما الكاشير يختار رقم وقت الدفع، بيع الطريقة
+        بيتسجل لأول رقم في الترتيب.
+      </span>
+    </div>
+
     <div class="wm-wallets">
+      <!-- `display: contents` keeps the group header and its rows as siblings of the
+           list itself, so grouping costs the grid nothing (`ADR-040`). -->
       <div
-        v-for="(w, idx) in rows"
-        :key="w.id"
+        v-for="(view, idx) in walletRows"
+        :key="view.row.id"
+        style="display: contents"
+      >
+      <div
+        v-if="view.groupHeader"
+        class="wm-wal-grp"
+        :data-wal-group="view.groupHeader"
+      >
+        <b>{{ view.groupHeader }}</b>
+        <small class="muted">
+          {{ num(view.groupCount) }} أرقام · الإجمالي
+          <b class="num">{{ money(view.groupBalanceMinor) }}</b>
+        </small>
+      </div>
+      <div
         class="wm-wal"
-        :class="{ off: w.hidden }"
-        :data-wal-settings-row="w.id"
+        :class="{ off: view.row.hidden }"
+        :data-wal-settings-row="view.row.id"
       >
         <div class="wm-wal-top">
           <input
-            v-model="w.color"
+            v-model="view.row.color"
             type="color"
             class="clr"
             title="لون المحفظة"
-            :aria-label="`لون ${w.name}`"
-            @change="saveWalletRow(w)"
+            :aria-label="`لون ${view.row.name}`"
+            @change="saveWalletRow(view.row)"
           />
           <input
-            v-model="w.name"
+            v-model="view.row.name"
             class="wm-wal-name"
-            :aria-label="`اسم ${w.name}`"
-            :data-wal-set-name="w.id"
-            @change="saveWalletRow(w)"
+            :aria-label="`اسم ${view.row.name}`"
+            :data-wal-set-name="view.row.id"
+            @change="saveWalletRow(view.row)"
           />
           <span class="wm-wal-bal num">
-            الرصيد دلوقتي: <b>{{ money(w.balanceMinor) }}</b>
+            الرصيد دلوقتي: <b>{{ money(view.row.balanceMinor) }}</b>
           </span>
           <button
             type="button"
             class="icon-btn sm"
             title="طلّع لفوق"
             :disabled="idx === 0 || busy"
-            @click="moveWalletRow(idx, -1)"
+            @click="moveWalletRow(view.row, -1)"
           >
             <Icon name="arrow-up" />
           </button>
@@ -314,36 +427,36 @@ async function saveAutoFeeSettings(): Promise<void> {
             type="button"
             class="icon-btn sm"
             title="نزّل لتحت"
-            :disabled="idx === rows.length - 1 || busy"
-            @click="moveWalletRow(idx, 1)"
+            :disabled="idx === walletRows.length - 1 || busy"
+            @click="moveWalletRow(view.row, 1)"
           >
             <Icon name="arrow-down" />
           </button>
           <label
             class="switch"
-            :title="w.hidden ? 'مخفية' : 'ظاهرة'"
+            :title="view.row.hidden ? 'مخفية' : 'ظاهرة'"
           >
             <input
               type="checkbox"
-              :checked="!w.hidden"
-              :data-wal-set-visible="w.id"
+              :checked="!view.row.hidden"
+              :data-wal-set-visible="view.row.id"
               @change="
-                w.hidden = !($event.target as HTMLInputElement).checked;
+                view.row.hidden = !($event.target as HTMLInputElement).checked;
                 saveWalletRow(
-                  w,
-                  w.hidden ? 'اتخفت المحفظة' : 'اتظهرت المحفظة'
+                  view.row,
+                  view.row.hidden ? 'اتخفت المحفظة' : 'اتظهرت المحفظة'
                 );
               "
             />
             <span />
           </label>
           <button
-            v-if="w.isCustom"
+            v-if="view.row.isCustom"
             type="button"
             class="icon-btn sm"
             title="حذف المحفظة"
-            :data-wal-set-del="w.id"
-            @click="removeWalletRow(w)"
+            :data-wal-set-del="view.row.id"
+            @click="removeWalletRow(view.row)"
           >
             <Icon name="trash-2" />
           </button>
@@ -353,68 +466,79 @@ async function saveAutoFeeSettings(): Promise<void> {
           <div class="field">
             <label class="lbl">رقم محفظة المحل</label>
             <input
-              v-model="w.number"
+              v-model="view.row.number"
               class="in mono"
               dir="ltr"
               placeholder="0100... أو user@instapay"
-              :data-wal-set-number="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-number="view.row.id"
+              @change="saveWalletRow(view.row)"
             />
           </div>
           <div class="field">
-            <label class="lbl">الرصيد الافتتاحي (ج.م)</label>
+            <label class="lbl">الشركة (لتجميع الأرقام)</label>
             <input
-              v-model="w.openingEgp"
+              v-model="view.row.company"
+              class="in"
+              list="wal-companies"
+              placeholder="مثلاً: فودافون كاش"
+              :data-wal-set-company="view.row.id"
+              @change="saveWalletRow(view.row)"
+            />
+          </div>
+          <div class="field">
+            <label class="lbl">الرصيد الافتتاحي ({{ moneyUnitWord() }})</label>
+            <input
+              v-model="view.row.openingEgp"
               class="in mono"
               dir="ltr"
               inputmode="numeric"
-              :data-wal-set-open="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-open="view.row.id"
+              @change="saveWalletRow(view.row)"
             />
           </div>
           <div class="field">
             <label class="lbl">نبّهني لما تقل عن</label>
             <input
-              v-model="w.minAlertEgp"
+              v-model="view.row.minAlertEgp"
               class="in mono"
               dir="ltr"
               inputmode="numeric"
               placeholder="0 = من غير تنبيه"
-              :data-wal-set-min="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-min="view.row.id"
+              @change="saveWalletRow(view.row)"
             />
           </div>
           <div class="field">
             <label class="lbl">أقصى رصيد للمحفظة</label>
             <input
-              v-model="w.maxLimitEgp"
+              v-model="view.row.maxLimitEgp"
               class="in mono"
               dir="ltr"
               inputmode="numeric"
               placeholder="0 = من غير سقف"
-              :data-wal-set-max="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-max="view.row.id"
+              @change="saveWalletRow(view.row)"
             />
           </div>
           <div class="field">
             <label class="lbl">الحد اليومي للتحويلات</label>
             <input
-              v-model="w.dailyLimitEgp"
+              v-model="view.row.dailyLimitEgp"
               class="in mono"
               dir="ltr"
               inputmode="numeric"
               placeholder="0 = من غير حد"
-              :data-wal-set-daily="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-daily="view.row.id"
+              @change="saveWalletRow(view.row)"
             />
           </div>
           <div class="field">
             <label class="lbl">فلوس البيع بتنزل فيها؟</label>
             <select
-              v-model="w.payMethod"
+              v-model="view.row.payMethod"
               class="in"
-              :data-wal-set-pay="w.id"
-              @change="saveWalletRow(w)"
+              :data-wal-set-pay="view.row.id"
+              @change="saveWalletRow(view.row)"
             >
               <option
                 v-for="opt in WALLET_PAY_OPTIONS"
@@ -426,6 +550,7 @@ async function saveAutoFeeSettings(): Promise<void> {
             </select>
           </div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -474,6 +599,24 @@ async function saveAutoFeeSettings(): Promise<void> {
             placeholder="0100..."
             data-wal-new-number
           />
+        </div>
+        <div class="field">
+          <label class="lbl" for="wal-new-company">الشركة (اختياري)</label>
+          <input
+            id="wal-new-company"
+            v-model="newWalCompany"
+            class="in"
+            list="wal-companies"
+            placeholder="مثلاً: فودافون كاش"
+            data-wal-new-company
+          />
+          <datalist id="wal-companies">
+            <option
+              v-for="c in knownCompanies"
+              :key="c"
+              :value="c"
+            />
+          </datalist>
         </div>
         <div class="row" style="gap: 8px; align-items: end">
           <input
@@ -547,7 +690,7 @@ async function saveAutoFeeSettings(): Promise<void> {
         />
       </div>
       <div class="field">
-        <label class="lbl" for="set-feeMin">أقل عمولة (ج.م)</label>
+        <label class="lbl" for="set-feeMin">أقل عمولة ({{ moneyUnitWord() }})</label>
         <input
           id="set-feeMin"
           v-model="feeMinInput"
@@ -559,7 +702,7 @@ async function saveAutoFeeSettings(): Promise<void> {
         />
       </div>
       <div class="field">
-        <label class="lbl" for="set-billFee">رسوم دفع الفواتير (ج.م)</label>
+        <label class="lbl" for="set-billFee">رسوم دفع الفواتير ({{ moneyUnitWord() }})</label>
         <input
           id="set-billFee"
           v-model="billFeeInput"

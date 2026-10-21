@@ -26,7 +26,7 @@
 // produce a second, different rounding rule — the exact drift `ADR-013` exists
 // to prevent.
 
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import * as catalog from '../api/catalog';
 import type { Product } from '../api/catalog';
@@ -40,9 +40,26 @@ import { shortagesOverview } from '../api/shortages';
 import { imeiLuhn, normalizeImeiDigits } from '../screens/pos/imei';
 import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
+import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
+import { money, moneyUnitWord } from '../ui/format';
+import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
+import type { ScanReading } from '../ui/scan';
 import { toast } from '../ui/toast';
+
+/**
+ * A product to hand over to the receive form, by id (`StoreScreen` sets it the moment
+ * an item or a phone is registered).
+ *
+ * The separation of «صنف جديد» from «استلام توريد» is a costing rule, not a filing
+ * habit — every unit needs a cost and a receipt (`ADR-013`, `ADR-016` #30) — so the
+ * two stay two writes. What the owner asked for is the walk between them: the panel
+ * opens on the product that was just made, with the cursor in the quantity box, and the
+ * hand-off is a selection, never a pre-filled amount. The quantity and the cost are
+ * what the shopkeeper knows and Rust cannot.
+ */
+const props = defineProps<{ selectProduct?: string }>();
 
 const emit = defineEmits<{ 'new-item': []; received: [productId: string] }>();
 
@@ -88,14 +105,40 @@ const selectedIsSerial = computed(() => {
   );
 });
 
+/**
+ * Land the product the shop just registered in the receive form, and put the cursor on
+ * whatever the next real step is.
+ *
+ * The cost of a product is a secret the panel reveals on purpose (`ADR-013`), so for a
+ * shop with accounts the quantity box does not exist yet — the hand-off stops at «عرض
+ * المخزن» with the field focused, and the password stays a thing the owner decides to
+ * type rather than something the app asks for on a guess. An open shop (`ADR-039`) has
+ * no password to prove, so the walk goes the whole way and lands in the quantity box.
+ * Never pre-filled: the quantity and the unit cost are what only the shopkeeper knows.
+ */
+async function handTheNewProductOver(prods: catalog.Product[]): Promise<void> {
+  const id = props.selectProduct;
+  if (!id || !prods.some((p) => p.id === id)) return;
+  selectedProductId.value = id;
+  if (skipsPasswordReauth()) {
+    // A read the owner can retry from the button right there. It must not take the
+    // hand-off — or the panel's start-up — down with it.
+    await loadPosition().catch(() => undefined);
+  }
+  await nextTick();
+  (document.getElementById('stock-qty') ?? document.getElementById('stock-reveal'))?.focus();
+}
+
 async function loadPickers(): Promise<void> {
   busy.value = true;
+  let prods: catalog.Product[] = [];
   try {
-    const [prods, cat] = await Promise.all([
+    const [list, cat] = await Promise.all([
       catalog.listProducts('active'),
       posApi.posCatalog().catch(() => null),
     ]);
-    products.value = prods;
+    products.value = list;
+    prods = list;
     if (cat) {
       posById.value = new Map(cat.products.map((p) => [p.id, p]));
     }
@@ -105,6 +148,10 @@ async function loadPickers(): Promise<void> {
   } finally {
     busy.value = false;
   }
+  // After `busy` is released, not before: the reveal button is `:disabled="busy"`, and a
+  // focus call on a disabled control does nothing — which is the difference between the
+  // cursor landing on the shopkeeper's next step and landing nowhere.
+  await handTheNewProductOver(prods);
 }
 
 // --- the read-only position ------------------------------------------------
@@ -121,6 +168,15 @@ const reauthPassword = ref('');
  * once, the operation runs, and the field is cleared either way.
  */
 async function withReauth(action: () => Promise<void>): Promise<void> {
+  if (skipsPasswordReauth()) {
+    // `ADR-039`: a shop that has not claimed an account has no password to prove,
+    // and its session already stands at the assurance this modal exists to reach.
+    // Rust decides that; this only keeps the cost column from demanding a secret the
+    // shop has not got — and from refusing the read when the operator has nothing to
+    // type into it.
+    await action();
+    return;
+  }
   reauthPassword.value = '';
   error.value = '';
   showReauth.value = true;
@@ -189,6 +245,16 @@ watch(selectedProductId, async () => {
 });
 
 // --- IMEI entry on receive -------------------------------------------------
+
+/**
+ * One camera reading fills the IMEI draft and enters the batch, so the shopkeeper
+ * scans the box and moves on — the same checks (15 digits, Luhn, duplicates) run as
+ * if the number had been typed.
+ */
+function onImeiScan(reading: ScanReading): void {
+  imeiDraft.value = reading.digits === '' ? reading.raw : reading.digits;
+  addImeiToBatch();
+}
 
 function addImeiToBatch(): void {
   const digits = normalizeImeiDigits(imeiDraft.value);
@@ -331,7 +397,7 @@ function formatPiastres(minor: number | null): string {
   if (minor === null) return '—';
   const whole = Math.trunc(minor / 100);
   const rest = Math.abs(minor % 100);
-  return `${whole}.${String(rest).padStart(2, '0')} ج.م`;
+  return money(whole * 100 + rest);
 }
 
 void loadPickers();
@@ -363,7 +429,12 @@ void loadPickers();
       <p class="hint">
         عرض رصيد المنتج وتكلفته يتطلب تأكيد هوية المدير.
       </p>
-      <button type="button" :disabled="busy || selectedProductId === ''" @click="withReauth(loadPosition)">
+      <button
+        id="stock-reveal"
+        type="button"
+        :disabled="busy || selectedProductId === ''"
+        @click="withReauth(loadPosition)"
+      >
         عرض المخزن
       </button>
     </div>
@@ -427,7 +498,7 @@ void loadPickers();
           <input id="stock-qty" v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
         </label>
         <label class="field">
-          <span>سعر الوحدة (قرش)</span>
+          <span>سعر الوحدة ({{ moneyUnitWord() }})</span>
           <input id="stock-cost" v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
         </label>
         <label v-if="receiptMode === 'supplier'" class="field">
@@ -459,6 +530,7 @@ void loadPickers();
               placeholder="امسح أو اكتب 15 رقم…"
               @keydown.enter.prevent="addImeiToBatch"
             />
+            <CameraScanButton :compact="true" data-stock-imei-scan @scan="onImeiScan" />
             <button
               id="stock-imei-add"
               type="button"

@@ -137,6 +137,10 @@ pub struct SalePaymentInputDto {
     pub amount_minor: i64,
     #[serde(default)]
     pub reference: Option<String>,
+    /// The shop wallet number that took this money (`ADR-041`). Absent means the primary for the
+    /// method, which is what a shop holding one number per method always meant.
+    #[serde(default)]
+    pub wallet_id: Option<String>,
 }
 
 impl From<SalePaymentInputDto> for SalePaymentInput {
@@ -145,6 +149,7 @@ impl From<SalePaymentInputDto> for SalePaymentInput {
             method: dto.method,
             amount_minor: dto.amount_minor,
             reference: dto.reference,
+            wallet_id: dto.wallet_id,
         }
     }
 }

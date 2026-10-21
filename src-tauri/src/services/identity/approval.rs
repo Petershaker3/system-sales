@@ -197,6 +197,13 @@ pub async fn consume_in_tx(
     let Some(approval) = approval else {
         return Ok(None);
     };
+    if session.is_open_mode() {
+        // The approval an open session carries was minted by the domain from the
+        // session itself, and there is no session row to clear (`ADR-039`) — the
+        // shop has no account yet, so nobody spent anything by approving. The
+        // approver named here is the open row, which is what the audit reads.
+        return Ok(Some(approval.approved_by()));
+    }
     let spent = session_repo::consume_owner_approval(conn, session.user_id(), &approval)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;

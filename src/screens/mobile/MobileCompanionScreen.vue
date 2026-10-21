@@ -1,13 +1,20 @@
 <script setup lang="ts">
-// «تطبيق الموبايل» — المساعد المتصل على Wi-Fi المحل (`docs/PLAN.md` §15 و§19 — البند 3.2،
-// `docs/ui/mockup-v1/views/mobile.js`، `ADR-037`).
+// «تطبيق الموبايل» — نصّ الكمبيوتر من الربط (`docs/PLAN.md` §15 و§19 — البند 3.2،
+// `docs/ui/mockup-v1/views/mobile.js`، `ADR-037`, `ADR-042`).
 //
-// الموبايل بلا قاعدة بيانات خاصة به: يقرأ ويسجّل في الكمبيوتر مباشرة عبر الشبكة المحلية.
+// دي شاشة الكمبيوتر: هنا الباركود اللي الموبايل بيمسحه، وهنا المسودة اللي بعتّها
+// الموبايل ومستنية موافقة اللي قدام الكمبيوتر. اللي تحت ده معاينة لشكل الموبايل —
+// الموبايل الحقيقي بيشتغل من شاشة «الالتقاط»، ومفيش قاعدة بيانات على الموبايل.
 
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import {
+  companionAcceptIntake,
   companionOverview,
+  companionRejectIntake,
+  companionRotatePairCode,
   pushCompanionScan,
+  unpairCompanionDevice,
+  type CompanionIntakeDraft,
   type CompanionStatus,
 } from '../../api/companion';
 import { describeError } from '../../api/errors';
@@ -17,6 +24,7 @@ import {
   receiveStock,
   type ProductUnit,
 } from '../../api/inventory';
+import { setProductImage } from '../../api/images';
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { repairsOverview, type RepairsOverview } from '../../api/repairs';
 import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
@@ -25,14 +33,21 @@ import { walletsOverview, type WalletsOverview } from '../../api/wallet';
 import type { ScreenId } from '../../shell/nav';
 import { appearance } from '../../ui/appearance';
 import { dg, fmtTime, money, num, pcsWord } from '../../ui/format';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
+import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import { dayStart, addDays } from '../sales/analytics';
+import { imeiLuhn, normalizeImeiDigits } from '../pos/imei';
+import { isPhone } from '../../shell/device';
+import { shrinkImageFile } from '../store/image.ts';
+import CompanionPairQr from './CompanionPairQr.vue';
 import {
-  buildLuhnImei15,
   buildMobileSalesSnapshot,
   buildRemoteOwnerSnapshot,
+  deviceLinkLabel,
   filterMobileLookupProducts,
+  hostLinkState,
   resolveMobileScanToPos,
 } from './companion';
 
@@ -63,16 +78,110 @@ const recvMode = ref<'imei' | 'qty'>('imei');
 const selectedRecvProductId = ref('');
 const recvQty = ref(1);
 const recvImeis = ref<string[]>([]);
+const recvImeiDraft = ref('');
 const capturedPhotoBadge = ref<string | null>(null);
 
 const isOwner = computed(() => props.session.role === 'manager');
 
 const hostIp = computed(() => companion.value?.hostIp ?? '192.168.1.10');
 const port = computed(() => companion.value?.port ?? 8787);
-const onlineDevicesCount = computed(
-  () =>
-    (companion.value?.pairedDevices ?? []).filter((d) => d.online).length || 2,
+const nowMs = ref(Date.now());
+let linkTicker: ReturnType<typeof setInterval> | undefined;
+
+// The handset's own screen belongs on the handset (`ADR-042`). This file is the
+// computer's half; the number of connected phones is read from the wire rather
+// than printed because a panel with a green dot looks more finished.
+const linkState = computed(() =>
+  companion.value === null
+    ? null
+    : hostLinkState(
+        {
+          running: companion.value.running,
+          port: companion.value.port,
+          pairedDevices: companion.value.pairedDevices,
+          rejectedPushes: companion.value.rejectedPushes,
+          pendingIntakes: companion.value.pendingIntakes,
+        },
+        num,
+      ),
 );
+const pendingIntakes = computed<readonly CompanionIntakeDraft[]>(
+  () => companion.value?.pendingIntakes ?? [],
+);
+const pairedDevices = computed(() => companion.value?.pairedDevices ?? []);
+/** How many handsets the wire actually hears right now — never a painted green dot. */
+const onlinePhones = computed(
+  () => pairedDevices.value.filter((device) => device.online).length,
+);
+const lastLinkLabel = computed(() => {
+  const status = companion.value;
+  if (status === null) return 'مفيش حالة';
+  if (status.lastLinkAt === null) return 'مفيش بيانات اتنقلت بعد';
+  return `آخر بيانات اتنقلت ${deviceLinkLabel(
+    { online: false, lastSeenAt: status.lastLinkAt },
+    nowMs.value,
+    num,
+  ).replace('آخر ظهور ', '')}`;
+});
+const phoneSide = computed(() => isPhone());
+
+async function refreshCompanion(): Promise<void> {
+  companion.value = await companionOverview().catch(() => companion.value);
+  nowMs.value = Date.now();
+}
+
+async function onAcceptIntake(draft: CompanionIntakeDraft): Promise<void> {
+  try {
+    const applied = await companionAcceptIntake(draft.id);
+    companion.value = applied.status;
+    if (draft.kind === 'expense') {
+      // Money is written down by the same use case the expenses screen calls, so the
+      // toast names the section rather than the receiving screen (`ADR-043`).
+      toast(
+        `«${draft.expenseCategory}» اتسجل في المصاريف — ${money(draft.expenseAmountMinor)}`,
+        'ok',
+      );
+      return;
+    }
+    toast(
+      applied.draft.note === null
+        ? `«${applied.draft.productName}» نزلت في الاستلام على الكمبيوتر`
+        : `«${applied.draft.productName}» نزلت في الاستلام — ${applied.draft.note}`,
+      'ok',
+    );
+    emit('changed');
+    await loadAll();
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onRejectIntake(draft: CompanionIntakeDraft): Promise<void> {
+  try {
+    companion.value = await companionRejectIntake(draft.id);
+    toast(`«${draft.productName}» اترفضت وما اتسجّلش حاجة`, 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onUnpairDevice(deviceId: string, name: string): Promise<void> {
+  try {
+    companion.value = await unpairCompanionDevice(deviceId);
+    toast(`«${name}» اتفصل — لو كلّم الكمبيوتر تاني برقم الربط الحالي هيرجع`, 'info');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
+
+async function onRotatePairCode(): Promise<void> {
+  try {
+    companion.value = await companionRotatePairCode();
+    toast('كود الربط اتغيّر: كل الموبايلات محتاجة تمسح الباركود من جديد', 'ok');
+  } catch (err) {
+    toast(describeError(err), 'err');
+  }
+}
 
 const salesSnapshot = computed(() =>
   buildMobileSalesSnapshot({
@@ -191,59 +300,10 @@ async function loadAll(): Promise<void> {
   }
 }
 
-async function scanPhoneBoxToPos(): Promise<void> {
-  const availableUnit = units.value.find((u) => {
-    const prod = products.value.find((p) => p.id === u.productId);
-    return prod && prod.onHand > 0;
-  });
-  if (!availableUnit) {
-    toast('مفيش أجهزة بالـ IMEI متاحة حالياً', 'err');
-    return;
-  }
-  const prod = products.value.find((p) => p.id === availableUnit.productId);
-  try {
-    companion.value = await pushCompanionScan({
-      target: 'pos',
-      code: availableUnit.imei,
-      productId: availableUnit.productId,
-      productName: prod?.name ?? 'جهاز موبايل',
-      deviceName: `موبايل ${props.session.displayName}`,
-    });
-    lastScan.value = {
-      name: prod?.name ?? 'جهاز موبايل',
-      imei: availableUnit.imei,
-      code: availableUnit.imei,
-    };
-    toast(`اتبعت ${prod?.name ?? 'الجهاز'} لشاشة البيع`, 'ok');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  }
-}
-
-async function scanAccessoryToPos(): Promise<void> {
-  const acc = products.value.find(
-    (p) => p.disposition === 'quantity' && p.onHand > 0 && p.barcode,
-  );
-  if (!acc || !acc.barcode) {
-    toast('مفيش إكسسوار بباركود متاح حالياً', 'err');
-    return;
-  }
-  try {
-    companion.value = await pushCompanionScan({
-      target: 'pos',
-      code: acc.barcode,
-      productId: acc.id,
-      productName: acc.name,
-      deviceName: `موبايل ${props.session.displayName}`,
-    });
-    lastScan.value = {
-      name: acc.name,
-      code: acc.barcode,
-    };
-    toast(`اتضاف «${acc.name}» من الموبايل لفاتورة الكاشير`, 'ok');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  }
+/** A camera reading goes through the same resolver as a typed code. */
+function onManualScan(reading: ScanReading): void {
+  manualScanCode.value = reading.digits === '' ? reading.raw : reading.digits;
+  void submitManualScanToPos();
 }
 
 async function submitManualScanToPos(): Promise<void> {
@@ -276,22 +336,40 @@ async function submitManualScanToPos(): Promise<void> {
   }
 }
 
-function generateValidNextImei(): string {
-  const base14 = `35286715${String(Math.floor(100000 + Math.random() * 899999))}`;
-  return buildLuhnImei15(base14);
+/**
+ * One IMEI into the receipt list — from the camera or typed, with the same checks the
+ * stock panel applies: exactly 15 digits, a valid check digit, and never a second time.
+ */
+function addRecvImei(raw: string): void {
+  if (recvImeis.value.length >= 5) return;
+  const digits = normalizeImeiDigits(raw);
+  if (digits === '') return;
+  if (!/^\d{15}$/.test(digits)) {
+    toast('الـ IMEI لازم يكون 15 رقم بالظبط', 'err');
+    return;
+  }
+  if (!imeiLuhn(digits)) {
+    toast('الـ IMEI ده فيه رقم غلط (فحص Luhn) — راجع العلبة', 'err');
+    return;
+  }
+  if (
+    recvImeis.value.includes(digits) ||
+    units.value.some((u) => u.imei === digits || u.imei2 === digits)
+  ) {
+    toast('الـ IMEI ده متسجّل بالفعل', 'err');
+    return;
+  }
+  recvImeis.value = [...recvImeis.value, digits];
+  recvImeiDraft.value = '';
+  toast(`اتمسح IMEI …${digits.slice(-4)}`, 'ok');
 }
 
-function scanNextReceiveImei(): void {
-  if (recvImeis.value.length >= 5) return;
-  let candidate = generateValidNextImei();
-  while (
-    recvImeis.value.includes(candidate) ||
-    units.value.some((u) => u.imei === candidate)
-  ) {
-    candidate = generateValidNextImei();
-  }
-  recvImeis.value.push(candidate);
-  toast(`اتمسح IMEI …${candidate.slice(-4)}`, 'ok');
+function onReceiveScan(reading: ScanReading): void {
+  addRecvImei(reading.digits === '' ? reading.raw : reading.digits);
+}
+
+function addTypedRecvImei(): void {
+  addRecvImei(recvImeiDraft.value);
 }
 
 async function saveReceiveByImei(): Promise<void> {
@@ -338,14 +416,42 @@ async function saveReceiveByQty(): Promise<void> {
   }
 }
 
-function captureInspectionPhoto(): void {
-  const stamp = fmtTime(new Date());
-  capturedPhotoBadge.value = `صورة فحص جهاز (${stamp}) — 192×192 JPEG محفوظة على الكمبيوتر`;
-  toast('اتصورت حالة الجهاز واتبعتت للكمبيوتر على طول', 'ok');
+// The inspection photo used to be a toast: nothing was read, nothing was sent.
+// It now goes where a picture of a product actually goes on this computer — the
+// product's cover image — and the badge reports what really happened (`ADR-042`).
+async function onInspectionPhotoPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement | null;
+  const files = input?.files ?? null;
+  const productId = selectedRecvProductId.value;
+  if (files === null || files.length === 0) return;
+  if (productId === '') {
+    toast('اختار الصنف الأول عشان الصورة تتحفظ عليه', 'err');
+    if (input !== null) input.value = '';
+    return;
+  }
+  try {
+    const dataUrl = await shrinkImageFile(files[0] as File);
+    await setProductImage(productId, dataUrl);
+    capturedPhotoBadge.value = `صورة فحص جهاز (${fmtTime(
+      new Date(),
+    )}) — 192×192 JPEG اتحفظت كغلاف للصنف على الكمبيوتر`;
+    toast('الصورة اتحفظت على الصنف', 'ok');
+  } catch (err) {
+    toast(typeof err === 'string' ? err : 'الصورة ما قرتش', 'err');
+  } finally {
+    if (input !== null) input.value = '';
+  }
 }
 
 onMounted(() => {
   void loadAll();
+  // The link is only true for a few seconds, so the panel asks again rather than
+  // letting "متصل" mean "as of whenever this page was opened".
+  linkTicker = setInterval(() => void refreshCompanion(), 4_000);
+});
+
+onUnmounted(() => {
+  if (linkTicker !== undefined) clearInterval(linkTicker);
 });
 </script>
 
@@ -396,10 +502,168 @@ onMounted(() => {
         <template v-else>
           شبكة المحل
           <bdi dir="ltr" class="mono">{{ hostIp }}:{{ port }}</bdi>
-          · {{ num(onlineDevicesCount) }} موبايل متصل
+          · {{ linkState?.label ?? 'بنتظر رد السيرفر' }}
         </template>
       </span>
     </div>
+
+    <p v-if="phoneSide" class="muted" data-mobile-host-note>
+      انت على موبايل: شاشة الالتقاط هي اللي بتصوّر وبتبعت، والكمبيوتر هو اللي بيعرض
+      باركود الربط. اللي تحت ده شكل شاشات الموبايل للمراجعة بس.
+    </p>
+
+    <!-- The inbox is its own card, with a heading and a count, and it comes first:
+         what a phone sent is the reason this screen exists. It used to be a list
+         with no heading under the QR, which is exactly why «مش بقدر» was the
+         owner's description of a working feature. -->
+    <section v-if="!phoneSide" class="card" data-companion-inbox>
+      <div class="card-h">
+        <h3>اللي وصل من الموبايل</h3>
+        <span
+          class="tag"
+          :class="pendingIntakes.length > 0 ? 'warn' : ''"
+          data-companion-inbox-count
+        >
+          <span v-if="pendingIntakes.length > 0" class="dot"></span>
+          {{
+            pendingIntakes.length === 0
+              ? 'مفيش حاجة مستنية'
+              : `${num(pendingIntakes.length)} مستنية موافقتك`
+          }}
+        </span>
+        <span class="sp"></span>
+        <span class="muted" style="font-size: 0.82rem">صنف أو مصروف — الكمبيوتر هو اللي بيسجّل</span>
+      </div>
+      <p class="muted" style="margin-top: 0">
+        كل حاجة الموبايل بعتها بتقف هنا لحد ما تقرر. الصنف بينزل باستلام، والمصروف بيتسجل
+        في قسم المصاريف — ومفيش حاجة بتتكتب في الدفتر من غير موافقتك.
+      </p>
+
+    <div v-if="pendingIntakes.length === 0" class="muted" style="padding: 8px 0" data-companion-inbox-empty>
+      مفيش مسودة واصلة من الموبايل. اللي يوصل بيستنى موافقتك هنا قبل ما ينزل في الاستلام
+      أو في المصاريف.
+    </div>
+    <div
+      v-for="draft in pendingIntakes"
+      :key="draft.id"
+      class="s-row"
+      data-companion-intake-row
+    >
+      <span class="t-ico">
+        <Icon :name="draft.kind === 'expense' ? 'hand-coins' : 'boxes'" />
+      </span>
+      <div class="t">
+        <b>{{ draft.kind === 'expense' ? draft.expenseCategory : draft.productName }}</b>
+        <small v-if="draft.kind === 'expense'">
+          مصروف من {{ draft.deviceName }} · {{ money(draft.expenseAmountMinor) }} ·
+          {{ draft.expensePaidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج' }}
+        </small>
+        <small v-else>
+          من {{ draft.deviceName }} · {{ num(draft.quantity) }} قطعة ·
+          · {{ money(draft.unitCostMinor) }} للقطعة
+          <template v-if="draft.imeis.length > 0">
+            · {{ num(draft.imeis.length) }} <bdi dir="auto">IMEI</bdi>
+          </template>
+          <template v-if="draft.photos.length > 0">
+            · {{ num(draft.photos.length) }} صورة
+          </template>
+        </small>
+        <small v-if="draft.kind === 'expense'" class="muted">
+          {{
+            draft.expenseNote === ''
+              ? 'من غير ملاحظة'
+              : draft.expenseNote
+          }}
+        </small>
+        <small v-else class="muted">
+          {{
+            draft.barcode === ''
+              ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
+              : `باركود ${draft.barcode}`
+          }}
+        </small>
+      </div>
+      <button type="button" class="btn sm primary" data-companion-accept @click="onAcceptIntake(draft)">
+        {{ draft.kind === 'expense' ? 'سجّلها في المصاريف' : 'نزّلها في الاستلام' }}
+      </button>
+      <button type="button" class="btn sm ghost" data-companion-reject @click="onRejectIntake(draft)">
+        ارفض
+      </button>
+    </div>
+  </section>
+
+    <section v-if="!phoneSide" class="card" data-companion-host-panel>
+      <div class="card-h">
+        <h3>الربط: الكمبيوتر بيعرض والموبايل بيصور</h3>
+        <span
+          class="tag"
+          :class="linkState?.tone === 'ok' ? 'ok' : linkState?.tone === 'warn' ? 'warn' : 'danger'"
+          data-companion-link-tone
+        >
+          <span v-if="linkState?.tone === 'ok'" class="dot"></span>
+          {{ linkState?.label ?? 'مفيش حالة' }}
+        </span>
+        <span class="sp"></span>
+        <button
+          v-if="isOwner"
+          type="button"
+          class="btn sm ghost"
+          data-companion-rotate
+          @click="onRotatePairCode"
+        >
+          <Icon name="refresh-ccw" /> كود ربط جديد
+        </button>
+      </div>
+
+      <p v-if="linkState !== null && linkState.detail !== ''" class="muted" data-companion-link-detail>
+        {{ linkState.detail }}
+      </p>
+
+      <div class="qr-box">
+        <CompanionPairQr
+          :payload="companion?.pairPayload ?? ''"
+          marker="data-companion-qr"
+          aria-label="باركود ربط الموبايل"
+        />
+        <div class="stack" style="gap: 6px">
+          <b>{{ num(1) }}. افتح «الالتقاط» على الموبايل</b>
+          <span>{{ num(2) }}. امسح الباركود ده، أو اكتب اللي تحته في خانة الكود</span>
+          <span>
+            {{ num(3) }}. الموبايل يبعت الصنف أو المصروف — وانت تقرر هنا: الصنف ينزل استلام،
+            والمصروف يتسجل في قسمه
+          </span>
+          <span class="muted">
+            عنوان الكمبيوتر:
+            <bdi dir="ltr" class="mono" data-companion-host-address>{{ hostIp }}:{{ port }}</bdi>
+          </span>
+          <span class="muted" data-companion-payload>
+            <bdi dir="ltr" class="mono">{{ companion?.pairPayload ?? '' }}</bdi>
+          </span>
+          <span class="muted" data-companion-last-link>{{ lastLinkLabel }}</span>
+        </div>
+      </div>
+
+      <div v-for="dev in pairedDevices" :key="dev.id" class="s-row" data-companion-device-row>
+        <span class="t-ico"><Icon name="smartphone" /></span>
+        <div class="t">
+          <b>{{ dev.name }}</b>
+          <small><bdi dir="rtl">{{ dev.model }}</bdi> · {{ deviceLinkLabel(dev, nowMs, num) }}</small>
+        </div>
+        <span class="tag" :class="dev.online ? 'ok' : ''" data-companion-device-tag>
+          <span v-if="dev.online" class="dot"></span>
+          {{ dev.online ? 'متصل دلوقتي' : 'مقترن' }}
+        </span>
+        <button
+          v-if="isOwner"
+          type="button"
+          class="btn sm ghost danger"
+          data-companion-unpair
+          @click="onUnpairDevice(dev.id, dev.name)"
+        >
+          فصل
+        </button>
+      </div>
+    </section>
 
     <div class="phones">
       <!-- 1. مبيعات النهارده لحظة بلحظة -->
@@ -573,31 +837,26 @@ onMounted(() => {
             </div>
             <div class="ph-head">
               <b>ماسح الكاشير</b>
-              <span class="tag ok"><span class="dot"></span> متصل</span>
+              <span
+                class="tag"
+                :class="onlinePhones > 0 ? 'ok' : ''"
+                :data-online="num(onlinePhones)"
+                data-mobile-scan-link
+              >
+                <span v-if="onlinePhones > 0" class="dot"></span>
+                {{ onlinePhones > 0 ? 'متصل' : 'مش متصل' }}
+              </span>
             </div>
             <div class="ph-body">
-              <div class="viewfinder">
-                <div class="box-art"></div>
-                <div class="scan-frame"><div class="scan-line"></div></div>
-                <span class="vf-cap">وجّه الكاميرا على باركود أو IMEI</span>
-              </div>
-
-              <button
-                type="button"
-                class="btn primary block"
-                data-mobile-scan-phone
-                @click="scanPhoneBoxToPos"
-              >
-                <Icon name="scan-barcode" /> امسح علبة موبايل
-              </button>
-              <button
-                type="button"
-                class="btn block"
-                data-mobile-scan-acc
-                @click="scanAccessoryToPos"
-              >
-                <Icon name="scan-line" /> امسح باركود إكسسوار
-              </button>
+              <!-- A real camera, not a picture of one: the frame only appears when the
+                   lens is open, and a machine without a decoder says so and keeps the
+                   field below for typing. -->
+              <CameraScanButton
+                label="امسح باركود أو IMEI"
+                hint="وجّه الكاميرا على الباركود أو الـ IMEI — القراية بتحصل على الجهاز ده بس."
+                data-mobile-scan-camera
+                @scan="onManualScan"
+              />
 
               <div class="row" style="gap: 6px">
                 <input
@@ -831,15 +1090,35 @@ onMounted(() => {
                     لسه مفيش أجهزة اتمسحت
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="btn primary block"
-                  data-mobile-recv-scan
-                  :disabled="recvImeis.length >= 5"
-                  @click="scanNextReceiveImei"
-                >
-                  <Icon name="scan-barcode" /> امسح الجهاز اللي بعده
-                </button>
+                <div class="row" style="gap: 6px">
+                  <input
+                    v-model="recvImeiDraft"
+                    :class="{ mono: recvImeiDraft !== '' }"
+                    :dir="recvImeiDraft ? 'ltr' : 'rtl'"
+                    inputmode="numeric"
+                    maxlength="17"
+                    autocomplete="off"
+                    placeholder="15 رقم…"
+                    data-mobile-recv-imei-input
+                    style="flex: 1; min-width: 0; height: 36px"
+                    :disabled="recvImeis.length >= 5"
+                    @keydown.enter.prevent="addTypedRecvImei"
+                  />
+                  <CameraScanButton
+                    :compact="true"
+                    data-mobile-recv-camera
+                    @scan="onReceiveScan"
+                  />
+                  <button
+                    type="button"
+                    class="btn sm"
+                    data-mobile-recv-add
+                    :disabled="recvImeis.length >= 5"
+                    @click="addTypedRecvImei"
+                  >
+                    أضف
+                  </button>
+                </div>
                 <button
                   type="button"
                   class="btn block"
@@ -894,14 +1173,18 @@ onMounted(() => {
                   <span class="muted" style="font-size: 0.8rem">
                     تصوير صيانة / استبدال
                   </span>
-                  <button
-                    type="button"
-                    class="btn sm ghost"
-                    data-mobile-capture-photo
-                    @click="captureInspectionPhoto"
-                  >
+                  <label class="btn sm ghost" data-mobile-capture-photo>
                     <Icon name="camera" /> صوّر الجهاز
-                  </button>
+                    <input
+                      id="mshop-inspection-photo"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      hidden
+                      data-mobile-photo-input
+                      @change="onInspectionPhotoPicked"
+                    />
+                  </label>
                 </div>
                 <div
                   v-if="capturedPhotoBadge"

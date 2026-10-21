@@ -12,7 +12,7 @@ use crate::domain::wallet::{
 /// List all wallets ordered by `sort ASC, id ASC`.
 pub async fn list_wallets(conn: &mut SqliteConnection) -> Result<Vec<WalletRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, name, number, color, opening_balance_minor, min_alert_minor,
+        "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
                 max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
          FROM wallets
          ORDER BY sort ASC, id ASC",
@@ -29,7 +29,7 @@ pub async fn find_wallet_by_id(
     wallet_id: &str,
 ) -> Result<Option<WalletRecord>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT id, name, number, color, opening_balance_minor, min_alert_minor,
+        "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
                 max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
          FROM wallets
          WHERE id = ?1",
@@ -50,7 +50,7 @@ pub async fn find_wallet_by_name(
     name: &str,
 ) -> Result<Option<WalletRecord>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT id, name, number, color, opening_balance_minor, min_alert_minor,
+        "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
                 max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
          FROM wallets
          WHERE lower(trim(name)) = lower(trim(?1))
@@ -81,13 +81,14 @@ pub async fn insert_wallet(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO wallets (
-            id, name, number, color,
+            id, name, company, number, color,
             opening_balance_minor, min_alert_minor, max_limit_minor, daily_limit_minor,
             pay_method, sort, hidden, is_custom, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
     )
     .bind(wallet.id.as_str())
     .bind(wallet.name.as_str())
+    .bind(wallet.company.as_deref())
     .bind(&wallet.number)
     .bind(&wallet.color)
     .bind(wallet.opening_balance_minor)
@@ -104,18 +105,51 @@ pub async fn insert_wallet(
     Ok(())
 }
 
-/// Clear `pay_method` on any other wallet so at most one wallet owns that payment method.
-pub async fn clear_pay_method_on_other_wallets(
+/// The visible wallets that receive sales paid with `pay_method`, in listing order.
+///
+/// Several may answer. `ADR-040` retired the one-wallet-per-method rule (`0024`'s unique
+/// index) so that one company can hold more than one number; the first row is where the money
+/// of a sale lands when the operator does not name a wallet.
+pub async fn list_payment_wallets(
     conn: &mut SqliteConnection,
     pay_method: WalletPayMethod,
-    except_wallet_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE wallets SET pay_method = NULL WHERE pay_method = ?1 AND id <> ?2")
-        .bind(pay_method.as_str())
-        .bind(except_wallet_id)
-        .execute(&mut *conn)
-        .await?;
-    Ok(())
+) -> Result<Vec<WalletRecord>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
+                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+         FROM wallets
+         WHERE pay_method = ?1 AND hidden = 0
+         ORDER BY sort ASC, id ASC",
+    )
+    .bind(pay_method.as_str())
+    .fetch_all(&mut *conn)
+    .await?;
+
+    rows.into_iter().map(row_to_wallet).collect()
+}
+
+/// The wallet the sales of this method default to: the first visible one, falling back to a
+/// hidden one so that money always has a home.
+pub async fn primary_payment_wallet(
+    conn: &mut SqliteConnection,
+    pay_method: WalletPayMethod,
+) -> Result<Option<WalletRecord>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
+                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+         FROM wallets
+         WHERE pay_method = ?1
+         ORDER BY hidden ASC, sort ASC, id ASC
+         LIMIT 1",
+    )
+    .bind(pay_method.as_str())
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    match row {
+        Some(r) => row_to_wallet(r).map(Some),
+        None => Ok(None),
+    }
 }
 
 /// Update an existing wallet row.
@@ -134,7 +168,8 @@ pub async fn update_wallet(
              daily_limit_minor = ?8,
              pay_method = ?9,
              sort = ?10,
-             hidden = ?11
+             hidden = ?11,
+             company = ?12
          WHERE id = ?1",
     )
     .bind(wallet.id.as_str())
@@ -148,6 +183,7 @@ pub async fn update_wallet(
     .bind(wallet.pay_method.map(|m| m.as_str()))
     .bind(wallet.sort)
     .bind(i64::from(wallet.hidden))
+    .bind(wallet.company.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -203,47 +239,47 @@ pub async fn compute_wallet_balance_minor(
     .fetch_one(&mut *conn)
     .await?;
 
-    let sales_in_minor = match wallet.pay_method {
-        Some(method) => {
-            let m = method.as_str();
-            let pos_sales_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(
-                    CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
-                ), 0)
-                FROM sale_payments sp
-                INNER JOIN sales s ON s.id = sp.sale_id
-                WHERE sp.method = ?1",
-            )
-            .bind(m)
-            .fetch_one(&mut *conn)
-            .await?;
+    // Every money stream that can name a wallet does so now: a sale payment (`0030`), a
+    // customer settling a debt and a settled repair (`0031`). One predicate for all three and
+    // nothing to fall back to — money a row does not name belongs to no wallet. That is why the
+    // migrations named the history instead of this read re-deriving it from whoever happens to be
+    // first in the listing order today (`ADR-041`). It is also why a wallet that stopped
+    // receiving a method keeps the money it took while it did.
+    let payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(
+            CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
+        ), 0)
+        FROM sale_payments sp
+        INNER JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let credit_payments_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(-amount_minor), 0)
-                 FROM customer_ledger
-                 WHERE kind = 'payment' AND method = ?1",
-            )
-            .bind(m)
-            .fetch_one(&mut *conn)
-            .await?;
+    let credit_payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(-amount_minor), 0)
+         FROM customer_ledger
+         WHERE kind = 'payment' AND wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let repairs_in_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
-                 FROM repairs
-                 WHERE status = 'delivered' AND pay_method = ?1",
-            )
-            .bind(m)
-            .fetch_one(&mut *conn)
-            .await?;
+    let repairs_in_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+         FROM repairs
+         WHERE status = 'delivered' AND pay_wallet_id = ?1",
+    )
+    .bind(wid)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            pos_sales_minor + credit_payments_minor + repairs_in_minor
-        }
-        None => 0,
-    };
-
-    Ok(wallet.opening_balance_minor + ops_delta + sales_in_minor)
+    Ok(
+        wallet.opening_balance_minor + ops_delta + payments_minor + credit_payments_minor
+            + repairs_in_minor,
+    )
 }
-
 /// Compute statistics for one wallet in a `[from_ms, to_ms]` time window (`walletStats` in `analytics.js`).
 pub async fn compute_wallet_period_stats(
     conn: &mut SqliteConnection,
@@ -279,58 +315,54 @@ pub async fn compute_wallet_period_stats(
     let wit_minor: i64 = row.try_get("wit_minor")?;
     let fees_minor: i64 = row.try_get("fees_minor")?;
 
-    let sales_in_minor = match wallet.pay_method {
-        Some(method) => {
-            let m = method.as_str();
-            let pos_sales_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(
-                    CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
-                ), 0)
-                FROM sale_payments sp
-                INNER JOIN sales s ON s.id = sp.sale_id
-                WHERE sp.method = ?1
-                  AND s.occurred_at >= ?2
-                  AND s.occurred_at <= ?3",
-            )
-            .bind(m)
-            .bind(from_ms)
-            .bind(to_ms)
-            .fetch_one(&mut *conn)
-            .await?;
+    // The same three streams as `compute_wallet_balance`, inside the window and named by wallet
+    // alone (`ADR-041`).
+    let pos_sales_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(
+            CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END
+        ), 0)
+        FROM sale_payments sp
+        INNER JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.wallet_id = ?1
+          AND s.occurred_at >= ?2
+          AND s.occurred_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let credit_payments_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(-amount_minor), 0)
-                 FROM customer_ledger
-                 WHERE kind = 'payment'
-                   AND method = ?1
-                   AND occurred_at >= ?2
-                   AND occurred_at <= ?3",
-            )
-            .bind(m)
-            .bind(from_ms)
-            .bind(to_ms)
-            .fetch_one(&mut *conn)
-            .await?;
+    let credit_payments_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(-amount_minor), 0)
+         FROM customer_ledger
+         WHERE kind = 'payment'
+           AND wallet_id = ?1
+           AND occurred_at >= ?2
+           AND occurred_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            let repairs_in_minor: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
-                 FROM repairs
-                 WHERE status = 'delivered'
-                   AND pay_method = ?1
-                   AND delivered_at IS NOT NULL
-                   AND delivered_at >= ?2
-                   AND delivered_at <= ?3",
-            )
-            .bind(m)
-            .bind(from_ms)
-            .bind(to_ms)
-            .fetch_one(&mut *conn)
-            .await?;
+    let repairs_in_minor: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(MAX(0, final_price_minor - deposit_minor)), 0)
+         FROM repairs
+         WHERE status = 'delivered'
+           AND pay_wallet_id = ?1
+           AND delivered_at IS NOT NULL
+           AND delivered_at >= ?2
+           AND delivered_at <= ?3",
+    )
+    .bind(wid)
+    .bind(from_ms)
+    .bind(to_ms)
+    .fetch_one(&mut *conn)
+    .await?;
 
-            pos_sales_minor + credit_payments_minor + repairs_in_minor
-        }
-        None => 0,
-    };
+    let sales_in_minor = pos_sales_minor + credit_payments_minor + repairs_in_minor;
 
     Ok(WalletPeriodStats {
         wallet_id: wallet.id.clone(),
@@ -560,6 +592,7 @@ fn parse_user_id(raw: &str) -> Result<UserId, sqlx::Error> {
 fn row_to_wallet(row: sqlx::sqlite::SqliteRow) -> Result<WalletRecord, sqlx::Error> {
     let id_raw: String = row.try_get("id")?;
     let name_raw: String = row.try_get("name")?;
+    let company: Option<String> = row.try_get("company")?;
     let number: String = row.try_get("number")?;
     let color: String = row.try_get("color")?;
     let opening_balance_minor: i64 = row.try_get("opening_balance_minor")?;
@@ -575,6 +608,7 @@ fn row_to_wallet(row: sqlx::sqlite::SqliteRow) -> Result<WalletRecord, sqlx::Err
     Ok(WalletRecord {
         id: WalletId::new(id_raw).ok_or(sqlx::Error::RowNotFound)?,
         name: WalletName::new(name_raw).map_err(|_| sqlx::Error::RowNotFound)?,
+        company,
         number,
         color,
         opening_balance_minor,

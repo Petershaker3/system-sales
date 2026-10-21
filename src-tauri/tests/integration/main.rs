@@ -839,6 +839,10 @@ mod repairs;
 // pairing payload, and POS / receiving scan queue.
 mod companion;
 
+// `ADR-039`: the shop runs from the first launch on the open owner row, and the
+// account is claimed afterwards from الإعدادات.
+mod open_mode;
+
 
 
 

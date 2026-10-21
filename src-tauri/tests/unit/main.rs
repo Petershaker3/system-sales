@@ -69,7 +69,26 @@ fn facts() -> SessionFacts {
         must_change_password: false,
         disabled_at: None,
         owner_approval: None,
+        open_mode: false,
     }
+}
+
+/// The operator of a shop that has not claimed an account yet (`ADR-039`).
+///
+/// The `open_mode` flag is the whole difference between this and `facts()`: the
+/// row behind it is a real `users` row, and the flag is what lets the two approval
+/// axes answer for a device with no secret to prove.
+fn open_mode_facts() -> SessionFacts {
+    SessionFacts {
+        open_mode: true,
+        role: Role::Manager,
+        assurance: Assurance::Reauthenticated,
+        ..facts()
+    }
+}
+
+fn open_mode_session() -> Session {
+    Session::open(open_mode_facts(), at(0)).expect("an open session never expires on its own")
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,6 +1602,61 @@ fn a_fresh_approval_is_handed_to_the_operation_that_will_spend_it() {
 }
 
 #[test]
+fn an_open_shop_carries_its_own_approval_for_sensitive_work() {
+    // `ADR-039`: the owner-PIN approval protects the shop from a seller at an
+    // unattended till. A shop with no account has no seller and no PIN, so the
+    // approval is the session itself, and the audit names the open row on both
+    // sides — which is the truth rather than a gap.
+    let session = open_mode_session();
+    let granted = session
+        .require_sensitivity(Sensitivity::Sensitive, at(0))
+        .expect("a shop with no account is not kept from its own stock");
+    assert_eq!(
+        granted.map(|approval| approval.approved_by()),
+        Some(session.user_id()),
+        "the approver of an open shop is the open row itself"
+    );
+}
+
+#[test]
+fn an_open_shop_still_refuses_nothing_it_would_refuse_signed_in() {
+    // Routine work is unaffected: the open session must not claim an approval that
+    // was never asked for, or a sale would spend the shop's patience for nothing.
+    let session = open_mode_session();
+    assert_eq!(
+        session.require_sensitivity(Sensitivity::Routine, at(0)),
+        Ok(None)
+    );
+}
+
+#[test]
+fn an_open_session_authorizes_the_owner_screens_and_a_seller_s_one_still_needs_a_row() {
+    // The open row is a manager, so the screens a manager holds are open to it —
+    // including the three that ask for a freshly proven password, which is exactly
+    // why `open_mode` carries `Reauthenticated`: there is no password to prove yet.
+    let session = open_mode_session();
+    for permission in [
+        Permission::ManageSettings,
+        Permission::ManageUsers,
+        Permission::ViewCostAndProfit,
+        Permission::Sell,
+    ] {
+        assert_eq!(
+            session.authorize(permission),
+            Ok(()),
+            "an open shop must reach {permission:?}"
+        );
+    }
+    // The flag alone is not a role: a session that is not open and has not
+    // reauthenticated is still refused.
+    let signed_in = session_with(Assurance::Normal, None);
+    assert_eq!(
+        signed_in.authorize(Permission::ManageSettings),
+        Err(DomainError::ReauthenticationRequired)
+    );
+}
+
+#[test]
 fn the_owner_approval_window_is_two_minutes() {
     // ADR-017 §3.
     assert_eq!(OWNER_APPROVAL_TTL_MS, 120_000);
@@ -2652,11 +2726,13 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "cash".to_string(),
                 amount_minor: 300_00,
                 reference: None,
+                wallet_id: None,
             },
             SalePaymentInput {
                 method: "vf".to_string(),
                 amount_minor: 200_00,
                 reference: Some("  0100123  ".to_string()),
+                wallet_id: None,
             },
         ],
         500_00,
@@ -2676,6 +2752,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "card".to_string(),
                 amount_minor: 500_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2691,6 +2768,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "install".to_string(),
                 amount_minor: 500_00,
                 reference: Some("   ".to_string()),
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2706,6 +2784,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "credit".to_string(),
                 amount_minor: 500_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2718,6 +2797,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
             method: "credit".to_string(),
             amount_minor: 500_00,
             reference: None,
+            wallet_id: None,
         }],
         500_00,
         enabled,
@@ -2732,6 +2812,7 @@ fn validate_sale_payments_enforces_enabled_methods_split_sum_and_credit_customer
                 method: "cash".to_string(),
                 amount_minor: 450_00,
                 reference: None,
+                wallet_id: None,
             }],
             500_00,
             enabled,
@@ -2991,8 +3072,13 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     // Default refund allocation across split payment methods.
     let alloc = allocate_default_refund_payments(
         &[
-            (PaymentMethod::Cash, 10_000, None),
-            (PaymentMethod::Vf, 17_000, Some("VF-1".to_owned())),
+            (PaymentMethod::Cash, 10_000, None, None),
+            (
+                PaymentMethod::Vf,
+                17_000,
+                Some("VF-1".to_owned()),
+                Some("w-2".to_owned()),
+            ),
         ],
         PaymentMethod::Cash,
         15_000,
@@ -3002,6 +3088,10 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     assert_eq!(alloc[0].amount_minor, 10_000);
     assert_eq!(alloc[1].method, PaymentMethod::Vf);
     assert_eq!(alloc[1].amount_minor, 5_000);
+    // A refund leaves by the number that took the money (`ADR-041`), and a row that names none
+    // leaves the seller with nothing to inherit rather than a guess.
+    assert_eq!(alloc[1].wallet_id.as_deref(), Some("w-2"));
+    assert_eq!(alloc[0].wallet_id, None);
 }
 
 #[test]
@@ -3023,8 +3113,182 @@ fn ean13_bar_encoding_and_tspl_label_formatting() {
     assert!(tspl.contains("PRINT 3,1"));
 }
 
+/// A handset is "connected" only while the wire says so (`ADR-042`).
+///
+/// The companion panel used to print two phones and say they were online because
+/// that is what the demo data looked like. These are the bounds of the rule that
+/// replaced it: the window is inclusive, a device that has never spoken is not
+/// connected, and a clock that moved backwards is not a connection either.
+#[test]
+fn a_phone_counts_as_connected_only_while_it_is_being_heard() {
+    use mobile_shop_system_lib::domain::companion::{is_online, ONLINE_WINDOW_MS};
 
+    assert!(!is_online(0, 1_000), "never heard from is not connected");
+    assert!(is_online(1_000, 1_000), "this instant counts");
+    assert!(
+        is_online(1_000, 1_000 + ONLINE_WINDOW_MS),
+        "the edge of the window still counts"
+    );
+    assert!(
+        !is_online(1_000, 1_001 + ONLINE_WINDOW_MS),
+        "one millisecond past it does not"
+    );
+    assert!(!is_online(5_000, 1_000), "a future last-seen is not a connection");
+}
 
+/// What a capture must contain before either side queues it (`ADR-042`).
+///
+/// `one_off` is refused on purpose: that disposition has no stock balance for a
+/// receipt to move, so accepting it would mean writing a draft the shop then has to
+/// explain away in the ledger.
+#[test]
+fn a_capture_draft_is_checked_before_it_is_held() {
+    use mobile_shop_system_lib::domain::companion::{
+        validate_intake_draft, CompanionIntakeDraft, MAX_INTAKE_PHOTOS,
+    };
 
+    let base = || CompanionIntakeDraft {
+        id: "draft-1".to_string(),
+        // Empty means a product: every draft written before expenses existed (`ADR-043`).
+        kind: String::new(),
+        expense_category: String::new(),
+        expense_amount_minor: 0,
+        expense_paid_from: String::new(),
+        expense_note: String::new(),
+        pair_code: "PAIR-1".to_string(),
+        device_name: "موبايل بيتر".to_string(),
+        created_at: 1,
+        disposition: "quantity".to_string(),
+        product_name: "شاحن".to_string(),
+        barcode: String::new(),
+        quantity: 2,
+        unit_cost_minor: 25_000,
+        imeis: Vec::new(),
+        photos: Vec::new(),
+        product_id: None,
+        receipt_id: None,
+        pushed_at: None,
+        push_error: None,
+        note: None,
+    };
+    assert_eq!(validate_intake_draft(&base()), Ok(()));
 
+    let mut no_name = base();
+    no_name.product_name = "   ".to_string();
+    assert_eq!(
+        validate_intake_draft(&no_name),
+        Err("draft carries no product name")
+    );
 
+    let mut serialised = base();
+    serialised.disposition = "serialized".to_string();
+    assert!(
+        validate_intake_draft(&serialised).is_err(),
+        "a serialized draft with no IMEI leaves a unit nobody can sell"
+    );
+
+    let mut one_off = base();
+    one_off.disposition = "one_off".to_string();
+    assert!(
+        validate_intake_draft(&one_off).is_err(),
+        "a one-off item has no stock balance for a receipt to move"
+    );
+
+    let mutations: [fn(&mut CompanionIntakeDraft); 7] = [
+        |draft| draft.quantity = 0,
+        |draft| draft.quantity = -3,
+        |draft| draft.unit_cost_minor = -1,
+        |draft| draft.device_name = " ".to_string(),
+        |draft| draft.photos = vec!["x".to_string(); MAX_INTAKE_PHOTOS + 1],
+        |draft| draft.imeis = vec!["1".to_string(); 41],
+        |draft| draft.product_name = "س".repeat(400),
+    ];
+    for mutate in mutations {
+        let mut draft = base();
+        mutate(&mut draft);
+        assert!(
+            validate_intake_draft(&draft).is_err(),
+            "a draft that breaks one of the caps must be refused, not trimmed"
+        );
+    }
+}
+
+/// One queue, two kinds (`ADR-043`).
+///
+/// A draft is either a product capture or money that left the shop, and the wire
+/// guard refuses anything else — including a draft that carries half of each. The
+/// empty `kind` is not a third kind: it is every draft stored before expenses
+/// existed, and it must still read as a product.
+#[test]
+fn an_expense_draft_says_where_its_money_came_from() {
+    use mobile_shop_system_lib::domain::companion::{
+        draft_kind, validate_intake_draft, CompanionIntakeDraft, DraftKind, MAX_EXPENSE_NOTE_CHARS,
+    };
+
+    let base = |kind: &str| CompanionIntakeDraft {
+        id: "draft-1".to_string(),
+        kind: kind.to_string(),
+        expense_category: "إيجار".to_string(),
+        expense_amount_minor: 500_000,
+        expense_paid_from: "outside".to_string(),
+        expense_note: "إيجار أكتوبر".to_string(),
+        pair_code: "PAIR-1".to_string(),
+        device_name: "موبايل بيتر".to_string(),
+        created_at: 1,
+        disposition: String::new(),
+        product_name: String::new(),
+        barcode: String::new(),
+        quantity: 0,
+        unit_cost_minor: 0,
+        imeis: Vec::new(),
+        photos: Vec::new(),
+        product_id: None,
+        receipt_id: None,
+        pushed_at: None,
+        push_error: None,
+        note: None,
+    };
+
+    assert_eq!(draft_kind(&base("expense")), Some(DraftKind::Expense));
+    assert_eq!(draft_kind(&base("")), Some(DraftKind::Product));
+    assert_eq!(draft_kind(&base("product")), Some(DraftKind::Product));
+    assert_eq!(
+        draft_kind(&base("rent")),
+        None,
+        "an unknown word is refused rather than guessed into stock or into money"
+    );
+    assert_eq!(validate_intake_draft(&base("expense")), Ok(()));
+    assert!(
+        validate_intake_draft(&base("rent")).is_err(),
+        "a typo must not become a ledger row"
+    );
+
+    // Each half of the expense is required, in the shop's own words.
+    let mut no_category = base("expense");
+    no_category.expense_category = "  ".to_string();
+    assert!(validate_intake_draft(&no_category).is_err());
+
+    let mut no_amount = base("expense");
+    no_amount.expense_amount_minor = 0;
+    assert!(validate_intake_draft(&no_amount).is_err());
+
+    let mut no_source = base("expense");
+    no_source.expense_paid_from = String::new();
+    assert!(
+        validate_intake_draft(&no_source).is_err(),
+        "a default source would decide whether the drawer shrinks"
+    );
+
+    let mut long_note = base("expense");
+    long_note.expense_note = "ن".repeat(MAX_EXPENSE_NOTE_CHARS + 1);
+    assert!(validate_intake_draft(&long_note).is_err());
+
+    // The two kinds are separate: an expense does not need a product name, and a
+    // product draft does not need an amount.
+    let mut product = base("");
+    product.kind = "product".to_string();
+    product.product_name = "شاحن".to_string();
+    product.disposition = "quantity".to_string();
+    product.quantity = 2;
+    assert_eq!(validate_intake_draft(&product), Ok(()));
+}

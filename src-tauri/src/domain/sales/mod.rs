@@ -86,6 +86,9 @@ pub enum SaleError {
     ReturnConditionInvalid,
     /// A return request has an empty or overly long reason (`ADR-026`).
     ReturnReasonRequired,
+    /// A payment named a wallet that does not receive that method, or named none at all and a
+    /// method that no wallet receives (`ADR-041`).
+    PaymentWalletInvalid,
 }
 
 impl SaleError {
@@ -121,6 +124,7 @@ impl SaleError {
             SaleError::ReturnQuantityExceedsRemaining => "SALE_RETURN_QUANTITY_EXCEEDS_REMAINING",
             SaleError::ReturnConditionInvalid => "SALE_RETURN_CONDITION_INVALID",
             SaleError::ReturnReasonRequired => "SALE_RETURN_REASON_REQUIRED",
+            SaleError::PaymentWalletInvalid => "SALE_PAYMENT_WALLET_INVALID",
         }
     }
 }
@@ -178,6 +182,9 @@ impl fmt::Display for SaleError {
             }
             SaleError::PaymentReferenceInvalid => {
                 write!(f, "payment reference exceeds maximum length")
+            }
+            SaleError::PaymentWalletInvalid => {
+                write!(f, "the wallet named for this payment does not receive that method")
             }
             SaleError::InstallmentProviderRequired => {
                 write!(f, "instalment payment requires a provider name")
@@ -297,6 +304,9 @@ pub struct SalePaymentInput {
     pub method: String,
     pub amount_minor: i64,
     pub reference: Option<String>,
+    /// The shop wallet the money was collected into. `None` means "whatever number is first for
+    /// this method", which is the only answer a shop with one number can give (`ADR-041`).
+    pub wallet_id: Option<String>,
 }
 
 /// Validated payment row ready to be persisted on a sale (`ADR-020` §2).
@@ -305,6 +315,9 @@ pub struct ValidatedSalePayment {
     pub method: PaymentMethod,
     pub amount_minor: i64,
     pub reference: Option<String>,
+    /// Trimmed and blanked like the reference; the wallet itself is checked where the database
+    /// can be asked, in `services::sales` (`ADR-041`).
+    pub wallet_id: Option<String>,
 }
 
 /// Maximum characters allowed in a payment reference (`0021_sale_payments_and_customer_ledger.sql`).
@@ -368,10 +381,18 @@ pub fn validate_sale_payments(
             .checked_add(raw.amount_minor)
             .ok_or(SaleError::PaymentAmountInvalid)?;
 
+        let wallet_id = raw
+            .wallet_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
         out.push(ValidatedSalePayment {
             method,
             amount_minor: raw.amount_minor,
             reference,
+            wallet_id,
         });
     }
 
@@ -676,7 +697,7 @@ pub fn compute_return_refund_minor(
 
 /// Allocate `refund_minor` across the original sale's payment methods by default (`PLAN.md` §10).
 pub fn allocate_default_refund_payments(
-    remaining_by_method: &[(PaymentMethod, i64, Option<String>)],
+    remaining_by_method: &[(PaymentMethod, i64, Option<String>, Option<String>)],
     fallback_method: PaymentMethod,
     refund_minor: i64,
 ) -> Vec<ValidatedSalePayment> {
@@ -685,13 +706,14 @@ pub fn allocate_default_refund_payments(
             method: fallback_method,
             amount_minor: 0,
             reference: None,
+            wallet_id: None,
         }];
     }
 
     let mut out: Vec<ValidatedSalePayment> = Vec::new();
     let mut left = refund_minor;
 
-    for (method, avail, reference) in remaining_by_method {
+    for (method, avail, reference, wallet_id) in remaining_by_method {
         if left <= 0 {
             break;
         }
@@ -701,6 +723,8 @@ pub fn allocate_default_refund_payments(
                 method: *method,
                 amount_minor: take,
                 reference: reference.clone(),
+                // A refund leaves by the number that took the money (`ADR-041`).
+                wallet_id: wallet_id.clone(),
             });
             left -= take;
         }
@@ -714,6 +738,7 @@ pub fn allocate_default_refund_payments(
                 method: fallback_method,
                 amount_minor: left,
                 reference: None,
+                wallet_id: None,
             });
         }
     }

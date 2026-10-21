@@ -23,6 +23,7 @@ pub enum AppearanceKey {
     Font,
     Scale,
     Digits,
+    MoneyUnit,
     Images,
     ImeiMode,
     PayMethods,
@@ -50,13 +51,14 @@ pub enum AppearanceKey {
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 30] = [
+    pub const ALL: [AppearanceKey; 31] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
         AppearanceKey::Font,
         AppearanceKey::Scale,
         AppearanceKey::Digits,
+        AppearanceKey::MoneyUnit,
         AppearanceKey::Images,
         AppearanceKey::ImeiMode,
         AppearanceKey::PayMethods,
@@ -92,6 +94,8 @@ impl AppearanceKey {
             AppearanceKey::Font => "ui.font",
             AppearanceKey::Scale => "ui.scale",
             AppearanceKey::Digits => "ui.digits",
+            // The unit on the glass, not a second way to store money (`ADR-044`).
+            AppearanceKey::MoneyUnit => "ui.money_unit",
             AppearanceKey::Images => "ui.images",
             AppearanceKey::ImeiMode => "ui.imei_mode",
             AppearanceKey::PayMethods => "ui.pay_methods",
@@ -137,7 +141,8 @@ impl AppearanceKey {
     pub fn is_catalog_choice(self) -> bool {
         matches!(
             self,
-            AppearanceKey::Images
+            AppearanceKey::MoneyUnit
+                | AppearanceKey::Images
                 | AppearanceKey::ImeiMode
                 | AppearanceKey::PayMethods
                 | AppearanceKey::DiscountLimitPct
@@ -203,6 +208,10 @@ pub fn parse_pay_methods(raw: &str) -> Option<String> {
 
 /// Default seller discount limit percentage without owner PIN approval (`ADR-021`, `PLAN.md` §4).
 pub const DEFAULT_DISCOUNT_LIMIT_PCT: &str = "5";
+
+/// What the shop types and reads: pounds, the way a counter speaks. The stored
+/// amount is always piastres (`ADR-010`); `piastre` is for shops that price in them.
+pub const DEFAULT_MONEY_UNIT: &str = "egp";
 
 /// Default shop and receipt settings (`ADR-022`, `PLAN.md` §10, §16).
 pub const DEFAULT_SHOP_NAME: &str = "موبايل ستور";
@@ -331,6 +340,7 @@ pub struct Appearance {
     pub font: String,
     pub scale: String,
     pub digits: String,
+    pub money_unit: String,
     pub images: String,
     pub imei_mode: String,
     pub pay_methods: String,
@@ -373,6 +383,7 @@ impl Default for Appearance {
             font: "auto".to_owned(),
             scale: "normal".to_owned(),
             digits: "latin".to_owned(),
+            money_unit: DEFAULT_MONEY_UNIT.to_owned(),
             images: "on".to_owned(),
             imei_mode: "optional".to_owned(),
             pay_methods: DEFAULT_PAY_METHODS.to_owned(),
@@ -540,6 +551,7 @@ impl Appearance {
             AppearanceKey::Font => matches!(value, "auto" | "plex" | "cairo" | "tajawal" | "readex"),
             AppearanceKey::Scale => matches!(value, "normal" | "large"),
             AppearanceKey::Digits => matches!(value, "latin" | "arabic"),
+            AppearanceKey::MoneyUnit => matches!(value, "egp" | "piastre"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
             AppearanceKey::ReceiptMode => matches!(value, "wa" | "none" | "print" | "both"),
@@ -579,6 +591,7 @@ impl Appearance {
             AppearanceKey::Font => self.font = value,
             AppearanceKey::Scale => self.scale = value,
             AppearanceKey::Digits => self.digits = value,
+            AppearanceKey::MoneyUnit => self.money_unit = value,
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
             AppearanceKey::ReceiptMode => self.receipt_mode = value,
@@ -689,6 +702,30 @@ mod tests {
         assert_eq!(a.warranty_used, "3");
         assert_eq!(
             a.set("ui.warranty_used", "61").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID")
+        );
+    }
+
+    #[test]
+    fn money_is_shown_in_pounds_unless_the_owner_chooses_piastres() {
+        // The stored amount never changes; only the unit on the glass (`ADR-044`).
+        let mut a = Appearance::default();
+        assert_eq!(a.money_unit, "egp");
+        assert_eq!(
+            AppearanceKey::parse("ui.money_unit"),
+            Some(AppearanceKey::MoneyUnit)
+        );
+        assert!(a.set("ui.money_unit", "piastre").is_ok());
+        assert_eq!(a.money_unit, "piastre");
+        assert_eq!(
+            a.set("ui.money_unit", "EGP").map_err(|e| e.code()),
+            Err("SETTING_VALUE_INVALID"),
+            "the two words are exact, exactly like every other choice"
+        );
+        assert!(a.set("ui.money_unit", "egp").is_ok());
+        assert_eq!(a.money_unit, "egp");
+        assert_eq!(
+            a.set("ui.money_unit", "dollar").map_err(|e| e.code()),
             Err("SETTING_VALUE_INVALID")
         );
     }

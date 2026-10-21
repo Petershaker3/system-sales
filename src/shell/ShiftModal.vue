@@ -19,7 +19,15 @@ import {
   shiftDifferenceState,
 } from '../screens/pos/shift';
 import { appearance } from '../ui/appearance';
-import { fmtTime, money, num, parseCount, parseMoney } from '../ui/format';
+import {
+  fmtTime,
+  money,
+  moneyInputValue,
+  moneyUnitWord,
+  num,
+  parseCount,
+  parseMoney,
+} from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import Modal from '../ui/Modal.vue';
 import { toast } from '../ui/toast';
@@ -40,7 +48,7 @@ const busy = ref(false);
 const defaultOpeningEgp = computed(() => {
   const prevMinor = props.shiftState.lastClosedShift?.countedCashMinor;
   if (typeof prevMinor === 'number' && prevMinor >= 0) {
-    return String(prevMinor / 100);
+    return moneyInputValue(prevMinor);
   }
   return '1000';
 });
@@ -74,7 +82,7 @@ watch(
   () => props.shiftState.openShift?.totals.expectedCashMinor,
   (expectedMinor) => {
     if (typeof expectedMinor === 'number' && countedCashText.value === '') {
-      countedCashText.value = String(expectedMinor / 100);
+      countedCashText.value = moneyInputValue(expectedMinor);
     }
   },
   { immediate: true }
@@ -95,7 +103,7 @@ function onDenomInput(): void {
   }
   if (anyTyped) {
     const minor = denomTotalMinor(numericCounts);
-    countedCashText.value = String(minor / 100);
+    countedCashText.value = moneyInputValue(minor);
   }
 }
 
@@ -104,7 +112,7 @@ function clearDenomsAndMatchExpected(): void {
     denomCounts[String(d)] = '';
   }
   const expMinor = props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
-  countedCashText.value = String(expMinor / 100);
+  countedCashText.value = moneyInputValue(expMinor);
 }
 
 const countedCashMinor = computed<number>(() => {
@@ -211,7 +219,7 @@ async function submitCloseShift(): Promise<void> {
     <div v-if="!shiftState.openShift" data-open-shift-view>
       <form @submit.prevent="submitOpenShift">
         <div class="field">
-          <label class="lbl">رصيد بداية الوردية في الدرج (ج.م)</label>
+          <label class="lbl">رصيد بداية الوردية في الدرج ({{ moneyUnitWord() }})</label>
           <input
             v-model="openingCashText"
             class="in"
@@ -229,9 +237,9 @@ async function submitCloseShift(): Promise<void> {
             type="button"
             class="chip num"
             :data-open-shift-preset="preset"
-            @click="openingCashText = preset"
+            @click="openingCashText = moneyInputValue(Number(preset) * 100)"
           >
-            {{ preset }} ج.م
+            {{ money(Number(preset) * 100) }}
           </button>
         </div>
 
@@ -484,7 +492,7 @@ async function submitCloseShift(): Promise<void> {
           </div>
 
           <div class="field">
-            <label class="lbl">المعدود الفعلي في الدرج (ج.م)</label>
+            <label class="lbl">المعدود الفعلي في الدرج ({{ moneyUnitWord() }})</label>
             <input
               v-model="countedCashText"
               class="in"

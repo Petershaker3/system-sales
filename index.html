@@ -2,7 +2,11 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the layout reach the physical edges of a phone screen;
+         `src/styles/mobile.css` then keeps the notch and the navigation bar out of the
+         till with safe-area insets. Without `viewport-fit` the browser would letterbox
+         instead, and the bottom bar would float above a white strip. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Mobile Shop System</title>
   </head>
   <body>

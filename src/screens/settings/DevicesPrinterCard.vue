@@ -10,6 +10,7 @@ import {
   unpairCompanionDevice,
   type CompanionStatus,
 } from '../../api/companion';
+import { isPhone } from '../../shell/device';
 import { describeError } from '../../api/errors';
 import {
   appearance,
@@ -19,12 +20,17 @@ import {
 import { num } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
-import { buildPairingQrMatrix } from '../mobile/companion';
+import CompanionPairQr from '../mobile/CompanionPairQr.vue';
+import { buildPairingQrMatrix, deviceLinkLabel } from '../mobile/companion';
 import { buildPrinterTogglePatch, formatPrinterStatusSummary } from './tabs';
 
 const companion = ref<CompanionStatus | null>(null);
 const newDeviceName = ref('');
 const newDeviceModel = ref('');
+// Read once per load: "connected" is a statement about this moment, and a page
+// left open overnight must not keep calling a handset connected (`ADR-042`).
+const linkNow = ref(Date.now());
+const phoneSide = computed(() => isPhone());
 
 const statusSummary = computed(() =>
   formatPrinterStatusSummary(appearance.printerEnabled, appearance.receiptPaper),
@@ -36,14 +42,6 @@ const hostAddress = computed(() => {
   return `${ip}:${port}`;
 });
 
-const qrMatrix = computed(() =>
-  buildPairingQrMatrix(
-    companion.value?.pairPayload ??
-      `MSHOP-PAIR|v1|${appearance.shopName || 'موبايل ستور'}|192.168.1.10:8787|PAIR-8787`,
-    21,
-  ),
-);
-
 const remoteQrMatrix = computed(() =>
   buildPairingQrMatrix(
     companion.value?.remotePayload ??
@@ -54,6 +52,7 @@ const remoteQrMatrix = computed(() =>
 
 async function loadCompanion(): Promise<void> {
   companion.value = await companionOverview().catch(() => null);
+  linkNow.value = Date.now();
 }
 
 async function onToggleRemoteFollowUp(): Promise<void> {
@@ -229,7 +228,10 @@ onMounted(() => {
           <b>{{ dev.name }}</b>
           <small><bdi dir="rtl">{{ dev.model }}</bdi>، على شبكة المحل</small>
         </div>
-        <span class="tag ok"><span class="dot"></span> متصل</span>
+        <span class="tag" :class="dev.online ? 'ok' : ''" data-paired-device-tag>
+          <span v-if="dev.online" class="dot"></span>
+          {{ deviceLinkLabel(dev, linkNow, num) }}
+        </span>
         <button
           type="button"
           class="btn sm ghost danger"
@@ -244,37 +246,25 @@ onMounted(() => {
         v-if="(companion?.pairedDevices ?? []).length === 0"
         class="muted"
         style="padding: 8px 0"
+        data-paired-devices-empty
       >
-        مفيش موبايلات مربوطة حالياً
+        مفيش موبايل كلّم الكمبيوتر بعد. ربط موبايل جديد من هنا بيسجّل الاسم بس —
+        الموبايل بيظهر «متصل» أول ما يكلّم الكمبيوتر على الشبكة.
       </div>
     </section>
 
     <section class="card" data-devices-companion-card>
       <h3>توصيل موبايل جديد</h3>
-      <div class="qr-box">
-        <div class="pair-qr" data-companion-qr>
-          <svg
-            viewBox="0 0 21 21"
-            width="136"
-            height="136"
-            shape-rendering="crispEdges"
-            aria-label="كود ربط الموبايل"
-          >
-            <rect width="21" height="21" fill="#ffffff" />
-            <template v-for="(row, r) in qrMatrix" :key="r">
-              <template v-for="(cell, c) in row" :key="`${r}-${c}`">
-                <rect
-                  v-if="cell"
-                  :x="c"
-                  :y="r"
-                  width="1"
-                  height="1"
-                  fill="#141517"
-                />
-              </template>
-            </template>
-          </svg>
-        </div>
+      <p v-if="phoneSide" class="muted" data-devices-companion-phone-note>
+        الموبايل ما بيعرضش باركود ربطش: الكمبيوتر هو اللي بيعرضه. من شاشة
+        «الالتقاط» امسح باركود الكمبيوتر، أو اكتب عنوانه وكود الربط اللي تحته.
+      </p>
+      <div v-else class="qr-box">
+        <CompanionPairQr
+          :payload="companion?.pairPayload ?? ''"
+          marker="data-companion-qr"
+          aria-label="كود ربط الموبايل"
+        />
         <div class="stack" style="gap: 6px">
           <b>{{ num(1) }}. افتح تطبيق المحل على الموبايل</b>
           <span>{{ num(2) }}. اتأكد إنه على نفس الـ <bdi dir="auto">Wi-Fi</bdi> بتاع المحل</span>
@@ -284,6 +274,10 @@ onMounted(() => {
             <bdi dir="ltr" class="mono" data-companion-host-address>{{
               hostAddress
             }}</bdi>
+          </span>
+          <span class="muted" data-companion-payload-line>
+            أو اكتب السطر ده في الموبايل:
+            <bdi dir="ltr" class="mono">{{ companion?.pairPayload ?? '' }}</bdi>
           </span>
           <span class="muted">
             مفيش قاعدة بيانات على الموبايل — كل حاجة بتتقرأ وتتحفظ في الكمبيوتر ده مباشرة.

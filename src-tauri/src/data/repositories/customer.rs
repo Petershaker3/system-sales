@@ -114,14 +114,16 @@ pub async fn insert_ledger_entry(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO customer_ledger
-             (id, customer_id, kind, amount_minor, method, sale_id, note, actor_id, occurred_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, customer_id, kind, amount_minor, method, wallet_id, sale_id, note, actor_id,
+              occurred_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )
     .bind(&entry.id)
     .bind(&entry.customer_id)
     .bind(&entry.kind)
     .bind(entry.amount_minor)
     .bind(entry.method.as_deref())
+    .bind(entry.wallet_id.as_deref())
     .bind(entry.sale_id.as_deref())
     .bind(entry.note.as_deref())
     .bind(entry.actor_id.as_str())
@@ -137,7 +139,8 @@ pub async fn list_ledger_entries(
     customer_id: &str,
 ) -> Result<Vec<CustomerLedgerEntry>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, customer_id, kind, amount_minor, method, sale_id, note, actor_id, occurred_at
+        "SELECT id, customer_id, kind, amount_minor, method, wallet_id, sale_id, note, actor_id,
+                occurred_at
          FROM customer_ledger
          WHERE customer_id = ?1
          ORDER BY occurred_at DESC, id DESC",
@@ -159,6 +162,7 @@ pub async fn list_ledger_entries(
             kind: row.try_get("kind")?,
             amount_minor: row.try_get("amount_minor")?,
             method: row.try_get("method")?,
+            wallet_id: row.try_get("wallet_id")?,
             sale_id: row.try_get("sale_id")?,
             note: row.try_get("note")?,
             actor_id,

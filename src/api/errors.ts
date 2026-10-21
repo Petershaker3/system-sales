@@ -170,6 +170,7 @@ export const ErrorCode = {
   SALE_RETURN_QUANTITY_EXCEEDS_REMAINING: 'SALE_RETURN_QUANTITY_EXCEEDS_REMAINING',
   SALE_RETURN_CONDITION_INVALID: 'SALE_RETURN_CONDITION_INVALID',
   SALE_RETURN_REASON_REQUIRED: 'SALE_RETURN_REASON_REQUIRED',
+  SALE_PAYMENT_WALLET_INVALID: 'SALE_PAYMENT_WALLET_INVALID',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   BACKUP_NOT_A_BACKUP_FILE: 'BACKUP_NOT_A_BACKUP_FILE',
@@ -205,6 +206,7 @@ export const ErrorCode = {
   CUSTOMER_PAYMENT_AMOUNT_INVALID: 'CUSTOMER_PAYMENT_AMOUNT_INVALID',
   CUSTOMER_PAYMENT_EXCEEDS_BALANCE: 'CUSTOMER_PAYMENT_EXCEEDS_BALANCE',
   CUSTOMER_PAYMENT_METHOD_INVALID: 'CUSTOMER_PAYMENT_METHOD_INVALID',
+  CUSTOMER_PAYMENT_WALLET_INVALID: 'CUSTOMER_PAYMENT_WALLET_INVALID',
   CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
@@ -217,6 +219,7 @@ export const ErrorCode = {
   EXPENSE_CATEGORY_INVALID: 'EXPENSE_CATEGORY_INVALID',
   EXPENSE_AMOUNT_INVALID: 'EXPENSE_AMOUNT_INVALID',
   EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
+  EXPENSE_PAID_FROM_INVALID: 'EXPENSE_PAID_FROM_INVALID',
   CASH_MOVEMENT_KIND_INVALID: 'CASH_MOVEMENT_KIND_INVALID',
   CASH_MOVEMENT_AMOUNT_INVALID: 'CASH_MOVEMENT_AMOUNT_INVALID',
   CASH_MOVEMENT_REASON_INVALID: 'CASH_MOVEMENT_REASON_INVALID',
@@ -226,6 +229,7 @@ export const ErrorCode = {
   WALLET_NAME_INVALID: 'WALLET_NAME_INVALID',
   WALLET_NAME_DUPLICATE: 'WALLET_NAME_DUPLICATE',
   WALLET_NUMBER_INVALID: 'WALLET_NUMBER_INVALID',
+  WALLET_COMPANY_INVALID: 'WALLET_COMPANY_INVALID',
   WALLET_COLOR_INVALID: 'WALLET_COLOR_INVALID',
   WALLET_LIMIT_INVALID: 'WALLET_LIMIT_INVALID',
   WALLET_PAY_METHOD_INVALID: 'WALLET_PAY_METHOD_INVALID',
@@ -256,8 +260,16 @@ export const ErrorCode = {
   REPAIR_AMOUNT_INVALID: 'REPAIR_AMOUNT_INVALID',
   REPAIR_STATUS_INVALID: 'REPAIR_STATUS_INVALID',
   REPAIR_PAY_METHOD_INVALID: 'REPAIR_PAY_METHOD_INVALID',
+  REPAIR_PAY_WALLET_INVALID: 'REPAIR_PAY_WALLET_INVALID',
+
+  // الربط بين الموبايل والكمبيوتر (`ADR-042`)
+  COMPANION_NO_HOST: 'COMPANION_NO_HOST',
+  COMPANION_INTAKE_REFUSED: 'COMPANION_INTAKE_REFUSED',
+  COMPANION_INTAKE_GONE: 'COMPANION_INTAKE_GONE',
+  COMPANION_INTAKE_NOT_RECEIVABLE: 'COMPANION_INTAKE_NOT_RECEIVABLE',
   REPAIR_NOT_FOUND: 'REPAIR_NOT_FOUND',
-  REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED'
+  REPAIR_ALREADY_DELIVERED: 'REPAIR_ALREADY_DELIVERED',
+  REPAIR_ALREADY_CANCELLED: 'REPAIR_ALREADY_CANCELLED'
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -493,6 +505,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'حالة الصنف المرتجع غير صحيحة — اختار سليم أو تالف.',
   [ErrorCode.SALE_RETURN_REASON_REQUIRED]:
     'اكتب سبب المرتجع قبل الحفظ.',
+  [ErrorCode.SALE_PAYMENT_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:
@@ -551,6 +565,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'مبلغ السداد أكبر من الرصيد الآجل اللي على العميل.',
   [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
     'طريقة تحصيل الآجل غير مسموحة.',
+  [ErrorCode.CUSTOMER_PAYMENT_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
   [ErrorCode.CUSTOMER_NOTE_INVALID]:
     'الملاحظة طويلة زيادة عن اللزوم.',
 
@@ -573,6 +589,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'مبلغ المصروف لازم يكون أكبر من صفر.',
   [ErrorCode.EXPENSE_NOTE_INVALID]:
     'ملاحظة المصروف طويلة زيادة عن اللزوم.',
+  [ErrorCode.EXPENSE_PAID_FROM_INVALID]:
+    'قول المصروف خرج من الدرج ولا من برّاه — ده اللي بيحدد إذا كان بيتخصم من الدرج ولا لأ.',
   [ErrorCode.CASH_MOVEMENT_KIND_INVALID]:
     'نوع حركة الدرج غير معروف.',
   [ErrorCode.CASH_MOVEMENT_AMOUNT_INVALID]:
@@ -589,6 +607,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'فيه محفظة بالاسم ده بالفعل.',
   [ErrorCode.WALLET_NUMBER_INVALID]:
     'رقم المحفظة طويل زيادة عن اللزوم.',
+  [ErrorCode.WALLET_COMPANY_INVALID]:
+    'اسم الشركة طويل زيادة عن اللزوم.',
   [ErrorCode.WALLET_COLOR_INVALID]:
     'لون المحفظة غير صالح.',
   [ErrorCode.WALLET_LIMIT_INVALID]:
@@ -645,10 +665,23 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'حالة التذكرة غير صحيحة.',
   [ErrorCode.REPAIR_PAY_METHOD_INVALID]:
     'طريقة التحصيل غير صحيحة.',
+  [ErrorCode.REPAIR_PAY_WALLET_INVALID]:
+    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+  // الموبايل والكمبيوتر: أربع حالات تخص اللي ماسك الموبايل في إيده (`ADR-042`).
+  [ErrorCode.COMPANION_NO_HOST]:
+    'الموبايل لسه ما عرفش عنوان الكمبيوتر — امسح باركود الربط اللي على الكمبيوتر الأول.',
+  [ErrorCode.COMPANION_INTAKE_REFUSED]:
+    'المسودة ما اتقبلتش: ناقصها اسم الصنف أو الكمية، أو كود الربط مش بتاع الكمبيوتر ده.',
+  [ErrorCode.COMPANION_INTAKE_GONE]:
+    'المسودة دي مش في صندوق الوارد: في حد قدام الكمبيوتر سجّلها في الاستلام أو رفضها قبل لحظات.',
+  [ErrorCode.COMPANION_INTAKE_NOT_RECEIVABLE]:
+    'المسودة دي ما تنفعش تستلمها (صنف مرة واحدة، أو من غير كمية) — ارفضها وابلّغ اللي صوّرها.',
   [ErrorCode.REPAIR_NOT_FOUND]:
     'تذكرة الصيانة دي مش موجودة.',
   [ErrorCode.REPAIR_ALREADY_DELIVERED]:
     'التذكرة دي اتسلّمت أو اتلغت قبل كده.',
+  [ErrorCode.REPAIR_ALREADY_CANCELLED]:
+    'التذكرة دي اتراجع عنها قبل كده — الفلوس رجعت مرة واحدة بس.',
 
   // الموبايلات المستعملة وفحص الـ IMEI (البند 2.2، ADR-032)
   [ErrorCode.IMEI_SECONDARY_MATCHES_PRIMARY]:

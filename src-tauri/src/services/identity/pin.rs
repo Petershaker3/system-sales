@@ -19,6 +19,7 @@ use crate::domain::identity::{
     pin_is_acceptable, DomainError, Permission, Session, Timestamp, UserId,
 };
 use crate::services::identity::crypto;
+use crate::services::identity::open_mode;
 
 /// Validate a PIN and derive its verifier. The policy check comes first so a
 /// malformed PIN is refused before any hashing work.
@@ -128,6 +129,12 @@ pub async fn manager_set_pin(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(DomainError::UserNotFound)?;
+    // A PIN is the secret that used to be reachable on the open row: the till
+    // operator is a manager, so `target == actor` passed every other gate and four
+    // digits typed at the counter would have gone on opening the owner's account
+    // after they made it (`ADR-039`). Refused here, and wiped by the claim in case
+    // a value is ever planted some other way.
+    open_mode::ensure_is_account(&mut conn, target).await?;
     drop(conn);
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;

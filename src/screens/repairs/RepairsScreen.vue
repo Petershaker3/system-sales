@@ -16,9 +16,13 @@ import {
 } from '../../api/repairs';
 import { listCustomers, type Customer } from '../../api/customer';
 import { appearance } from '../../ui/appearance';
+import { withOwnerApproval } from '../../shell/approval';
 import { describeError } from '../../api/errors';
-import { money } from '../../ui/format';
+import { money, moneyInputValue, moneyUnitWord } from '../../ui/format';
+import WalletNumberChips from '../pos/WalletNumberChips.vue';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import {
   buildRepairWhatsAppUrl,
@@ -46,6 +50,15 @@ const emit = defineEmits<{
 }>();
 
 const egp = money;
+
+/**
+ * A ticket without a name is not incomplete — it is a walk-in (`ADR-044`). The card
+ * says so instead of showing an empty line the shop would read as a bug.
+ */
+function customerLabel(t: { readonly customerName: string }): string {
+  const name = t.customerName.trim();
+  return name === '' ? 'بدون اسم' : name;
+}
 
 const loading = ref(false);
 const errorBanner = ref('');
@@ -91,6 +104,12 @@ const intakePhone = ref('');
 const intakeCustomerName = ref('');
 const intakeDevice = ref('');
 const intakeLock = ref('');
+// A camera reading into the intake's IMEI field (`ADR-043`), same 15-digit rule as
+// everywhere else.
+function onIntakeScan(reading: ScanReading): void {
+  intakeImei.value = reading.digits === '' ? reading.raw : reading.digits;
+}
+
 const intakeImei = ref('');
 const intakeIssueChips = ref<string[]>([]);
 const intakeIssueNote = ref('');
@@ -101,6 +120,8 @@ const intakePriceEgp = ref('');
 const intakePartsCostEgp = ref('');
 const intakeDepositEgp = ref('0');
 const intakePayMethod = ref<RepairPayMethod>('cash');
+/** Which wallet number took the money collected at intake (`ADR-041`). */
+const intakePayWalletId = ref<string | null>(null);
 const intakeWarrantyDays = ref<number>(14);
 
 // Deliver modal state
@@ -110,6 +131,8 @@ const deliverError = ref('');
 const deliverFinalPriceEgp = ref('');
 const deliverPartsCostEgp = ref('');
 const deliverPayMethod = ref<RepairPayMethod>('cash');
+/** Which wallet number takes the remaining amount at delivery (`ADR-041`). */
+const deliverPayWalletId = ref<string | null>(null);
 const deliverTech = ref('');
 const deliverWarrantyDays = ref<number>(14);
 const deliverNote = ref('');
@@ -216,6 +239,7 @@ function openIntakeModal(defaultKind: RepairServiceKind = 'hardware'): void {
   intakePartsCostEgp.value = '0';
   intakeDepositEgp.value = '0';
   intakePayMethod.value = 'cash';
+  intakePayWalletId.value = null;
   intakeWarrantyDays.value = defaultKind === 'software' ? 0 : 14;
   showIntake.value = true;
 }
@@ -279,10 +303,6 @@ async function submitIntake(): Promise<void> {
     .filter(Boolean)
     .join(' + ');
 
-  if (!intakeCustomerName.value.trim() || !intakePhone.value.trim()) {
-    intakeError.value = 'اكتب اسم العميل ورقم تليفونه.';
-    return;
-  }
   if (!intakeDevice.value.trim()) {
     intakeError.value = 'اكتب موديل الجهاز الأول.';
     return;
@@ -321,6 +341,7 @@ async function submitIntake(): Promise<void> {
       partsCostMinor: partsMinor,
       depositMinor,
       payMethod: intakeDeliverNow.value ? intakePayMethod.value : 'cash',
+      payWalletId: intakeDeliverNow.value ? intakePayWalletId.value : null,
       technicianName: intakeTech.value.trim() || null,
       warrantyDays: intakeWarrantyDays.value,
       note: null,
@@ -362,12 +383,13 @@ function openDeliverModal(ticket: RepairTicket): void {
     ticket.finalPriceMinor > 0
       ? ticket.finalPriceMinor
       : ticket.estimatedPriceMinor;
-  deliverFinalPriceEgp.value = String(Math.round(defaultFinal / 100));
+  deliverFinalPriceEgp.value = moneyInputValue(defaultFinal);
   deliverPartsCostEgp.value =
     ticket.partsCostMinor !== null
-      ? String(Math.round(ticket.partsCostMinor / 100))
+      ? moneyInputValue(ticket.partsCostMinor)
       : '0';
   deliverPayMethod.value = ticket.payMethod || 'cash';
+  deliverPayWalletId.value = null;
   deliverTech.value = ticket.technicianName ?? '';
   deliverWarrantyDays.value =
     ticket.warrantyDays > 0
@@ -407,6 +429,7 @@ async function submitDeliver(): Promise<void> {
       finalPriceMinor: finalMinor,
       partsCostMinor: partsMinor,
       payMethod: deliverPayMethod.value,
+      payWalletId: deliverPayWalletId.value,
       technicianName: deliverTech.value.trim() || null,
       warrantyDays: deliverWarrantyDays.value,
       note: deliverNote.value.trim() || null,
@@ -427,10 +450,10 @@ function openDetailModal(ticket: RepairTicket): void {
   detailTarget.value = ticket;
   detailStatus.value = ticket.status;
   detailTech.value = ticket.technicianName ?? '';
-  detailEstPriceEgp.value = String(Math.round(ticket.estimatedPriceMinor / 100));
+  detailEstPriceEgp.value = moneyInputValue(ticket.estimatedPriceMinor);
   detailPartsCostEgp.value =
     ticket.partsCostMinor !== null
-      ? String(Math.round(ticket.partsCostMinor / 100))
+      ? moneyInputValue(ticket.partsCostMinor)
       : '0';
   detailNote.value = ticket.note ?? '';
 }
@@ -465,21 +488,53 @@ async function saveDetailChanges(): Promise<void> {
   }
 }
 
-async function handleCancelTicket(): Promise<void> {
-  if (!detailTarget.value) return;
-  detailSubmitting.value = true;
+// --- One press undo (`ADR-046`) ---------------------------------------------
+//
+// Every repair number — the drawer, the wallet balance, today's revenue and
+// profit — is summed from the ticket row, so a delivered ticket is undone by
+// leaving `delivered`: the money it brought in stops counting, which is exactly
+// the refund. Nothing here edits or deletes a row; the audit log keeps who
+// undid what, when, and how much went back.
+const undoTarget = ref<RepairTicket | null>(null);
+const undoReason = ref('');
+const undoSubmitting = ref(false);
+
+/** What the customer gets back if this ticket is undone, in money. */
+const undoRefundMinor = computed<number>(() => {
+  const ticket = undoTarget.value;
+  if (!ticket) return 0;
+  return ticket.status === 'delivered' ? ticket.finalPriceMinor : ticket.depositMinor;
+});
+
+function askUndo(ticket: RepairTicket): void {
+  undoTarget.value = ticket;
+  undoReason.value = '';
+  errorBanner.value = '';
+  detailTarget.value = null;
+}
+
+async function confirmUndo(): Promise<void> {
+  const ticket = undoTarget.value;
+  if (!ticket) return;
+  undoSubmitting.value = true;
   try {
-    const cancelled = await cancelRepair(
-      detailTarget.value.id,
-      detailNote.value.trim() || 'إلغاء التذكرة'
+    const refund = undoRefundMinor.value;
+    const outcome = await withOwnerApproval(
+      () => cancelRepair(ticket.id, undoReason.value.trim() || 'تراجع عن العملية'),
+      `التراجع عن تذكرة ${ticket.ticketNo}`
     );
-    detailTarget.value = null;
-    okBanner.value = `تم إلغاء تذكرة ${cancelled.ticketNo}`;
+    if (outcome.status === 'cancelled') return;
+    undoTarget.value = null;
+    okBanner.value =
+      refund > 0
+        ? `تم التراجع عن تذكرة ${outcome.value.ticketNo} ورجّعنا ${money(refund)} للعميل`
+        : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
     await loadOverview();
+    emit('changed');
   } catch (e) {
-    detailError.value = describeError(e);
+    errorBanner.value = describeError(e);
   } finally {
-    detailSubmitting.value = false;
+    undoSubmitting.value = false;
   }
 }
 
@@ -838,10 +893,13 @@ onMounted(async () => {
 
             <div class="cust">
               <Icon name="user" />
-              <span><bdi dir="auto">{{ r.customerName }}</bdi></span>
-              <span class="mono" dir="ltr" style="margin-inline-start: auto">{{
-                r.customerPhone
-              }}</span>
+              <span><bdi dir="auto">{{ customerLabel(r) }}</bdi></span>
+              <span
+                v-if="r.customerPhone"
+                class="mono"
+                dir="ltr"
+                style="margin-inline-start: auto"
+              >{{ r.customerPhone }}</span>
             </div>
 
             <div class="tk-f">
@@ -866,6 +924,7 @@ onMounted(async () => {
               <div class="row" style="gap: 4px; flex-wrap: wrap">
                 <template v-if="r.status === 'ready'">
                   <button
+                    v-if="r.customerPhone"
                     type="button"
                     class="btn sm ok"
                     title="ابعت للعميل إن الجهاز جاهز على واتساب"
@@ -886,6 +945,7 @@ onMounted(async () => {
 
                 <template v-else-if="r.status === 'delivered'">
                   <button
+                    v-if="r.customerPhone"
                     type="button"
                     class="btn sm ghost"
                     title="إيصال واتساب"
@@ -915,6 +975,17 @@ onMounted(async () => {
                     المرحلة الجاية ←
                   </button>
                 </template>
+
+                <!-- One press, every stage (`ADR-046`) -->
+                <button
+                  type="button"
+                  class="btn sm danger ghost"
+                  title="تراجع عن العملية — يرجّع الفلوس والحسابات زي ما كانت"
+                  :data-repair-undo="r.ticketNo"
+                  @click="askUndo(r)"
+                >
+                  <Icon name="rotate-ccw" />
+                </button>
               </div>
             </div>
           </div>
@@ -939,7 +1010,7 @@ onMounted(async () => {
         <div style="display: grid; gap: 12px; align-content: start">
           <div class="form-grid">
             <label class="field">
-              <span class="lbl">تليفون العميل *</span>
+              <span class="lbl">تليفون العميل (اختياري)</span>
               <input
                 v-model="intakePhone"
                 type="tel"
@@ -952,7 +1023,7 @@ onMounted(async () => {
               />
             </label>
             <label class="field">
-              <span class="lbl">اسم العميل *</span>
+              <span class="lbl">اسم العميل (اختياري)</span>
               <input
                 v-model="intakeCustomerName"
                 type="text"
@@ -998,7 +1069,7 @@ onMounted(async () => {
             </label>
 
             <label class="field">
-              <span class="lbl">{{ intakeDeliverNow ? 'السعر النهائي (ج.م) *' : 'التكلفة المتوقعة (ج.م)' }}</span>
+              <span class="lbl">{{ intakeDeliverNow ? `السعر النهائي (${moneyUnitWord()}) *` : `التكلفة المتوقعة (${moneyUnitWord()})` }}</span>
               <input
                 v-model="intakePriceEgp"
                 type="number"
@@ -1013,7 +1084,7 @@ onMounted(async () => {
 
             <label v-if="canSeeCost" class="field">
               <span class="lbl">
-                {{ intakeKind === 'software' ? 'تكلفة داخلية (ج.م)' : 'تكلفة القطعة (ج.م)' }}
+                {{ intakeKind === 'software' ? `تكلفة داخلية (${moneyUnitWord()})` : `تكلفة القطعة (${moneyUnitWord()})` }}
               </span>
               <input
                 v-model="intakePartsCostEgp"
@@ -1038,10 +1109,15 @@ onMounted(async () => {
                   </option>
                 </select>
               </label>
+              <WalletNumberChips
+                :method="intakePayMethod"
+                v-model="intakePayWalletId"
+                data-intake-pay-wallet
+              />
             </template>
             <template v-else>
               <label class="field">
-                <span class="lbl">عربون مدفوع كاش (ج.م)</span>
+                <span class="lbl">عربون مدفوع كاش ({{ moneyUnitWord() }})</span>
                 <input
                   v-model="intakeDepositEgp"
                   type="number"
@@ -1063,18 +1139,27 @@ onMounted(async () => {
               </label>
             </template>
 
-            <label class="field">
-              <span class="lbl">IMEI (اختياري)</span>
-              <input
-                v-model="intakeImei"
-                type="text"
-                class="input"
-                :class="{ mono: intakeImei !== '' }"
-                :dir="intakeImei ? 'ltr' : 'rtl'"
-                placeholder="اختياري"
-                data-intake-imei
-              />
-            </label>
+            <div class="field">
+              <label class="lbl" for="repair-intake-imei">IMEI (اختياري)</label>
+              <!-- Camera beside the field, not inside its label (`ADR-043`). -->
+              <div class="row" style="gap: 6px; align-items: center">
+                <input
+                  id="repair-intake-imei"
+                  v-model="intakeImei"
+                  type="text"
+                  class="input"
+                  :class="{ mono: intakeImei !== '' }"
+                  :dir="intakeImei ? 'ltr' : 'rtl'"
+                  placeholder="اختياري"
+                  data-intake-imei
+                />
+                <CameraScanButton
+                  :compact="true"
+                  data-intake-scan-imei
+                  @scan="onIntakeScan"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1100,10 +1185,12 @@ onMounted(async () => {
               </button>
             </div>
 
-            <label class="switch" data-intake-deliver-now>
-              <input v-model="intakeDeliverNow" type="checkbox" />
-              <span class="track"><span class="thumb"></span></span>
-              <span class="small">اتسلّمت في ساعتها (تحصيل فوري)</span>
+            <label class="switch-field" data-intake-deliver-now>
+              <span class="switch">
+                <input v-model="intakeDeliverNow" type="checkbox" />
+                <span></span>
+              </span>
+              <span class="cap">اتسلّمت في ساعتها (تحصيل فوري)</span>
             </label>
           </div>
 
@@ -1179,7 +1266,7 @@ onMounted(async () => {
     <Modal
       v-if="deliverTarget"
       :title="`تسليم وتحصيل — تذكرة ${deliverTarget.ticketNo}`"
-      :sub="`${deliverTarget.deviceName} · ${deliverTarget.customerName} (${serviceKindLabel(deliverTarget.serviceKind)})`"
+      :sub="`${deliverTarget.deviceName} · ${customerLabel(deliverTarget)} (${serviceKindLabel(deliverTarget.serviceKind)})`"
       size="md"
       @close="deliverTarget = null"
     >
@@ -1190,7 +1277,7 @@ onMounted(async () => {
 
         <div class="form-grid">
           <label class="field">
-            <span class="lbl">السعر النهائي للعميل (ج.م) *</span>
+            <span class="lbl">السعر النهائي للعميل ({{ moneyUnitWord() }}) *</span>
             <input
               v-model="deliverFinalPriceEgp"
               type="number"
@@ -1206,8 +1293,8 @@ onMounted(async () => {
             <span class="lbl">
               {{
                 deliverTarget.serviceKind === 'software'
-                  ? 'التكلفة الداخلية (ج.م)'
-                  : 'تكلفة قطع الغيار (ج.م)'
+                  ? `التكلفة الداخلية (${moneyUnitWord()})`
+                  : `تكلفة قطع الغيار (${moneyUnitWord()})`
               }}
             </span>
             <input
@@ -1260,6 +1347,11 @@ onMounted(async () => {
               {{ m.label }}
             </button>
           </div>
+          <WalletNumberChips
+            :method="deliverPayMethod"
+            v-model="deliverPayWalletId"
+            data-deliver-pay-wallet
+          />
         </div>
 
         <div class="form-grid">
@@ -1314,11 +1406,80 @@ onMounted(async () => {
       </template>
     </Modal>
 
+    <!-- نافذة التراجع عن العملية (`ADR-046`): كل التذاكر، بضغطة واحدة -->
+    <Modal
+      v-if="undoTarget"
+      :title="`تراجع عن تذكرة ${undoTarget.ticketNo}`"
+      :sub="`${undoTarget.deviceName} · ${customerLabel(undoTarget)}`"
+      size="md"
+      @close="undoTarget = null"
+    >
+      <div style="display: grid; gap: 12px">
+        <div class="note" style="margin: 0">
+          <Icon name="info" />
+          <span>
+            التراجع بيرجّع العملية والحسابات زي ما كانت قبلها: التذكرة بتتقفل، والفلوس
+            اللي اتاخدت عليها بتخرج من تحصيل اليوم ومن رصيد المحفظة اللي اتحصّلت فيها.
+          </span>
+        </div>
+
+        <div class="card" style="padding: 12px; background: var(--surface-2)">
+          <div class="row" style="justify-content: space-between">
+            <span class="muted">هيرجع للعميل:</span>
+            <strong class="num" :class="{ 'danger-txt': undoRefundMinor > 0 }" data-undo-refund>
+              {{ egp(undoRefundMinor) }}
+            </strong>
+          </div>
+          <div
+            v-if="undoTarget.status === 'delivered'"
+            class="muted small"
+            style="margin-top: 6px"
+          >
+            التذكرة دي كانت اتسلّمت — التراجع بيلغي التحصيل كله ({{ egp(undoTarget.finalPriceMinor) }})
+            مش العربون بس.
+          </div>
+          <div
+            v-else-if="undoRefundMinor > 0"
+            class="muted small"
+            style="margin-top: 6px"
+          >
+            العربون اللي اتاخد وقت الاستلام هيرجع كاش.
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="lbl">سبب التراجع (اختياري)</span>
+          <input
+            v-model="undoReason"
+            type="text"
+            class="input"
+            placeholder="مثلًا: العميل رجع الجهاز أو غلطة في التسجيل"
+            data-undo-reason
+          />
+        </label>
+
+        <div v-if="errorBanner" class="banner err" role="alert">{{ errorBanner }}</div>
+      </div>
+
+      <template #foot>
+        <button type="button" class="btn" @click="undoTarget = null">سيبها زي ما هي</button>
+        <button
+          type="button"
+          class="btn danger"
+          :disabled="undoSubmitting"
+          data-undo-confirm
+          @click="confirmUndo"
+        >
+          {{ undoSubmitting ? 'بيتراجع...' : 'أيوه، تراجع' }}
+        </button>
+      </template>
+    </Modal>
+
     <!-- نافذة تفاصيل وتعديل التذكرة المفتوحة -->
     <Modal
       v-if="detailTarget"
       :title="`تفاصيل تذكرة ${detailTarget.ticketNo}`"
-      :sub="`${detailTarget.deviceName} · ${detailTarget.customerName}`"
+      :sub="`${detailTarget.deviceName} · ${customerLabel(detailTarget)}`"
       size="md"
       @close="detailTarget = null"
     >
@@ -1352,7 +1513,7 @@ onMounted(async () => {
           </label>
 
           <label class="field">
-            <span class="lbl">التكلفة المتوقعة (ج.م)</span>
+            <span class="lbl">التكلفة المتوقعة ({{ moneyUnitWord() }})</span>
             <input
               v-model="detailEstPriceEgp"
               type="number"
@@ -1365,7 +1526,7 @@ onMounted(async () => {
           </label>
 
           <label v-if="canSeeCost" class="field">
-            <span class="lbl">تكلفة قطع الغيار / التكلفة الداخلية (ج.م)</span>
+            <span class="lbl">تكلفة قطع الغيار / التكلفة الداخلية ({{ moneyUnitWord() }})</span>
             <input
               v-model="detailPartsCostEgp"
               type="number"
@@ -1396,9 +1557,9 @@ onMounted(async () => {
           class="btn danger ghost"
           :disabled="detailSubmitting"
           data-detail-cancel-ticket
-          @click="handleCancelTicket"
+          @click="detailTarget && askUndo(detailTarget)"
         >
-          إلغاء التذكرة
+          تراجع عن العملية
         </button>
         <div style="flex: 1"></div>
         <button

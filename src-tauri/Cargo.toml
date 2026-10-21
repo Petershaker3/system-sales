@@ -1,6 +1,6 @@
 [package]
 name = "mobile-shop-system"
-version = "0.1.0"
+version = "1.0.0"
 description = "Offline-first POS for a mobile-phone shop. The Windows desktop is the point of sale and the single source of truth; the Android app is a companion over the shop Wi-Fi with no database of its own (ADR-016)."
 authors = []
 edition = "2021"

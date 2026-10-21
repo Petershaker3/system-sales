@@ -12,7 +12,7 @@ use mobile_shop_system_lib::services::catalog::product::{self as catalog, NewPro
 use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::customer as customer_service;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
-use mobile_shop_system_lib::services::identity::{auth, bootstrap, session, users};
+use mobile_shop_system_lib::services::identity::{approval, auth, bootstrap, pin, session, users};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
 use mobile_shop_system_lib::services::repair::{
     self as repair_service, CreateRepairInput, DeliverRepairInput, UpdateRepairStatusInput,
@@ -113,6 +113,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(30),
             note: Some("العميل مستعجل".to_owned()),
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -155,6 +156,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(30),
             note: Some("تم التسليم وتجربة الشاشة".to_owned()),
+            pay_wallet_id: None,
         },
     )
     .await
@@ -188,6 +190,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(0),
             note: None,
             deliver_now: true,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -220,6 +223,7 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
             warranty_days: Some(0),
             note: None,
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -300,6 +304,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             max_limit_minor: 90_000_00,
             daily_limit_minor: 60_000_00,
             pay_method: Some("vf".to_owned()),
+            company: None,
             sort: 1,
             hidden: false,
         },
@@ -340,6 +345,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             method: "credit".to_owned(),
             amount_minor: 900_00,
             reference: None,
+            wallet_id: None,
         }]),
         Some(&cust.id),
     )
@@ -354,6 +360,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             amount_minor: 400_00,
             method: "vf".to_owned(),
             note: Some("سداد جزء من الآجل فودافون كاش".to_owned()),
+            wallet_id: None,
         },
     )
     .await
@@ -382,6 +389,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             warranty_days: Some(14),
             note: None,
             deliver_now: false,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -398,6 +406,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(14),
             note: None,
+            pay_wallet_id: None,
         },
     )
     .await
@@ -428,4 +437,170 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
     assert_eq!(shift_summary.totals.services_cash_in_minor, 200_00);
     assert_eq!(shift_summary.totals.vf_sales_minor, 600_00);
     assert_eq!(shift_summary.totals.services_fee_minor, 350_00);
+}
+
+#[tokio::test]
+async fn a_walk_in_ticket_needs_no_customer_name_or_phone() {
+    // `ADR-045`: the device and the fault are the ticket; the name is offered.
+    let (pool, tokens, _manager_uid, _seller_uid, _product_id) = setup_shop_for_repairs().await;
+
+    let ticket = repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "software".to_owned(),
+            customer_name: String::new(),
+            customer_phone: "   ".to_owned(),
+            device_name: "شاومي ريدمي 12".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "فورمات وتحديث".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 150_00,
+            parts_cost_minor: None,
+            deposit_minor: 0,
+            pay_method: Some("cash".to_owned()),
+            technician_name: None,
+            warranty_days: None,
+            note: None,
+            deliver_now: false,
+            pay_wallet_id: None,
+        },
+    )
+    .await
+    .expect("a walk-in ticket without a name");
+
+    assert_eq!(ticket.customer_name, "");
+    assert_eq!(ticket.customer_phone, "", "whitespace is trimmed to nothing");
+
+    // The cap still holds: an over-long name is a mistake, not a customer.
+    let refused = repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "hardware".to_owned(),
+            customer_name: "ا".repeat(121),
+            customer_phone: String::new(),
+            device_name: "سامسونج A34".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "شاشة مكسورة".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 100_00,
+            parts_cost_minor: None,
+            deposit_minor: 0,
+            pay_method: Some("cash".to_owned()),
+            technician_name: None,
+            warranty_days: None,
+            note: None,
+            deliver_now: false,
+            pay_wallet_id: None,
+        },
+    )
+    .await
+    .err()
+    .expect("over-long name refused");
+    assert_eq!(refused.code(), "REPAIR_CUSTOMER_REQUIRED");
+}
+
+/// The owner's PIN in these tests (`ADR-017` §3).
+const OWNER_PIN: &str = "2580";
+
+/// The signed-in owner approves the next sensitive operation with the PIN.
+async fn owner_approves(pool: &SqlitePool, tokens: &InMemoryTokenStore) {
+    let current = session::resolve(pool, tokens).await.expect("session");
+    let owner = current.user_id();
+    let holders = pin::pin_holders(pool).await.expect("PIN holders");
+    if !holders.contains(&owner.as_str()) {
+        pin::set_own_pin(pool, &current, None, OWNER_PIN)
+            .await
+            .expect("the owner sets a PIN");
+    }
+    approval::approve_with_owner_pin(pool, tokens, owner, OWNER_PIN)
+        .await
+        .expect("the owner approves");
+}
+
+#[tokio::test]
+async fn undoing_a_delivered_ticket_takes_its_money_back_out_of_the_drawer() {
+    // `ADR-046`: one press on a delivered ticket, and the day's collection is
+    // what it was before the ticket. The row is never deleted; the audit says
+    // how much went back and who approved it.
+    let (pool, tokens, _manager_uid, _seller_uid, _product_id) = setup_shop_for_repairs().await;
+    shift_service::open_shift(&pool, tokens.as_ref(), 1_000_00)
+        .await
+        .expect("open shift");
+
+    let ticket = repair_service::create_repair(
+        &pool,
+        tokens.as_ref(),
+        CreateRepairInput {
+            service_kind: "hardware".to_owned(),
+            customer_name: "عميل مستعجل".to_owned(),
+            customer_phone: "01000000001".to_owned(),
+            device_name: "سامسونج A15".to_owned(),
+            imei: None,
+            device_lock: None,
+            issue: "شاشة".to_owned(),
+            accessories: None,
+            due_label: None,
+            estimated_price_minor: 800_00,
+            parts_cost_minor: Some(450_00),
+            deposit_minor: 0,
+            pay_method: Some("cash".to_owned()),
+            technician_name: Some("م. حسن".to_owned()),
+            warranty_days: None,
+            note: None,
+            deliver_now: true,
+            pay_wallet_id: None,
+        },
+    )
+    .await
+    .expect("deliver immediately");
+
+    let paid = shift_service::current_shift_summary(&pool, tokens.as_ref())
+        .await
+        .expect("shift summary")
+        .open_shift
+        .expect("active shift");
+    assert_eq!(paid.totals.expected_cash_minor, 1_800_00, "1,000 + 800 collected");
+    let before = repair_service::repairs_overview(&pool, tokens.as_ref(), None, None)
+        .await
+        .expect("overview");
+    assert_eq!(before.hardware.total_revenue_minor, 800_00);
+
+    owner_approves(&pool, tokens.as_ref()).await;
+    let undone = repair_service::cancel_repair(
+        &pool,
+        tokens.as_ref(),
+        ticket.id.as_str(),
+        Some("العميل رجع الجهاز"),
+    )
+    .await
+    .expect("undo the delivered ticket");
+    assert_eq!(undone.status, "cancelled");
+    assert_eq!(undone.collected_minor, 0, "nothing is collected on a cancelled ticket");
+
+    let after = shift_service::current_shift_summary(&pool, tokens.as_ref())
+        .await
+        .expect("shift summary")
+        .open_shift
+        .expect("active shift")
+        .totals
+        .expected_cash_minor;
+    assert_eq!(after, 1_000_00, "the 800 leaves the drawer with the ticket");
+    let overview = repair_service::repairs_overview(&pool, tokens.as_ref(), None, None)
+        .await
+        .expect("overview");
+    assert_eq!(overview.hardware.total_revenue_minor, 0, "revenue follows it out");
+    assert_eq!(overview.hardware.delivered_count, 0);
+
+    // A second undo would refund twice, so it is refused even with a fresh PIN.
+    owner_approves(&pool, tokens.as_ref()).await;
+    let second = repair_service::cancel_repair(&pool, tokens.as_ref(), ticket.id.as_str(), None)
+        .await
+        .expect_err("a second undo must be refused");
+    assert_eq!(second.code(), "REPAIR_ALREADY_CANCELLED");
 }

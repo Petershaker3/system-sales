@@ -14,7 +14,9 @@ export type ScreenId =
   | 'repairs'
   | 'store'
   | 'reports'
+  | 'expenses'
   | 'mobile'
+  | 'capture'
   | 'settings'
   | 'guide';
 
@@ -24,6 +26,12 @@ export interface NavItem {
   readonly icon: IconName;
   /** Shown to the owner (role `manager`) only. */
   readonly ownerOnly: boolean;
+  /**
+   * Shown on a handset only (`ADR-042`). The phone's capture screen has no
+   * desktop twin: the computer's half of that job is the inbox on «الموبايل», and
+   * a till that offered both would be the two-systems confusion again.
+   */
+  readonly phoneOnly?: boolean;
 }
 
 export const NAV: readonly NavItem[] = [
@@ -33,7 +41,12 @@ export const NAV: readonly NavItem[] = [
   { id: 'repairs', label: 'الصيانة', icon: 'wrench', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
   { id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true },
+  // «المصاريف» sits beside «التقارير» because it answers the same question from the
+  // other side: what came in is the reports screen, what went out is this one
+  // (`ADR-043`). Owner-only, like the reports it belongs with.
+  { id: 'expenses', label: 'المصاريف', icon: 'hand-coins', ownerOnly: true },
   { id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false },
+  { id: 'capture', label: 'الالتقاط', icon: 'camera', ownerOnly: false, phoneOnly: true },
   { id: 'settings', label: 'الإعدادات', icon: 'settings', ownerOnly: true },
 ];
 
@@ -44,13 +57,28 @@ export const TITLES: Record<ScreenId, string> = {
   repairs: 'الصيانة والسوفت وير',
   store: 'المخزن',
   reports: 'التقارير',
+  expenses: 'المصاريف',
   mobile: 'تطبيق الموبايل',
+  capture: 'الالتقاط من الموبايل',
   settings: 'الإعدادات',
   guide: 'دليل السيستم الشامل',
 };
 
-export function navFor(role: Role): NavItem[] {
-  return NAV.filter((item) => !item.ownerOnly || role === 'manager');
+/**
+ * The rail for one person on one kind of screen.
+ *
+ * The role decides who may see a screen at all; the device removes «الموبايل» on a
+ * phone, because that screen is the desktop's preview of the phone helper (`ADR-037`)
+ * and a phone has no reason to look at a picture of itself. Removing a rail button is
+ * presentation: the screens behind it are still guarded in Rust (`spec:210`).
+ */
+export function navFor(role: Role, phone: boolean = false): NavItem[] {
+  return NAV.filter(
+    (item) =>
+      (!item.ownerOnly || role === 'manager') &&
+      !(phone && item.id === 'mobile') &&
+      (!item.phoneOnly || phone),
+  );
 }
 
 /** «المالك» for the manager role, «بيّاع» for sales — the owner's own words. */

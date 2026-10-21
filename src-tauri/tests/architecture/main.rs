@@ -292,6 +292,23 @@ fn the_frontend_contains_no_session_token_handling() {
 }
 
 #[test]
+fn the_lock_card_says_what_to_do_when_the_device_has_no_accounts() {
+    // `ADR-039` deleted the first-run form, so a device with no accounts and no open
+    // operator has nothing to sign in with. That is only honest while the card names
+    // the repair (another start-up, which is when the shop gets prepared) and names the
+    // files to copy before anybody reaches for delete. If this fails, the deletion left
+    // a dead end at the front door.
+    assert!(
+        FRONTEND_APP.contains("usersLoaded && users.length === 0"),
+        "the login view must offer its one line when the device has no accounts"
+    );
+    assert!(
+        FRONTEND_APP.contains("shop.db-wal"),
+        "the line must name the WAL file too, or copying `shop.db` alone hands over stale data"
+    );
+}
+
+#[test]
 fn the_token_is_read_from_the_os_store_not_supplied_by_a_caller() {
     let code = code_only(SERVICES_SESSION);
     assert!(
@@ -359,7 +376,13 @@ fn every_registered_command_is_a_named_function() {
     let code = code_only(LIB);
     for command in [
         "bootstrap_status",
-        "create_first_manager",
+        // `ADR-039`: the only way an account is made on a device that never had
+        // one. If this registration is ever dropped, the settings card that owns
+        // the claim starts failing with "command not found", so it is pinned here.
+        // `create_first_manager` used to sit next to it as the first-run form's
+        // command; the form is gone, the claim answers an empty device by calling the
+        // same service, and this list is where a re-added door would be noticed.
+        "claim_open_account",
         "list_users_for_picker",
         "login",
         "login_with_pin",
@@ -2816,6 +2839,7 @@ fn shift_slice_preserves_layer_and_schema_invariants() {
 
 const WALLETS_MIGRATION: &str =
     include_str!("../../src/data/migrations/0024_wallets_and_services.sql");
+const WALLET_REPOSITORY: &str = include_str!("../../src/data/repositories/wallet.rs");
 const WALLET_DOMAIN: &str = include_str!("../../src/domain/wallet.rs");
 const WALLET_SERVICE: &str = include_str!("../../src/services/wallet.rs");
 const WALLET_COMMANDS: &str = include_str!("../../src/commands/wallet.rs");
@@ -3243,6 +3267,28 @@ const COMPANION_SERVICE: &str = include_str!("../../src/services/companion.rs");
 const COMPANION_COMMANDS: &str = include_str!("../../src/commands/companion.rs");
 const MOBILE_COMPANION_SCREEN_VUE: &str =
     include_str!("../../../src/screens/mobile/MobileCompanionScreen.vue");
+const PHONE_CAPTURE_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/mobile/PhoneCaptureScreen.vue");
+const COMPANION_PAIR_QR_VUE: &str =
+    include_str!("../../../src/screens/mobile/CompanionPairQr.vue");
+const CAMERA_SCAN_BUTTON_VUE: &str =
+    include_str!("../../../src/ui/CameraScanButton.vue");
+const SCAN_TS: &str = include_str!("../../../src/ui/scan.ts");
+const EXPENSES_SCREEN_VUE: &str =
+    include_str!("../../../src/screens/expenses/ExpensesScreen.vue");
+const EXPENSES_TS: &str = include_str!("../../../src/screens/expenses/expenses.ts");
+const API_EXPENSES_TS: &str = include_str!("../../../src/api/expenses.ts");
+const EXPENSES_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0032_expenses_outside_the_drawer.sql");
+const POS_SCREEN_VUE: &str = include_str!("../../../src/screens/pos/PosScreen.vue");
+const IMEI_PICKER_MODAL_VUE: &str =
+    include_str!("../../../src/screens/pos/ImeiPickerModal.vue");
+const STOCK_PANEL_VUE: &str = include_str!("../../../src/components/StockPanel.vue");
+const CATALOG_PANEL_VUE: &str = include_str!("../../../src/components/CatalogPanel.vue");
+const NEW_ITEM_MODAL_VUE: &str =
+    include_str!("../../../src/screens/store/NewItemModal.vue");
+const API_COMPANION_TS: &str = include_str!("../../../src/api/companion.ts");
+const ERRORS_TS: &str = include_str!("../../../src/api/errors.ts");
 
 #[test]
 fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
@@ -3418,11 +3464,830 @@ fn used_phones_and_labels_slices_preserve_layer_and_schema_invariants() {
     );
 }
 
+/// `ADR-040`: several numbers of one company, and the wallet a payment landed in.
+const WALLET_GROUPS_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0030_wallet_groups_and_payment_attribution.sql");
 
+#[test]
+fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_ledger_rules() {
+    let sql = sql_only(WALLET_GROUPS_MIGRATION);
+    for required in [
+        "add column company text null",
+        "create index idx_wallets_company on wallets (company, sort asc, id asc);",
+        "alter table sale_payments add column wallet_id text null references wallets (id);",
+        "drop index idx_wallets_pay_method;",
+        "sale_payments.wallet_id must name a wallet that receives this method",
+        "sale_payments is append-only",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0030 must contain `{required}`"
+        );
+    }
 
+    // The backfill is the one writer `sale_payments` tolerates, so the append-only trigger is
+    // taken down for it and put back afterwards — in that order, or history cannot be repaired.
+    let drop_at = sql
+        .find("drop trigger sale_payments_no_update;")
+        .expect("the trigger must come down for the backfill");
+    let backfill_at = sql
+        .find("update sale_payments")
+        .expect("the payments must be given their wallet");
+    let restore_at = sql
+        .rfind("create trigger sale_payments_no_update")
+        .expect("the trigger must go back up");
+    assert!(
+        drop_at < backfill_at && backfill_at < restore_at,
+        "0030 must drop the trigger, backfill, then re-create the trigger"
+    );
 
+    let repo = code_only(WALLET_REPOSITORY);
+    for required in [
+        "pub async fn list_payment_wallets",
+        "pub async fn primary_payment_wallet",
+        "sp.wallet_id = ?1",
+    ] {
+        assert!(
+            repo.contains(required),
+            "repositories/wallet.rs must contain `{required}` (`ADR-040`)"
+        );
+    }
+    assert!(
+        !repo.contains("clear_pay_method_on_other_wallets"),
+        "the one-wallet-per-method rule is retired: no repository code may clear the link elsewhere"
+    );
 
+    let service = code_only(WALLET_SERVICE);
+    assert!(
+        !service.contains("clear_pay_method_on_other_wallets"),
+        "updating a wallet must not move a payment method off another one"
+    );
 
+    let sales = code_only(SALES_SERVICE);
+    assert!(
+        sales.contains("sale_payee_wallet_id("),
+        "a sale payment must name the wallet that collected it (`ADR-040`)"
+    );
+}
 
+/// `ADR-041`: every flow that moves money names the wallet number that took it.
+///
+/// Pinned as an architecture rule because the point of the change is that the four money flows
+/// agree. A flow that forgot to ask, or that read its money back out of the method instead of the
+/// name on the row, would pass its own tests and still leave two numbers of one company counting
+/// the same money — which is the thing `ADR-040` could not finish.
+const WALLET_FLOW_MIGRATION: &str =
+    include_str!("../../src/data/migrations/0031_wallet_in_every_money_flow.sql");
+const CUSTOMER_REPOSITORY: &str = include_str!("../../src/data/repositories/customer.rs");
+const REPAIR_REPOSITORY: &str = include_str!("../../src/data/repositories/repair.rs");
+const CUSTOMER_SERVICE: &str = include_str!("../../src/services/customer.rs");
+const POS_PAY_MODAL_VUE: &str = include_str!("../../../src/screens/pos/PayModal.vue");
+const POS_RETURN_MODAL_VUE: &str = include_str!("../../../src/screens/pos/ReturnModal.vue");
+const POS_CUSTOMER_PICKER_VUE: &str = include_str!("../../../src/screens/pos/CustomerPickerModal.vue");
+const POS_WALLET_CHIPS_VUE: &str = include_str!("../../../src/screens/pos/WalletNumberChips.vue");
+const FRONTEND_SALES_API: &str = include_str!("../../../src/api/sales.ts");
+const FRONTEND_CUSTOMER_API: &str = include_str!("../../../src/api/customer.ts");
+const FRONTEND_REPAIRS_API: &str = include_str!("../../../src/api/repairs.ts");
+const FRONTEND_WALLET_API: &str = include_str!("../../../src/api/wallet.ts");
 
+#[test]
+fn every_money_flow_names_its_wallet_number() {
+    let sql = sql_only(WALLET_FLOW_MIGRATION);
+    for required in [
+        "alter table customer_ledger add column wallet_id text null references wallets (id);",
+        "alter table repairs add column pay_wallet_id text null references wallets (id);",
+        "drop trigger customer_ledger_no_update;",
+        "update customer_ledger",
+        "create trigger customer_ledger_no_update",
+        "update repairs",
+    ] {
+        assert!(
+            sql.contains(required),
+            "0031 must contain `{required}` (`ADR-041`)"
+        );
+    }
+    // The ledger is append-only, so the trigger has to come down for the backfill and go back up
+    // afterwards — the order `0030` set and its test pins (`ADR-038` §2).
+    let drop_at = sql
+        .find("drop trigger customer_ledger_no_update;")
+        .expect("the append-only trigger must come down for the backfill");
+    let backfill_at = sql
+        .find("update customer_ledger")
+        .expect("the history must be given its wallet");
+    let restore_at = sql
+        .rfind("create trigger customer_ledger_no_update")
+        .expect("the append-only trigger must go back up");
+    assert!(
+        drop_at < backfill_at && backfill_at < restore_at,
+        "0031 must drop the trigger, backfill, then re-create the trigger"
+    );
+    assert!(
+        sql.contains("and kind = 'payment'"),
+        "only the rows that moved money into a shop wallet may be named: an آجل sale names none"
+    );
 
+    // One reading rule in the repository: the name on the row, with no fallback to the listing
+    // order and no method match that could count the same money for two numbers.
+    let repo = code_only(WALLET_REPOSITORY);
+    for required in [
+        "WHERE sp.wallet_id = ?1",
+        "WHERE kind = 'payment' AND wallet_id = ?1",
+        "WHERE status = 'delivered' AND pay_wallet_id = ?1",
+    ] {
+        assert!(
+            repo.contains(required),
+            "repositories/wallet.rs must attribute a stream with `{required}` (`ADR-041`)"
+        );
+    }
+    assert!(
+        !repo.contains("(SELECT w.id FROM wallets w"),
+        "attribution must not be gated on being the primary wallet of the method: an unnamed row \
+         whose method later finds a second number would otherwise move money between wallets"
+    );
+
+    let customer_repo = code_only(CUSTOMER_REPOSITORY);
+    assert!(
+        customer_repo.contains("id, customer_id, kind, amount_minor, method, wallet_id, sale_id"),
+        "the ledger insert must carry the wallet the money went into (`ADR-041`)"
+    );
+    let repair_repo = code_only(REPAIR_REPOSITORY);
+    assert!(
+        repair_repo.contains("UPDATE repairs SET pay_wallet_id = ?2 WHERE id = ?1"),
+        "a repair ticket must be able to name its wallet (`ADR-041`)"
+    );
+
+    // Every service asks the same question through the same resolver — none of them re-implements
+    // the default, which is how a flow drifts.
+    let service = code_only(WALLET_SERVICE);
+    assert!(
+        service.contains("pub async fn resolve_payment_wallet_id"),
+        "the wallet service must own the answer to `which number took this money` (`ADR-041`)"
+    );
+    for (name, code) in [
+        ("services/customer.rs", code_only(CUSTOMER_SERVICE)),
+        ("services/repair.rs", code_only(REPAIR_SERVICE)),
+        ("services/sales/mod.rs", code_only(SALES_SERVICE)),
+    ] {
+        assert!(
+            code.contains("resolve_payment_wallet_id") || code.contains("sale_payee_wallet_id("),
+            "{name} must route its money through the shared resolver (`ADR-041`)"
+        );
+    }
+
+    // The picker is one component used by every flow, and it is the only thing that asks.
+    let chips = code_only(POS_WALLET_CHIPS_VUE);
+    assert!(
+        chips.contains("paymentWalletCandidates") && chips.contains("options.length > 1"),
+        "the wallet picker must list candidates and stay out of the way when there is one number"
+    );
+    for (name, source) in [
+        ("PayModal.vue", code_only(POS_PAY_MODAL_VUE)),
+        ("ReturnModal.vue", code_only(POS_RETURN_MODAL_VUE)),
+        ("CustomerPickerModal.vue", code_only(POS_CUSTOMER_PICKER_VUE)),
+        ("RepairsScreen.vue", code_only(REPAIRS_SCREEN_VUE)),
+    ] {
+        assert!(
+            source.contains("WalletNumberChips"),
+            "{name} is a flow that moves money, so it must ask which number took it (`ADR-041`)"
+        );
+    }
+
+    // The payload carries the name on every leg of the way, or the question is asked for nothing.
+    assert!(
+        code_only(FRONTEND_SALES_API).contains("walletId: p.walletId ?? null"),
+        "api/sales.ts must send the wallet with each payment and each refund"
+    );
+    assert!(
+        code_only(FRONTEND_CUSTOMER_API).contains("walletId: walletId ?? null"),
+        "api/customer.ts must send the wallet a repayment went to"
+    );
+    assert!(
+        code_only(FRONTEND_REPAIRS_API)
+            .matches("payWalletId: params.payWalletId ?? null")
+            .count()
+            == 2,
+        "api/repairs.ts must send the wallet at intake and at delivery"
+    );
+    assert!(
+        code_only(FRONTEND_WALLET_API).contains("'payment_wallet_candidates'"),
+        "api/wallet.ts must expose the candidates command the chips read"
+    );
+}
+
+/// `ADR-042`: the companion link reports the wire instead of asserting a story,
+/// and the two machines are not allowed to show each other the same screen.
+///
+/// The invented state this pins out is not a detail: the panel used to print two
+/// handsets and a "connected" dot because that is what a shell needed to look
+/// finished. A guard on the *removal* is the only thing that keeps it removed.
+#[test]
+fn the_companion_link_reports_the_wire_and_never_invents_state() {
+    let service = code_only(COMPANION_SERVICE);
+    let domain = code_only(COMPANION_DOMAIN);
+    let commands = code_only(COMPANION_COMMANDS);
+
+    for gone in [
+        "default_devices",
+        "LAN_SERVER_RUNNING",
+        "running: true",
+        "last_remote_sync_at",
+    ] {
+        assert!(
+            !service.contains(gone),
+            "services/companion.rs must no longer contain `{gone}`: the status is read from the wire (`ADR-042`)"
+        );
+    }
+
+    for required in [
+        "lan_server_running()",
+        "is_online(",
+        "\"/api/companion/ping\"",
+        "\"/api/companion/hello\"",
+        "\"/api/companion/intake\"",
+        "MAX_INTAKE_BODY_BYTES",
+        "Access-Control-Allow-Origin: *",
+        "fn read_lan_request",
+        "note_lan_response(&response, effect)",
+        "fn flush_lan_state",
+        "fn lan_introduce",
+        "fn push_pending",
+        "fn accept_intake",
+        "fn reject_intake",
+        "fn rotate_pair_code",
+        "receive_with_units(",
+    ] {
+        assert!(
+            service.contains(required),
+            "services/companion.rs must contain `{required}` (`ADR-042`)"
+        );
+    }
+
+    // Routing is a plain function: the shop's credentials go in, the thing to
+    // remember comes out. A method that reached for the globals could not be
+    // tested without racing every other test in the binary.
+    assert!(
+        service.contains("pub fn handle_lan_request(req: &LanRequest, state: &LanState)"),
+        "the responder's routing must take its state as an argument (`ADR-042`)"
+    );
+
+    for required in [
+        "COMPANION_INTAKES_KEY",
+        "COMPANION_OUTBOX_KEY",
+        "COMPANION_HOST_KEY",
+        "COMPANION_BLOCKED_KEY",
+        "ONLINE_WINDOW_MS",
+        "MAX_INTAKE_PHOTOS",
+        "MAX_INTAKE_QUEUE",
+        "fn is_online",
+        "fn validate_intake_draft",
+        "CompanionLinkError",
+        "pub struct CompanionIntakeDraft",
+    ] {
+        assert!(
+            domain.contains(required),
+            "domain/companion.rs must define `{required}` (`ADR-042`)"
+        );
+    }
+
+    // Applying a capture is ordinary receiving work. If the companion ever grew
+    // its own write path, the phone would be a second ledger (`ADR-016` #2).
+    for forbidden in ["sqlx::query", "INSERT ", "UPDATE ", "DELETE "] {
+        assert!(
+            !service.contains(forbidden) && !commands.contains(forbidden),
+            "the companion link must reach the ledger through the services, not by writing SQL (`{forbidden}`)"
+        );
+    }
+
+    // A handset dials the link; it does not host one. Both sides binding 8787
+    // against two separate databases is how the owner ended up with "two full
+    // systems" that each claimed to be the other's computer.
+    assert!(
+        LIB.contains(r#"#[cfg(not(any(target_os = "android", target_os = "ios")))]"#),
+        "the LAN listener must start on desktops only (`ADR-042`)"
+    );
+
+    for command in [
+        "companion_connect_host",
+        "companion_probe_host",
+        "companion_save_capture",
+        "companion_push_captures",
+        "companion_clear_outbox",
+        "companion_accept_intake",
+        "companion_reject_intake",
+        "companion_rotate_pair_code",
+    ] {
+        assert!(
+            commands.contains(&format!("pub async fn {command}")),
+            "commands/companion.rs must define `{command}` (`ADR-042`)"
+        );
+        assert!(
+            LIB.contains(&format!("commands::companion::{command}")),
+            "lib.rs must register `{command}` (`ADR-042`)"
+        );
+    }
+}
+
+/// The screen shapes are part of the contract, because the bug was a shape: two
+/// devices showing each other the same page, and a panel that printed a handset
+/// count nobody had earned (`ADR-042`).
+///
+/// These asserts are deliberately about *which half lives where*. A reviewer
+/// cannot keep the pairing honest by reading a changelog, so the file that paints
+/// a QR, the rail entry that carries the camera, and the string the panel prints
+/// are all pinned to the machine that is allowed to own them.
+#[test]
+fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
+    // The desktop's link panel: counted from the wire, with the inbox under it.
+    for required in [
+        "v-if=\"!phoneSide\" class=\"card\" data-companion-host-panel",
+        "data-companion-inbox-empty",
+        "data-companion-rotate",
+        "data-companion-last-link",
+        "deviceLinkLabel(",
+    ] {
+        assert!(
+            MOBILE_COMPANION_SCREEN_VUE.contains(required),
+            "MobileCompanionScreen.vue must contain `{required}` (`ADR-042`)"
+        );
+    }
+    for gone in ["|| 2", "onlineDevicesCount"] {
+        assert!(
+            !MOBILE_COMPANION_SCREEN_VUE.contains(gone),
+            "MobileCompanionScreen.vue must not fall back to an invented handset count (`{gone}`)"
+        );
+    }
+
+    // The computer's settings page is where the QR lives, and only the computer's.
+    for required in [
+        "v-if=\"phoneSide\"",
+        "data-devices-companion-phone-note",
+        "v-else class=\"qr-box\"",
+        "marker=\"data-companion-qr\"",
+        "data-companion-payload-line",
+        "data-paired-devices-empty",
+    ] {
+        assert!(
+            DEVICES_PRINTER_CARD_VUE.contains(required),
+            "DevicesPrinterCard.vue must contain `{required}`: the handset is told where the code is, not shown one (`ADR-042`)"
+        );
+    }
+    assert!(
+        !DEVICES_PRINTER_CARD_VUE.contains("class=\"tag ok\"><span class=\"dot\"></span> متصل"),
+        "a handset row may not be called connected by markup (`ADR-042`)"
+    );
+
+    // One painter for both host screens, so the two cannot drift apart.
+    for required in ["marker", "side", r#"class="pair-qr""#, "buildPairingQrMatrix"] {
+        assert!(
+            COMPANION_PAIR_QR_VUE.contains(required),
+            "CompanionPairQr.vue must own `{required}` for both pairing surfaces (`ADR-042`)"
+        );
+    }
+    assert!(
+        MOBILE_COMPANION_SCREEN_VUE.contains("CompanionPairQr")
+            && DEVICES_PRINTER_CARD_VUE.contains("CompanionPairQr"),
+        "both pairing surfaces must render the same QR component (`ADR-042`)"
+    );
+
+    // The phone's half: a camera, a queue of its own, and no QR anywhere on it.
+    for required in [
+        "data-phone-capture-screen",
+        "data-capture-paste",
+        "data-capture-connect",
+        "data-capture-push",
+        "data-capture-save",
+        "data-outbox-row",
+        "data-capture-expense",
+        "data-capture-expense-save",
+        "data-outbox-push",
+        // What is waiting is announced at the top with the button that sends it, and
+        // a linked phone sends on save. «مش بقدر» was a screen where the only way out
+        // was a button at the bottom that said nothing (`ADR-043`).
+        "data-capture-send-banner",
+        "data-capture-send-banner-push",
+        "data-capture-stored-host",
+        "companionProbeHost",
+        // The camera is a component now: one implementation serves every barcode and
+        // IMEI field in the app (`ADR-043`), so this screen renders it rather than
+        // carrying a second copy of the decoder.
+        "CameraScanButton",
+        "shrinkImageFile",
+        "validateCaptureDraft",
+        "onUnmounted",
+    ] {
+        assert!(
+            PHONE_CAPTURE_SCREEN_VUE.contains(required),
+            "PhoneCaptureScreen.vue must contain `{required}`: the handset captures and queues (`ADR-042`)"
+        );
+    }
+    assert!(
+        !PHONE_CAPTURE_SCREEN_VUE.contains("data-companion-qr"),
+        "the capture screen must not paint a pairing QR: that is the computer's page (`ADR-042`)"
+    );
+
+    // The preview of the handset must not perform a scan it did not do: the frame used
+    // to show a painted viewfinder and two buttons that pushed a product the computer
+    // had already chosen — a green dot and a fake reading (`ADR-043`).
+    for required in [
+        "data-mobile-scan-camera",
+        "data-mobile-scan-link",
+        "data-mobile-recv-camera",
+        "data-mobile-recv-imei-input",
+        "addRecvImei",
+    ] {
+        assert!(
+            MOBILE_COMPANION_SCREEN_VUE.contains(required),
+            "MobileCompanionScreen.vue must contain `{required}`: the handset reads codes with the camera (`ADR-043`)"
+        );
+    }
+    for forbidden in ["viewfinder", "buildLuhnImei15"] {
+        assert!(
+            !MOBILE_COMPANION_SCREEN_VUE.contains(forbidden),
+            "MobileCompanionScreen.vue must not contain `{forbidden}`: nothing on a screen may invent a scan (`ADR-043`)"
+        );
+    }
+
+    // The rail carries the camera on a handset and not on the computer, and the
+    // shell has a screen to switch to.
+    for required in [
+        "| 'capture'",
+        "readonly phoneOnly?: boolean",
+        "{ id: 'capture', label: 'الالتقاط', icon: 'camera', ownerOnly: false, phoneOnly: true }",
+        "(!item.phoneOnly || phone)",
+    ] {
+        assert!(
+            SHELL_NAV_TS.contains(required),
+            "src/shell/nav.ts must contain `{required}` (`ADR-042`)"
+        );
+    }
+    assert!(
+        SHELL_NAV_TS.contains("id: 'mobile', label: 'الموبايل', icon: 'smartphone', ownerOnly: false"),
+        "the desktop's preview screen keeps its place in the rail (`ADR-039`)"
+    );
+
+    // The commands the phone calls, and the reasons it can be told about.
+    for command in [
+        "companionConnectHost",
+        "companionProbeHost",
+        "companionSaveCapture",
+        "companionPushCaptures",
+        "companionClearOutbox",
+        "companionAcceptIntake",
+        "companionRejectIntake",
+        "companionRotatePairCode",
+    ] {
+        assert!(
+            API_COMPANION_TS.contains(&format!("export async function {command}")),
+            "src/api/companion.ts must wrap `{command}` for the phone (`ADR-042`)"
+        );
+    }
+    for field in [
+        "pendingIntakes",
+        "outbox",
+        "rejectedPushes",
+        "remoteHost",
+        "lastLinkAt",
+    ] {
+        assert!(
+            API_COMPANION_TS.contains(field),
+            "the status the panel reads must carry `{field}`: without it there is no honest thing to show (`ADR-042`)"
+        );
+    }
+    for code in [
+        "COMPANION_NO_HOST",
+        "COMPANION_INTAKE_REFUSED",
+        "COMPANION_INTAKE_GONE",
+        "COMPANION_INTAKE_NOT_RECEIVABLE",
+    ] {
+        assert!(
+            ERRORS_TS.contains(code),
+            "src/api/errors.ts must translate `{code}`, so a refusal arrives in Arabic (`ADR-042`)"
+        );
+    }
+}
+
+/// The expenses section and the shared camera button (`ADR-043`).
+///
+/// Two promises are checked here, because both are easy to lose in a later edit: that
+/// a drawer expense and an outside expense stay one list with the drawer's arithmetic
+/// untouched, and that every barcode/IMEI field offers the camera through one
+/// component rather than a copy per screen.
+#[test]
+fn expenses_keep_the_drawer_honest_and_the_camera_is_one_component() {
+    // One table, one nullable reference, and a CHECK that refuses half a fact.
+    for required in [
+        "paid_from     TEXT    NOT NULL CHECK (paid_from IN ('drawer', 'outside'))",
+        "shift_id      TEXT    NULL REFERENCES shifts (id) ON DELETE RESTRICT",
+        "CHECK ((paid_from = 'drawer') = (shift_id IS NOT NULL))",
+        "'drawer', category",
+    ] {
+        assert!(
+            EXPENSES_MIGRATION.contains(required),
+            "0032 must contain `{required}`: an expense says where its money came from (`ADR-043`)"
+        );
+    }
+    assert!(
+        !EXPENSES_MIGRATION.contains("CREATE TABLE expenses_outside"),
+        "a second table would make every future total a union of two shapes (`ADR-043`)"
+    );
+    for trigger in ["expenses_no_update", "expenses_no_delete"] {
+        assert!(
+            EXPENSES_MIGRATION.contains(trigger),
+            "0032 must re-create `{trigger}`: expenses stay append-only (`ADR-024`)"
+        );
+    }
+    assert!(
+        EXPENSES_MIGRATION.contains("CREATE TRIGGER expenses_require_open_shift\nBEFORE INSERT ON expenses\nWHEN NEW.paid_from = 'drawer'"),
+        "the open-shift rule must guard drawer rows only (`ADR-043`)"
+    );
+
+    // The service states the source, never defaults it, and refuses a closed drawer
+    // only for drawer money.
+    for required in [
+        "pub async fn record_shop_expense",
+        "PaidFrom::parse(paid_from.trim()).ok_or(ShiftError::InvalidPaidFrom)",
+        "PaidFrom::Outside => None",
+        "pub async fn expenses_overview",
+        "session.authorize(Permission::ManageCatalog)",
+    ] {
+        assert!(
+            SHIFT_SERVICE.contains(required),
+            "services/shift.rs must contain `{required}` (`ADR-043`)"
+        );
+    }
+    for required in ["record_shop_expense", "expenses_overview"] {
+        assert!(
+            SHIFT_COMMANDS.contains(required) && API_EXPENSES_TS.contains(required),
+            "`{required}` must reach the screen through both the command and the API wrapper (`ADR-043`)"
+        );
+    }
+    assert!(
+        SHIFT_COMMANDS.contains("pub shift_id: Option<String>"),
+        "the expense DTO must carry a nullable shift: an outside expense has none (`ADR-043`)"
+    );
+
+    // The section's own promises: two totals that never mix, and a list underneath.
+    for required in [
+        "data-expenses-screen",
+        "data-expenses-total",
+        "data-expenses-drawer",
+        "data-expenses-outside",
+        "data-expenses-save",
+        r#"data-expenses-paid-from="drawer""#,
+        "data-expenses-row",
+        "recordShopExpense",
+    ] {
+        assert!(
+            EXPENSES_SCREEN_VUE.contains(required),
+            "ExpensesScreen.vue must contain `{required}` (`ADR-043`)"
+        );
+    }
+    for required in [
+        "expensePeriodBounds",
+        "EXPENSE_PERIODS",
+        "effectivePaidFrom",
+        "drawerAvailabilityNote",
+    ] {
+        assert!(
+            EXPENSES_TS.contains(required),
+            "screens/expenses/expenses.ts must contain `{required}` (`ADR-043`)"
+        );
+    }
+    assert!(
+        SHELL_NAV_TS.contains("{ id: 'expenses', label: 'المصاريف', icon: 'hand-coins', ownerOnly: true }"),
+        "the expenses section needs its own door in the rail (`ADR-043`)"
+    );
+
+    // One camera, every field. The decoder lives in the component, not in a screen.
+    for required in ["getUserMedia", "data-camera-scan", "createFrameDecoder"] {
+        assert!(
+            CAMERA_SCAN_BUTTON_VUE.contains(required),
+            "CameraScanButton.vue must contain `{required}`: the camera is one component (`ADR-043`)"
+        );
+    }
+    assert!(
+        SCAN_TS.contains("BarcodeDetector") && SCAN_TS.contains("classifyScan"),
+        "src/ui/scan.ts owns the decoder (hardware first, ZXing as the fallback) and the 15-digit rule (`ADR-043`)"
+    );
+    assert!(
+        SCAN_TS.contains("export function classifyScan"),
+        "src/ui/scan.ts owns the 15-digit rule for every field (`ADR-043`)"
+    );
+    assert!(
+        SCAN_TS.contains("digits.length === 15"),
+        "an IMEI is 15 digits on every screen, not just the phone (`ADR-043`)"
+    );
+    for (name, source) in [
+        ("PhoneCaptureScreen.vue", PHONE_CAPTURE_SCREEN_VUE),
+        ("PosScreen.vue", POS_SCREEN_VUE),
+        ("NewItemModal.vue", NEW_ITEM_MODAL_VUE),
+        ("NewUsedPhoneModal.vue", NEW_USED_PHONE_MODAL_VUE),
+        ("ImeiCheckModal.vue", IMEI_CHECK_MODAL_VUE),
+        ("RepairsScreen.vue", REPAIRS_SCREEN_VUE),
+        ("ImeiPickerModal.vue", IMEI_PICKER_MODAL_VUE),
+        ("StockPanel.vue", STOCK_PANEL_VUE),
+        ("CatalogPanel.vue", CATALOG_PANEL_VUE),
+        ("StockCountModal.vue", STOCK_COUNT_MODAL_VUE),
+        ("MobileCompanionScreen.vue", MOBILE_COMPANION_SCREEN_VUE),
+    ] {
+        assert!(
+            source.contains("CameraScanButton"),
+            "{name} has a barcode or IMEI field, so it must offer the camera beside it (`ADR-043`)"
+        );
+    }
+}
+
+const TAURI_CONF_JSON: &str = include_str!("../../tauri.conf.json");
+const PACKAGE_JSON: &str = include_str!("../../../package.json");
+const ANDROID_CAMERA_SCRIPT: &str =
+    include_str!("../../../scripts/android-camera-permission.mjs");
+const FORMAT_TS: &str = include_str!("../../../src/ui/format.ts");
+const SETTINGS_APPEARANCE_RS: &str =
+    include_str!("../../src/domain/settings/appearance.rs");
+const MONEY_UNIT_CARD_VUE: &str =
+    include_str!("../../../src/screens/settings/MoneyUnitCard.vue");
+const OPTIONAL_REPAIR_CUSTOMER_SQL: &str =
+    include_str!("../../src/data/migrations/0033_optional_repair_customer.sql");
+
+/// `ADR-044`: the glass reads in the unit the shop chose; the database keeps piastres.
+#[test]
+fn money_unit_is_a_persisted_setting_and_storage_stays_in_piastres() {
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains(r#"AppearanceKey::MoneyUnit => "ui.money_unit""#),
+        "the money unit must have a stored key, not a screen-only variable (`ADR-044`)"
+    );
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains(r#"AppearanceKey::MoneyUnit => matches!(value, "egp" | "piastre")"#),
+        "only pounds and piastres are units (`ADR-044`)"
+    );
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains("pub const DEFAULT_MONEY_UNIT: &str = \"egp\""),
+        "the shop reads pounds until it says otherwise (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("export function moneyUnitWord"),
+        "field labels must ask the formatter for the unit instead of hard-coding «ج.م» (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("export function moneyInputValue"),
+        "a stored amount seeding a money field must follow the chosen unit (`ADR-044`)"
+    );
+    assert!(
+        FORMAT_TS.contains("return `${num(minor)} قرش`;")
+            && FORMAT_TS.contains("return `${num(minor / 100)} ج.م`;"),
+        "both units print from the same stored piastres (`ADR-010`, `ADR-044`)"
+    );
+    for required in ["data-money-unit=\"egp\"", "data-money-unit=\"piastre\"", "moneyUnitWord()"] {
+        assert!(
+            MONEY_UNIT_CARD_VUE.contains(required),
+            "MoneyUnitCard.vue must let the owner pick the unit and show the word (`ADR-044`)"
+        );
+    }
+    assert!(
+        SETTINGS_SCREEN_VUE.contains("MoneyUnitCard"),
+        "the unit card lives in Settings → الشكل (`ADR-044`)"
+    );
+}
+
+/// `ADR-045`: a walk-in repair is written with the device and the fault.
+#[test]
+fn repair_and_software_accept_a_ticket_without_a_customer_name_or_phone() {
+    let sql = sql_only(OPTIONAL_REPAIR_CUSTOMER_SQL);
+    assert!(
+        sql.contains("customer_name text not null default '' check (length(customer_name) <= 120)"),
+        "customer_name must be optional and capped, not trim()>0 (`ADR-045`)"
+    );
+    assert!(
+        sql.contains("customer_phone text not null default '' check (length(customer_phone) <= 64)"),
+        "customer_phone must be optional and capped, not trim()>0 (`ADR-045`)"
+    );
+    for kept in [
+        "ticket_no text not null unique",
+        "device_name text not null check (length(trim(device_name)) > 0",
+        "issue text not null check (length(trim(issue)) > 0",
+        "status in ('received', 'diagnosing', 'waiting', 'ready', 'delivered', 'cancelled')",
+        "pay_wallet_id text null references wallets (id)",
+        "delivered_at is null or delivered_at >= created_at",
+        "create index idx_repairs_status_created",
+    ] {
+        assert!(
+            sql.contains(kept),
+            "the rebuild must keep `{kept}`: only the customer rule changes (`ADR-045`)"
+        );
+    }
+    for required in ["'بدون اسم'", "اختياري"] {
+        assert!(
+            REPAIRS_SCREEN_VUE.contains(required),
+            "RepairsScreen.vue must say the name is optional and print a fallback (`ADR-045`)"
+        );
+    }
+}
+
+/// The camera is a permission the app declares, asks for, and frames (`ADR-043` §10).
+#[test]
+fn the_camera_is_declared_asked_for_and_allowed_to_show_a_stream() {
+    assert!(
+        LIB.contains(".on_permission_request"),
+        "lib.rs must answer the webview's camera request instead of leaving it to the platform default (`ADR-043`)"
+    );
+    assert!(
+        LIB.contains("PermissionKind::Camera") && LIB.contains("PermissionResponse::Allow"),
+        "a camera request must be allowed when the OS permission is granted (`ADR-043`)"
+    );
+    assert!(
+        TAURI_CONF_JSON.contains("media-src 'self' blob: mediastream:"),
+        "a blocked media-src would leave the video element black on Windows (`ADR-043`)"
+    );
+    assert!(
+        ANDROID_CAMERA_SCRIPT.contains("android.permission.CAMERA"),
+        "the Android manifest must declare CAMERA before the runtime request can succeed (`ADR-043`)"
+    );
+    assert!(
+        PACKAGE_JSON.contains("scripts/android-camera-permission.mjs"),
+        "android:init must run the manifest patch, or a fresh checkout breaks the camera (`ADR-043`)"
+    );
+}
+
+const REPAIR_DOMAIN: &str = include_str!("../../src/domain/repair.rs");
+
+/// `ADR-046`: one press on any repair ticket reverses it and its money.
+#[test]
+fn undoing_a_repair_reverses_its_money_and_is_reachable_from_the_card() {
+    assert!(
+        REPAIR_SERVICE.contains("require_sensitivity(Sensitivity::Sensitive, now)?"),
+        "giving money back is sensitive work: it needs the owner's PIN (`ADR-017`, `ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains("approval_service::consume_in_tx"),
+        "the approval is spent inside the same transaction as the undo (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_DOMAIN.contains(r#"AlreadyCancelled => "REPAIR_ALREADY_CANCELLED""#),
+        "the second undo has its own code, not the delivery one (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains(r#"let was_delivered = existing.status.as_str() == "delivered";"#),
+        "cancel_repair must handle a delivered ticket instead of refusing it (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains(r#"existing.status.as_str() == "cancelled""#),
+        "a second undo is refused instead of refunding twice (`ADR-046`)"
+    );
+    assert!(
+        REPAIR_SERVICE.contains("refunded_minor") && REPAIR_SERVICE.contains("approved_by"),
+        "the audit names the money that went back and who approved it (`ADR-046`)"
+    );
+    // The button is on the card itself, for every stage, not buried in a screen.
+    assert!(
+        REPAIRS_SCREEN_VUE.contains(":data-repair-undo=\"r.ticketNo\""),
+        "every ticket card carries the one-press undo (`ADR-046`)"
+    );
+    assert!(
+        REPAIRS_SCREEN_VUE.contains("data-undo-confirm") && REPAIRS_SCREEN_VUE.contains("withOwnerApproval"),
+        "the undo asks for the owner's PIN and confirms what goes back (`ADR-046`)"
+    );
+}
+
+const ANALYTICS_TS: &str = include_str!("../../../src/screens/sales/analytics.ts");
+
+/// `ADR-047`: the reports tell the whole shop, then grade the day in one word.
+#[test]
+fn reports_cover_every_section_and_rate_the_day_in_one_word() {
+    for required in [
+        "export function rateDay",
+        "export function rateMonthVerdict",
+        "'ممتاز'",
+        "'جيد'",
+        "'متوسط'",
+        "'تحت المتوسط'",
+    ] {
+        assert!(
+            ANALYTICS_TS.contains(required),
+            "analytics.ts must contain `{required}`: the rating is a tested rule, not a screen's guess (`ADR-047`)"
+        );
+    }
+    assert!(
+        ANALYTICS_TS.contains("const netMinor = grossMinor - input.expensesMinor;"),
+        "the day's net must be the sections minus the expenses (`ADR-047`)"
+    );
+    for required in [
+        "data-reports-day-rating",
+        "data-day-rating-word",
+        "data-day-rating-line",
+        "data-day-section=\"goods\"",
+        "data-day-section=\"hardware\"",
+        "data-day-section=\"software\"",
+        "data-day-section=\"wallets\"",
+        "data-day-section=\"expenses\"",
+        "data-day-net",
+        "data-reports-month-expenses",
+        "data-reports-month-net",
+        "data-reports-verdict-word",
+        "expensesOverview",
+    ] {
+        assert!(
+            REPORTS_SCREEN_VUE.contains(required),
+            "ReportsScreen.vue must contain `{required}`: an amount with no section is a number nobody can act on (`ADR-047`)"
+        );
+    }
+}

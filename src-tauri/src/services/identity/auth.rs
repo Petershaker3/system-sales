@@ -49,6 +49,11 @@ pub async fn list_users(pool: &SqlitePool) -> Result<Vec<UserSummary>, DomainErr
     // dropping it from the picker.
     Ok(rows
         .into_iter()
+        // The open owner row is not offered (`ADR-039`): there is no credential to
+        // sign in with, so a tile for it on the login screen would promise an
+        // account that cannot be used and punish the person who taps it with a
+        // refusal. The banner and the «حساب المالك» card are where it is spoken of.
+        .filter(|row| !row.provisional)
         .map(|row| {
             UserSummary::new(&row.user, row.username, row.disabled_at.is_some())
         })
@@ -304,6 +309,10 @@ async fn sign_in(
         // A new session holds no owner approval. Signing in proves who the
         // operator is; the owner's PIN approves one sensitive action at a time.
         owner_approval: None,
+        // A session reached by a password or a PIN belongs to an account, so it
+        // is not the open operator: an open row has no credential to sign in with
+        // (`ADR-039`).
+        open_mode: false,
     };
 
     // Release the pooled connection before opening a transaction. Holding a

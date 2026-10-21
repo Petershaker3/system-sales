@@ -251,11 +251,48 @@ pub struct ShiftRecord {
     pub closed_at: Option<Timestamp>,
 }
 
+/// Where an expense's money came from (`ADR-043`).
+///
+/// Two answers, because the drawer is a counted object and everything else is not:
+/// a drawer expense is taken out of the till during an open shift and reduces what
+/// the close-of-day count should contain; an outside expense — rent, a bill, a
+/// salary, a purchase paid from the owner's pocket — is just as real to the shop and
+/// must never move a single pound of the drawer's expected cash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidFrom {
+    Drawer,
+    Outside,
+}
+
+impl PaidFrom {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Drawer => "drawer",
+            Self::Outside => "outside",
+        }
+    }
+
+    /// The stored value, or `None` for anything this build does not know. A code
+    /// that is not one of the two is refused rather than mapped to a default: the
+    /// default would decide, silently, whether somebody's rent came out of the till.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "drawer" => Some(Self::Drawer),
+            "outside" => Some(Self::Outside),
+            _ => None,
+        }
+    }
+}
+
 /// Expense record as stored in `expenses`.
+///
+/// `shift_id` is present exactly when `paid_from` is `PaidFrom::Drawer`, and the
+/// table's CHECK enforces that pairing (`ADR-043`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpenseRecord {
     pub id: ExpenseId,
-    pub shift_id: ShiftId,
+    pub shift_id: Option<ShiftId>,
+    pub paid_from: PaidFrom,
     pub category: ExpenseCategory,
     pub amount: Piastres,
     pub note: Option<ExpenseNote>,
@@ -452,6 +489,7 @@ pub enum ShiftError {
     InvalidExpenseCategory,
     InvalidExpenseAmount,
     InvalidExpenseNote,
+    InvalidPaidFrom,
     InvalidCashMovementKind,
     InvalidCashMovementAmount,
     InvalidCashMovementReason,
@@ -469,6 +507,7 @@ impl ShiftError {
             ShiftError::InvalidExpenseCategory => "EXPENSE_CATEGORY_INVALID",
             ShiftError::InvalidExpenseAmount => "EXPENSE_AMOUNT_INVALID",
             ShiftError::InvalidExpenseNote => "EXPENSE_NOTE_INVALID",
+            ShiftError::InvalidPaidFrom => "EXPENSE_PAID_FROM_INVALID",
             ShiftError::InvalidCashMovementKind => "CASH_MOVEMENT_KIND_INVALID",
             ShiftError::InvalidCashMovementAmount => "CASH_MOVEMENT_AMOUNT_INVALID",
             ShiftError::InvalidCashMovementReason => "CASH_MOVEMENT_REASON_INVALID",

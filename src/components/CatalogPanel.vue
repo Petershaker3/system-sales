@@ -26,8 +26,11 @@ import {
   type ProductImage,
 } from '../api/images';
 import { approxKilobytes, shrinkImageFile } from '../screens/store/image';
+import CameraScanButton from '../ui/CameraScanButton.vue';
+import { money, moneyInputValue, moneyUnitWord } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import type { IconName } from '../ui/icons';
+import type { ScanReading } from '../ui/scan';
 import { asIconName } from '../screens/pos/icons';
 
 const emit = defineEmits<{
@@ -110,7 +113,7 @@ async function loadCategories(): Promise<void> {
 
 function priceLabel(product: Product): string {
   if (product.salePriceMinor === null) return 'غير محدد';
-  return `${(product.salePriceMinor / 100).toFixed(2)} ج.م`;
+  return money(product.salePriceMinor);
 }
 
 function dispositionLabel(disposition: Disposition): string {
@@ -218,7 +221,7 @@ function startEdit(product: Product): void {
   // Null must render as an empty field, not as "0.00", or the operator would
   // save a free price onto a product that simply had none.
   formPriceMinor.value =
-    product.salePriceMinor === null ? '' : (product.salePriceMinor / 100).toFixed(2);
+    product.salePriceMinor === null ? '' : moneyInputValue(product.salePriceMinor);
   formCategory.value = product.categoryId ?? '';
 }
 
@@ -296,6 +299,17 @@ async function searchByBarcode(): Promise<void> {
   }
 }
 
+/** The camera beside a barcode box reads one code and runs the same search. */
+function onSearchScan(reading: ScanReading): void {
+  barcodeSearch.value = reading.raw;
+  void searchByBarcode();
+}
+
+/** One reading into the edit form's barcode box — no search, nothing submitted. */
+function onFormBarcodeScan(reading: ScanReading): void {
+  formBarcode.value = reading.raw;
+}
+
 function clearSearch(): void {
   barcodeSearch.value = '';
   void load();
@@ -334,14 +348,15 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Typed or pasted barcode search. Deliberately no scanner. -->
+    <!-- Search by barcode: typed, pasted, or read with the camera. -->
     <form class="row" @submit.prevent="searchByBarcode">
       <input
         v-model="barcodeSearch"
         class="grow"
-        placeholder="ابحث بالباركود (اكتب أو الصق)"
+        placeholder="ابحث بالباركود (اكتب أو الصق أو امسح)"
         autocomplete="off"
       />
+      <CameraScanButton :compact="true" data-catalog-search-scan @scan="onSearchScan" />
       <button type="submit" :disabled="busy">بحث</button>
       <button type="button" @click="clearSearch">مسح</button>
     </form>
@@ -379,6 +394,11 @@ onMounted(() => {
         <span>الباركود (اختياري)</span>
         <div class="row" style="margin-bottom: 0">
           <input v-model="formBarcode" class="grow" dir="ltr" autocomplete="off" />
+          <CameraScanButton
+            :compact="true"
+            data-edit-barcode-scan
+            @scan="onFormBarcodeScan"
+          />
           <button
             type="button"
             data-edit-generate-barcode
@@ -391,7 +411,7 @@ onMounted(() => {
       </label>
 
       <label class="field">
-        <span>سعر البيع (اختياري)</span>
+        <span>سعر البيع (اختياري) — {{ moneyUnitWord() }}</span>
         <input
           v-model="formPriceMinor"
           inputmode="decimal"

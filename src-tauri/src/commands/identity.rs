@@ -17,7 +17,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::domain::identity::DomainError;
-use crate::services::identity::{approval, auth, bootstrap, pin, recovery_code, session};
+use crate::services::identity::{approval, auth, bootstrap, open_mode, pin, recovery_code, session};
 use crate::services::identity::IdentityContext;
 
 type Ctx<'a> = State<'a, IdentityContext>;
@@ -101,49 +101,69 @@ fn to_session_dto(user: &auth::AuthenticatedUser) -> SessionDto {
     }
 }
 
-/// Whether first-run setup still has to happen.
+/// Whether first-run setup still has to happen, and whether the shop is running
+/// without an account (`ADR-039`).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapStatusDto {
     needs_setup: bool,
+    /// The device is running on the open owner row: nobody has made an account.
+    ///
+    /// The frontend does not decide this from the absence of a session — a missing
+    /// session is also a lock, a sign-out or an expired day, and every one of those
+    /// must still show the lock card. Only Rust knows which of them this is.
+    open_mode: bool,
+    /// What the open row is called, so the banner can name the operator the way
+    /// every other screen does. `None` unless the shop is open.
+    open_display_name: Option<String>,
 }
 
-/// Does the application need the first-run setup screen?
+/// Does this device have no account yet?
 ///
-/// Advisory only. The real gate is the transactional check inside
-/// `create_first_manager`, so hiding this screen cannot bypass it.
+/// Advisory only, and since `ADR-039` it opens no screen: a fresh device runs on the
+/// open owner row, `needsSetup` is `true` only when that row could not be made (a
+/// broken database, not a first run), and the account itself is made by
+/// `claim_open_account` from الإعدادات. The real gate is the transactional check
+/// inside [`crate::services::identity::open_mode::claim_open_account`], so no screen
+/// being shown or hidden can bypass it.
+///
+/// The field is reported anyway because it is the one number that says the open row
+/// is missing: a shop that sees `needsSetup: true` has a broken file, and the
+/// technician reading a log wants that distinguishable from `openMode: false`.
 #[tauri::command]
 pub async fn bootstrap_status(ctx: Ctx<'_>) -> Result<BootstrapStatusDto, CommandError> {
     let needs_setup = bootstrap::bootstrap_needed(&ctx.pool)
         .await
         .map_err(|_| CommandError::from(DomainError::StorageUnavailable))?;
-    Ok(BootstrapStatusDto { needs_setup })
+    let open = open_mode::open_account(&ctx.pool)
+        .await
+        .map_err(|_| CommandError::from(DomainError::StorageUnavailable))?;
+
+    Ok(BootstrapStatusDto {
+        needs_setup,
+        open_mode: open.is_some(),
+        open_display_name: open.map(|account| account.display_name),
+    })
 }
 
-/// Create the first manager. Succeeds exactly once, ever.
+/// Claim the open owner row as the shop's account: the name and the password the
+/// owner typed in الإعدادات ← المستخدمين والصلاحيات (`ADR-039`).
+///
+/// The one way an account is made on a device that never had one, and the
+/// replacement for the first-run form this slice used to open on. It answers with
+/// the session the new password opens, because the person claiming the account is
+/// standing at an open till: stopping them at a lock card after they had typed a
+/// password correctly would be a penalty for finishing the setup.
 #[tauri::command]
-pub async fn create_first_manager(
+pub async fn claim_open_account(
     ctx: Ctx<'_>,
     display_name: String,
     password: String,
 ) -> Result<SessionDto, CommandError> {
-    let created = bootstrap::create_first_manager(&ctx.pool, &display_name, &password)
-        .await
-        .map_err(CommandError::from)?;
-
-    // The default category tree (ADR-018 §1), attributed to the new manager.
-    // Best effort: if it fails, the next start-up adds what is missing, and the
-    // shop is usable meanwhile.
-    let _ = crate::services::organisation::categories::add_default_categories(&ctx.pool).await;
-    // And the default phone companies (ADR-018 §2), the same way.
-    let _ = crate::services::catalog::brands::add_default_brands(&ctx.pool).await;
-
-    // The setup screen signs the new manager straight in, so the operator is not
-    // asked to type the password twice on the one occasion the account is made.
-    let signed_in = auth::login(
+    let signed_in = open_mode::claim_open_account(
         &ctx.pool,
         ctx.tokens.as_ref(),
-        created.user_id,
+        &display_name,
         &password,
     )
     .await

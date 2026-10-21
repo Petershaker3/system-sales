@@ -17,6 +17,8 @@ import { describeError } from '../../api/errors';
 import { normalize } from '../../ui/arabic';
 import { kindsWord, money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import { asIconName } from '../pos/icons';
@@ -37,7 +39,7 @@ import {
   type VariantRowDraft,
 } from './item';
 
-const emit = defineEmits<{ close: []; created: [name: string] }>();
+const emit = defineEmits<{ close: []; created: [name: string, productId?: string] }>();
 
 const categories = ref<CategoryEntry[]>([]);
 const loaded = ref(false);
@@ -125,6 +127,17 @@ async function addCategory(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/**
+ * One camera reading into the barcode field (`ADR-043`).
+ *
+ * A shop barcode is whatever the shop prints, so the digits are taken as they came:
+ * nothing is stripped and nothing is validated here — `barcodeProblem` already says
+ * what the field accepts, and it says it after the value is in.
+ */
+function onBarcodeScan(reading: ScanReading): void {
+  barcode.value = reading.raw;
 }
 
 async function makeCode(): Promise<void> {
@@ -304,7 +317,9 @@ async function save(): Promise<void> {
       salePriceMinor: priceMinor.value,
       categoryId: categoryId.value,
     });
-    emit('created', made.name);
+    // The id rides along so «استلام توريد» opens on this product (the variants path above
+    // does not: a parent is a group of types, and each type is received on its own).
+    emit('created', made.name, made.id);
   } catch (err) {
     error.value = describeError(err);
     beep();
@@ -321,7 +336,7 @@ onMounted(async () => {
 <template>
   <Modal
     title="صنف جديد"
-    sub="إكسسوار أو أي صنف بالعدد. الكمية والتكلفة من الاستلام"
+    sub="إكسسوار أو أي صنف بالعدد. الكمية والتكلفة من «استلام توريد» اللي هيفتح عليه على طول"
     size="md"
     @close="emit('close')"
   >
@@ -401,6 +416,12 @@ onMounted(async () => {
           <button type="button" class="btn sm soft" :disabled="busy || makingCode" @click="makeCode">
             <Icon name="scan-barcode" /> اعمل كود للمحل
           </button>
+          <CameraScanButton
+            :compact="false"
+            label="امسح الباركود"
+            data-ni-scan
+            @scan="onBarcodeScan"
+          />
         </div>
         <span v-if="shopCode" class="hint">ده كود المحل (EAN-13) — بيتطبع على الملصق.</span>
         <span v-else-if="barcodeProblem(barcode) !== ''" class="hint">{{ barcodeProblem(barcode) }}</span>
@@ -577,7 +598,7 @@ onMounted(async () => {
       </div>
       <div class="muted ni-foot">
         <Icon name="info" />
-        <span>بعد التسجيل استلم الكمية بسعر الشراء من «استلام توريد». الصور جاية في الخطوة الجاية.</span>
+        <span>بعد التسجيل هتلاقي الصنف مختار في «استلام توريد» تحت: حطّ الكمية وسعر الشراء للوحدة. الصور جاية في الخطوة الجاية.</span>
       </div>
       <p class="err-msg" role="alert">{{ error }}</p>
     </form>

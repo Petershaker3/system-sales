@@ -48,18 +48,42 @@ export interface UserSummary {
 }
 
 export interface BootstrapStatus {
+  /**
+   * The database has no accounts at all. Nothing is shown for it any more (`ADR-039`):
+   * the card in الإعدادات claims the open row, and the claim creates the owner account
+   * itself when the device is empty — so a `true` here means `ensure_open_account` could
+   * not make the row, which is a broken file, and worth telling apart from `openMode`.
+   *
+   * A first launch is *not* in this state any more: it opens on the shop's own
+   * operator (`ADR-039`), and the account is made afterwards from الإعدادات.
+   */
   readonly needsSetup: boolean;
+  /**
+   * The shop is running without an account (`ADR-039`).
+   *
+   * Decided by Rust, not inferred here: a missing session is also a lock, a
+   * sign-out or an expired day, and every one of those must still show the lock
+   * card. Only the backend knows which of them this is.
+   */
+  readonly openMode: boolean;
+  /** What the open operator is called, so the banner and the card say the same name the chip says. */
+  readonly openDisplayName: string | null;
 }
 
 export function bootstrapStatus(): Promise<BootstrapStatus> {
   return invoke<BootstrapStatus>('bootstrap_status');
 }
 
-export function createFirstManager(
-  displayName: string,
-  password: string,
-): Promise<Session> {
-  return invoke<Session>('create_first_manager', { displayName, password });
+/**
+ * Claim the shop's open operator as a real account (`ADR-039`).
+ *
+ * The replacement for the old first-run form, now that the account is made from
+ * الإعدادات ← المستخدمين والصلاحيات while the shop is already selling. It answers
+ * with the session the new password just opened, so the till does not stop at a
+ * lock card for having finished the setup.
+ */
+export function claimOpenAccount(displayName: string, password: string): Promise<Session> {
+  return invoke<Session>('claim_open_account', { displayName, password });
 }
 
 export function listUsers(): Promise<UserSummary[]> {

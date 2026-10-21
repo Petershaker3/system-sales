@@ -34,6 +34,8 @@ impl From<WalletServiceError> for WalletCommandError {
 pub struct WalletRecordDto {
     pub id: String,
     pub name: String,
+    /// The company this number belongs to; `None` when the wallet stands on its own.
+    pub company: Option<String>,
     pub number: String,
     pub color: String,
     pub opening_balance_minor: i64,
@@ -52,6 +54,7 @@ impl From<WalletRecord> for WalletRecordDto {
         Self {
             id: w.id.as_str().to_owned(),
             name: w.name.as_str().to_owned(),
+            company: w.company,
             number: w.number,
             color: w.color,
             opening_balance_minor: w.opening_balance_minor,
@@ -339,6 +342,7 @@ pub async fn create_wallet(
     name: String,
     color: String,
     number: Option<String>,
+    company: Option<String>,
 ) -> Result<WalletRecordDto, WalletCommandError> {
     let wallet = use_cases::create_wallet(
         &ctx.pool,
@@ -346,9 +350,41 @@ pub async fn create_wallet(
         &name,
         &color,
         number.as_deref(),
+        company.as_deref(),
     )
     .await?;
     Ok(wallet.into())
+}
+
+/// One wallet number the pay screen can choose to take a sale's money (`ADR-040`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentWalletDto {
+    pub id: String,
+    pub name: String,
+    pub number: String,
+}
+
+impl From<WalletRecord> for PaymentWalletDto {
+    fn from(w: WalletRecord) -> Self {
+        Self {
+            id: w.id.as_str().to_owned(),
+            name: w.name.as_str().to_owned(),
+            number: w.number,
+        }
+    }
+}
+
+/// The numbers that can receive a sale paid with this method. One entry means there is
+/// nothing to choose, which is how every shop except a multi-number one sees it.
+#[tauri::command]
+pub async fn payment_wallet_candidates(
+    ctx: Ctx<'_>,
+    method: String,
+) -> Result<Vec<PaymentWalletDto>, WalletCommandError> {
+    let wallets =
+        use_cases::payment_wallet_candidates(&ctx.pool, ctx.tokens.as_ref(), &method).await?;
+    Ok(wallets.into_iter().map(PaymentWalletDto::from).collect())
 }
 
 /// Update an existing shop wallet's configuration (owner only).
@@ -365,6 +401,7 @@ pub async fn update_wallet(
     max_limit_minor: i64,
     daily_limit_minor: i64,
     pay_method: Option<String>,
+    company: Option<String>,
     sort: i64,
     hidden: bool,
 ) -> Result<WalletRecordDto, WalletCommandError> {
@@ -381,6 +418,7 @@ pub async fn update_wallet(
             max_limit_minor,
             daily_limit_minor,
             pay_method,
+            company,
             sort,
             hidden,
         },

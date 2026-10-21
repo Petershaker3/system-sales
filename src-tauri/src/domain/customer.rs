@@ -62,6 +62,8 @@ pub enum CustomerError {
     PaymentExceedsBalance,
     /// The debt-settlement method is not one of `cash`, `vf`, `instapay`, `card`.
     PaymentMethodInvalid,
+    /// The named wallet does not receive that method (`ADR-041`).
+    PaymentWalletInvalid,
     /// The ledger note exceeds 200 characters.
     NoteInvalid,
 }
@@ -77,6 +79,7 @@ impl CustomerError {
             CustomerError::PaymentAmountInvalid => "CUSTOMER_PAYMENT_AMOUNT_INVALID",
             CustomerError::PaymentExceedsBalance => "CUSTOMER_PAYMENT_EXCEEDS_BALANCE",
             CustomerError::PaymentMethodInvalid => "CUSTOMER_PAYMENT_METHOD_INVALID",
+            CustomerError::PaymentWalletInvalid => "CUSTOMER_PAYMENT_WALLET_INVALID",
             CustomerError::NoteInvalid => "CUSTOMER_NOTE_INVALID",
         }
     }
@@ -94,6 +97,7 @@ impl fmt::Display for CustomerError {
                 "customer payment exceeds current credit balance"
             }
             CustomerError::PaymentMethodInvalid => "customer payment method is invalid",
+            CustomerError::PaymentWalletInvalid => "the wallet named for this payment does not receive that method",
             CustomerError::NoteInvalid => "customer ledger note is too long",
         })
     }
@@ -116,6 +120,9 @@ pub struct CustomerLedgerEntry {
     /// Signed delta in piastres (`+` increases debt, `-` reduces debt).
     pub amount_minor: i64,
     pub method: Option<String>,
+    /// The shop wallet that took the money of a `payment` row (`ADR-041`). NULL on the rows that
+    /// move no money into a wallet (`credit_sale`, `sale_reversal`).
+    pub wallet_id: Option<String>,
     pub sale_id: Option<String>,
     pub note: Option<String>,
     pub actor_id: UserId,
@@ -129,10 +136,12 @@ pub struct NewCustomerPayment {
     pub amount_minor: i64,
     pub method: String,
     pub note: Option<String>,
+    /// The shop wallet the customer transferred into (`ADR-041`).
+    pub wallet_id: Option<String>,
 }
 
 impl NewCustomerPayment {
-    pub fn cleaned(&self) -> Result<(i64, String, Option<String>), CustomerError> {
+    pub fn cleaned(&self) -> Result<(i64, String, Option<String>, Option<String>), CustomerError> {
         if self.amount_minor <= 0 {
             return Err(CustomerError::PaymentAmountInvalid);
         }
@@ -153,7 +162,13 @@ impl NewCustomerPayment {
                 }
             }
         };
-        Ok((self.amount_minor, method.to_owned(), note))
+        let wallet_id = self
+            .wallet_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        Ok((self.amount_minor, method.to_owned(), note, wallet_id))
     }
 }
 

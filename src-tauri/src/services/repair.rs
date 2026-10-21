@@ -13,7 +13,7 @@ use crate::data::repositories::repair::{
     self as repair_repo, DeliverRepairUpdate, NewRepairRow,
 };
 use crate::data::repositories::settings::app_settings;
-use crate::domain::identity::{DomainError, Permission, Role, Timestamp};
+use crate::domain::identity::{DomainError, Permission, Role, Sensitivity, Timestamp};
 use crate::domain::repair::{
     validate_customer, validate_default_text, validate_device_name, validate_issue,
     validate_money_minor, validate_optional_text, validate_warranty_days, RepairError, RepairId,
@@ -22,7 +22,9 @@ use crate::domain::repair::{
     MAX_REPAIR_LOCK_CHARS, MAX_REPAIR_NOTE_CHARS, MAX_REPAIR_TECHNICIAN_CHARS,
 };
 use crate::services::identity::secure_store::SecureTokenStore;
+use crate::services::identity::approval as approval_service;
 use crate::services::identity::session as identity_session;
+use crate::services::wallet as wallet_service;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RepairServiceError {
@@ -72,6 +74,9 @@ pub struct CreateRepairInput {
     pub parts_cost_minor: Option<i64>,
     pub deposit_minor: i64,
     pub pay_method: Option<String>,
+    /// The shop wallet that took the deposit — or the settlement, when the ticket is delivered at
+    /// intake (`ADR-041`).
+    pub pay_wallet_id: Option<String>,
     pub technician_name: Option<String>,
     pub warranty_days: Option<i64>,
     pub note: Option<String>,
@@ -94,6 +99,8 @@ pub struct DeliverRepairInput {
     pub final_price_minor: i64,
     pub parts_cost_minor: Option<i64>,
     pub pay_method: String,
+    /// The shop wallet the remaining amount is collected into (`ADR-041`).
+    pub pay_wallet_id: Option<String>,
     pub technician_name: Option<String>,
     pub warranty_days: Option<i64>,
     pub note: Option<String>,
@@ -185,6 +192,23 @@ pub async fn create_repair(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
+    // Resolved inside the transaction, before anything is written: a number that does not take
+    // this method aborts the ticket rather than moving its money somewhere else (`ADR-041`).
+    let pay_wallet_id = wallet_service::resolve_payment_wallet_id(
+        &mut tx,
+        pay_method.as_str(),
+        input.pay_wallet_id.as_deref(),
+    )
+    .await
+    .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::Storage(_) => {
+            RepairServiceError::from(DomainError::StorageUnavailable)
+        }
+        wallet_service::PaymentWalletFailure::NotEligible(_) => {
+            RepairError::PayWalletInvalid.into()
+        }
+    })?;
+
     let raw = repair_repo::insert(
         &mut tx,
         NewRepairRow {
@@ -215,6 +239,12 @@ pub async fn create_repair(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(wallet_id) = pay_wallet_id.as_deref() {
+        repair_repo::set_pay_wallet(&mut tx, id.as_str(), Some(wallet_id))
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": id.as_str(),
@@ -354,6 +384,20 @@ pub async fn deliver_repair(
     }
 
     let effective_parts_cost = parts_cost_opt.unwrap_or(existing.parts_cost_minor);
+    let pay_wallet_id = wallet_service::resolve_payment_wallet_id(
+        &mut tx,
+        pay_method.as_str(),
+        input.pay_wallet_id.as_deref(),
+    )
+    .await
+    .map_err(|err| match err {
+        wallet_service::PaymentWalletFailure::Storage(_) => {
+            RepairServiceError::from(DomainError::StorageUnavailable)
+        }
+        wallet_service::PaymentWalletFailure::NotEligible(_) => {
+            RepairError::PayWalletInvalid.into()
+        }
+    })?;
     let effective_warranty = warranty_days.unwrap_or(existing.warranty_days);
 
     let delivered = repair_repo::mark_delivered(
@@ -371,6 +415,12 @@ pub async fn deliver_repair(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if let Some(wallet_id) = pay_wallet_id.as_deref() {
+        repair_repo::set_pay_wallet(&mut tx, rid.as_str(), Some(wallet_id))
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),
@@ -392,6 +442,12 @@ pub async fn deliver_repair(
     Ok(delivered.into_ticket(include_cost))
 }
 
+/// Undo a repair or software ticket and give back the money it collected (`ADR-046`).
+///
+/// Works on every stage, delivered included: the ticket leaves `delivered` or
+/// keeps its deposit, which is what removes its money from the drawer, the
+/// wallet balance and the day's revenue. Needs the owner's approval; a second
+/// undo is refused with `REPAIR_ALREADY_CANCELLED` so nobody refunds twice.
 pub async fn cancel_repair(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
@@ -407,22 +463,44 @@ pub async fn cancel_repair(
         None => None,
     };
 
+    // Giving money back is sensitive work (`ADR-017` §3): the owner's PIN is what
+    // keeps a seller alone at an unattended till from refunding a repair. The
+    // approval is spent inside the transaction, so a refused undo leaves it for
+    // the retry instead of burning it.
     let now = Timestamp::now();
+    let approval = session.require_sensitivity(Sensitivity::Sensitive, now)?;
     let actor = session.user_id();
 
     let mut tx = pool
         .begin()
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+    let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval)
+        .await?
+        .ok_or(DomainError::OwnerApprovalRequired)?;
     let include_cost = can_view_cost(&mut tx, session.role()).await?;
 
     let existing = repair_repo::find_raw_by_id(&mut tx, rid.as_str())
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(RepairError::NotFound)?;
-    if matches!(existing.status.as_str(), "delivered" | "cancelled") {
-        return Err(RepairError::AlreadyDelivered.into());
+    if existing.status.as_str() == "cancelled" {
+        return Err(RepairError::AlreadyCancelled.into());
     }
+
+    // Undo, not just a cancelled column (`ADR-046`). Every repair number in the
+    // app — the drawer, the wallet balance, the revenue of the day — is summed
+    // from this row, so leaving `delivered` is what gives the money back:
+    //   - a delivered ticket returns what the customer paid at delivery and its
+    //     deposit, to the same method and wallet it came in through;
+    //   - a ticket still in the shop returns the deposit it took;
+    //   - a ticket with nothing collected returns nothing.
+    let was_delivered = existing.status.as_str() == "delivered";
+    let refunded_minor = if was_delivered {
+        existing.final_price_minor.max(0)
+    } else {
+        existing.deposit_minor.max(0)
+    };
 
     let cancelled = repair_repo::mark_cancelled(&mut tx, rid.as_str(), clean_note.as_deref())
         .await
@@ -431,6 +509,18 @@ pub async fn cancel_repair(
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),
         "ticket_no": cancelled.ticket_no,
+        "service_kind": cancelled.service_kind,
+        "was_status": existing.status.as_str(),
+        "refunded_minor": refunded_minor,
+        "pay_method": existing.pay_method.as_str(),
+        "approved_by": approved_by.as_str(),
+        "reverses": if was_delivered {
+            "delivery_and_deposit"
+        } else if existing.deposit_minor > 0 {
+            "deposit"
+        } else {
+            "ticket_only"
+        },
     })
     .to_string();
     audit::append(&mut tx, actor, audit::event::REPAIR_CANCELLED, now, Some(detail))

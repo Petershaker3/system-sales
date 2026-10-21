@@ -36,9 +36,21 @@ const DB_FILENAME: &str = "shop.db";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // The camera is how a barcode and an IMEI are read (`ADR-043`). A WebView
+        // refuses `getUserMedia` unless the host answers its permission request:
+        // on Android the answer is JNI to `WebChromeClient.onPermissionRequest`,
+        // which also raises the OS runtime prompt, and on Windows it is WebView2's
+        // own prompt. Everything except the camera keeps the platform default, so
+        // this handler grants nothing nobody asked for.
+        .on_permission_request(|_webview, kind| match kind {
+            tauri::webview::PermissionKind::Camera => {
+                tauri::webview::PermissionResponse::Allow
+            }
+            _ => tauri::webview::PermissionResponse::Default,
+        })
         .invoke_handler(tauri::generate_handler![
             commands::identity::bootstrap_status,
-            commands::identity::create_first_manager,
+            commands::identity::claim_open_account,
             commands::identity::list_users_for_picker,
             commands::identity::login,
             commands::identity::login_with_pin,
@@ -136,6 +148,8 @@ pub fn run() {
             commands::shift::current_shift_summary,
             commands::shift::open_shift,
             commands::shift::record_expense,
+            commands::shift::record_shop_expense,
+            commands::shift::expenses_overview,
             commands::shift::record_cash_movement,
             commands::shift::close_shift,
             commands::wallet::wallets_overview,
@@ -144,6 +158,7 @@ pub fn run() {
             commands::wallet::record_wallet_movement,
             commands::wallet::reconcile_wallet,
             commands::wallet::void_wallet_op,
+            commands::wallet::payment_wallet_candidates,
             commands::wallet::create_wallet,
             commands::wallet::update_wallet,
             commands::wallet::delete_wallet,
@@ -160,6 +175,14 @@ pub fn run() {
             commands::companion::push_companion_scan,
             commands::companion::consume_companion_scans,
             commands::companion::set_companion_remote,
+            commands::companion::companion_connect_host,
+            commands::companion::companion_probe_host,
+            commands::companion::companion_save_capture,
+            commands::companion::companion_push_captures,
+            commands::companion::companion_clear_outbox,
+            commands::companion::companion_accept_intake,
+            commands::companion::companion_reject_intake,
+            commands::companion::companion_rotate_pair_code,
         ])
         .setup(move |app| {
             // Fail closed, and loudly. If the OS credential store cannot be
@@ -201,6 +224,26 @@ pub fn run() {
             // only: no decision depends on it.
             let _ = tauri::async_runtime::block_on(services::identity::session::purge_expired(&pool));
 
+            // A shop that has never made an account runs without one (`ADR-039`).
+            // The open owner row is written here, before the defaults below, so the
+            // default categories and phone companies are attributed to it like they
+            // are to a manager, and so a first launch opens on the sales screen
+            // instead of on a setup form. The account is the owner's to make later,
+            // from الإعدادات ← المستخدمين والصلاحيات.
+            //
+            // Not best effort in the usual sense: if it fails there is no operator for
+            // the first sale to belong to, and the lock card says out loud that this
+            // device has no accounts. There is no setup form to fall back to any more
+            // (`ADR-039`), and this line is the reason that is survivable: it runs on
+            // every launch, so starting the program again is the repair.
+            let opening =
+                tauri::async_runtime::block_on(services::identity::open_mode::ensure_open_account(
+                    &pool,
+                ));
+            if let Err(error) = &opening {
+                eprintln!("could not open the shop without an account: {error:?}");
+            }
+
             // The default categories, for a database made before the tree
             // (ADR-018 §1). Added once, by fixed id; on a device with no manager
             // yet nothing happens, and setup adds them. Best effort: a shop
@@ -213,7 +256,13 @@ pub fn run() {
                 services::catalog::brands::add_default_brands(&pool),
             );
 
-            // Start the stateless shop Wi-Fi companion listener on 0.0.0.0:8787 (ADR-037).
+            // Start the shop Wi-Fi companion listener on 0.0.0.0:8787 (`ADR-037`).
+            //
+            // Desktops only, from here on: the handset dials the link, it does not
+            // host one. Both platforms answering on 8787 against two separate
+            // databases is how the two screens ended up showing each other the
+            // same page (`ADR-042`).
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             services::companion::spawn_lan_companion_listener(
                 domain::companion::DEFAULT_COMPANION_PORT,
             );

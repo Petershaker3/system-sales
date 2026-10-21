@@ -126,6 +126,7 @@ async fn disabled_payment_method_is_refused_and_cash_cannot_be_disabled() {
             method: "card".to_string(),
             amount_minor: 450_00,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -157,11 +158,13 @@ async fn split_sale_between_cash_and_wallet_reconciles_drawer_and_cancellation_r
                 method: "cash".to_string(),
                 amount_minor: 500_00,
                 reference: None,
+                wallet_id: None,
             },
             SalePaymentInput {
                 method: "vf".to_string(),
                 amount_minor: 400_00,
                 reference: Some("VF-9988".to_string()),
+                wallet_id: None,
             },
         ]),
         None,
@@ -237,6 +240,7 @@ async fn credit_sale_requires_customer_updates_customer_balance_and_accepts_repa
             method: "credit".to_string(),
             amount_minor: 450_00,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -274,11 +278,13 @@ async fn credit_sale_requires_customer_updates_customer_balance_and_accepts_repa
                 method: "cash".to_string(),
                 amount_minor: 150_00,
                 reference: None,
+                wallet_id: None,
             },
             SalePaymentInput {
                 method: "credit".to_string(),
                 amount_minor: 300_00,
                 reference: None,
+                wallet_id: None,
             },
         ]),
         Some(&customer.id),
@@ -301,6 +307,7 @@ async fn credit_sale_requires_customer_updates_customer_balance_and_accepts_repa
             amount_minor: 350_00,
             method: "cash".to_string(),
             note: None,
+            wallet_id: None,
         },
     )
     .await;
@@ -318,6 +325,7 @@ async fn credit_sale_requires_customer_updates_customer_balance_and_accepts_repa
             amount_minor: 200_00,
             method: "instapay".to_string(),
             note: Some("دفعة تحت الحساب".to_string()),
+            wallet_id: None,
         },
     )
     .await
@@ -365,6 +373,7 @@ async fn cancelling_a_credit_sale_restores_customer_balance() {
             method: "credit".to_string(),
             amount_minor: 450_00,
             reference: None,
+            wallet_id: None,
         }]),
         Some(&customer.id),
     )
@@ -418,6 +427,7 @@ async fn instalment_payment_requires_and_records_provider_reference() {
             method: "install".to_string(),
             amount_minor: 450_00,
             reference: None,
+            wallet_id: None,
         }]),
         None,
     )
@@ -442,6 +452,7 @@ async fn instalment_payment_requires_and_records_provider_reference() {
             method: "install".to_string(),
             amount_minor: 450_00,
             reference: Some("valU".to_string()),
+            wallet_id: None,
         }]),
         None,
     )
@@ -499,6 +510,7 @@ async fn sales_role_can_list_customers_with_balances_and_record_credit_sale() {
             method: "credit".to_string(),
             amount_minor: 450_00,
             reference: None,
+            wallet_id: None,
         }]),
         Some(&created.id),
     )

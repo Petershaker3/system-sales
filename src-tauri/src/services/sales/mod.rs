@@ -37,10 +37,41 @@ use crate::domain::sales::{
     SaleReturnLineInput, WarrantyDate,
 };
 use crate::domain::unit::{Imei, UnitError};
+use crate::services::wallet as wallet_service;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
 use crate::services::identity::approval as approval_service;
 use crate::services::inventory::stock as inventory;
+
+/// Why the wallet one payment named could not be used.
+pub enum SalePayeeError {
+    /// The lookup itself failed; the caller rolls the sale back rather than record money that
+    /// cannot be placed.
+    Storage,
+    /// The number named does not receive that method, or a number was named for a method no shop
+    /// wallet holds (`ADR-041`).
+    NotEligible,
+}
+
+/// The shop wallet the money of one payment lands in (`ADR-040`, `ADR-041`).
+///
+/// `chosen` is the number the operator named at the till. A refund arrives here with the number
+/// the row it reverses was paid into — `allocate_default_refund_payments` copies it — so money
+/// leaves by the wallet it came in by instead of always hitting the primary. When nobody named
+/// one it is the primary for the method, the only answer a shop with one number per method can
+/// have. `None` for a method no wallet receives: cash stays in the drawer.
+async fn sale_payee_wallet_id(
+    conn: &mut sqlx::SqliteConnection,
+    method: PaymentMethod,
+    chosen: Option<&str>,
+) -> Result<Option<String>, SalePayeeError> {
+    wallet_service::resolve_payment_wallet_id(conn, method.as_str(), chosen)
+        .await
+        .map_err(|err| match err {
+            wallet_service::PaymentWalletFailure::Storage(_) => SalePayeeError::Storage,
+            wallet_service::PaymentWalletFailure::NotEligible(_) => SalePayeeError::NotEligible,
+        })
+}
 
 /// What one line of a sale names: a product and how many of it.
 ///
@@ -483,6 +514,7 @@ pub async fn record_sale_with_discounts(
         method: "cash".to_owned(),
         amount_minor: total_minor,
         reference: None,
+        wallet_id: None,
     }];
     let validated_payments = validate_sale_payments(
         payments.unwrap_or(&default_cash),
@@ -535,6 +567,14 @@ pub async fn record_sale_with_discounts(
 
     let mut credit_minor: i64 = 0;
     for (idx, p) in validated_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
+            .await
+            .map_err(|err| match err {
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
+                SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
+            })?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -542,6 +582,7 @@ pub async fn record_sale_with_discounts(
                 sale_id: sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -567,6 +608,7 @@ pub async fn record_sale_with_discounts(
                 kind: "credit_sale".to_owned(),
                 amount_minor: credit_minor,
                 method: None,
+                wallet_id: None,
                 sale_id: Some(sale_id.clone()),
                 note: Some(format!("فاتورة {reference}")),
                 actor_id: actor,
@@ -766,6 +808,7 @@ pub async fn cancel_sale(
                 sale_id: reversal_id.clone(),
                 payment_no: orig_p.payment_no,
                 method: orig_p.method.clone(),
+                wallet_id: orig_p.wallet_id.clone(),
                 amount_minor: orig_p.amount_minor,
                 reference: orig_p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -793,6 +836,7 @@ pub async fn cancel_sale(
                 kind: "sale_reversal".to_owned(),
                 amount_minor: -reversed_credit_minor,
                 method: None,
+                wallet_id: None,
                 sale_id: Some(reversal_id.clone()),
                 note: Some(format!("إلغاء فاتورة {}", original.reference)),
                 actor_id: actor,
@@ -1449,17 +1493,18 @@ async fn execute_return_core_in_tx(
     let mut refunded_map: std::collections::HashMap<String, i64> =
         refunded_by_method.into_iter().collect();
 
-    let mut remaining_by_method: Vec<(PaymentMethod, i64, Option<String>)> = Vec::new();
+    let mut remaining_by_method: Vec<(PaymentMethod, i64, Option<String>, Option<String>)> =
+        Vec::new();
     for op in &orig_payments {
         if let Ok(m) = PaymentMethod::parse(&op.method) {
             let used = refunded_map.remove(&op.method).unwrap_or(0);
             let avail = op.amount_minor.saturating_sub(used).max(0);
-            remaining_by_method.push((m, avail, op.reference.clone()));
+            remaining_by_method.push((m, avail, op.reference.clone(), op.wallet_id.clone()));
         }
     }
     let fallback_method = remaining_by_method
         .first()
-        .map(|(m, _, _)| *m)
+        .map(|(m, ..)| *m)
         .unwrap_or(PaymentMethod::Cash);
 
     let validated_refund_payments = match refund_payments {
@@ -1502,6 +1547,14 @@ async fn execute_return_core_in_tx(
 
     let mut reversed_credit_minor: i64 = 0;
     for (idx, p) in validated_refund_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
+            .await
+            .map_err(|err| match err {
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
+                SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
+            })?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -1509,6 +1562,7 @@ async fn execute_return_core_in_tx(
                 sale_id: return_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -1536,6 +1590,7 @@ async fn execute_return_core_in_tx(
                 kind: "sale_reversal".to_owned(),
                 amount_minor: -reversed_credit_minor,
                 method: None,
+                wallet_id: None,
                 sale_id: Some(return_sale_id.clone()),
                 note: Some(format!("مرتجع فاتورة {}", original.reference)),
                 actor_id: *actor,
@@ -2075,6 +2130,7 @@ pub async fn record_sale_exchange(
         method: "cash".to_owned(),
         amount_minor: new_total_minor,
         reference: None,
+        wallet_id: None,
     }];
     let validated_new_payments = validate_sale_payments(
         new_payments.unwrap_or(&default_cash),
@@ -2112,6 +2168,14 @@ pub async fn record_sale_exchange(
 
     let mut credit_minor: i64 = 0;
     for (idx, p) in validated_new_payments.iter().enumerate() {
+        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
+        // whole call, so the payee lookup cannot run inside its argument list.
+        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
+            .await
+            .map_err(|err| match err {
+                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
+                SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
+            })?;
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
@@ -2119,6 +2183,7 @@ pub async fn record_sale_exchange(
                 sale_id: new_sale_id.clone(),
                 payment_no: idx as i64 + 1,
                 method: p.method.as_str().to_owned(),
+                wallet_id: payee_wallet_id,
                 amount_minor: p.amount_minor,
                 reference: p.reference.clone(),
                 occurred_at: now.as_millis(),
@@ -2146,6 +2211,7 @@ pub async fn record_sale_exchange(
                 kind: "credit_sale".to_owned(),
                 amount_minor: credit_minor,
                 method: None,
+                wallet_id: None,
                 sale_id: Some(new_sale_id.clone()),
                 note: Some(format!("فاتورة استبدال {new_reference}")),
                 actor_id: actor,

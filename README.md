@@ -183,9 +183,36 @@ never modified.
 | Account enumeration | Unknown account and wrong password return the same error and cost the same Argon2 work |
 | Wholesale data | Requires the `Manager` role **and** a `reauthenticated` session |
 | Credential store down | **Fail closed.** No fallback exists by design |
+| Shop with no account yet | Runs on one `users` row marked `provisional` (`ADR-039`). Still resolved in Rust, still audited by that row's id; no password and no PIN exist for it |
 
 The frontend receives `{ userId, displayName, role, assurance }` after login and
 nothing else. Every later command resolves the session internally.
+
+**Open mode (`ADR-039`).** A fresh device is not gated on a setup form: `lib.rs`
+creates the open owner row, and `services::identity::session::resolve` — the single
+place all commands ask who is operating — answers with that row's manager session when
+there is no token. Owner approval for sensitive operations is minted for the session
+and consumed without a database row, because the approval exists to protect the till
+from a second user and an open shop has none. The account is claimed afterwards from
+الإعدادات ← المستخدمين والصلاحيات: `claim_open_account` overwrites the verifier and
+clears the flag in one `UPDATE … WHERE provisional = 1`, so a double submit is
+`BOOTSTRAP_ALREADY_COMPLETED` and the shop's existing history stays attributed to the
+same row. Hiding the lock, the PIN and the sign-out in this state is presentation in
+`src/shell/open-mode.ts`; authority is not decided there.
+
+Installing a build does not reset a device, and neither does uninstalling one: the
+database at `%LOCALAPPDATA%\com.mshop.system` belongs to the machine, not to the
+installer. So a shop that ran any build from before 2026-10-19 — the day the demo
+account stopped being seeded — still opens on the lock card with that account in its
+list, and that is the correct answer rather than a leftover: accounts exist, nobody is
+signed in, the till is locked. Sign in with the old account, make your own from
+الإعدادات ← المستخدمين والصلاحيات, then disable the old one. There is **no factory-reset
+command in the app and no script that clears a shop's data**, because deleting the
+database is the owner's decision and not a side effect of an install; moving
+`shop.db`, `shop.db-shm` and `shop.db-wal` aside yourself is the only way to see the
+fresh-device state on a machine that already sold something. The same holds on the
+phone, where the file is `/data/user/0/com.mshop.system/shop.db` and a reinstall over an
+APK keeps it.
 
 > **Threat model.** As recorded in `ADR-003` and `spec:55`: this does not protect
 > the database file from someone who can read it directly, and does not claim to.
@@ -322,7 +349,8 @@ cross-build is already sensitive to added build steps.
 
 Implemented and tested:
 
-- First-run setup creating the first manager, once, enforced transactionally
+- The owner's account, made from الإعدادات ← المستخدمين والصلاحيات (`ADR-039`) — once,
+  enforced transactionally, and the same command answers a device with no rows at all
 - Login by user picker plus password
 - Sessions with idle and absolute expiry, resolved from the OS credential store
 - Re-authentication to raise the assurance level
@@ -392,7 +420,8 @@ Implemented and tested:
   transaction, and is audited (`owner_approval_granted`, and `approved_by` on the
   operation). Changing that PIN, disabling or demoting the owner withdraws it
 - The owner's recovery code (phase 1.1, `ADR-017` §4), replacing the `recovery`
-  build: 20 symbols without 0/O/1/I/L, shown once at setup and from Settings, kept
+  build: 20 symbols without 0/O/1/I/L, shown once when the account is made and from
+  Settings, kept
   only as an Argon2id verifier. «نسيت كلمة السر؟» on the owner's lock card sets a new
   password with it, ends every session and burns the code for a new one; a wrong
   code counts against the shared lockout
@@ -705,8 +734,10 @@ No secret appears in this document, and none is to be added to it.
 
 **The rules**
 
-1. The first Manager password is created by the operator during first-run setup.
-   It is never generated, seeded or chosen by the build.
+1. The first Manager password is typed by the operator when they make the account from
+   الإعدادات ← المستخدمين والصلاحيات (`ADR-039`). It is never generated, seeded or chosen
+   by the build, and there is no first-run screen in front of it: the shop is already
+   selling while the owner decides to.
 2. A Manager password is **never stored in this repository**, in a plan, in a
    script, in a log or in a commit. Only its Argon2id verifier ever reaches
    storage, and that verifier does not leave the device's SQLite file.
@@ -731,10 +762,10 @@ No secret appears in this document, and none is to be added to it.
 A manager reset needs a manager session, and a manager session needs the
 password, so the reset alone cannot help the owner who forgot it. Since phase 1.1
 the recovery code can: «نسيت كلمة السر؟» on the owner's lock card takes the code
-written on paper at setup and sets a new password. It is the only unauthenticated
+written on paper when the account was made and sets a new password. It is the only unauthenticated
 entry point, and it is deliberate - a secret of about 99 bits that the owner holds
 offline, not a backdoor in the software. An owner who never wrote a code down is
-still locked out of the owner's screens; that is why setup shows the first code
+still locked out of the owner's screens; that is why making the account shows the first code
 and Settings → «كود الاسترجاع» makes a new one.
 
 The gap this section closes is a **testing and operations gap**, not an

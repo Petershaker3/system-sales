@@ -28,6 +28,8 @@ import {
   paySplit,
   pct,
   prevPeriod,
+  rateDay,
+  rateMonthVerdict,
   todayReport,
   totalsOf,
   yearAgo,
@@ -450,5 +452,123 @@ describe('Sales analytics (Plan 1.14 / ADR-029)', () => {
     assert.deepEqual(chgFormat(0), { kind: 'zero', text: '0%' });
     assert.deepEqual(chgFormat(400), { kind: 'up', text: '×5' });
     assert.deepEqual(chgFormat(-15), { kind: 'down', text: '15%' });
+  });
+});
+
+describe('rateDay — the day in one word (`ADR-047`)', () => {
+  const base = {
+    salesMinor: 0,
+    goodsProfitMinor: 0,
+    servicesProfitMinor: 0,
+    walletFeesMinor: 0,
+    expensesMinor: 0,
+    invoices: 0,
+    vsYesterday: null,
+  };
+
+  it('calls a day that has not started «لسه بدري», not «تحت المتوسط»', () => {
+    const r = rateDay(base);
+    assert.equal(r.key, 'idle');
+    assert.equal(r.word, 'لسه بدري');
+    assert.equal(r.reasons.length, 0);
+    assert.equal(r.netMinor, 0);
+  });
+
+  it('says «ممتاز» for a day that beat yesterday, kept a margin, was busy and had help', () => {
+    const r = rateDay({
+      ...base,
+      salesMinor: 100_000,
+      goodsProfitMinor: 20_000,
+      servicesProfitMinor: 7_000,
+      walletFeesMinor: 3_000,
+      expensesMinor: 5_000,
+      invoices: 7,
+      vsYesterday: 25,
+    });
+    assert.equal(r.key, 'excellent');
+    assert.equal(r.word, 'ممتاز');
+    assert.equal(r.grossMinor, 30_000);
+    assert.equal(r.netMinor, 25_000, 'expenses are taken out of the day, not ignored');
+  });
+
+  it('says «جيد» when the day is ahead but small', () => {
+    const r = rateDay({
+      ...base,
+      salesMinor: 40_000,
+      goodsProfitMinor: 8_000,
+      invoices: 2,
+      vsYesterday: 4,
+    });
+    assert.equal(r.key, 'good');
+    assert.equal(r.word, 'جيد');
+  });
+
+  it('says «تحت المتوسط» when sales fell and the expenses ate the profit', () => {
+    const r = rateDay({
+      ...base,
+      salesMinor: 30_000,
+      goodsProfitMinor: 900,
+      invoices: 1,
+      expensesMinor: 5_000,
+      vsYesterday: -40,
+    });
+    assert.equal(r.key, 'below');
+    assert.equal(r.word, 'تحت المتوسط');
+    assert.equal(r.netMinor, -4_100);
+    assert.ok(r.reasons.some((why) => why.includes('مصاريف')));
+  });
+
+  it('rates the whole shop, so services and wallet fees count as income', () => {
+    const goodsOnly = rateDay({
+      ...base,
+      salesMinor: 20_000,
+      goodsProfitMinor: 4_000,
+      invoices: 3,
+      vsYesterday: -5,
+    });
+    const withServices = rateDay({
+      ...base,
+      salesMinor: 20_000,
+      goodsProfitMinor: 4_000,
+      servicesProfitMinor: 6_000,
+      invoices: 3,
+      vsYesterday: -5,
+    });
+    assert.equal(goodsOnly.key, 'average');
+    assert.equal(withServices.key, 'good', 'a repair beside the sale is a better day');
+    assert.ok(withServices.netMinor > goodsOnly.netMinor);
+  });
+
+  it('keeps at most three reasons, and never a fake one', () => {
+    const r = rateDay({
+      ...base,
+      salesMinor: 100_000,
+      goodsProfitMinor: 20_000,
+      servicesProfitMinor: 5_000,
+      walletFeesMinor: 1_000,
+      expensesMinor: 2_000,
+      invoices: 9,
+      vsYesterday: 30,
+    });
+    assert.ok(r.reasons.length <= 3);
+    assert.ok(r.reasons.every((why) => why.trim().length > 0));
+  });
+});
+
+describe('rateMonthVerdict — the month speaks the same four words (`ADR-047`)', () => {
+  it('grades a best month «ممتاز» and a weak one «تحت المتوسط»', () => {
+    assert.equal(rateMonthVerdict({ key: 'best', tone: 'good' }, 1, 8).word, 'ممتاز');
+    assert.equal(rateMonthVerdict({ key: 'top3', tone: 'good' }, 2, 8).word, 'ممتاز');
+    assert.equal(rateMonthVerdict({ key: 'low3', tone: 'warn' }, 7, 8).word, 'تحت المتوسط');
+  });
+
+  it('splits the middle by rank: upper half «جيد», lower half «متوسط»', () => {
+    assert.equal(rateMonthVerdict({ key: 'mid', tone: 'info' }, 3, 8).word, 'جيد');
+    assert.equal(rateMonthVerdict({ key: 'mid', tone: 'info' }, 6, 8).word, 'متوسط');
+  });
+
+  it('does not grade a month it cannot compare', () => {
+    assert.equal(rateMonthVerdict({ key: 'early', tone: 'info' }, null, 1).word, 'لسه بدري');
+    assert.equal(rateMonthVerdict({ key: 'few', tone: 'info' }, null, 2).word, 'لسه بدري');
   });
 });

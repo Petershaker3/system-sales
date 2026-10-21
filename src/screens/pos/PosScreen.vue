@@ -30,6 +30,8 @@ import { appearance, discountLimitPctNum, enabledPayMethods } from '../../ui/app
 import { countWord, kindsWord, money, monthsTxt, num, pcsWord } from '../../ui/format';
 
 import Icon from '../../ui/Icon.vue';
+import CameraScanButton from '../../ui/CameraScanButton.vue';
+import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import ImeiCheckModal from '../store/ImeiCheckModal.vue';
@@ -63,6 +65,14 @@ const customers = ref<Customer[]>([]);
 const loadError = ref('');
 
 const state = reactive(cart.newCart());
+// A scan in the POS search box (`ADR-043`). The box already accepts a barcode or the
+// last digits of an IMEI, so a reading is simply written into it and the existing
+// search does the work — no second lookup path to keep in step.
+function onScan(reading: ScanReading): void {
+  query.value = reading.raw;
+  searchInput.value?.focus({ preventScroll: true });
+}
+
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
@@ -912,6 +922,11 @@ const KEYS: readonly [string, string][] = [
               />
               <kbd>/</kbd>
             </label>
+            <!-- The camera sits beside the box rather than inside its <label>: a
+                 control inside a label changes the caret geometry of an RTL input,
+                 and a barcode box that reverses what is typed is worse than no
+                 camera at all. -->
+            <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
             <div v-if="query.trim() !== ''" class="results">
               <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
                 <div>
