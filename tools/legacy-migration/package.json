@@ -4,9 +4,10 @@
   "description": "يحوّل نسخة السيستم القديم (JSON) إلى نسخة .msb1 يقبلها السيستم الجديد",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/plan.test.mjs test/build.test.mjs",
+    "test": "node --test test/plan.test.mjs test/build.test.mjs test/mapping.test.mjs",
     "migrate": "node scripts/run-migration.mjs",
-    "smoke": "node test/ui-smoke.mjs"
+    "smoke": "node test/ui-smoke.mjs",
+    "smoke:autofix": "node test/ui-autofix.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
