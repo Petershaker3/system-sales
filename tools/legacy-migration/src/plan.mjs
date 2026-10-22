@@ -756,6 +756,23 @@ export function validatePlan(plan) {
     }
   }
 
+  // An item left out of the catalogue, with sales in a detailed month: the
+  // builder keeps the sales on an archived row so the month's money stays right.
+  // Saying it here means the owner is not surprised by a product they excluded
+  // still carrying its monthly figures.
+  const soldByItem = new Map();
+  for (const sale of plan.sales) {
+    if (!sale.include) continue;
+    soldByItem.set(sale.itemId, (soldByItem.get(sale.itemId) || 0) + sale.sell * sale.qty);
+  }
+  for (const item of plan.items) {
+    if (item.include) continue;
+    const money = soldByItem.get(item.id);
+    if (money) {
+      push('warn', 'item-excluded-with-sales', `«${item.name}» مش محدد للنقل، بس عليه مبيعات بـ${money} ج — المبيعات هتتنقل على صنف مؤرشف باسمه عشان رقم الشهر يفضل صح.`, item.id);
+    }
+  }
+
   for (const month of plan.months) {
     if (month.mode === 'skip' && month.include) {
       push('warn', 'month-skipped', `شهر ${month.label} متحدد إنه ما يتنقلش.`, month.month);

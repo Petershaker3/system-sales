@@ -7,7 +7,9 @@
     "test": "node --test test/plan.test.mjs test/build.test.mjs test/mapping.test.mjs",
     "migrate": "node scripts/run-migration.mjs",
     "smoke": "node test/ui-smoke.mjs",
-    "smoke:autofix": "node test/ui-autofix.mjs"
+    "smoke:autofix": "node test/ui-autofix.mjs",
+    "build:draft": "node scripts/build-from-draft.mjs",
+    "smoke:draft": "node test/ui-draft.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -17,6 +19,7 @@
     "sql.js": "^1.15.1"
   },
   "devDependencies": {
+    "jpeg-js": "^0.4.4",
     "jsdom": "^30.1.3"
   },
   "private": true,

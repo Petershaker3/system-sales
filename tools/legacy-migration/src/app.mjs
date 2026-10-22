@@ -364,6 +364,8 @@ function autoFix(finding) {
     editRecord('categories', finding.ref, { parentId: null });
   } else if (code === 'item-category') {
     editRecord('items', finding.ref, { categoryId: null });
+  } else if (code === 'item-excluded-with-sales') {
+    editRecord('items', finding.ref, { include: true });
   } else if (code === 'month-skipped') {
     editRecord('months', finding.ref, { include: false });
   } else {
@@ -2045,26 +2047,41 @@ async function ensureSql() {
   return SQL;
 }
 
-/** 192×192 JPEG, the size the app insists on for the shop logo. */
+/**
+ * 192×192 JPEG, the size the app insists on for the shop logo.
+ *
+ * Every way this can fail returns `null` instead of hanging: a logo is a nice
+ * extra, and a build that never finishes because a picture would not decode is a
+ * build the owner cannot use. The image decode and the canvas encode each get a
+ * deadline for the same reason.
+ */
 async function shrinkLogo(dataUrl) {
+  const withDeadline = (promise, ms) => Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
   try {
-    const image = await new Promise((resolve, reject) => {
+    const image = await withDeadline(new Promise((resolve, reject) => {
       const element = new Image();
       element.onload = () => resolve(element);
-      element.onerror = reject;
+      element.onerror = () => reject(new Error('الصورة مش مقروءة'));
       element.src = dataUrl;
-    });
+    }), 5000);
+    if (!image) return null;
     const canvas = document.createElement('canvas');
     canvas.width = 192;
     canvas.height = 192;
     const context = canvas.getContext('2d');
+    // A browser with canvas turned off (privacy settings, old GPU driver) gives
+    // `null` here. That is a reason to skip the logo, not to stop the backup.
+    if (!context) return null;
     const scale = Math.max(192 / image.width, 192 / image.height);
     const width = image.width * scale;
     const height = image.height * scale;
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, 192, 192);
     context.drawImage(image, (192 - width) / 2, (192 - height) / 2, width, height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    const blob = await withDeadline(new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9)), 5000);
     if (!blob) return null;
     const buffer = new Uint8Array(await blob.arrayBuffer());
     return buffer.length <= 64 * 1024 ? buffer : null;
@@ -2073,11 +2090,20 @@ async function shrinkLogo(dataUrl) {
   }
 }
 
+/**
+ * Build the backup, reporting every way it can stop.
+ *
+ * The rule here: no step may hang and no failure may be silent. A picture that
+ * will not decode, a canvas the browser refuses to give, or an encryption cost
+ * the machine cannot afford each end in a sentence the owner can act on — never
+ * in a spinner that never closes.
+ */
 async function runBuild() {
+  if (state.building) return;
   const validation = validatePlan(state.plan);
   const errors = validation.findings.filter((finding) => finding.level === 'error');
   if (errors.length) {
-    state.notice = { level: 'danger', text: 'فيه أخطاء لازم تتصلح الأول.' };
+    state.notice = { level: 'danger', text: 'فيه أخطاء لازم تتصلح الأول — شوف كارت «الفحص» تحت.' };
     render();
     return;
   }
@@ -2093,8 +2119,24 @@ async function runBuild() {
   }
 
   state.building = true;
+  const startedAt = Date.now();
   const progress = overlay('بنجهّز النسخة…', 'بنجهّز قاعدة البيانات على مخطط السيستم الجديد.');
+  // A build that stops halfway must give the screen back. This watchdog is the
+  // last resort for a browser that never resolves a promise we are waiting on.
+  let finished = false;
+  const watchdog = setTimeout(() => {
+    if (finished) return;
+    finished = true;
+    state.building = false;
+    progress.close();
+    state.notice = {
+      level: 'danger',
+      text: 'البناء خد وقت أطول من المعتاد ووقف. جرّب تشغيل «تشفير أسرع» من الإعدادات تحت، ولو حصل تاني ابعتلي الرسالة دي.',
+    };
+    render();
+  }, 180000);
   await tick();
+
   try {
     let logo = null;
     if (state.includeLogo && state.plan.settings.logoDataUrl) {
@@ -2102,24 +2144,48 @@ async function runBuild() {
       await tick();
       logo = await shrinkLogo(state.plan.settings.logoDataUrl);
     }
+
     progress.step('بنكتب قاعدة البيانات…', 'بنطبّق ترحيلات السيستم الجديد وبنكتب الصفوف.', 35);
     await tick();
     const SQL = await ensureSql();
 
     progress.step('بنشفّر النسخة…', 'التشفير بياخد ثانيتين تقريبًا — ده اللي بيحمي نسخة المحل.', 65);
     await tick();
-    const result = buildFromPlan({
-      SQL,
-      plan: state.plan,
-      password: state.password,
-      logoJpeg: logo,
-      now: Date.now(),
-      kdf: state.fastKdf ? { memoryKib: 8 * 1024, iterations: 1, parallelism: 1 } : undefined,
-    });
+    let result;
+    let kdfNote = '';
+    try {
+      result = buildFromPlan({
+        SQL,
+        plan: state.plan,
+        password: state.password,
+        logoJpeg: logo,
+        now: Date.now(),
+        kdf: state.fastKdf ? { memoryKib: 8 * 1024, iterations: 1, parallelism: 1 } : undefined,
+      });
+    } catch (error) {
+      // The heavy Argon2id setting can run out of memory on a small machine. The
+      // lighter cost is still inside what the app accepts, and the parameters are
+      // recorded inside the file, so the restore opens it either way.
+      const message = String(error?.message || error);
+      if (state.fastKdf || !/memory|allocat|out of|RangeError/i.test(message)) throw error;
+      progress.step('بنشفّر بتشفير أخف…', 'الجهاز مش قادر على التشفير القوي — بنستخدم إعداد أخف بيقبله التطبيق.', 70);
+      await tick();
+      result = buildFromPlan({
+        SQL,
+        plan: state.plan,
+        password: state.password,
+        logoJpeg: logo,
+        now: Date.now(),
+        kdf: { memoryKib: 32 * 1024, iterations: 2, parallelism: 1 },
+      });
+      kdfNote = 'التشفير اتعمل بإعداد أخف (32 ميجا/مرتين) لأن الجهاز مش قادر على الإعداد الافتراضي. النسخة سليمة ويقبلها التطبيق.';
+    }
     if (!result.ok) {
+      finished = true;
+      clearTimeout(watchdog);
       progress.close();
       state.building = false;
-      state.notice = { level: 'danger', text: 'فيه أخطاء في الخطة منعت البناء.' };
+      state.notice = { level: 'danger', text: 'فيه أخطاء في الخطة منعت البناء — شوف كارت «الفحص» تحت.' };
       render();
       return;
     }
@@ -2138,15 +2204,28 @@ async function runBuild() {
       bytes: result.bytes,
       report,
       stats: result.stats,
+      seconds: Math.round((Date.now() - startedAt) / 1000),
+      logoIncluded: Boolean(logo),
+      wantedLogo: Boolean(state.includeLogo && state.plan.settings.logoDataUrl),
     };
     state.building = false;
-    state.notice = null;
+    finished = true;
+    clearTimeout(watchdog);
     progress.close();
+    state.notice = kdfNote
+      ? { level: 'warn', text: kdfNote }
+      : (!state.built.logoIncluded && state.built.wantedLogo
+        ? { level: 'warn', text: 'النسخة اتبنت، بس الشعار ماتصغّرش في المتصفح ده فاتنقل من غير شعار. تقدر تحطه من «الإعدادات ← الشعار» بعد الاستيراد.' }
+        : null);
+    // No programmatic scrolling: the build tab re-renders with the result at the
+    // top, and some embedded browsers refuse `scrollTo` outright.
     render();
   } catch (error) {
+    finished = true;
+    clearTimeout(watchdog);
     state.building = false;
     progress.close();
-    state.notice = { level: 'danger', text: `البناء وقف: ${error.message}` };
+    state.notice = { level: 'danger', text: `البناء وقف: ${error?.message || error}. جرّب تشغيل «تشفير أسرع» ولو حصل تاني ابعتلي الرسالة دي.` };
     render();
   }
 }

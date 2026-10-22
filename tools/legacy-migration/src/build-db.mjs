@@ -225,7 +225,19 @@ export function buildShopDatabase({ SQL, plan, logoJpeg = null, now = Date.now()
     }
 
     // ── Items ───────────────────────────────────────────────────────────────
-    const products = plan.items.filter((row) => row.include);
+    // An item the owner left out of the catalogue still ships when a sale in a
+    // detailed month points at it: the invoice must keep its money, and a sale
+    // line cannot exist without a product row. It travels as an *archived*
+    // product, so it never shows up in the POS — the catalogue decision and the
+    // month's total are both respected.
+    const soldItemIds = new Set(
+      plan.sales
+        .filter((sale) => sale.include)
+        .map((sale) => sale.itemId),
+    );
+    const products = plan.items
+      .filter((row) => row.include || soldItemIds.has(row.id))
+      .map((row) => (row.include ? row : { ...row, archived: true }));
     const productIds = new Set(products.map((row) => row.id));
     const itemsById = new Map(products.map((row) => [row.id, row]));
 

@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import initSqlJs from 'sql.js';
 
 import { preparePlan, buildFromPlan } from '../src/pipeline.mjs';
+import { validatePlan } from '../src/plan.mjs';
 import { readBackupFile } from '../src/backup.mjs';
 
 const require = createRequire(import.meta.url);
@@ -208,6 +209,28 @@ test('what the owner switched off stays out of the database', () => {
   const vodafone = one("SELECT hidden, opening_balance_minor FROM wallets WHERE id = 'vf'");
   assert.equal(vodafone.hidden, 1);
   assert.equal(vodafone.opening_balance_minor, 0);
+});
+
+test('an item left out of the catalogue keeps its sales, as an archived row', () => {
+  // The owner's own draft did exactly this: unchecked one product while a sale in
+  // the detailed month pointed at it. Dropping the sale would have made October
+  // short by that sale's money, so it rides along on an archived product that the
+  // POS never shows.
+  const plan = structuredClone(prepared.plan);
+  const shield = plan.items.find((row) => row.name === 'شاشة حماية');
+  shield.include = false;
+  const result = build(plan);
+  const { one } = open(result.dbBytes);
+  assert.equal(one("SELECT status FROM products WHERE name = 'شاشة حماية'").status, 'archived');
+  assert.equal(one("SELECT COUNT(*) AS n FROM sales WHERE reference LIKE 'TRH-%'").n, 5);
+  assert.equal(
+    one("SELECT SUM(total_minor) AS total FROM sales WHERE reference LIKE 'TRH-%'").total,
+    544000,
+    'the month keeps every piastre it had',
+  );
+  const warning = validatePlan(plan).findings.find((finding) => finding.code === 'item-excluded-with-sales');
+  assert.ok(warning, 'the owner is told why the product still carries money');
+  assert.equal(warning.ref, shield.id);
 });
 
 test('switching a month off drops its money without touching the others', () => {
