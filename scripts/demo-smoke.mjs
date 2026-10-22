@@ -3433,6 +3433,68 @@ check(
 );
 await shot('71-camera-beside-barcode');
 
+// --- «الهواتف»: one section for the handsets --------------------------------
+// The owner's request (2026-10-23): a section of its own with every detail —
+// the handset, the IMEI, the cost, the price — and a count that reads by number
+// and by money.
+await page.$eval('.rail .nav-btn[title="الهواتف"]', (el) => el.click());
+await page.waitForSelector('[data-phones-screen]', { timeout: 5000 });
+await sleep(400);
+const phoneHero = await text('[data-phone-hero]');
+check(
+  'the phones section counts the handsets and prices the shelf',
+  phoneHero.includes('عدد الأجهزة') && phoneHero.includes('قيمة الشراء') && phoneHero.includes('قيمة البيع'),
+  phoneHero.replace(/\s+/g, ' ').slice(0, 120)
+);
+check(
+  'every registered handset is a row, with its IMEI and its cost',
+  (await count('[data-phone-unit]')) >= 1 &&
+    (await page.$eval('[data-phone-panel="units"]', (el) => (el.textContent ?? '').includes('IMEI')))
+);
+check(
+  'a used handset is marked as used, not hidden among the new ones',
+  (await page.$$eval('[data-phone-unit]', (els) => els.some((e) => (e.textContent ?? '').includes('مستعمل'))))
+);
+check(
+  'stock with no IMEI is counted and named instead of quietly dropped',
+  (await count('[data-phone-unregistered]')) === 1
+);
+await shot('80-phones-units');
+
+await page.click('[data-phone-tab="models"]');
+await sleep(250);
+check(
+  'the models tab answers «how many of this model and what did it cost»',
+  (await count('[data-phone-model]')) >= 2
+);
+await shot('81-phones-models');
+
+await page.click('[data-phone-tab="count"]');
+await sleep(200);
+const countByNumber = await text('[data-phone-panel="count"]');
+await page.click('[data-count-mode="money"]');
+await sleep(200);
+const countByMoney = await text('[data-phone-panel="count"]');
+check(
+  'the count reads both ways: by number and by money',
+  countByNumber.includes('نسبة من الرف') && countByMoney.includes('قيمة البيع المتوقعة'),
+  `${countByNumber.includes('عدد الأجهزة')}/${countByMoney.includes('قيمة الشراء')}`
+);
+await shot('82-phones-count');
+
+// the setup tab sends the owner to the settings that own each phone rule
+await page.click('[data-phone-tab="setup"]');
+await sleep(200);
+await page.$eval('[data-goto="receipt"]', (el) => el.click());
+await sleep(400);
+check(
+  'a phone setting opens the settings tab that owns it',
+  (await text('.topbar h1')) === 'الإعدادات' &&
+    (await page.$eval('[data-settings-panel="receipt"]', (el) => getComputedStyle(el).display)) !== 'none'
+);
+await page.click('[data-settings-tab="all"]');
+await sleep(150);
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

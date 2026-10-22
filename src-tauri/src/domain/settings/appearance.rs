@@ -216,8 +216,9 @@ pub fn parse_pay_methods(raw: &str) -> Option<String> {
 /// The rail's sections, in the order this build ships (`shell/nav.ts`). «الإعدادات»
 /// is not one of them: it sits alone at the bottom of the rail, away from the
 /// sections that move.
-pub const NAV_SECTIONS: [&str; 9] = [
-    "pos", "sales", "wallets", "repairs", "store", "reports", "expenses", "mobile", "capture",
+pub const NAV_SECTIONS: [&str; 10] = [
+    "pos", "sales", "wallets", "repairs", "store", "phones", "reports", "expenses", "mobile",
+    "capture",
 ];
 
 /// Validate a comma-separated rail order.

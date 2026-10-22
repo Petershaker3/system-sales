@@ -28,6 +28,7 @@ import SalesScreen from '../screens/sales/SalesScreen.vue';
 import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
+import PhonesScreen from '../screens/phones/PhonesScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
 import ExpensesScreen from '../screens/expenses/ExpensesScreen.vue';
 import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
@@ -130,6 +131,20 @@ const settingsItem = settingsNavItem();
  */
 function onOpenGuideRequest(): void {
   screen.value = 'guide';
+}
+
+/**
+ * A screen asks for one settings tab (the phones screen's setup cards, which would
+ * otherwise have to duplicate the settings UI to change one number).
+ */
+async function onOpenSettingsRequest(event: Event): Promise<void> {
+  const detail = (event as CustomEvent<{ tab?: string }>).detail;
+  screen.value = 'settings';
+  await nextTick();
+  const tab = detail?.tab;
+  if (tab === 'shop' || tab === 'look' || tab === 'rail' || tab === 'catalog' || tab === 'users' || tab === 'pay' || tab === 'receipt' || tab === 'backup' || tab === 'devices') {
+    settingsScreen.value?.openTab(tab);
+  }
 }
 
 // A seller never lands on an owner screen, even after a switch or a role change.
@@ -273,12 +288,14 @@ onMounted(() => {
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
   window.addEventListener('mshop:open-guide', onOpenGuideRequest);
+  window.addEventListener('mshop:open-settings', onOpenSettingsRequest);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
   document.removeEventListener('mousedown', onDocClick);
   window.removeEventListener('keydown', onSwitchKey, true);
   window.removeEventListener('mshop:open-guide', onOpenGuideRequest);
+  window.removeEventListener('mshop:open-settings', onOpenSettingsRequest);
 });
 
 </script>
@@ -523,6 +540,7 @@ onBeforeUnmount(() => {
           @changed="refreshShiftState"
         />
         <StoreScreen v-else-if="screen === 'store'" :session="session" />
+        <PhonesScreen v-else-if="screen === 'phones'" />
         <ReportsScreen
           v-else-if="screen === 'reports'"
           :session="session"

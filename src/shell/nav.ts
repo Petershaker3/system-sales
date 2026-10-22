@@ -13,6 +13,7 @@ export type ScreenId =
   | 'wallets'
   | 'repairs'
   | 'store'
+  | 'phones'
   | 'reports'
   | 'expenses'
   | 'mobile'
@@ -40,6 +41,9 @@ export const NAV: readonly NavItem[] = [
   { id: 'wallets', label: 'المحافظ', icon: 'wallet', ownerOnly: false },
   { id: 'repairs', label: 'الصيانة', icon: 'wrench', ownerOnly: false },
   { id: 'store', label: 'المخزن', icon: 'boxes', ownerOnly: true },
+  // The handsets, apart from the rest of the stock: a phone shop's own question
+  // — this model, this IMEI, this cost — not a filter inside «المخزن».
+  { id: 'phones', label: 'الهواتف', icon: 'smartphone', ownerOnly: true },
   { id: 'reports', label: 'التقارير', icon: 'chart-column', ownerOnly: true },
   // «المصاريف» sits beside «التقارير» because it answers the same question from the
   // other side: what came in is the reports screen, what went out is this one
@@ -56,6 +60,7 @@ export const TITLES: Record<ScreenId, string> = {
   wallets: 'المحافظ',
   repairs: 'الصيانة والسوفت وير',
   store: 'المخزن',
+  phones: 'الهواتف',
   reports: 'التقارير',
   expenses: 'المصاريف',
   mobile: 'تطبيق الموبايل',
@@ -96,6 +101,7 @@ export const SECTION_ORDER: readonly ScreenId[] = [
   'wallets',
   'repairs',
   'store',
+  'phones',
   'reports',
   'expenses',
   'mobile',

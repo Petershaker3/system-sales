@@ -4158,8 +4158,9 @@ fn money_unit_is_a_persisted_setting_and_storage_stays_in_piastres() {
 /// rail with no screen behind it or silently drop one the build does ship.
 #[test]
 fn the_rail_order_names_only_sections_both_halves_know() {
-    const SECTIONS: [&str; 9] = [
-        "pos", "sales", "wallets", "repairs", "store", "reports", "expenses", "mobile", "capture",
+    const SECTIONS: [&str; 10] = [
+        "pos", "sales", "wallets", "repairs", "store", "phones", "reports", "expenses", "mobile",
+        "capture",
     ];
     assert!(
         SETTINGS_APPEARANCE_RS.contains("AppearanceKey::NavOrder => \"ui.nav_order\""),

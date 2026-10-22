@@ -36,12 +36,12 @@ test('a phone drops «الموبايل» and gains «الالتقاط» (`ADR-04
   );
   assert.deepEqual(
     navFor('manager').map((item) => item.id),
-    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'expenses', 'mobile', 'settings'],
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'phones', 'reports', 'expenses', 'mobile', 'settings'],
     'the desktop rail, with the phone preview where it always was',
   );
   assert.deepEqual(
     navFor('manager', true).map((item) => item.id),
-    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'expenses', 'capture', 'settings'],
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'phones', 'reports', 'expenses', 'capture', 'settings'],
     'the same shop on a phone: preview out, capture in, same place in the rail',
   );
   assert.deepEqual(
