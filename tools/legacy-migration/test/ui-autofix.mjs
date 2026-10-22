@@ -55,7 +55,10 @@ const dom = new JSDOM(html, {
 const { window } = dom;
 const { document } = window;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const text = () => document.body.textContent || '';
+// Scoped to the app, not the whole body: the bundled script is part of the
+// document, so `body.textContent` would also contain every Arabic string in the
+// code and every assertion would pass before anything rendered.
+const text = () => document.getElementById('app')?.textContent || '';
 
 async function waitFor(predicate, label, timeout = 30000) {
   const start = Date.now();

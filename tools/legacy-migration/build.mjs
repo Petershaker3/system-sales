@@ -40,6 +40,9 @@ const result = await build({
   platform: 'browser',
   target: ['es2020'],
   minify: true,
+  // Arabic stays Arabic in the bundle instead of being escaped into \uXXXX:
+  // smaller file, and a person who opens the HTML can still read the strings.
+  charset: 'utf8',
   legalComments: 'none',
   plugins: [virtualWasm],
   logLevel: 'warning',

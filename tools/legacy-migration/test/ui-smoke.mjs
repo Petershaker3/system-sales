@@ -69,7 +69,10 @@ async function waitFor(predicate, label, timeout = 60000) {
   throw new Error(`timed out waiting for ${label}`);
 }
 
-const text = () => document.body.textContent || '';
+// Scoped to the app, not the whole body: the bundled script is part of the
+// document, so `body.textContent` would also contain every Arabic string in the
+// code and every assertion would pass before anything rendered.
+const text = () => document.getElementById('app')?.textContent || '';
 const click = (selector) => {
   const element = document.querySelector(selector);
   if (!element) throw new Error(`missing element: ${selector}`);
