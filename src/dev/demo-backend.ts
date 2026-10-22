@@ -4783,6 +4783,45 @@ const handlers: Record<string, (args: Args) => unknown> = {
     }));
   },
 
+  // Manual encrypted backup (ADR-003). Mirrors `commands::backup` closely enough to
+  // exercise the panel: `ManageSettings` is manager-only AND freshly authenticated,
+  // so a session that has not re-proved its password hears
+  // `REAUTHENTICATION_REQUIRED` — the refusal the panel now answers with a password
+  // dialog instead of a dead end. Writing stays inside the data dir (relative,
+  // traversal-free); reading accepts an absolute path, because the package comes
+  // from another machine.
+  create_backup: (args) => {
+    requireManager(true);
+    const output = str(args, 'output').trim();
+    const leavesTheDataDir =
+      output === '' ||
+      output.startsWith('/') ||
+      output.startsWith('\\') ||
+      /^[A-Za-z]:/.test(output) ||
+      output.split(/[\\/]/).includes('..');
+    if (leavesTheDataDir) fail('BACKUP_UNSAFE_PATH');
+    const password = str(args, 'password');
+    if (password === '') fail('BACKUP_PASSWORD_REQUIRED');
+    if (password.length < 8) fail('BACKUP_PASSWORD_TOO_WEAK');
+    return { databaseLen: 1_482_752, imageCount: 12 };
+  },
+  restore_backup: (args) => {
+    // Same order as Rust: resolve the path, then authorize — both before anything
+    // is touched, so neither refusal may claim the app is dead.
+    const backupPath = str(args, 'backupPath').trim();
+    if (backupPath === '') fail('BACKUP_UNSAFE_PATH');
+    // `resolve_readable`: absolute is accepted (the package comes from another
+    // machine), a relative path must stay inside the data dir.
+    const absolute =
+      backupPath.startsWith('/') || backupPath.startsWith('\\') || /^[A-Za-z]:/.test(backupPath);
+    if (!absolute && backupPath.split(/[\\/]/).includes('..')) fail('BACKUP_UNSAFE_PATH');
+    requireManager(true);
+    const password = str(args, 'password');
+    if (password === '') fail('BACKUP_PASSWORD_REQUIRED');
+    if (password.length < 8) fail('BACKUP_DECRYPT_FAILED');
+    return { databaseLen: 1_482_752, imageCount: 12 };
+  },
+
   // automatic backup policy (Plan item 1.12, ADR-027)
   list_saved_backups: () => {
     requireManager(false);

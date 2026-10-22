@@ -440,6 +440,14 @@ Implemented and tested:
   commands plus UI, crash-safe staged restore with startup recovery wiring
   (`recover_interrupted` before open, fail closed). Restore takes effect on
   manual restart — automatic restart and auto-close were decided against
+  **→ 2026-10-22:** the panel asks for the manager password in the dialog the
+  other `ManageSettings` screens use (`src/shell/reauth.ts`) instead of echoing
+  `REAUTHENTICATION_REQUIRED`, a refused restore says the data was not touched
+  (only a failure *after* authorization needs the manual restart, because
+  `authorize` runs before `pool.close()`), the package can be dropped on the
+  panel instead of typed, and the new file name is pre-filled. A native
+  «choose a file» dialog waits on `tauri-plugin-dialog` (`Cargo.lock` + a named
+  decision), so drag-and-drop is the picker for now
 - Customer file core (P4, `spec:178-179`): name plus one optional contact,
   never merged; explicit one-time sale links and free-text snapshots on
   unlinked sales, entered at invoice time in the sales panel. Browsing is

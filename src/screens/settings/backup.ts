@@ -82,3 +82,78 @@ export function retainBackups<
   });
   return sorted.slice(0, Math.max(1, maxRetained));
 }
+
+// --- the manual import/export panel ----------------------------------------
+//
+// Three small decisions the panel must get right, kept here so `node --test` can
+// prove them without a WebView:
+//
+//  1. Which file a drop hands over (the operator should never type a path).
+//  2. What the suggested file name is, so creating a backup is one click.
+//  3. Whether a failed restore left the app usable or killed the pool.
+//
+// (3) matters most. `commands::backup::restore_backup` authorizes BEFORE it closes
+// the pool, so a refusal for identity reasons (`REAUTHENTICATION_REQUIRED`, no
+// permission, dead session) or an unsafe path leaves every later command working.
+// Every other failure happens AFTER `pool.close()` and the pool never reopens, so
+// the panel must tell the operator to restart. Telling them to restart when the
+// real answer is «type your password» is what turned one refusal into a closed
+// app and a second, identical refusal after the restart.
+
+/** The file names this shop's backups carry, as the operator sees them. */
+export const BACKUP_FILE_SUFFIXES: readonly string[] = ['.msb1', '.msb'];
+
+/**
+ * The first dropped file that is a backup package, or `null`.
+ *
+ * Windows drag-and-drop hands over absolute paths, extension included, so this is
+ * purely a filter: a dropped photo or a shortcut must not overwrite the path the
+ * operator already chose.
+ */
+export function pickDroppedBackupFile(paths: readonly string[]): string | null {
+  for (const raw of paths) {
+    const path = raw.trim();
+    const lower = path.toLowerCase();
+    if (path === '') continue;
+    if (BACKUP_FILE_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return path;
+  }
+  return null;
+}
+
+/** `backup-2026-10-22-1435.msb1` — local time, minute precision, no colons. */
+export function suggestedBackupFileName(at: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const stamp =
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    `-${pad(at.getHours())}${pad(at.getMinutes())}`;
+  return `backup-${stamp}.msb1`;
+}
+
+/**
+ * Codes the restore command can answer with while the pool is still open.
+ *
+ * `BACKUP_UNSAFE_PATH` is resolved before authorization; the identity codes come
+ * from `authorize`, which is the last thing that runs before `pool.close()`.
+ */
+const RESTORE_REFUSED_WHILE_STILL_OPEN: ReadonlySet<string> = new Set([
+  'REAUTHENTICATION_REQUIRED',
+  'PERMISSION_DENIED',
+  'NO_ACTIVE_SESSION',
+  'SESSION_IDLE_EXPIRED',
+  'SESSION_LIFETIME_EXPIRED',
+  'SECURE_STORAGE_UNAVAILABLE',
+  'ACCOUNT_DISABLED',
+  'BACKUP_UNSAFE_PATH',
+]);
+
+/**
+ * Does this restore failure require a manual restart before anything else works?
+ *
+ * `true` for every package failure (wrong password, truncated file, unsupported
+ * version) because the pool is already closed by then — and for an unknown code,
+ * which fails closed like the backend does.
+ */
+export function restoreNeedsRestart(code: string | null | undefined): boolean {
+  if (code === null || code === undefined) return true;
+  return !RESTORE_REFUSED_WHILE_STILL_OPEN.has(code);
+}
