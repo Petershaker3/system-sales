@@ -723,6 +723,36 @@ export function asCommandError(value: unknown): CommandError | null {
 }
 
 /**
+ * A restore closed the database pool in this session.
+ *
+ * `commands::backup::restore_backup` closes the pool before it applies the
+ * package, and the pool never reopens: the restored database is opened by the
+ * next process (owner decision 2026-10-15 — a restore never restarts itself).
+ * From that moment every command fails with `LOCAL_STORAGE_UNAVAILABLE`, whose
+ * stock text is «أبلغ المسؤول الفني» — true about the storage, useless as an
+ * instruction, and alarming about data that is safe on disk.
+ *
+ * The screen that ran the restore, and only it, knows the pool is closed. It
+ * says so here, and the sentence every later screen shows becomes the one
+ * action that actually works.
+ */
+let closedByRestore = false;
+
+/** Called by the screen that restored, once the pool is known to be closed. */
+export function noteRestoreClosedTheDatabase(): void {
+  closedByRestore = true;
+}
+
+/** Tests only: forget the session, so one test cannot change another's answer. */
+export function forgetRestoreClosedTheDatabase(): void {
+  closedByRestore = false;
+}
+
+/** What a closed pool means to the operator: one action, not a technician. */
+export const RESTART_AFTER_RESTORE_MESSAGE =
+  'البيانات اتغيرت والبرنامج محتاج يتقفل ويتفتح عشان يقراها — اقفل البرنامج خالص وافتحه تاني.';
+
+/**
  * Turn anything thrown by `invoke` into an Arabic sentence.
  *
  * A non-command failure (a transport problem, for instance) has no code, and
@@ -730,5 +760,9 @@ export function asCommandError(value: unknown): CommandError | null {
  */
 export function describeError(value: unknown): string {
   const error = asCommandError(value);
-  return error === null ? UNKNOWN_CODE_MESSAGE : messageFor(error.code);
+  if (error === null) return UNKNOWN_CODE_MESSAGE;
+  if (closedByRestore && error.code === ErrorCode.LOCAL_STORAGE_UNAVAILABLE) {
+    return RESTART_AFTER_RESTORE_MESSAGE;
+  }
+  return messageFor(error.code);
 }

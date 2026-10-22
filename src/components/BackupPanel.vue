@@ -25,7 +25,11 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import * as api from '../api/backup';
-import { asCommandError, describeError } from '../api/errors';
+import {
+  asCommandError,
+  describeError,
+  noteRestoreClosedTheDatabase,
+} from '../api/errors';
 import {
   pickDroppedBackupFile,
   restoreNeedsRestart,
@@ -96,6 +100,9 @@ async function restoreBackup(): Promise<void> {
   clearMessages();
   try {
     const outcome = await api.restoreBackup(restorePath.value.trim(), restorePassword.value);
+    // The pool is gone until the next process, so every other screen must be
+    // told to restart rather than to call a technician.
+    noteRestoreClosedTheDatabase();
     restorePassword.value = '';
     needsRestart.value = true;
     notice.value =
@@ -107,6 +114,7 @@ async function restoreBackup(): Promise<void> {
     // Authorized-then-failed: the pool is closed and only a restart reopens it.
     // Refused before authorization: nothing was touched, so promise nothing.
     if (restoreNeedsRestart(code)) {
+      noteRestoreClosedTheDatabase();
       needsRestart.value = true;
       notice.value = 'تعذّر الاستيراد. يلزم إعادة تشغيل التطبيق يدويًا قبل أي عمل آخر.';
     } else {
