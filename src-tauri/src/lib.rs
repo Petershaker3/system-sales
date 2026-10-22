@@ -169,6 +169,9 @@ pub fn run() {
             commands::backup::copy_latest_backup_to_usb,
             commands::backup::restore_saved_backup,
             commands::backup::run_periodic_backup_tick,
+            // The window's own command: after a restore the pool is closed for
+            // good, and only a new process can open the restored database.
+            commands::shell::restart_app,
             commands::companion::companion_overview,
             commands::companion::pair_companion_device,
             commands::companion::unpair_companion_device,

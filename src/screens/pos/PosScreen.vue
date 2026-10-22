@@ -904,136 +904,136 @@ const KEYS: readonly [string, string][] = [
 
 <template>
   <div class="pos-wrap">
-    <div class="pos">
-      <section class="catalog">
-        <div class="search-row">
-          <div class="search">
-            <label class="search-box">
-              <Icon name="search" />
-              <input
-                id="q"
-                ref="searchInput"
-                v-model="query"
-                placeholder="ابحث بالاسم أو امسح الباركود…"
-                autocomplete="off"
-                spellcheck="false"
-                aria-label="بحث"
-                @input="onQueryInput"
-              />
-              <kbd>/</kbd>
-            </label>
-            <!-- The camera sits beside the box rather than inside its <label>: a
-                 control inside a label changes the caret geometry of an RTL input,
-                 and a barcode box that reverses what is typed is worse than no
-                 camera at all. -->
-            <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
-            <div v-if="query.trim() !== ''" class="results">
-              <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
-                <div>
-                  <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
-                </div>
-                <div style="margin-top: 8px; display: flex; justify-content: center; gap: 8px">
-                  <button
-                    type="button"
-                    class="btn sm"
-                    data-pos-shortage-free
-                    @mousedown.prevent.stop="addQueryToShortages"
-                  >
-                    <Icon name="clipboard-list" /> لو العميل طالبه: ضيف «{{ query.trim() }}» للنواقص
-                  </button>
-                </div>
-              </div>
-              <div
-                v-for="u in unitMatches"
-                :key="u.id"
-                class="result unit-res"
-                @mousedown.prevent="pickUnitMatch(u.imei, u.productId)"
+    <div class="search-row">
+      <div class="search">
+        <label class="search-box">
+          <Icon name="search" />
+          <input
+            id="q"
+            ref="searchInput"
+            v-model="query"
+            placeholder="ابحث بالاسم أو امسح الباركود…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="بحث"
+            @input="onQueryInput"
+          />
+          <kbd>/</kbd>
+        </label>
+        <!-- The camera sits beside the box rather than inside its <label>: a
+             control inside a label changes the caret geometry of an RTL input,
+             and a barcode box that reverses what is typed is worse than no
+             camera at all. -->
+        <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
+        <div v-if="query.trim() !== ''" class="results">
+          <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
+            <div>
+              <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
+            </div>
+            <div style="margin-top: 8px; display: flex; justify-content: center; gap: 8px">
+              <button
+                type="button"
+                class="btn sm"
+                data-pos-shortage-free
+                @mousedown.prevent.stop="addQueryToShortages"
               >
-                <div class="ico"><Icon name="smartphone" /></div>
-                <div class="t">
-                  <div class="n"><bdi dir="rtl">{{ byId.get(u.productId)?.name ?? 'موبايل' }}</bdi></div>
-                  <div class="s">
-                    <span>IMEI <bdi dir="ltr" class="mono">…{{ u.imei.slice(-4) }}</bdi></span>
-                    <span v-if="u.color">{{ u.color }}</span>
-                  </div>
-                </div>
-                <div class="p num">
-                  {{
-                    byId.get(u.productId)?.salePriceMinor === null || byId.get(u.productId)?.salePriceMinor === undefined
-                      ? 'بدون سعر'
-                      : money(byId.get(u.productId)!.salePriceMinor!)
-                  }}
-                </div>
-              </div>
-              <div
-                v-for="(p, at) in results"
-                :key="p.id"
-                class="result"
-                :class="{ on: at === highlighted }"
-                @mousedown.prevent="pickResult(at)"
-                @mouseenter="highlighted = at"
-              >
-                <div class="ico" :class="{ img: !!tileImage(p) }">
-                  <img v-if="tileImage(p)" :src="tileImage(p)!" alt="" />
-                  <Icon v-else :name="iconOf(p)" />
-                </div>
-                <div class="t">
-
-                  <div class="n"><bdi dir="rtl">{{ p.name }}</bdi></div>
-                  <div class="s">
-                    <span :class="{ 'danger-t': freeOf(p) <= 0 }">{{ freeOf(p) <= 0 ? 'خلصان' : `متاح ${num(freeOf(p))}` }}</span>
-                    <span v-if="p.barcode"><bdi dir="ltr" class="mono">{{ p.barcode }}</bdi></span>
-                  </div>
-                </div>
-                <button
-                  v-if="freeOf(p) <= 0"
-                  type="button"
-                  class="btn sm result-sh-btn"
-                  :data-pos-shortage-prod="p.id"
-                  title="سجّله في النواقص عشان يظهر وقت الشراء"
-                  @mousedown.prevent.stop="addProductToShortages(p)"
-                >
-                  <Icon name="clipboard-list" /> ضيف للنواقص
-                </button>
-                <div class="p num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</div>
-                <span v-if="at === highlighted" class="enter"><kbd>Enter</kbd></span>
-              </div>
+                <Icon name="clipboard-list" /> لو العميل طالبه: ضيف «{{ query.trim() }}» للنواقص
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            class="btn ghost"
-            data-pos-check-imei
-            @click="showImeiCheck = true"
+          <div
+            v-for="u in unitMatches"
+            :key="u.id"
+            class="result unit-res"
+            @mousedown.prevent="pickUnitMatch(u.imei, u.productId)"
           >
-            <Icon name="search" /><span>فحص IMEI</span>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-pos-tradein
-            @click="showTradeInModal = true"
+            <div class="ico"><Icon name="smartphone" /></div>
+            <div class="t">
+              <div class="n"><bdi dir="rtl">{{ byId.get(u.productId)?.name ?? 'موبايل' }}</bdi></div>
+              <div class="s">
+                <span>IMEI <bdi dir="ltr" class="mono">…{{ u.imei.slice(-4) }}</bdi></span>
+                <span v-if="u.color">{{ u.color }}</span>
+              </div>
+            </div>
+            <div class="p num">
+              {{
+                byId.get(u.productId)?.salePriceMinor === null || byId.get(u.productId)?.salePriceMinor === undefined
+                  ? 'بدون سعر'
+                  : money(byId.get(u.productId)!.salePriceMinor!)
+              }}
+            </div>
+          </div>
+          <div
+            v-for="(p, at) in results"
+            :key="p.id"
+            class="result"
+            :class="{ on: at === highlighted }"
+            @mousedown.prevent="pickResult(at)"
+            @mouseenter="highlighted = at"
           >
-            <Icon name="recycle" /><span>استبدال مستعمل</span>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-open-services
-            @click="modal = 'services'"
-          >
-            <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-open-returns
-            @click="modal = 'returns'"
-          >
-            <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
-          </button>
-        </div>
+            <div class="ico" :class="{ img: !!tileImage(p) }">
+              <img v-if="tileImage(p)" :src="tileImage(p)!" alt="" />
+              <Icon v-else :name="iconOf(p)" />
+            </div>
+            <div class="t">
 
+              <div class="n"><bdi dir="rtl">{{ p.name }}</bdi></div>
+              <div class="s">
+                <span :class="{ 'danger-t': freeOf(p) <= 0 }">{{ freeOf(p) <= 0 ? 'خلصان' : `متاح ${num(freeOf(p))}` }}</span>
+                <span v-if="p.barcode"><bdi dir="ltr" class="mono">{{ p.barcode }}</bdi></span>
+              </div>
+            </div>
+            <button
+              v-if="freeOf(p) <= 0"
+              type="button"
+              class="btn sm result-sh-btn"
+              :data-pos-shortage-prod="p.id"
+              title="سجّله في النواقص عشان يظهر وقت الشراء"
+              @mousedown.prevent.stop="addProductToShortages(p)"
+            >
+              <Icon name="clipboard-list" /> ضيف للنواقص
+            </button>
+            <div class="p num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</div>
+            <span v-if="at === highlighted" class="enter"><kbd>Enter</kbd></span>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="btn ghost"
+        data-pos-check-imei
+        @click="showImeiCheck = true"
+      >
+        <Icon name="search" /><span>فحص IMEI</span>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-pos-tradein
+        @click="showTradeInModal = true"
+      >
+        <Icon name="recycle" /><span>استبدال مستعمل</span>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-services
+        @click="modal = 'services'"
+      >
+        <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-returns
+        @click="modal = 'returns'"
+      >
+        <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
+      </button>
+    </div>
+
+    <div class="pos">
+      <section class="catalog">
         <div v-if="loadError" class="note warn"><Icon name="triangle-alert" /><span>{{ loadError }}</span></div>
 
         <div class="chips cats">

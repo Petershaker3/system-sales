@@ -4106,6 +4106,7 @@ const SETTINGS_APPEARANCE_RS: &str =
     include_str!("../../src/domain/settings/appearance.rs");
 const MONEY_UNIT_CARD_VUE: &str =
     include_str!("../../../src/screens/settings/MoneyUnitCard.vue");
+const NAV_TS: &str = include_str!("../../../src/shell/nav.ts");
 const OPTIONAL_REPAIR_CUSTOMER_SQL: &str =
     include_str!("../../src/data/migrations/0033_optional_repair_customer.sql");
 
@@ -4146,6 +4147,50 @@ fn money_unit_is_a_persisted_setting_and_storage_stays_in_piastres() {
     assert!(
         SETTINGS_SCREEN_VUE.contains("MoneyUnitCard"),
         "the unit card lives in Settings → الشكل (`ADR-044`)"
+    );
+}
+
+/// `ui.nav_order`: the rail's order is a setting, and both halves agree on what a
+/// section is.
+///
+/// The frontend arranges the rail from this list and Rust refuses a stored order
+/// that names anything else, so a disagreement would either put a button on the
+/// rail with no screen behind it or silently drop one the build does ship.
+#[test]
+fn the_rail_order_names_only_sections_both_halves_know() {
+    const SECTIONS: [&str; 9] = [
+        "pos", "sales", "wallets", "repairs", "store", "reports", "expenses", "mobile", "capture",
+    ];
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains("AppearanceKey::NavOrder => \"ui.nav_order\""),
+        "the rail order must have a stored key, not a screen-only variable"
+    );
+    for section in SECTIONS {
+        assert!(
+            SETTINGS_APPEARANCE_RS.contains(&format!("\"{section}\"")),
+            "Rust must know the section `{section}`"
+        );
+        assert!(
+            NAV_TS.contains(&format!("'{section}'")),
+            "the frontend must know the section `{section}`"
+        );
+    }
+    // «الإعدادات» is deliberately not a section: it sits alone at the foot of the
+    // rail (`AppShell`), so it cannot be moved into the middle of the shop.
+    assert!(
+        !SETTINGS_APPEARANCE_RS
+            .split("pub const NAV_SECTIONS")
+            .nth(1)
+            .unwrap_or("")
+            .split(']')
+            .next()
+            .unwrap_or("")
+            .contains("\"settings\""),
+        "الإعدادات must stay out of the arrangeable sections"
+    );
+    assert!(
+        NAV_TS.contains("export const SECTION_ORDER"),
+        "the frontend keeps one list of sections (`shell/nav.ts`)"
     );
 }
 

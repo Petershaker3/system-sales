@@ -81,6 +81,102 @@ export function navFor(role: Role, phone: boolean = false): NavItem[] {
   );
 }
 
+/**
+ * The rail's sections, in the order this build ships.
+ *
+ * «الإعدادات» is deliberately absent: it is not a section of the shop, it is the
+ * one door to the shop's own setup, so it sits alone at the bottom of the rail
+ * (`AppShell`). Rust carries the same list in `parse_nav_order`
+ * (`domain/settings/appearance.rs`), because a stored order must never name a
+ * screen this build has not got.
+ */
+export const SECTION_ORDER: readonly ScreenId[] = [
+  'pos',
+  'sales',
+  'wallets',
+  'repairs',
+  'store',
+  'reports',
+  'expenses',
+  'mobile',
+  'capture',
+];
+
+/** The sections a person may see, without the settings door at the bottom. */
+export function navSectionsFor(role: Role, phone: boolean = false): NavItem[] {
+  return navFor(role, phone).filter((item) => item.id !== 'settings');
+}
+
+/** «الإعدادات», for the button that sits apart from the sections. */
+export function settingsNavItem(): NavItem | undefined {
+  return NAV.find((item) => item.id === 'settings');
+}
+
+/**
+ * Read a stored order (`ui.nav_order`) into screen ids.
+ *
+ * Anything this build does not ship is dropped rather than trusted, and a repeat
+ * is dropped too: a stored string can be older than the build that reads it.
+ */
+export function parseNavOrder(raw: string): ScreenId[] {
+  const seen: ScreenId[] = [];
+  for (const part of raw.split(',')) {
+    const token = part.trim();
+    const match = SECTION_ORDER.find((id) => id === token);
+    if (match !== undefined && !seen.includes(match)) seen.push(match);
+  }
+  return seen;
+}
+
+/**
+ * The rail, in the shop's order.
+ *
+ * Sections the stored order names come first in that order; anything it left
+ * out (a section added by a later build, or a rail the owner never arranged)
+ * follows in the built-in order. Nothing is ever lost — a screen missing from
+ * the rail would be a shop that cannot reach part of its own till.
+ */
+export function orderSections(
+  items: readonly NavItem[],
+  order: readonly ScreenId[],
+): NavItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const out: NavItem[] = [];
+  for (const id of order) {
+    const item = byId.get(id);
+    if (item !== undefined) {
+      out.push(item);
+      byId.delete(id);
+    }
+  }
+  for (const id of SECTION_ORDER) {
+    const item = byId.get(id);
+    if (item !== undefined) {
+      out.push(item);
+      byId.delete(id);
+    }
+  }
+  for (const item of items) {
+    if (byId.has(item.id)) out.push(item);
+  }
+  return out;
+}
+
+/** Move one section one place up (`-1`) or down (`+1`) in the stored order. */
+export function moveSection(
+  order: readonly ScreenId[],
+  id: ScreenId,
+  delta: -1 | 1,
+): ScreenId[] {
+  const next = [...order];
+  const from = next.indexOf(id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= next.length) return next;
+  const [moved] = next.splice(from, 1);
+  if (moved !== undefined) next.splice(to, 0, moved);
+  return next;
+}
+
 /** «المالك» for the manager role, «بيّاع» for sales — the owner's own words. */
 export function roleName(role: Role): string {
   return role === 'manager' ? 'المالك' : 'بيّاع';

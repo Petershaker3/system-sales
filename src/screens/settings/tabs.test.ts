@@ -9,13 +9,16 @@ import {
   SETTINGS_TABS,
 } from './tabs.ts';
 
-test('SETTINGS_TABS matches the 8 approved settings tabs in exact order', () => {
-  assert.equal(SETTINGS_TABS.length, 8);
+test('SETTINGS_TABS lists the approved settings tabs in exact order', () => {
+  assert.equal(SETTINGS_TABS.length, 9);
   assert.deepEqual(
     SETTINGS_TABS.map((t) => [t.id, t.label]),
     [
       ['shop', 'المحل'],
       ['look', 'الشكل'],
+      // Added 2026-10-23 with the owner's request: the rail's order, the guide and
+      // light/dark are settings, so they left the rail for their own tab.
+      ['rail', 'الشريط الجانبي'],
       ['catalog', 'الأصناف والبيع'],
       ['users', 'المستخدمين والصلاحيات'],
       ['pay', 'المحافظ والدفع'],

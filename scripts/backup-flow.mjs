@@ -86,7 +86,7 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle0' });
   await signIn('بيتر', '1111');
 
-  await clickText('.rail .nav-btn', 'الإعدادات');
+  await page.click('[data-rail-settings]');
   await page.waitForSelector('[data-settings-tab="backup"]');
   await page.click('[data-settings-tab="backup"]');
   await page.waitForSelector('#backup-create');

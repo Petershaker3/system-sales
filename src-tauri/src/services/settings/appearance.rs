@@ -91,6 +91,7 @@ pub async fn update(
         AppearanceKey::BackupEvery2h => validated.backup_every_2h,
         AppearanceKey::BackupUsbAuto => validated.backup_usb_auto,
         AppearanceKey::BackupVerify => validated.backup_verify,
+        AppearanceKey::NavOrder => validated.nav_order,
     };
     let now = Timestamp::now();
 

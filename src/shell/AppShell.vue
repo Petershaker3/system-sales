@@ -18,13 +18,7 @@ import {
 } from '../api/shift';
 import { runPeriodicBackupTick } from '../api/backup';
 import { describeError } from '../api/errors';
-import {
-  appearance,
-  loadShopLogo,
-  resolvedTheme,
-  shopLogo,
-  toggleTheme,
-} from '../ui/appearance';
+import { appearance, loadShopLogo, shopLogo } from '../ui/appearance';
 import { fmtTime } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
@@ -44,7 +38,15 @@ import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import { openModeHint, openMode } from './open-mode';
 import ShiftModal from './ShiftModal.vue';
 import { isPhone } from './device';
-import { avatarColour, navFor, roleName, TITLES } from './nav';
+import {
+  avatarColour,
+  navSectionsFor,
+  orderSections,
+  parseNavOrder,
+  roleName,
+  settingsNavItem,
+  TITLES,
+} from './nav';
 import type { ScreenId } from './nav';
 
 const props = defineProps<{ session: Session; busy: boolean; users: readonly UserSummary[] }>();
@@ -106,11 +108,29 @@ function openSalesMonthFromReports(key: string): void {
   salesFocusTarget.value = { kind: 'month', key };
   screen.value = 'sales';
 }
-const items = computed(() => navFor(props.session.role, isPhone()));
-const dark = computed(() => {
-  void appearance.theme;
-  return resolvedTheme() === 'dark';
-});
+/**
+ * The rail: the shop's own screens in the order the owner arranged
+ * (الإعدادات ← الشريط الجانبي). «الإعدادات» is not one of them — it is the single
+ * door to the shop's setup, and it sits alone at the bottom so it cannot be
+ * mistaken for a section or reached by muscle memory meant for one.
+ */
+const items = computed(() =>
+  orderSections(
+    navSectionsFor(props.session.role, isPhone()),
+    parseNavOrder(appearance.navOrder),
+  ),
+);
+const settingsItem = settingsNavItem();
+/**
+ * A screen inside the shell (a settings card) can send the operator to the guide.
+ *
+ * A custom event rather than a prop: «الإعدادات» is mounted deep inside the shell,
+ * and threading a callback through every screen it is not part of would be a wire
+ * that exists for one button.
+ */
+function onOpenGuideRequest(): void {
+  screen.value = 'guide';
+}
 
 // A seller never lands on an owner screen, even after a switch or a role change.
 watch(
@@ -252,20 +272,15 @@ onMounted(() => {
   }, 15_000);
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
+  window.addEventListener('mshop:open-guide', onOpenGuideRequest);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
   document.removeEventListener('mousedown', onDocClick);
   window.removeEventListener('keydown', onSwitchKey, true);
+  window.removeEventListener('mshop:open-guide', onOpenGuideRequest);
 });
 
-async function switchTheme(): Promise<void> {
-  try {
-    await toggleTheme();
-  } catch (err) {
-    toast(describeError(err), 'err');
-  }
-}
 </script>
 
 <template>
@@ -289,27 +304,38 @@ async function switchTheme(): Promise<void> {
         <span>{{ item.label }}</span>
       </button>
       <div class="sp" />
-      <button
-        type="button"
-        class="nav-btn"
-        :class="{ active: screen === 'guide' }"
-        title="دليل السيستم الشامل (F1)"
-        data-rail-guide-btn
-        @click="screen = 'guide'"
-      >
-        <Icon name="info" />
-        <span>الدليل</span>
-      </button>
-      <button type="button" class="nav-btn" title="فاتح / غامق" @click="switchTheme">
-        <Icon :name="dark ? 'sun' : 'moon'" />
-        <span>{{ dark ? 'فاتح' : 'غامق' }}</span>
-      </button>
-      <!-- No lock while the shop runs without an account (`ADR-039`): the lock ends
-           a session, and this shop has no session row to end. -->
-      <button v-if="!open" type="button" class="nav-btn" title="قفل الشاشة (Ctrl+L)" :disabled="busy" @click="emit('lock')">
-        <Icon name="lock-keyhole" />
-        <span>قفل</span>
-      </button>
+      <!-- The foot of the rail: the app's own doors, apart from the shop's sections.
+           The guide and light/dark live in الإعدادات ← الشريط الجانبي now: they are
+           settings, not places in the shop, and a rail that mixed the two made
+           «الإعدادات» look like one more page among nine. -->
+      <div class="rail-foot" data-rail-foot>
+        <button
+          v-if="settingsItem && props.session.role === 'manager'"
+          type="button"
+          class="nav-btn nav-icon"
+          :class="{ active: screen === 'settings' }"
+          title="الإعدادات"
+          aria-label="الإعدادات"
+          data-rail-settings
+          @click="screen = 'settings'"
+        >
+          <Icon name="settings" />
+        </button>
+        <!-- No lock while the shop runs without an account (`ADR-039`): the lock ends
+             a session, and this shop has no session row to end. -->
+        <button
+          v-if="!open"
+          type="button"
+          class="nav-btn nav-icon"
+          title="قفل الشاشة (Ctrl+L)"
+          aria-label="قفل الشاشة"
+          data-rail-lock
+          :disabled="busy"
+          @click="emit('lock')"
+        >
+          <Icon name="lock-keyhole" />
+        </button>
+      </div>
     </nav>
 
     <main class="main">

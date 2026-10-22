@@ -73,6 +73,12 @@ async function clickText(selector, label) {
 /** Walk to a screen by its rail label, reporting the rail when the label is not there. */
 async function goTo(label) {
   await sleep(400);
+  if (label === 'الإعدادات') {
+    // An icon at the foot of the rail since 2026-10-23: no label to search for.
+    await page.$eval('.rail [data-rail-settings]', (el) => el.click());
+    await sleep(300);
+    return;
+  }
   const found = await page.$$eval(
     '.rail .nav-btn',
     (els, l) => {

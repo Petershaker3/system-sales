@@ -4822,6 +4822,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return { databaseLen: 1_482_752, imageCount: 12 };
   },
 
+  // Restart (the real one exits the process and starts a new one). The demo has no
+  // process to restart, so it says so instead of pretending: `App.vue` reloads the
+  // page, which is this stand-in's closest honest equivalent.
+  restart_app: () => null,
+
   // automatic backup policy (Plan item 1.12, ADR-027)
   list_saved_backups: () => {
     requireManager(false);

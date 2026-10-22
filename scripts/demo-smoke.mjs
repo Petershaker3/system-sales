@@ -59,6 +59,13 @@ const fill = (sel, value) =>
     value
   );
 
+/** Open «الإعدادات» — an icon at the foot of the rail, apart from the sections. */
+async function openSettings() {
+  await page.click('[data-rail-settings]');
+  await page.waitForSelector('[data-settings-layout]', { timeout: 5000 });
+  await sleep(150);
+}
+
 async function clickText(selector, label) {
   const handles = await page.$$(selector);
   for (const h of handles) {
@@ -104,7 +111,12 @@ await signIn('يوسف', '2222');
 await page.waitForSelector('.tile');
 check('seller lands on the sales screen', (await text('.topbar h1')) === 'البيع');
 const rail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
-check('seller sees no owner screens on the rail', !rail.includes('المخزن') && !rail.includes('الإعدادات'), rail.join(','));
+check('seller sees no owner screens on the rail', !rail.includes('المخزن'), rail.join(','));
+check(
+  'the settings door is an icon at the foot of the rail, not a section',
+  (await count('.rail [data-rail-settings]')) === 0 &&
+    (await count('.rail .rail-foot [data-rail-lock]')) === 1
+);
 check('tiles show the best sellers (12)', (await count('.tile')) === 12);
 check('the demo marker is in the top bar', (await text('.fresh-tag')).includes('تجربة'));
 await shot('02-pos-seller');
@@ -223,13 +235,12 @@ await page.keyboard.press('Escape');
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);
 
-// theme switch for everyone
-await clickText('.rail .nav-btn', 'غامق');
-await sleep(150);
-check('a seller can switch to dark', (await page.$eval('html', (h) => h.dataset.theme)) === 'dark');
-await shot('06-pos-dark');
-await clickText('.rail .nav-btn', 'فاتح');
-await sleep(100);
+// light/dark left the rail with the guide: both are settings (2026-10-23)
+check(
+  'the rail carries neither the guide nor a light/dark button',
+  (await count('.rail [data-rail-guide-btn]')) === 0 &&
+    (await count('.rail .nav-btn[title="فاتح / غامق"]')) === 0
+);
 
 // --- lock, PIN, switch (plan item 1.1, ADR-017) -----------------------------
 await page.keyboard.down('Control');
@@ -305,8 +316,12 @@ check('the old PIN stops working and the new one works', oldPinRefused && (await
 
 // --- the owner changes the look --------------------------------------------
 const ownerRail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
-check('the owner sees المخزن and الإعدادات', ownerRail.includes('المخزن') && ownerRail.includes('الإعدادات'));
-await clickText('.rail .nav-btn', 'الإعدادات');
+check(
+  'the owner sees المخزن, and الإعدادات is an icon apart from the sections',
+  ownerRail.includes('المخزن') && !ownerRail.includes('الإعدادات') &&
+    (await count('.rail [data-rail-settings]')) === 1
+);
+await openSettings();
 await page.waitForSelector('.look-card');
 await clickText('.look-card', 'علبة الموبايل');
 await page.waitForSelector('#look-pass', { timeout: 3000 });
@@ -316,6 +331,33 @@ await page.keyboard.press('Enter');
 await sleep(300);
 check('the box look is applied and stored', (await page.$eval('html', (h) => h.dataset.look)) === 'box');
 await shot('07-settings-box');
+
+// the mode lives in الإعدادات ← الشريط الجانبي now
+await page.click('[data-settings-tab="rail"]');
+await page.waitForSelector('[data-rail-theme]', { timeout: 3000 });
+await page.click('[data-theme-choice="dark"]');
+await sleep(150);
+const reauthOpen = (await count('[data-rail-reauth]')) === 1;
+if (reauthOpen) {
+  await page.type('[data-rail-reauth]', '1234');
+  await page.keyboard.press('Enter');
+  await sleep(250);
+}
+check('the owner changes light/dark from الإعدادات ← الشريط الجانبي', (await page.$eval('html', (h) => h.dataset.theme)) === 'dark');
+await shot('08-settings-dark');
+await page.click('[data-theme-choice="light"]');
+await sleep(120);
+const reauthAgain = (await count('[data-rail-reauth]')) === 1;
+if (reauthAgain) {
+  await page.type('[data-rail-reauth]', '1234');
+  await page.keyboard.press('Enter');
+  await sleep(200);
+}
+check('and back to light', (await page.$eval('html', (h) => h.dataset.theme)) === 'light');
+// back to every section: the rest of this script reads cards on other tabs, and
+// the rail tab had hidden them (`v-show`)
+await page.click('[data-settings-tab="all"]');
+await sleep(200);
 await clickText('.swatch', '');
 
 // --- the owner's categories (plan item 1.2, ADR-018 §1) --------------------
@@ -872,7 +914,7 @@ check(
 );
 await shot('24-pos-product-image');
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#show-product-images');
 await sleep(120);
 check(
@@ -888,7 +930,7 @@ check(
   'turning off «اعرض صور الأصناف» hides product images on the sales screen without deleting them',
   (await count('.tile .ico.img img')) === 0
 );
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#show-product-images');
 await page.$eval('#show-product-images', (el) => el.click());
 await sleep(150);
@@ -1014,7 +1056,7 @@ await shot('26-pos-imei-linked');
 await page.click('.line .icon-btn.danger');
 await sleep(100);
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#imei-mode-required');
 await page.$eval('#imei-mode-required', (el) => el.click());
 await sleep(150);
@@ -1037,7 +1079,7 @@ check(
 );
 await page.click('.line .icon-btn.danger');
 await sleep(100);
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#imei-mode-optional');
 await page.$eval('#imei-mode-optional', (el) => el.click());
 await sleep(150);
@@ -1145,7 +1187,7 @@ check(
 await page.keyboard.press('Escape');
 await sleep(120);
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#pay-method-toggle-install');
 await page.$eval('#pay-method-toggle-install', (el) => el.click());
 await sleep(120);
@@ -1231,7 +1273,7 @@ check(
 );
 
 // --- Arabic receipt on WhatsApp & shop profile (ADR-022, plan item 1.7) ----
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-profile"]');
 await sleep(150);
 check(
@@ -1405,7 +1447,7 @@ await page.click('#finish-sale-btn');
 await sleep(150);
 
 // --- Plan item 1.8: Default warranty periods & line warranty (ADR-023) ------
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#set-warrantyUsed', { timeout: 3000 });
 await sleep(150);
 const initialWarranties = await page.evaluate(() => ({
@@ -1685,7 +1727,7 @@ check(
 await shot('43-wallets-screen');
 
 // Navigate to «الإعدادات» and verify «محافظ المحل» & «عمولات الخدمات» cards
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
 await sleep(150);
 check(
@@ -1801,7 +1843,7 @@ check(
 await shot('47-store-damaged-stock');
 
 // --- Plan item 1.12: Automatic backup policy (ADR-027) ----------------------
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-backup-policy-card]', { timeout: 3000 });
 await sleep(200);
 const backupCardText = await text('[data-backup-policy-card]');
@@ -1872,9 +1914,11 @@ const settingsTabLabels = await page.$$eval(
   (els) => els.map((e) => (e.textContent ?? '').trim()),
 );
 check(
-  'Settings sidebar lists all 8 approved settings tabs in exact order',
+  // «الشريط الجانبي» joined them on 2026-10-23: the rail's order, light/dark and
+  // the guide are settings about the shop's own frame.
+  'Settings sidebar lists the approved settings tabs in exact order',
   settingsTabLabels.join('، ') ===
-    'المحل، الشكل، الأصناف والبيع، المستخدمين والصلاحيات، المحافظ والدفع، الإيصال والضمان، النسخ الاحتياطي، الأجهزة والطابعة',
+    'المحل، الشكل، الشريط الجانبي، الأصناف والبيع، المستخدمين والصلاحيات، المحافظ والدفع، الإيصال والضمان، النسخ الاحتياطي، الأجهزة والطابعة',
   settingsTabLabels.join('، ')
 );
 
@@ -3000,7 +3044,7 @@ if (!(await ask('رصيد بداية: شاحن آيفون'))) {
 // password and shows the next code once.
 const CODE_SHAPE = /^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){4}$/;
 const shownCode = () => page.$$eval('.rc-code span', (els) => els.map((e) => e.textContent?.trim() ?? '').join('-'));
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('.recovery-card', { timeout: 3000 });
 await sleep(200);
 check('the settings show the recovery code card with its date', (await text('.recovery-card .s-row b')).includes('اتعمل'));
@@ -3103,7 +3147,7 @@ await sleep(300);
 const vfBalBefore = await text('[data-wal-balance="vf"]');
 const walletCardsBefore = await count('[data-wal-card]');
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
 await sleep(250);
 await page.type('[data-wal-new-name]', 'فودافون كاش ٢');

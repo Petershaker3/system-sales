@@ -3,6 +3,7 @@
 // `docs/PLAN.md` §16, §19; `ADR-028`):
 //   1. `shop`    — المحل
 //   2. `look`    — الشكل
+//   2b.`rail`    — الشريط الجانبي (الترتيب، فاتح/غامق، الدليل)
 //   3. `catalog` — الأصناف والبيع
 //   4. `users`   — المستخدمين والصلاحيات
 //   5. `pay`     — المحافظ والدفع
@@ -35,6 +36,7 @@ import OwnerAccountCard from './OwnerAccountCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
+import RailSettingsCard from './RailSettingsCard.vue';
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
 import ShopProfileCard from './ShopProfileCard.vue';
 import {
@@ -180,6 +182,11 @@ async function onResetSettings(): Promise<void> {
         <div v-show="showSection('look')" class="s-sec" data-settings-panel="look">
           <MoneyUnitCard />
           <AppearanceCard />
+        </div>
+
+        <!-- 2b. الشريط الجانبي -->
+        <div v-show="showSection('rail')" class="s-sec" data-settings-panel="rail">
+          <RailSettingsCard />
         </div>
 
         <!-- 3. الأصناف والبيع -->

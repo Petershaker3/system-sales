@@ -25,6 +25,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import * as api from '../api/backup';
+import { restartApp } from '../api/app';
 import {
   asCommandError,
   describeError,
@@ -36,6 +37,8 @@ import {
   suggestedBackupFileName,
 } from '../screens/settings/backup';
 import { useReauth } from '../shell/reauth';
+import { toast } from '../ui/toast';
+import Icon from '../ui/Icon.vue';
 import Modal from '../ui/Modal.vue';
 
 const busy = ref(false);
@@ -48,6 +51,9 @@ const backupPassword = ref('');
 const restorePath = ref('');
 const restorePassword = ref('');
 const needsRestart = ref(false);
+/** The restart dialog: shown once the pool is closed and nothing else can run. */
+const showRestart = ref(false);
+const restarting = ref(false);
 
 const {
   open: reauthOpen,
@@ -105,6 +111,7 @@ async function restoreBackup(): Promise<void> {
     noteRestoreClosedTheDatabase();
     restorePassword.value = '';
     needsRestart.value = true;
+    showRestart.value = true;
     notice.value =
       `تم استيراد النسخة الاحتياطية (${outcome.imageCount} صورة). ` +
       `أعد تشغيل التطبيق يدويًا الآن لفتح البيانات المستعادة.`;
@@ -116,6 +123,7 @@ async function restoreBackup(): Promise<void> {
     if (restoreNeedsRestart(code)) {
       noteRestoreClosedTheDatabase();
       needsRestart.value = true;
+      showRestart.value = true;
       notice.value = 'تعذّر الاستيراد. يلزم إعادة تشغيل التطبيق يدويًا قبل أي عمل آخر.';
     } else {
       needsRestart.value = false;
@@ -127,6 +135,26 @@ async function restoreBackup(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/** Restart now — the one action that works once the pool is closed. */
+async function onRestartNow(): Promise<void> {
+  if (restarting.value) return;
+  restarting.value = true;
+  try {
+    await restartApp();
+    // The real command hands the process to a new instance and never returns; a
+    // stand-in (the browser demo) does return, and then the page is the thing that
+    // reloads. Either way the dialog has done its job.
+    window.location.reload();
+  } catch (err) {
+    restarting.value = false;
+    toast(describeError(err), 'err');
+  }
+}
+
+function dismissRestart(): void {
+  showRestart.value = false;
 }
 
 function submitCreate(): void {
@@ -247,6 +275,47 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="hint">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="errorCode" class="hint">الكود: {{ errorCode }}</p>
+
+    <!-- After a restore the pool is closed for good: the restored database is the
+         next process's to open. One button, because «اقفل البرنامج وافتحه» is a
+         scavenger hunt through the window's own controls. -->
+    <Modal
+      v-if="showRestart"
+      title="لازم إعادة تشغيل"
+      sub="البيانات اتغيرت — البرنامج محتاج يقفل ويتفتح عشان يقراها"
+      size="sm"
+      :closable="false"
+      @close="dismissRestart"
+    >
+      <p class="hint" data-restart-body>
+        <template v-if="needsRestart && !error">
+          تم استيراد النسخة الاحتياطية. قاعدة البيانات القديمة اتقفلت، والجديدة
+          مش هتتقرا غير لما البرنامج يبدأ من جديد.
+        </template>
+        <template v-else>
+          الاستيراد اتوقف بعد ما قاعدة البيانات اتقفلت، وبياناتك على الجهاز زي ما هي.
+          لازم البرنامج يبدأ من جديد قبل أي شغل تاني.
+        </template>
+      </p>
+      <p class="hint">
+        لو مسحت الفاتورة المفتوحة قبل ما تقفل: اقفل البرنامج دلوقتي، وافتحه،
+        وهتلاقي البيانات المستعادة.
+      </p>
+      <template #foot>
+        <button
+          type="button"
+          class="btn primary"
+          data-restart-now
+          :disabled="restarting"
+          @click="onRestartNow"
+        >
+          <Icon name="refresh-ccw" /> أعد التشغيل الآن
+        </button>
+        <button type="button" class="btn ghost" data-restart-later :disabled="restarting" @click="dismissRestart">
+          هقفله بنفسي
+        </button>
+      </template>
+    </Modal>
 
     <!-- The password the backend demands, asked for where the operator is. -->
     <Modal

@@ -41,6 +41,8 @@ export interface AppearanceDto {
   readonly backupEvery2h?: string;
   readonly backupUsbAuto?: string;
   readonly backupVerify?: string;
+  /** Comma-separated rail order (`ui.nav_order`); empty means the built-in one. */
+  readonly navOrder?: string;
 }
 
 export type AppearanceKey =
@@ -74,7 +76,8 @@ export type AppearanceKey =
   | 'ui.backup_on_shift'
   | 'ui.backup_every_2h'
   | 'ui.backup_usb_auto'
-  | 'ui.backup_verify';
+  | 'ui.backup_verify'
+  | 'ui.nav_order';
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');

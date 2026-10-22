@@ -5,6 +5,8 @@
 
 import { reactive, ref } from 'vue';
 
+import { SECTION_ORDER } from '../shell/nav.ts';
+
 import * as api from '../api/appearance';
 import type { AppearanceKey } from '../api/appearance';
 import * as imagesApi from '../api/images';
@@ -209,6 +211,12 @@ export interface Appearance {
   backupEvery2h: BackupToggleChoice;
   backupUsbAuto: BackupToggleChoice;
   backupVerify: BackupToggleChoice;
+  /**
+   * The rail's section order (`ui.nav_order`), as stored. Empty means «the order
+   * this build ships» — so a rail nobody arranged is never frozen against a
+   * section added later. Read it through `parseNavOrder` / `orderSections`.
+   */
+  navOrder: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -243,6 +251,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   backupEvery2h: DEFAULT_BACKUP_EVERY_2H,
   backupUsbAuto: DEFAULT_BACKUP_USB_AUTO,
   backupVerify: DEFAULT_BACKUP_VERIFY,
+  navOrder: '',
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -271,6 +280,25 @@ export const FONTS: readonly { id: FontChoice; name: string }[] = [
 
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+
+/**
+ * A stored rail order, kept to sections this build has.
+ *
+ * Rust already refuses an unknown token on the way in (`parse_nav_order`), so this
+ * is the reader's half of the same rule: a database restored from a newer build,
+ * or a hand-edited row, must not put a button on the rail that has no screen.
+ */
+function normalizeNavOrder(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const seen: string[] = [];
+  for (const part of raw.split(',')) {
+    const token = part.trim();
+    if (!SECTION_ORDER.some((id) => id === token)) continue;
+    if (seen.includes(token)) continue;
+    seen.push(token);
+  }
+  return seen.join(',');
+}
 
 /** Anything read back from the backend → a valid appearance (unknown values fall back). */
 export function normalizeAppearance(raw: unknown): Appearance {
@@ -343,6 +371,7 @@ export function normalizeAppearance(raw: unknown): Appearance {
       ['on', 'off'] as const,
       DEFAULT_BACKUP_VERIFY
     ),
+    navOrder: normalizeNavOrder(r['navOrder']),
   };
 }
 
@@ -462,6 +491,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   backupEvery2h: 'ui.backup_every_2h',
   backupUsbAuto: 'ui.backup_usb_auto',
   backupVerify: 'ui.backup_verify',
+  navOrder: 'ui.nav_order',
 };
 
 export type ServiceFeeMode = ServiceFeeModeChoice;
