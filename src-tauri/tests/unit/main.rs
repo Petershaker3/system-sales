@@ -42,6 +42,8 @@ use mobile_shop_system_lib::domain::supplier::{
 
 // The backup envelope: byte layout and the manifest path policy.
 mod backup;
+// The one string that leaves the app: a WhatsApp chat handed to the OS.
+mod external_link;
 
 /// Shorthand: a valid amount, so an arithmetic test states only what it is about.
 fn money(value: i64) -> Piastres {

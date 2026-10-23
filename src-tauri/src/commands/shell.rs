@@ -130,37 +130,3 @@ pub fn restart_app(app: tauri::AppHandle) {
     // `AppHandle::restart` never returns: it hands the process to a new instance.
     app.restart();
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_chat_link;
-
-    #[test]
-    fn a_whatsapp_chat_link_is_allowed() {
-        assert!(is_chat_link("https://wa.me/201012345678?text=%D8%A3%D9%87%D9%84%D8%A7"));
-        assert!(is_chat_link("https://api.whatsapp.com/send?phone=201012345678"));
-        assert!(is_chat_link("https://web.whatsapp.com/send?text=hi"));
-        // A port on an allowed host is still that host.
-        assert!(is_chat_link("https://wa.me:443/201012345678"));
-    }
-
-    #[test]
-    fn anything_else_is_refused() {
-        // Another scheme is another program, and `file:` is the filesystem.
-        assert!(!is_chat_link("http://wa.me/201012345678"));
-        assert!(!is_chat_link("file:///C:/Windows/System32/cmd.exe"));
-        assert!(!is_chat_link("shell:cmd"));
-        assert!(!is_chat_link("ms-settings:"));
-        // The host must be the whole host: `wa.me.evil.com` is not `wa.me`.
-        assert!(!is_chat_link("https://wa.me.evil.com/201012345678"));
-        assert!(!is_chat_link("https://evil.com/wa.me"));
-        // Credentials in front of the host do not make it ours.
-        assert!(!is_chat_link("https://wa.me@evil.com/2010"));
-        // Nor does an empty or whitespace-bearing string.
-        assert!(!is_chat_link(""));
-        assert!(!is_chat_link("https://"));
-        assert!(!is_chat_link("https://wa.me/201012345678 && calc"));
-        assert!(!is_chat_link("https://wa.me/201012345678\ncalc"));
-        assert!(!is_chat_link(&format!("https://wa.me/{}", "1".repeat(5000))));
-    }
-}
