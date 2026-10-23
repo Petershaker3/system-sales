@@ -1411,6 +1411,10 @@ check(
     waSentPre.imageDataUrl.startsWith('data:image/png;base64,') &&
     waSentPre.opened === 'window'
 );
+check(
+  'the finished sale says «واتساب جاهز» — the chat is open and the image is copied, not «اتبعت»',
+  (await text('.done-wrap')).includes('واتساب جاهز') && !(await text('.done-wrap')).includes('اتبعت على واتساب')
+);
 await shot('35-pos-done-receipt-preview');
 await page.click('#finish-sale-btn');
 await sleep(150);

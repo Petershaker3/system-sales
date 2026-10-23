@@ -83,6 +83,10 @@ test('formatWhatsAppMessage and buildWhatsAppUrl substitute placeholders and bui
   const url = buildWhatsAppUrl('01099887766', msg);
   assert.ok(url.startsWith('https://wa.me/201099887766?text='));
   assert.ok(decodeURIComponent(url.split('?text=')[1] ?? '').includes('سنتر بيتر'));
-  assert.equal(receiptModeDoneLabel('wa'), 'اتبعت على واتساب');
+  assert.equal(
+    receiptModeDoneLabel('wa'),
+    'واتساب جاهز',
+    'the app opens the chat; WhatsApp does the sending, so the label says «جاهز»'
+  );
   assert.equal(receiptModeDoneLabel('none'), 'من غير إيصال');
 });
