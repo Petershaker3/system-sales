@@ -362,6 +362,49 @@ interface DemoUnit {
   sellerNationalId?: string | null;
 }
 const productUnits: DemoUnit[] = [];
+
+// The demo shelf has handsets of both kinds, because the «الهواتف» section shows
+// two shelves and a demo with an empty used shelf proves nothing. Costs are what
+// the shop paid, so the section's shelf value and its average are real numbers.
+{
+  // A phone, not a case: «جراب شفاف سامسونج A15» also contains «A15».
+  const findPhone = (needle: string): DemoProduct | undefined =>
+    products.find(
+      (x) =>
+        x.name.includes(needle) &&
+        (x.disposition === 'serialized' ||
+          x.disposition === 'one_off' ||
+          x.tracking === 'serial_optional' ||
+          x.tracking === 'serial_required'),
+    );
+  const seedHandset = (
+    needle: string,
+    imei: string,
+    color: string,
+    costEgp: number,
+    bornDaysAgo: number,
+    used: { grade: 'A' | 'B' | 'C'; battery: number } | null = null,
+  ): void => {
+    const product = findPhone(needle);
+    if (!product) return;
+    productUnits.push({
+      id: newId('u'),
+      productId: product.id,
+      imei,
+      imei2: null,
+      color,
+      unitCostMinor: costEgp * 100,
+      status: 'in_stock',
+      createdAt: now() - bornDaysAgo * 86_400_000,
+      conditionGrade: used ? used.grade : null,
+      batteryHealthPct: used ? used.battery : null,
+    });
+  };
+  seedHandset('A15', '357111111111112', 'أسود', 6_400, 3);
+  seedHandset('A16', '357222222222225', 'أزرق', 7_700, 9);
+  seedHandset('A16', '357333333333338', 'أبيض', 7_900, 21);
+  seedHandset('iPhone 16', '357444444444441', 'أسود', 41_000, 12, { grade: 'B', battery: 88 });
+}
 function demoNormalizeImei(raw: string): string {
   return raw
     .trim()

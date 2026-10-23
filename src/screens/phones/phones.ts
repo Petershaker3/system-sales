@@ -187,57 +187,6 @@ export function buildPhoneModels(
     });
 }
 
-/** The two totals the owner asked for: how many, and how much. */
-export interface PhoneTotals {
-  readonly models: number;
-  readonly units: number;
-  /** Of those units, how many exist only as a number in the stock counter. */
-  readonly unregistered: number;
-  readonly usedUnits: number;
-  /** What the shelf cost. */
-  readonly costMinor: number;
-  /** What it would bring at catalogue prices; `null` while some model has no price. */
-  readonly saleMinor: number | null;
-  /**
-   * Sale minus cost — `null` until both halves are known for **every** handset.
-   *
-   * A handset received by quantity has no cost row, so the shelf's cost would be
-   * understated and the «profit» would come out negative and meaningless. The
-   * screen says «فيه أجهزة من غير تكلفة» instead of printing a number that is
-   * arithmetically true and practically a lie.
-   */
-  readonly expectedProfitMinor: number | null;
-}
-
-export function phoneTotals(rows: readonly PhoneModelRow[]): PhoneTotals {
-  let units = 0;
-  let unregistered = 0;
-  let usedUnits = 0;
-  let costMinor = 0;
-  let saleMinor = 0;
-  let priced = true;
-
-  for (const row of rows) {
-    units += row.available;
-    unregistered += row.unregistered;
-    usedUnits += row.usedCount;
-    costMinor += row.costMinor;
-    if (row.saleMinor === null) priced = false;
-    else saleMinor += row.saleMinor;
-  }
-
-  return {
-    models: rows.length,
-    units,
-    unregistered,
-    usedUnits,
-    costMinor,
-    saleMinor: priced ? saleMinor : null,
-    expectedProfitMinor:
-      priced && unregistered === 0 ? saleMinor - costMinor : null,
-  };
-}
-
 /**
  * Does this handset match what was typed?
  *
@@ -264,4 +213,180 @@ export function daysInStock(createdAt: number, nowMs: number): number {
   if (!Number.isFinite(createdAt) || createdAt <= 0) return 0;
   const days = Math.floor((nowMs - createdAt) / 86_400_000);
   return days < 0 ? 0 : days;
+}
+
+// --- new vs used: two shelves, never one mixed list ---------------------------
+//
+// The owner said it plainly (2026-10-23): «المستعمل ميتخلطش بالجديد، كل حاجة
+// لوحدها». That is not a filter on a screen — it is the shape of the data. A used
+// handset carries a condition, a new one does not, so every total below is a total
+// of one kind only, and there is no function that returns their sum.
+
+/** Which shelf a handset sits on. */
+export type PhoneKind = 'new' | 'used';
+
+/** One registered handset, as this section shows it. */
+export interface PhoneHandset {
+  readonly id: string;
+  readonly productId: string;
+  readonly name: string;
+  readonly brand: string;
+  readonly imei: string;
+  readonly color: string;
+  readonly used: boolean;
+  readonly costMinor: number;
+  readonly salePriceMinor: number | null;
+  readonly createdAt: number;
+  readonly conditionGrade: string | null;
+  readonly batteryHealthPct: number | null;
+}
+
+/**
+ * Which shelf a *model* belongs to when its stock counter holds phones nobody
+ * registered an IMEI for.
+ *
+ * A model that holds only used handsets is a used model; the moment it also holds
+ * a new one it is a new-shelf model, and its unregistered stock is counted there.
+ */
+export function modelKind(row: PhoneModelRow): PhoneKind {
+  return row.usedCount > 0 && row.newCount === 0 ? 'used' : 'new';
+}
+
+/** One model, with the handsets of a single kind under it. */
+export interface PhoneShelfCard {
+  readonly productId: string;
+  readonly name: string;
+  readonly brand: string;
+  readonly salePriceMinor: number | null;
+  /** The handsets themselves, newest first. */
+  readonly handsets: readonly PhoneHandset[];
+  /** Stock the counter holds with no IMEI row — counted, then named as a gap. */
+  readonly unregistered: number;
+  /** Handsets on the shelf: registered units plus unregistered stock. */
+  readonly count: number;
+  /** What those handsets cost; unregistered ones have no cost to add. */
+  readonly costMinor: number;
+  /** `count × salePrice`; `null` when the catalogue has no price for the model. */
+  readonly saleMinor: number | null;
+  /** Average cost over the handsets whose cost is known. */
+  readonly avgCostMinor: number;
+}
+
+/**
+ * Build the shelf of one kind: every model that had a handset of that kind, with
+ * those handsets under it. The other kind never appears — not as a column, not in
+ * a total, not as a zero.
+ */
+export function buildShelfCards(
+  models: readonly PhoneModelRow[],
+  handsets: readonly PhoneHandset[],
+  kind: PhoneKind,
+): PhoneShelfCard[] {
+  const used = kind === 'used';
+  const out: PhoneShelfCard[] = [];
+
+  for (const model of models) {
+    const mine = handsets
+      .filter((h) => h.productId === model.productId && h.used === used)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const unregistered = modelKind(model) === kind ? model.unregistered : 0;
+
+    // A used-only model has no shelf here, and a new-only model has none on the
+    // used screen — the two lists are never the same list with a filter on it.
+    if (mine.length === 0 && unregistered === 0) continue;
+
+    const count = mine.length + unregistered;
+    const costMinor = mine.reduce((sum, h) => sum + h.costMinor, 0);
+    const brand =
+      mine[0]?.brand ?? handsets.find((h) => h.productId === model.productId)?.brand ?? '';
+
+    out.push({
+      productId: model.productId,
+      name: model.name,
+      brand,
+      salePriceMinor: model.salePriceMinor,
+      handsets: mine,
+      unregistered,
+      count,
+      costMinor,
+      saleMinor: model.salePriceMinor === null ? null : model.salePriceMinor * count,
+      avgCostMinor: mine.length === 0 ? 0 : Math.floor(costMinor / mine.length),
+    });
+  }
+
+  return out.sort((a, b) => b.costMinor - a.costMinor || a.name.localeCompare(b.name));
+}
+
+/** What one kind of shelf holds. Never mixed with the other kind. */
+export interface PhoneKindTotals {
+  readonly models: number;
+  readonly units: number;
+  readonly unregistered: number;
+  readonly costMinor: number;
+  /** `null` while a model on this shelf has no price. */
+  readonly saleMinor: number | null;
+}
+
+export function cardsTotals(cards: readonly PhoneShelfCard[]): PhoneKindTotals {
+  let models = 0;
+  let units = 0;
+  let unregistered = 0;
+  let costMinor = 0;
+  let saleMinor = 0;
+  let priced = true;
+
+  for (const card of cards) {
+    models += 1;
+    units += card.count;
+    unregistered += card.unregistered;
+    costMinor += card.costMinor;
+    if (card.saleMinor === null) priced = false;
+    else saleMinor += card.saleMinor;
+  }
+
+  return {
+    models,
+    units,
+    unregistered,
+    costMinor,
+    saleMinor: priced ? saleMinor : null,
+  };
+}
+
+/** One company's share of a shelf, for the count strip. */
+export interface PhoneCompanyCount {
+  readonly name: string;
+  readonly units: number;
+  readonly costMinor: number;
+  readonly saleMinor: number | null;
+  /** Share of the shelf by number, 0–100, rounded. */
+  readonly sharePct: number;
+}
+
+/** The same shelf, grouped by the company that made the phones. */
+export function companyCounts(cards: readonly PhoneShelfCard[]): PhoneCompanyCount[] {
+  const map = new Map<string, { units: number; costMinor: number; sale: number; priced: boolean }>();
+  let total = 0;
+
+  for (const card of cards) {
+    const name = card.brand === '' ? 'بدون شركة' : card.brand;
+    const current = map.get(name) ?? { units: 0, costMinor: 0, sale: 0, priced: true };
+    total += card.count;
+    map.set(name, {
+      units: current.units + card.count,
+      costMinor: current.costMinor + card.costMinor,
+      sale: current.sale + (card.saleMinor ?? 0),
+      priced: current.priced && card.saleMinor !== null,
+    });
+  }
+
+  return [...map.entries()]
+    .map(([name, v]) => ({
+      name,
+      units: v.units,
+      costMinor: v.costMinor,
+      saleMinor: v.priced ? v.sale : null,
+      sharePct: total === 0 ? 0 : Math.round((v.units / total) * 100),
+    }))
+    .sort((a, b) => b.units - a.units || b.costMinor - a.costMinor || a.name.localeCompare(b.name));
 }

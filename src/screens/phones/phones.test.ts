@@ -8,11 +8,15 @@ import test from 'node:test';
 
 import {
   buildPhoneModels,
+  buildShelfCards,
+  cardsTotals,
+  companyCounts,
   daysInStock,
   isPhoneProduct,
   isUsedUnit,
   matchesPhone,
-  phoneTotals,
+  modelKind,
+  type PhoneHandset,
   type PhoneProductLike,
   type PhoneUnitLike,
 } from './phones.ts';
@@ -89,12 +93,24 @@ test('models carry their own count and money, and the totals agree with them', (
   assert.equal(a?.avgCostMinor, 580_000, 'the average is the shelf’s, not the price list’s');
   assert.equal(a?.saleMinor, 2_250_000, 'three handsets at 7,500');
 
-  const totals = phoneTotals(models);
-  assert.equal(totals.units, 4);
-  assert.equal(totals.usedUnits, 2);
-  assert.equal(totals.costMinor, 3_540_000);
-  assert.equal(totals.saleMinor, 4_250_000);
-  assert.equal(totals.expectedProfitMinor, 710_000, 'every handset here has a cost');
+  // There is deliberately no «total» that adds the two kinds together: the owner
+  // reads new and used as two shelves, and a mixed number would be a third thing
+  // nobody asked for.
+  const shelf = cardsTotals(models.map((m) => ({
+    productId: m.productId,
+    name: m.name,
+    brand: '',
+    salePriceMinor: m.salePriceMinor,
+    handsets: [],
+    unregistered: m.unregistered,
+    count: m.available,
+    costMinor: m.costMinor,
+    saleMinor: m.saleMinor,
+    avgCostMinor: m.avgCostMinor,
+  })));
+  assert.equal(shelf.units, 4);
+  assert.equal(shelf.costMinor, 3_540_000);
+  assert.equal(shelf.saleMinor, 4_250_000);
   // The biggest shelf value comes first: that is the money to look at.
   assert.equal(models[0]?.productId, 'b');
 });
@@ -104,10 +120,9 @@ test('a model with no price is said so, not counted as free', () => {
     [product('a', 'Nokia 105', null), product('b', 'iPhone 13', 2_000_000)],
     [unit('1', 'a', 300_000), unit('2', 'b', 1_800_000)],
   );
-  const totals = phoneTotals(models);
-  assert.equal(totals.costMinor, 2_100_000, 'the cost is known even when the price is not');
-  assert.equal(totals.saleMinor, null, '«من غير سعر» is not zero');
-  assert.equal(totals.expectedProfitMinor, null);
+  const nokia = models.find((m) => m.productId === 'a');
+  assert.equal(nokia?.costMinor, 300_000, 'the cost is known even when the price is not');
+  assert.equal(nokia?.saleMinor, null, '«من غير سعر» is not zero, and never 0×count');
 });
 
 test('a handset whose product vanished still counts on the shelf', () => {
@@ -115,7 +130,7 @@ test('a handset whose product vanished still counts on the shelf', () => {
   assert.equal(models.length, 1);
   assert.equal(models[0]?.available, 1);
   assert.equal(models[0]?.costMinor, 400_000, 'the money is on the shelf whether or not the row is');
-  assert.equal(phoneTotals(models).costMinor, 400_000);
+  assert.equal(models[0]?.costMinor, 400_000);
 });
 
 test('search matches a model, a colour, or the tail of an IMEI', () => {
@@ -149,16 +164,8 @@ test('stock received by quantity is counted, and said to be unregistered', () =>
   assert.equal(models[0]?.unregistered, 2);
   assert.equal(models[0]?.avgCostMinor, 650_000, 'the average covers the two handsets whose cost is known');
 
-  const totals = phoneTotals(models);
-  assert.equal(totals.units, 4);
-  assert.equal(totals.unregistered, 2);
-  assert.equal(totals.costMinor, 1_300_000);
+  assert.equal(models[0]?.costMinor, 1_300_000, 'only the two handsets whose cost is known');
   assert.equal(models[0]?.saleMinor, 3_700_000, 'four handsets at 9,250, not just the two registered');
-  assert.equal(
-    totals.expectedProfitMinor,
-    null,
-    'a shelf with an unpriced cost cannot claim a profit, even a negative one',
-  );
 });
 
 test('a phone model with an empty shelf is still listed', () => {
@@ -166,5 +173,128 @@ test('a phone model with an empty shelf is still listed', () => {
   assert.equal(models.length, 1);
   assert.equal(models[0]?.available, 0);
   assert.equal(models[0]?.saleMinor, 0);
-  assert.equal(phoneTotals(models).units, 0);
+  assert.deepEqual(buildShelfCards(models, [], 'new'), [], 'nothing on the shelf is not a row of zeros');
+});
+
+// --- two shelves: the used phones never mix into the new ones ----------------
+
+const handset = (extra: Partial<PhoneHandset> & { id: string; productId: string }): PhoneHandset => ({
+  name: 'Galaxy A16',
+  brand: 'Samsung',
+  imei: `35${extra.id.padStart(13, '0')}`,
+  color: '',
+  used: false,
+  costMinor: 100_000,
+  salePriceMinor: 130_000,
+  createdAt: 1_700_000_000_000,
+  conditionGrade: null,
+  batteryHealthPct: null,
+  ...extra,
+});
+
+test('the used shelf holds only used handsets, the new shelf only new ones', () => {
+  const products = [product('p1', 'Galaxy A16', 1_300_000)];
+  const models = buildPhoneModels(products, [
+    unit('1', 'p1', 900_000),
+    unit('2', 'p1', 950_000),
+    unit('3', 'p1', 500_000, { conditionGrade: 'B', batteryHealthPct: 88 }),
+  ]);
+  const handsets = [
+    handset({ id: '1', productId: 'p1', costMinor: 900_000 }),
+    handset({ id: '2', productId: 'p1', costMinor: 950_000 }),
+    handset({
+      id: '3',
+      productId: 'p1',
+      costMinor: 500_000,
+      used: true,
+      conditionGrade: 'B',
+      batteryHealthPct: 88,
+    }),
+  ];
+
+  const fresh = buildShelfCards(models, handsets, 'new');
+  const used = buildShelfCards(models, handsets, 'used');
+
+  assert.equal(fresh.length, 1);
+  assert.equal(fresh[0]!.count, 2, 'only the two new handsets');
+  assert.equal(fresh[0]!.costMinor, 1_850_000);
+  assert.deepEqual(fresh[0]!.handsets.map((h) => h.id).sort(), ['1', '2']);
+
+  assert.equal(used.length, 1);
+  assert.equal(used[0]!.count, 1);
+  assert.equal(used[0]!.costMinor, 500_000);
+  assert.deepEqual(used[0]!.handsets.map((h) => h.id), ['3']);
+
+  // the two totals are each other's complement, never a mix of the two
+  assert.equal(cardsTotals(fresh).units + cardsTotals(used).units, 3);
+  assert.equal(cardsTotals(fresh).costMinor + cardsTotals(used).costMinor, 2_350_000);
+});
+
+test('a used-only model does not appear on the new shelf at all', () => {
+  const models = buildPhoneModels([product('p1', 'iPhone 16', 4_000_000)], [
+    unit('1', 'p1', 3_000_000, { conditionGrade: 'A' }),
+  ]);
+  const usedHandset = handset({
+    id: '1',
+    productId: 'p1',
+    used: true,
+    costMinor: 3_000_000,
+    conditionGrade: 'A',
+  });
+
+  assert.equal(modelKind(models[0]!), 'used');
+  assert.deepEqual(buildShelfCards(models, [usedHandset], 'new'), []);
+  assert.equal(buildShelfCards(models, [usedHandset], 'used')[0]!.count, 1);
+});
+
+test('stock received by quantity is counted on its own shelf and named as a gap', () => {
+  // four A16s on the counter, two of them registered with an IMEI
+  const models = buildPhoneModels([{ ...product('p1', 'Galaxy A16', 1_300_000), onHand: 4 }], [
+    unit('1', 'p1', 900_000),
+    unit('2', 'p1', 900_000),
+  ]);
+  const handsets = [
+    handset({ id: '1', productId: 'p1', costMinor: 900_000 }),
+    handset({ id: '2', productId: 'p1', costMinor: 900_000 }),
+  ];
+
+  const fresh = buildShelfCards(models, handsets, 'new');
+  assert.equal(fresh[0]!.count, 4);
+  assert.equal(fresh[0]!.unregistered, 2);
+  assert.equal(fresh[0]!.costMinor, 1_800_000, 'only the registered handsets have a cost');
+  assert.equal(fresh[0]!.saleMinor, 1_300_000 * 4, 'the price is per handset on the shelf');
+  assert.equal(cardsTotals(fresh).unregistered, 2);
+});
+
+test('a shelf with nothing on it says nothing rather than zero', () => {
+  const models = buildPhoneModels([product('p1', 'Galaxy A16', 1_300_000)], []);
+  assert.deepEqual(buildShelfCards(models, [], 'new'), []);
+  assert.deepEqual(cardsTotals([]), {
+    models: 0,
+    units: 0,
+    unregistered: 0,
+    costMinor: 0,
+    saleMinor: 0,
+  });
+});
+
+test('the company strip counts one shelf only, and shares add up to a hundred', () => {
+  const models = buildPhoneModels(
+    [
+      product('p1', 'Galaxy A16', 100),
+      product('p2', 'iPhone 16', 100),
+    ],
+    [unit('1', 'p1', 10), unit('2', 'p1', 10), unit('3', 'p2', 10, { conditionGrade: 'A' })],
+  );
+  const handsets = [
+    handset({ id: '1', productId: 'p1', brand: 'Samsung', costMinor: 10_000 }),
+    handset({ id: '2', productId: 'p1', brand: 'Samsung', costMinor: 10_000 }),
+    handset({ id: '3', productId: 'p2', brand: 'Apple', used: true, costMinor: 10_000 }),
+  ];
+
+  const fresh = companyCounts(buildShelfCards(models, handsets, 'new'));
+  assert.deepEqual(fresh.map((c) => [c.name, c.units, c.sharePct]), [['Samsung', 2, 100]]);
+
+  const used = companyCounts(buildShelfCards(models, handsets, 'used'));
+  assert.deepEqual(used.map((c) => [c.name, c.units, c.sharePct]), [['Apple', 1, 100]]);
 });
