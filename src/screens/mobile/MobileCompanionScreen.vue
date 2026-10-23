@@ -38,6 +38,7 @@ import Icon from '../../ui/Icon.vue';
 import type { ScanReading } from '../../ui/scan';
 import { toast } from '../../ui/toast';
 import { dayStart, addDays } from '../sales/analytics';
+import PhoneCaptureScreen from './PhoneCaptureScreen.vue';
 import { imeiLuhn, normalizeImeiDigits } from '../pos/imei';
 import { isPhone } from '../../shell/device';
 import { shrinkImageFile } from '../store/image.ts';
@@ -59,6 +60,17 @@ const emit = defineEmits<{
   goScreen: [screen: ScreenId];
   changed: [];
 }>();
+
+/**
+ * «جرّب شاشة الموبايل» — the real handset screen, rendered on the computer.
+ *
+ * The owner's complaint was that he could not see what the phone app is *for*: the
+ * panel below shows pictures of phone screens, which look like a feature list and
+ * prove nothing. This opens the actual `PhoneCaptureScreen`, in the same app and
+ * the same data, pre-linked to this computer — so a capture made in it arrives in
+ * the inbox right above. One click from «شكل» to «دي القيمة».
+ */
+const showTryout = ref(false);
 
 const companion = ref<CompanionStatus | null>(null);
 const history = ref<readonly SaleHistoryEntry[]>([]);
@@ -124,6 +136,17 @@ const lastLinkLabel = computed(() => {
   ).replace('آخر ظهور ', '')}`;
 });
 const phoneSide = computed(() => isPhone());
+
+/** A capture was pushed from the trial screen: the inbox above is now stale. */
+async function onTryoutChanged(): Promise<void> {
+  await refreshCompanion();
+  emit('changed');
+}
+
+async function onCloseTryout(): Promise<void> {
+  showTryout.value = false;
+  await refreshCompanion();
+}
 
 async function refreshCompanion(): Promise<void> {
   companion.value = await companionOverview().catch(() => companion.value);
@@ -577,7 +600,9 @@ onUnmounted(() => {
         </small>
         <small v-else class="muted">
           {{
-            draft.barcode === ''
+            // `null` and `''` are the same thing here: no barcode was scanned. The
+            // box used to print «باركود null» because it only tested for `''`.
+            !draft.barcode
               ? 'من غير باركود — هيتعمل صنف جديد بالاسم ده'
               : `باركود ${draft.barcode}`
           }}
@@ -604,6 +629,14 @@ onUnmounted(() => {
           {{ linkState?.label ?? 'مفيش حالة' }}
         </span>
         <span class="sp"></span>
+        <button
+          type="button"
+          class="btn sm"
+          data-companion-tryout
+          @click="showTryout = true"
+        >
+          <Icon name="smartphone" /> جرّب شاشة الموبايل
+        </button>
         <button
           v-if="isOwner"
           type="button"
@@ -1209,5 +1242,82 @@ onUnmounted(() => {
       <Icon name="wifi" />
       ده شغال طول ما الموبايل على Wi-Fi المحل، من غير إنترنت ومفيش قاعدة بيانات على الموبايل. متابعة المبيعات من برّه المحل (من البيت مثلاً) في المرحلة الرابعة.
     </div>
+
+    <!-- The real handset screen, on the computer (`data-companion-tryout`). -->
+    <div v-if="showTryout" class="tryout" data-companion-tryout>
+      <div class="tryout-head">
+        <div>
+          <b>شاشة الموبايل الحقيقية</b>
+          <span class="muted">
+            دي نفس الشاشة اللي بتفتح على الموبايل — مربوطالك بالكمبيوتر ده أوتوماتيك.
+            سجّل صنف أو مصروف، ابعت، وشوفه في «اللي وصل من الموبايل» فوق.
+          </span>
+        </div>
+        <button
+          type="button"
+          class="btn sm"
+          data-companion-tryout-close
+          @click="onCloseTryout"
+        >
+          <Icon name="x" /> اقفل
+        </button>
+      </div>
+      <div class="tryout-body">
+        <PhoneCaptureScreen
+          :session="props.session"
+          :tryout-payload="companion?.pairPayload ?? ''"
+          @changed="onTryoutChanged"
+        />
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+/* «جرّب شاشة الموبايل»: the real handset screen, framed as a handset.
+   It covers the whole window on purpose — the point is to see the phone's app
+   without the computer's rail and topbar around it. */
+.tryout {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: color-mix(in srgb, #000 55%, transparent);
+}
+.tryout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.tryout-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.tryout-head b {
+  font-size: 0.95rem;
+}
+.tryout-head .muted {
+  font-size: 0.8rem;
+  max-width: 78ch;
+}
+.tryout-body {
+  overflow: auto;
+  padding: 16px;
+}
+/* One column, thumb width, with a bezel: a phone screen, not a stretched page. */
+.tryout-body :deep(.page) {
+  max-width: 430px;
+  margin: 0 auto;
+  border-radius: 24px;
+  border: 10px solid #1b1d21;
+  background: var(--bg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+</style>

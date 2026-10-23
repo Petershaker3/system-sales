@@ -5,56 +5,115 @@
 // handset points at, so the handset must never render this. The settings card and
 // the computer's link panel both use this component, which is the difference
 // between "the QR is on the PC" being a rule and being a habit someone remembers.
+//
+// The code is encoded for real (`pair-qr.ts`). Until the computer has a payload —
+// the status has not loaded, or the link is off — the box says so instead of
+// drawing a placeholder pattern that a camera would read as nothing while the
+// shop keeps trying.
 
-import { computed } from 'vue';
-import { appearance } from '../../ui/appearance';
-import { buildPairingQrMatrix } from './companion';
+import { computed, ref, watch } from 'vue';
+
+import { buildPairQr, looksLikePairPayload, type PairQrCode } from './pair-qr';
 
 const props = withDefaults(
   defineProps<{
-    /** The `MSHOP-PAIR|v1|…` payload. Empty falls back to the shop's own. */
+    /** The `MSHOP-PAIR|v1|…` (or `MSHOP-REMOTE|v1|…`) line. Empty means «not ready». */
     readonly payload: string;
     /** The DOM hook the smoke test and the docs read. */
     readonly marker?: string;
     readonly ariaLabel?: string;
-    readonly side?: number;
+    /** Rendered width in pixels; the code stays square. */
+    readonly width?: number;
   }>(),
-  { marker: 'data-companion-qr', ariaLabel: 'كود ربط الموبايل', side: 21 },
+  { marker: 'data-companion-qr', ariaLabel: 'كود ربط الموبايل', width: 168 },
 );
 
-const matrix = computed(() =>
-  buildPairingQrMatrix(
-    props.payload ||
-      `MSHOP-PAIR|v1|${appearance.shopName || 'موبايل ستور'}|192.168.1.10:8787|PAIR-8787`,
-    props.side,
-  ),
+/**
+ * The encoded code, filled asynchronously: the encoder is a lazy import, because
+ * most of the app never shows a QR and unpacking a megabyte at launch is a cost
+ * the till should not pay (`pair-qr.ts`).
+ */
+const qr = ref<PairQrCode | null>(null);
+
+watch(
+  () => props.payload,
+  async (payload) => {
+    const trimmed = payload.trim();
+    qr.value = null;
+    if (trimmed === '' || !looksLikePairPayload(trimmed) && !trimmed.startsWith('MSHOP-REMOTE|')) {
+      return;
+    }
+    try {
+      const built = await buildPairQr(trimmed);
+      // The panel may have changed while the encoder loaded; only the newest
+      // payload may be drawn, or the shop scans a code that is already stale.
+      if (props.payload.trim() === trimmed) qr.value = built;
+    } catch {
+      // Too long for the largest version: the panel still prints the line below.
+      qr.value = null;
+    }
+  },
+  { immediate: true },
 );
 
 const markerAttrs = computed(() => ({ [props.marker]: '' }));
 </script>
 
 <template>
-  <div class="pair-qr" v-bind="markerAttrs">
+  <div
+    class="pair-qr"
+    v-bind="markerAttrs"
+    :data-qr-payload="qr?.payload"
+    :data-qr-modules="qr === null ? undefined : `${qr.size}x${qr.size}`"
+  >
     <svg
-      :viewBox="`0 0 ${side} ${side}`"
-      :width="side === 21 ? 136 : 120"
-      :height="side === 21 ? 136 : 120"
+      v-if="qr !== null"
+      :viewBox="`0 0 ${qr.size} ${qr.size}`"
+      :width="width"
+      :height="width"
       shape-rendering="crispEdges"
       :aria-label="ariaLabel"
+      role="img"
     >
-      <rect :width="side" :height="side" fill="#ffffff" />
-      <template v-for="(row, r) in matrix" :key="r">
-        <template v-for="(cell, c) in row" :key="`${r}-${c}`">
-          <rect
-            v-if="cell"
-            :x="c"
-            :y="r"
-            width="1"
-            height="1"
-            fill="#141517"
-          />
-        </template>
-      </template>
+      <!-- The quiet zone is part of the matrix, so the white plate is the frame. -->
+      <rect :width="qr.size" :height="qr.size" fill="#ffffff" />
+      <path :d="qr.path" fill="#141517" />
     </svg>
+    <div v-else class="pair-qr-pending" data-qr-pending :style="{ width: `${width}px`, height: `${width}px` }">
+      <span>الكود بيتجهز…</span>
+      <small>لازم الكمبيوتر يفتح الربط الأول</small>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.pair-qr {
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  border-radius: var(--r-m);
+  background: #ffffff;
+  line-height: 0;
+}
+.pair-qr svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.pair-qr-pending {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  line-height: 1.4;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-s);
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.82rem;
+  padding: 8px;
+}
+.pair-qr-pending small {
+  font-size: 0.74rem;
+}
+</style>

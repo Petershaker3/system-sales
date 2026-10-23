@@ -189,7 +189,8 @@ await clickText('.modal .btn', 'تمام');
 await sleep(300);
 
 check('the banner is gone once the account exists', (await count('[data-open-mode-note]')) === 0);
-check('the lock is back on the rail', await hasText('.rail .nav-btn', 'قفل'));
+// Icon-only since `a939f14`: the lock says «قفل الشاشة» in its title, not in its text.
+check('the lock is back on the rail', (await page.$('[data-rail-lock]')) !== null);
 check('the chip now carries the claimed name', (await text('.user-chip .who')).includes('أبو كريم'));
 await shot('06-phone-after-claim');
 

@@ -16,6 +16,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  BinaryBitmap,
+  DecodeHintType,
+  HybridBinarizer,
+  QRCodeReader,
+  RGBLuminanceSource,
+} from '@zxing/library';
+
 import { launch } from '../docs/ui/mockup-v1/tools/launch.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173/';
@@ -43,6 +51,58 @@ page.on('console', (m) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
+
+/**
+ * Decode a QR the way a phone camera would: a screenshot of the element, read back.
+ *
+ * The pairing QR used to be a drawing of a QR code, so «it looks right» is exactly
+ * the claim that was already false. This takes the pixels the screen really shows.
+ */
+async function decodeRenderedQr(selector) {
+  const png = await page.$eval(selector, async (el) => {
+    const rect = el.getBoundingClientRect();
+    const svg = el.querySelector('svg');
+    if (svg === null) return null;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+    const scale = Math.max(6, Math.round(480 / Math.max(rect.width, 1)));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(rect.width) * scale;
+    canvas.height = Math.round(rect.height) * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let binary = '';
+    const bytes = new Uint8Array(data.buffer);
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    return { width: canvas.width, height: canvas.height, rgba: btoa(binary) };
+  });
+  if (png === null) return null;
+
+  const raw = Buffer.from(png.rgba, 'base64');
+  const pixels = new Uint8ClampedArray(png.width * png.height);
+  for (let i = 0, p = 0; i < raw.length; i += 4, p += 1) {
+    pixels[p] = Math.round(0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2]);
+  }
+  const hints = new Map();
+  hints.set(DecodeHintType.CHARACTER_SET, 'UTF-8');
+  try {
+    return new QRCodeReader()
+      .decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(pixels, png.width, png.height))), hints)
+      .getText();
+  } catch {
+    return null;
+  }
+}
+
 const text = (sel) => page.$eval(sel, (el) => el.textContent?.trim() ?? '').catch(() => '');
 const count = (sel) => page.$$eval(sel, (els) => els.length);
 /**
@@ -2012,6 +2072,9 @@ check(
   'Enabling «مرحّل المتابعة البعيدة للمالك» in «الأجهزة والطابعة» reveals the encrypted read-only remote QR code',
   (await count('[data-remote-followup-card]')) === 1 &&
     (await count('[data-remote-qr]')) === 1 &&
+    (await page.$eval('[data-remote-qr]', (el) => el.getAttribute('data-qr-payload') ?? '')).startsWith(
+      'MSHOP-REMOTE|v1|'
+    ) &&
     (await text('[data-remote-followup-card]')).includes('RMT-9042')
 );
 
@@ -2891,17 +2954,110 @@ check(
   (await count('[data-companion-intake-row]')) === 0 &&
     (await text('[data-companion-inbox-empty]')).includes('مفيش مسودة')
 );
-check('the pairing QR is drawn, not described', (await count('[data-companion-qr] svg')) === 1);
+// The QR must be a QR code, not a drawing of one: it carries the computer's own
+// line, its module count is a real version, and its payload is what the phone parses.
+const qrBefore = await page.$eval('[data-companion-qr]', (el) => ({
+  payload: el.getAttribute('data-qr-payload'),
+  modules: el.getAttribute('data-qr-modules'),
+  pathLength: (el.querySelector('path')?.getAttribute('d') ?? '').length,
+}));
 const payloadBefore = await text('[data-companion-payload]');
+const decodedQr = await decodeRenderedQr('[data-companion-qr]');
+check(
+  'a camera reading the QR on screen gets the exact line the computer printed',
+  decodedQr === payloadBefore.trim() && decodedQr.startsWith('MSHOP-PAIR|v1|'),
+  String(decodedQr)
+);
+check(
+  'the pairing QR is a real QR code carrying the line the phone will read',
+  (await count('[data-companion-qr] svg')) === 1 &&
+    qrBefore.payload === payloadBefore.trim() &&
+    qrBefore.payload.startsWith('MSHOP-PAIR|v1|') &&
+    /^(\d+)x\1$/.test(qrBefore.modules ?? '') &&
+    Number((qrBefore.modules ?? '0x0').split('x')[0]) >= 21 &&
+    (Number((qrBefore.modules ?? '0x0').split('x')[0]) - 21) % 4 === 0 &&
+    qrBefore.pathLength > 200,
+  `${qrBefore.modules} · ${qrBefore.pathLength} chars`
+);
 await page.click('[data-companion-rotate]');
 await sleep(400);
 const payloadAfter = await text('[data-companion-payload]');
+const qrAfter = await page.$eval('[data-companion-qr]', (el) => ({
+  payload: el.getAttribute('data-qr-payload'),
+  modules: el.getAttribute('data-qr-modules'),
+}));
 check(
-  'a new pair code changes the line the phone reads',
-  payloadBefore !== payloadAfter && /PAIR-\d+/.test(payloadAfter) && !payloadBefore.includes(payloadAfter.split('|').pop()),
+  'a new pair code changes the line the phone reads — and the code it scans',
+  payloadBefore !== payloadAfter &&
+    /PAIR-\d+/.test(payloadAfter) &&
+    !payloadBefore.includes(payloadAfter.split('|').pop()) &&
+    qrAfter.payload === payloadAfter.trim() &&
+    qrAfter.payload !== qrBefore.payload,
   `${payloadBefore} → ${payloadAfter}`
 );
 await shot('62b-companion-link-panel');
+
+// --- «جرّب شاشة الموبايل»: the real handset screen, on the computer ----------
+// The owner's second complaint was that he could not see what the phone app is
+// worth. A screenshot of a phone is not the app; this opens the app itself,
+// pre-linked to this computer, and the capture made in it lands in the inbox.
+const tryoutBefore = await count('[data-companion-intake-row]');
+await page.click('[data-companion-tryout]');
+await page.waitForSelector('[data-phone-capture-screen]', { timeout: 8000 });
+await sleep(1500);
+await page.waitForSelector('[data-capture-stored-host]', { timeout: 8000 }).catch(() => undefined);
+const tryoutHost = (await text('[data-companion-host-address]')).trim();
+const tryoutStored = await text('[data-capture-stored-host]');
+check(
+  '«جرّب شاشة الموبايل» opens the real capture screen, already linked to this computer',
+  tryoutStored.includes(tryoutHost) && (await text('[data-capture-link-tag]')).includes('متّصل'),
+  `${tryoutHost} · ${tryoutStored.replace(/\s+/g, ' ')}`
+);
+check(
+  '…and it does not ask the owner to type an address the computer already knows',
+  (await page.$('[data-capture-paste]')) === null && (await page.$('[data-capture-host]')) === null,
+  'a linked phone shows the state, not the form'
+);
+await shot('62c-companion-tryout-phone');
+
+// Focus via the DOM, then type: the screen is an overlay and a toast can sit on top
+// of the field, so a click-to-focus lands on the toast and the typing goes nowhere.
+await page.$eval('[data-capture-name]', (el) => el.focus());
+await page.keyboard.type('شاحن أنكر 30 وات');
+await page.$eval('[data-capture-qty]', (el) => el.focus());
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyA');
+await page.keyboard.up('Control');
+await page.keyboard.type('3');
+await sleep(150);
+await page.$eval('[data-capture-cost]', (el) => {
+  el.value = '120';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(200);
+await page.$eval('[data-capture-save]', (el) => el.click());
+await sleep(900);
+// A linked phone sends the moment it saves, so what has to be true here is that
+// the capture left the handset and said so — a queue the shop forgets to empty is
+// the failure this screen exists to prevent.
+check(
+  'a capture saved in the trial screen is sent to the computer straight away',
+  (await text('#toasts')).includes('الكمبيوتر أخد') &&
+    !(await text('#toasts')).includes('اكتب اسم الصنف'),
+  (await text('#toasts')).replace(/\s+/g, ' ')
+);
+await page.click('[data-companion-tryout-close]');
+await sleep(900);
+const tryoutRows = await page.$$eval('[data-companion-intake-row]', (els) =>
+  els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim())
+);
+check(
+  '…and it arrives in the computer’s inbox, under the phone that made it',
+  tryoutRows.length === tryoutBefore + 1 &&
+    tryoutRows.some((row) => row.includes('شاحن أنكر 30 وات') && row.includes('تجربة')),
+  `${tryoutBefore} → ${tryoutRows.length}`
+);
+await shot('62d-companion-tryout-inbox');
 
 
   await page.click('[data-mobile-mode="remote"]');
@@ -3416,11 +3572,14 @@ check(
 );
 await shot('72-phone-expense-in-inbox');
 
+const inboxRowsBeforeAccept = await count('[data-companion-intake-row]');
 await page.click('[data-companion-accept]');
 await sleep(700);
 check(
-  'accepting it empties the inbox',
-  (await text('[data-companion-inbox-count]')).includes('مفيش')
+  'accepting it takes that one draft out of the inbox',
+  (await count('[data-companion-intake-row]')) === inboxRowsBeforeAccept - 1 &&
+    !(await text('[data-companion-inbox]')).includes('كهربا'),
+  `${inboxRowsBeforeAccept} → ${await count('[data-companion-intake-row]')}`
 );
 
 const drawerBeforeAccept = await (async () => {
