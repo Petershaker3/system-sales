@@ -50,6 +50,26 @@ const result = await build({
 
 const script = result.outputFiles[0].text;
 const styles = readFileSync(join(here, 'src', 'styles.css'), 'utf8');
+
+// The app's Arabic face, inlined. A shop PC is offline and may have no Arabic
+// font installed at all; an HTML file that renders its own words as boxes is a
+// file nobody can review. Changa is the app's face (SIL OFL 1.1), so the tool and
+// the program look like the same product.
+const fontsDir = join(here, '..', '..', 'src', 'assets', 'fonts');
+const FACES = [
+  ['changa-arabic-400-normal.woff2', 400, 'U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200E,U+2010-2011'],
+  ['changa-latin-400-normal.woff2', 400, 'U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2190-21FF,U+2212,U+FEFF'],
+  ['changa-arabic-700-normal.woff2', 700, 'U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200E,U+2010-2011'],
+  ['changa-latin-700-normal.woff2', 700, 'U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2190-21FF,U+2212,U+FEFF'],
+];
+const fontCss = FACES
+  .map(([name, weight, range]) => {
+    const bytes = readFileSync(join(fontsDir, name)).toString('base64');
+    return `@font-face{font-family:"Changa";font-style:normal;font-weight:${weight};font-display:swap;`
+      + `src:url(data:font/woff2;base64,${bytes}) format("woff2");unicode-range:${range};}`;
+  })
+  .join('\n')
+  + '\n/* Changa — Copyright 2018 The Changa Project Authors, SIL Open Font License 1.1. */';
 const template = readFileSync(join(here, 'src', 'index.html'), 'utf8');
 
 // Replacement *functions*, not strings: minified JavaScript is full of `$&` and
@@ -59,7 +79,7 @@ const template = readFileSync(join(here, 'src', 'index.html'), 'utf8');
 const safeScript = script.replace(/<\/script/gi, '<\\/script');
 
 const html = template
-  .replace('/*__STYLES__*/', () => styles)
+  .replace('/*__STYLES__*/', () => styles.replace('/*__FONTS__*/', () => fontCss))
   .replace('/*__SCRIPT__*/', () => safeScript);
 
 const outFile = join(here, 'legacy-migration.html');

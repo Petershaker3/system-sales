@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import initSqlJs from 'sql.js';
 
 import { preparePlan, buildFromPlan } from '../src/pipeline.mjs';
-import { validatePlan } from '../src/plan.mjs';
+import { planTotals as planTotalsForTest, validatePlan } from '../src/plan.mjs';
 import { readBackupFile } from '../src/backup.mjs';
 
 const require = createRequire(import.meta.url);
@@ -276,4 +276,119 @@ test('building the same plan twice gives the same database', () => {
   const first = build(prepared.plan);
   const second = build(prepared.plan);
   assert.equal(Buffer.from(first.dbBytes).equals(Buffer.from(second.dbBytes)), true);
+});
+
+// ── Used handsets, devices and counts ──────────────────────────────────────
+// The owner's request (2026-10-23): the tool must keep up with «قسم الهواتف» and
+// carry the *numbers*, not just the row. A used phone is a unit with an IMEI; a
+// new phone's count is the old store's count. These tests read both back.
+
+test('a used handset the owner registered becomes a unit, not a stock number', () => {
+  const plan = structuredClone(prepared.plan);
+  const used = plan.items.find((item) => item.kind === 'used');
+  assert.ok(used, 'the fixture has a used model');
+  used.devices = [
+    { imei: '357111111111112', condition: 'B', cost: used.buy, note: '' },
+    { imei: '352099001761481', condition: 'A', cost: used.buy, note: 'شاشة متغيرة' },
+  ];
+  used.qty = 2;
+  const result = build(plan);
+  const { one, all } = open(result.dbBytes);
+
+  const units = all('SELECT imei, condition_grade, unit_cost_minor, status FROM units ORDER BY imei');
+  assert.equal(units.length, 2);
+  assert.deepEqual(units.map((row) => row.imei).sort(), ['352099001761481', '357111111111112']);
+  assert.equal(units.every((row) => row.status === 'in_stock'), true);
+  assert.equal(units.find((row) => row.imei === '352099001761481').condition_grade, 'A');
+
+  const shelf = one('SELECT quantity, total_cost_minor FROM stock_levels WHERE product_id = ?', [used.id]);
+  assert.equal(shelf.quantity, 2, 'the shelf holds the two devices');
+  assert.equal(shelf.total_cost_minor, used.buy * 100 * 2);
+
+  // A unit points at the receipt that brought it in, so the ledger can explain it.
+  const orphan = one(
+    'SELECT COUNT(*) AS n FROM units WHERE received_movement_id IS NULL',
+  );
+  assert.equal(orphan.n, 0, 'every unit names its opening receipt');
+});
+
+test('a used model with no devices does not invent stock', () => {
+  const plan = structuredClone(prepared.plan);
+  const used = plan.items.find((item) => item.kind === 'used');
+  used.devices = [];
+  const result = build(plan);
+  const { one } = open(result.dbBytes);
+  const units = one('SELECT COUNT(*) AS n FROM units');
+  assert.equal(units.n, 0);
+  const shelf = one('SELECT quantity FROM stock_levels WHERE product_id = ?', [used.id]);
+  assert.equal(shelf ? shelf.quantity : 0, 0);
+});
+
+test('a new phone carries the count the old store kept', () => {
+  const plan = structuredClone(prepared.plan);
+  const phone = plan.items.find((item) => item.kind === 'phone');
+  assert.ok(phone, 'the fixture has a phone');
+  phone.qty = 7;
+  const result = build(plan);
+  const { one } = open(result.dbBytes);
+  const shelf = one('SELECT quantity FROM stock_levels WHERE product_id = ?', [phone.id]);
+  assert.ok(shelf.quantity >= 7, `expected at least the 7 phones, got ${shelf.quantity}`);
+  const product = one('SELECT disposition, tracking FROM products WHERE id = ?', [phone.id]);
+  assert.equal(product.disposition, 'serialized');
+  assert.equal(product.tracking, 'serial_optional');
+});
+
+test('an accessory count is what the owner typed', () => {
+  const plan = structuredClone(prepared.plan);
+  const accessory = plan.items.find((item) => item.kind === 'accessory');
+  accessory.qty = 12;
+  const result = build(plan);
+  const { one } = open(result.dbBytes);
+  const shelf = one('SELECT quantity, total_cost_minor FROM stock_levels WHERE product_id = ?', [accessory.id]);
+  assert.equal(shelf.quantity, 12);
+  assert.equal(shelf.total_cost_minor, Math.round(accessory.buy * 100) * 12);
+});
+
+test('a bad IMEI stops the build, and the finding says which row', () => {
+  const plan = structuredClone(prepared.plan);
+  const used = plan.items.find((item) => item.kind === 'used');
+  used.devices = [{ imei: '12345', condition: 'B', cost: used.buy, note: '' }];
+  const validation = validatePlan(plan);
+  const finding = validation.findings.find((entry) => entry.code === 'used-imei');
+  assert.ok(finding, 'the invalid IMEI is reported');
+  assert.equal(finding.level, 'error');
+  assert.equal(finding.ref, used.id);
+});
+
+test('the same IMEI twice is refused before anything is written', () => {
+  const plan = structuredClone(prepared.plan);
+  const used = plan.items.find((item) => item.kind === 'used');
+  used.devices = [
+    { imei: '357111111111112', condition: 'B', cost: used.buy, note: '' },
+    { imei: '357111111111112', condition: 'B', cost: used.buy, note: '' },
+  ];
+  const validation = validatePlan(plan);
+  assert.ok(validation.findings.some((entry) => entry.code === 'used-imei-duplicate'));
+});
+
+test('the plan totals count pieces, and never add used to new', () => {
+  const plan = structuredClone(prepared.plan);
+  const used = plan.items.find((item) => item.kind === 'used');
+  const phone = plan.items.find((item) => item.kind === 'phone');
+  for (const item of plan.items) if (item.kind === 'phone') item.qty = 0;
+  phone.qty = 3;
+  used.devices = [{ imei: '357111111111112', condition: 'A', cost: used.buy, note: '' }];
+  const totals = planTotalsForTest(plan);
+  assert.equal(totals.counts.usedDevices, 1);
+  assert.equal(totals.counts.phonePieces, 3);
+  assert.notEqual(totals.counts.usedDevices, totals.counts.phonePieces);
+});
+
+test('an accessory with no count is a finding, not a silent zero', () => {
+  const plan = structuredClone(prepared.plan);
+  for (const item of plan.items) {
+    if (item.kind === 'accessory') item.qty = 0;
+  }
+  const validation = validatePlan(plan);
+  assert.ok(validation.findings.some((entry) => entry.code === 'accessory-counts'));
 });

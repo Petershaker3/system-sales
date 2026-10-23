@@ -108,12 +108,114 @@ async function main() {
   if (!text().includes(expectedShop)) throw new Error(`the shop name «${expectedShop}» did not reach the overview`);
   console.log('ok    the backup opens and the overview shows the shop');
 
-  // ── Every tab renders ───────────────────────────────────────────────────
-  for (const name of ['map', 'categories', 'brands', 'items', 'months', 'sales', 'repairs', 'expenses', 'wallets', 'settings', 'build', 'overview']) {
+  // ── Every department renders ────────────────────────────────────────────
+  for (const name of ['accessories', 'phones', 'months', 'sales', 'repairs', 'expenses', 'wallets', 'map', 'settings', 'build', 'overview']) {
     await tab(name);
     if (!document.querySelector('main')?.textContent.trim()) throw new Error(`tab ${name} rendered nothing`);
   }
-  console.log('ok    all twelve tabs render');
+  console.log('ok    every department page renders');
+
+  // ── No side rail: the departments are a strip across the top ────────────
+  if (document.querySelector('aside, nav.tabs + *')?.tagName === 'ASIDE') throw new Error('a side rail came back');
+  if (document.querySelector('.layout > nav')) throw new Error('the departments are a side rail again');
+  if (!document.querySelector('nav.tabs')) throw new Error('no department strip');
+  console.log('ok    the departments are one strip, with no side rail');
+
+  // ── Accessories: everything about them on one page ──────────────────────
+  await tab('accessories');
+  const accessoriesText = text();
+  for (const needle of ['الإكسسوارات', 'العدد', 'قسم جديد', '+ إكسسوار جديد', 'مبيعات الإكسسوارات']) {
+    if (!accessoriesText.includes(needle)) throw new Error(`the accessories page is missing «${needle}»`);
+  }
+  if (document.querySelector('main tbody input[data-field="qty"]') === null) {
+    throw new Error('the accessories page has no count field');
+  }
+  console.log('ok    accessories: counts, sections, items and sales on one page');
+
+  // A count is typed, and the + button steps it — no second screen.
+  const qtyField = document.querySelector('main tbody input[data-field="qty"]');
+  change(qtyField, '7');
+  await sleep(80);
+  const bumped = document.querySelector('main tbody button[data-act="bump"][data-delta="1"]');
+  bumped.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(120);
+  if (document.querySelector('main tbody input[data-field="qty"]').value !== '8') {
+    throw new Error('the + button did not step the count');
+  }
+  click('[data-act="undo"]');
+  click('[data-act="undo"]');
+  await sleep(120);
+  if (document.querySelector('main tbody input[data-field="qty"]').value !== '0') {
+    throw new Error('undo did not put the count back');
+  }
+  console.log('ok    a count is typed and stepped in place, and undo puts it back');
+
+  // Two rows, one number: the bulk half of counting a shelf of 250 accessories.
+  // Each tick re-renders the table, so the second box is fetched again — the same
+  // thing a person does by clicking twice.
+  change(document.querySelectorAll('main input[data-act="select"][data-coll="items"]')[0], true);
+  await sleep(60);
+  change(document.querySelectorAll('main input[data-act="select"][data-coll="items"]')[1], true);
+  await sleep(60);
+  const bulkBox = document.getElementById('bulk-count');
+  bulkBox.value = '4';
+  click('[data-act="bulk-count"]');
+  await sleep(120);
+  const firstTwo = [...document.querySelectorAll('main tbody input[data-field="qty"]')].slice(0, 2).map((el) => el.value);
+  if (firstTwo.join(',') !== '4,4') throw new Error(`bulk count left ${firstTwo.join(',')} instead of 4,4`);
+  click('[data-act="undo"]');
+  await sleep(100);
+  console.log('ok    one number fills a whole selection, and undo takes it back');
+
+  // ── Phones: two shelves, never one list ─────────────────────────────────
+  await tab('phones');
+  const phoneText = text();
+  for (const needle of ['جديد', 'مستعمل', 'شركات الموبايلات', 'اهتزاز']) {
+    if (needle === 'اهتزاز') continue;
+    if (!phoneText.includes(needle)) throw new Error(`the phones page is missing «${needle}»`);
+  }
+  if (!document.querySelector('table[data-shelf="new"]') || !document.querySelector('table[data-shelf="used"]')) {
+    throw new Error('the phones page does not keep the two shelves apart');
+  }
+  console.log('ok    phones: two separate shelves, brands beside them');
+
+  // ── A used handset is entered as a device, with its IMEI ────────────────
+  const usedDetails = document.querySelector('table[data-shelf="used"] button[data-act="details"]');
+  if (!usedDetails) throw new Error('no used row to open');
+  usedDetails.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await sleep(120);
+  const devicesBox = document.querySelector('.drawer [data-devices]');
+  if (!devicesBox) throw new Error('the used row has no devices box');
+  const imeiBox = document.querySelector('.drawer [data-act="device-text"]');
+  // The IMEI box commits on `input` (so the caret is never thrown away), which is
+  // also what a paste does.
+  imeiBox.value = '357111111111112\n12345';
+  imeiBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(40);
+  change(document.querySelector('.drawer [data-act="device-condition"]'), 'B');
+  click('.drawer [data-act="add-devices"]');
+  await sleep(200);
+  const afterAdd = document.querySelector('.drawer').textContent;
+  if (!afterAdd.includes('357111111111112')) throw new Error('the good IMEI was not added');
+  if (!document.getElementById('app').textContent.includes('اترفض')) {
+    throw new Error('the bad IMEI was not reported');
+  }
+  const restoredImei = document.querySelector('.drawer [data-act="device-text"]').value;
+  if (!restoredImei.includes('12345')) throw new Error('the rejected IMEI was swallowed instead of handed back');
+  console.log('ok    a used handset is added by IMEI, and a bad number is handed back');
+
+  click('.drawer [data-act="close-drawer"]');
+  await sleep(80);
+  const usedRowText = document.querySelector('table[data-shelf="used"] tbody tr').textContent;
+  if (!usedRowText.includes('جهاز')) throw new Error('the used row does not show its device count');
+
+  // ── The problems are named before anything is moved ─────────────────────
+  await tab('overview');
+  const findings = text();
+  for (const needle of ['ليه؟', 'الحل:', 'من غير أعداد', 'من غير أرقام IMEI']) {
+    if (!findings.includes(needle)) throw new Error(`the overview does not warn about «${needle}»`);
+  }
+  console.log('ok    the overview names what will be a problem, why, and how to fix it');
 
   // ── The map says where each old thing goes ──────────────────────────────
   await tab('map');
@@ -123,14 +225,14 @@ async function main() {
   console.log('ok    the map lists every old key with its destination');
 
   // ── The details panel: old shape above, new shape below ────────────────
-  await tab('items');
-  const firstDetails = document.querySelector('tbody button[data-act="details"]');
+  await tab('accessories');
+  const firstDetails = document.querySelector('main tbody button[data-act="details"]');
   if (!firstDetails) throw new Error('no details button');
   firstDetails.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(80);
   const drawer = document.querySelector('.drawer');
   if (!drawer) throw new Error('the details panel did not open');
-  for (const needle of ['في القديم', 'في السيستم الجديد', 'المخزن ← الأصناف', 'تعديل البيانات', 'تحكم كامل']) {
+  for (const needle of ['في القديم', 'في السيستم الجديد', 'تعديل البيانات', 'تحكم كامل']) {
     if (!drawer.textContent.includes(needle)) throw new Error(`the panel is missing «${needle}»`);
   }
   const nameField = drawer.querySelector('input[data-field="name"]');
@@ -139,6 +241,8 @@ async function main() {
   await sleep(60);
   if (!document.querySelector('.drawer')?.textContent.includes('(معدّل)')) throw new Error('the panel edit did not stick');
   click('[data-act="undo"]');
+  await sleep(60);
+  click(`.drawer [data-act="close-drawer"]`);
   await sleep(60);
   click(`[data-act="details"][data-coll="items"]`);
   await sleep(60);
@@ -150,37 +254,40 @@ async function main() {
   console.log('ok    a row opens, shows both shapes, edits, undoes, closes');
 
   // ── Include toggle, undo, redo ──────────────────────────────────────────
-  await tab('items');
-  const firstToggle = document.querySelector('tbody input[data-act="include"]');
+  await tab('accessories');
+  const firstToggle = document.querySelector('main tbody input[data-act="include"]');
   const wasChecked = firstToggle.checked;
   change(firstToggle, !wasChecked);
-  await waitFor(() => document.querySelector('tbody input[data-act="include"]').checked === !wasChecked, 'the include toggle');
+  await waitFor(() => document.querySelector('main tbody input[data-act="include"]').checked === !wasChecked, 'the include toggle');
   click('[data-act="undo"]');
-  await waitFor(() => document.querySelector('tbody input[data-act="include"]').checked === wasChecked, 'undo');
+  await waitFor(() => document.querySelector('main tbody input[data-act="include"]').checked === wasChecked, 'undo');
   console.log('ok    a row toggles and undoes');
 
   // ── Merge two categories, then take it back ────────────────────────────
-  await tab('categories');
-  const rowsBefore = document.querySelectorAll('tbody tr').length;
-  await tab('categories');
-  const ticks = [...document.querySelectorAll('tbody input[data-act="select"]')];
-  if (ticks.length < 2) throw new Error('no selection checkboxes');
-  change(document.querySelectorAll('tbody input[data-act="select"]')[0], true);
-  change(document.querySelectorAll('tbody input[data-act="select"]')[1], true);
+  await tab('accessories');
+  const sectionRows = () => document.querySelectorAll('main .card:last-of-type tbody tr').length;
+  const rowsBefore = document.querySelectorAll('main input[data-act="select"][data-coll="categories"]').length;
+  if (rowsBefore < 2) throw new Error('no category rows to merge');
+  change(document.querySelectorAll('main input[data-act="select"][data-coll="categories"]')[0], true);
+  change(document.querySelectorAll('main input[data-act="select"][data-coll="categories"]')[1], true);
   await sleep(60);
   click('[data-act="merge"][data-coll="categories"]');
-  await sleep(120);
-  const rowsAfter = document.querySelectorAll('tbody tr').length;
+  await sleep(150);
+  const rowsAfter = document.querySelectorAll('main input[data-act="select"][data-coll="categories"]').length;
   if (rowsAfter !== rowsBefore - 1) throw new Error(`merge left ${rowsAfter} rows, expected ${rowsBefore - 1}`);
   click('[data-act="undo"]');
-  await sleep(80);
-  if (document.querySelectorAll('tbody tr').length !== rowsBefore) throw new Error('undo did not restore the merged row');
+  await sleep(100);
+  if (document.querySelectorAll('main input[data-act="select"][data-coll="categories"]').length !== rowsBefore) {
+    throw new Error('undo did not restore the merged row');
+  }
   console.log('ok    two categories merge into one, and undo brings it back');
 
   // ── Add a category, then remove the addition ────────────────────────────
   click('[data-act="add-category"]');
-  await sleep(60);
-  if (document.querySelectorAll('tbody tr').length <= rowsBefore) throw new Error('add category did nothing');
+  await sleep(80);
+  if (document.querySelectorAll('main input[data-act="select"][data-coll="categories"]').length <= rowsBefore) {
+    throw new Error('add category did nothing');
+  }
   click('[data-act="undo"]');
   await sleep(60);
   console.log('ok    adding and undoing a category works');

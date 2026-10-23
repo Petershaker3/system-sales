@@ -1,4 +1,4 @@
-// The bridge layer: what the screen promises about the old → new mapping.
+// The bridge layer: what the screen promises about the old › new mapping.
 //
 // A mapping is only worth showing if it stays true. These tests pin the three
 // things that would otherwise drift silently: every old key has a destination,
@@ -39,7 +39,7 @@ function legacy() {
 }
 
 test('every map row either has a tab to open or says nothing moves', () => {
-  const tabs = ['overview', 'map', 'categories', 'brands', 'items', 'months', 'sales', 'repairs', 'expenses', 'wallets', 'settings', 'build'];
+  const tabs = ['overview', 'map', 'accessories', 'phones', 'months', 'sales', 'repairs', 'expenses', 'wallets', 'settings', 'build'];
   for (const entry of LEGACY_MAP) {
     if (entry.tab === '') continue;
     assert.ok(tabs.includes(entry.tab), `${entry.key} points at a real tab (${entry.tab})`);
@@ -50,7 +50,7 @@ test('an item shows its old shape and the department it will live under', () => 
   const item = plan.items.find((row) => row.name === 'جراب 50');
   const described = describeRow(plan, 'items', item);
   assert.equal(described.old.fields.length > 0, true, 'the old row has fields to show');
-  assert.match(described.next.where, /المخزن ← الأصناف/);
+  assert.match(described.next.where, /المخزن ‹ الأصناف/);
   assert.match(described.next.where, new RegExp(plan.categories.find((category) => category.id === item.categoryId).name));
   const labels = described.next.fields.map((field) => field.label);
   assert.ok(labels.includes('القسم'));
@@ -60,7 +60,7 @@ test('an item shows its old shape and the department it will live under', () => 
 test('a sale says which invoice it becomes and what the money was', () => {
   const sale = plan.sales.find((row) => row.name === 'جراب 50');
   const described = describeRow(plan, 'sales', sale);
-  assert.match(described.next.where, /المبيعات ← فاتورة 2026-10-01/);
+  assert.match(described.next.where, /المبيعات ‹ فاتورة 2026-10-01/);
   assert.match(described.next.table, /sale_lines/);
   const labels = described.next.fields.map((field) => field.label);
   assert.ok(labels.includes('الإجمالي'));

@@ -218,6 +218,21 @@ export function buildDefaultPlan(legacy, options = {}) {
       sourceRef: item.sourceRef ?? '',
       archived: item.archived === true,
       priceSource: item.priceSource ?? '',
+      // ── Used handsets ────────────────────────────────────────────────────
+      // A used phone is a *device*, not a count: the new system files it on the
+      // «مستعمل» shelf with its IMEI and its condition, and a shelf row without a
+      // device cannot be sold. The old catalogue (`mshop_cu`) knows models and
+      // prices only — it has no count and no numbers — so the owner types the
+      // devices he still holds. `qty` mirrors the devices for the used kind and is
+      // never a second opinion (`devices` is what the builder writes).
+      devices: item.kind === 'used' && Array.isArray(item.devices)
+        ? item.devices.map((device) => ({
+          imei: normalizeText(device.imei ?? ''),
+          condition: device.condition ?? '',
+          cost: device.cost === null || device.cost === undefined ? null : numberOr(device.cost, 0),
+          note: device.note ?? '',
+        }))
+        : [],
     };
     items.push(record);
     if (record.kind !== 'phone') itemByName.set(nameKey(record.name), record);
@@ -245,6 +260,7 @@ export function buildDefaultPlan(legacy, options = {}) {
       buy: row.buy,
       sell: row.sell,
       qty: 0,
+      devices: [],
       categoryId: usedCategory?.id ?? null,
       priceSource: 'mshop_cu',
     });
@@ -546,6 +562,7 @@ function ensureItemForSale(row, section, context) {
       buy: row.buy,
       sell: row.sell,
       qty: 0,
+      devices: [],
       categoryId: usedCategory?.id ?? null,
       priceSource: 'daily-sales',
     });
@@ -700,6 +717,47 @@ function buildWallets(legacy) {
  * Every finding names the record it is about, because a warning nobody can act
  * on is noise. `error` blocks the build; `warn` does not.
  */
+// ── Used handsets: the IMEI rule, shared by the screen and the builder ──────
+//
+// A used phone in the new system is a *unit* with an IMEI, a condition and its
+// own cost. The database refuses anything but fifteen digits and a unique value,
+// and the counter refuses a bad check digit; a migration that wrote a number the
+// app cannot use would look fine in the file and fail at the first sale.
+
+/** Arabic-Indic digits and separators are what a person types; keep the digits. */
+export function normalizeImei(raw) {
+  let out = '';
+  for (const ch of String(raw ?? '')) {
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '-' || ch === '|') continue;
+    const code = ch.codePointAt(0) ?? 0;
+    if (code >= 0x0660 && code <= 0x0669) out += String(code - 0x0660);
+    else if (code >= 0x06f0 && code <= 0x06f9) out += String(code - 0x06f0);
+    else out += ch;
+  }
+  return out;
+}
+
+/** Fifteen digits with a correct Luhn check digit — the app's own rule. */
+export function isValidImei(raw) {
+  const digits = normalizeImei(raw);
+  if (!/^\d{15}$/.test(digits)) return false;
+  let sum = 0;
+  for (let index = 0; index < 14; index += 1) {
+    let digit = Number(digits[index]);
+    if (index % 2 === 1) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+  }
+  return (10 - (sum % 10)) % 10 === Number(digits[14]);
+}
+
+/** The device count of a used row; what the builder will write. */
+export function usedDeviceCount(item) {
+  return Array.isArray(item.devices) ? item.devices.length : 0;
+}
+
 export function validatePlan(plan) {
   const findings = [];
   const push = (level, code, message, ref = null) => findings.push({ level, code, message, ref });
@@ -742,11 +800,82 @@ export function validatePlan(plan) {
     if (item.sell === null || item.sell === undefined) {
       push('warn', 'no-sale-price', `«${item.name}» من غير سعر بيع — هيتسجل بلا سعر لحد ما تحدده.`, item.id);
     }
-    if (item.kind !== 'phone') {
+    // A phone whose cost is zero reports profit as the whole price. That is a
+    // wrong number in every report after it, so it is named before the build.
+    if (item.kind !== 'accessory' && !(item.buy > 0)) {
+      push('warn', 'phone-cost-zero', `«${item.name}» بتكلفة صفر — الربح في التقارير هيطلع أكتر من الحقيقة.`, item.id);
+    }
+    {
       const key = nameKey(item.name);
-      if (names.has(key)) push('warn', 'duplicate-item', `«${item.name}» متكرر — هيتعمله صنفين منفصلين.`, item.id);
+      if (names.has(key)) {
+        push(
+          'warn',
+          'duplicate-item',
+          item.kind === 'phone'
+            ? `«${item.name}» مكرر بنفس الشركة والموديل والذاكرة — هيتعملهم موديلين في «الهواتف» والعدد بيتقسم عليهم.`
+            : `«${item.name}» متكرر — هيتعمله صنفين منفصلين.`,
+          item.id,
+        );
+      }
       names.add(key);
     }
+  }
+
+  // ── Used handsets: every device must be sellable ─────────────────────────
+  // The new system files a used phone as a unit with an IMEI. A used model with
+  // no devices is a row in the catalogue that never reaches the «مستعمل» shelf,
+  // so the owner is told before he finds an empty shelf after the restore.
+  const seenImei = new Map();
+  for (const item of plan.items) {
+    if (!item.include || item.kind !== 'used') continue;
+    const devices = Array.isArray(item.devices) ? item.devices : [];
+    if (devices.length === 0) {
+      push('warn', 'used-no-device', `مستعمل «${item.name}» من غير أجهزة مسجّلة — هيتنقل كصنف في الكتالوج، ومش هيبان في رف «مستعمل».`, item.id);
+    }
+    for (const device of devices) {
+      const imei = normalizeImei(device.imei);
+      if (!isValidImei(imei)) {
+        push('error', 'used-imei', `رقم الجهاز «${device.imei || 'فاضي'}» في «${item.name}» مش رقم IMEI صحيح (١٥ رقم مع رقم تحقق سليم).`, item.id);
+        continue;
+      }
+      if (seenImei.has(imei)) {
+        push('error', 'used-imei-duplicate', `الرقم ${imei} متسجل مرتين — مرة في «${seenImei.get(imei)}» ومرة في «${item.name}»، والبرنامج بيرفض الرقم المتكرر.`, item.id);
+        continue;
+      }
+      seenImei.set(imei, item.name);
+      if (device.condition !== 'A' && device.condition !== 'B' && device.condition !== 'C') {
+        push('error', 'used-condition', `جهاز ${imei} في «${item.name}» من غير حالة (A / B / C) — والحالة هي اللي بتخليه «مستعمل» في السيستم.`, item.id);
+      }
+      const cost = device.cost === null || device.cost === undefined ? item.buy : device.cost;
+      if (!(cost > 0)) {
+        push('warn', 'used-cost-zero', `جهاز ${imei} في «${item.name}» بتكلفة صفر — الربح عليه هيطلع غلط.`, item.id);
+      }
+    }
+  }
+
+  // ── Counts: what the shop actually has of each thing ─────────────────────
+  // The old program kept a count for phones only. Everything else lands at zero,
+  // which is a legal number and a useless shelf: the shop restores the backup and
+  // finds nothing to sell. One finding per kind, so it is a to-do and not noise.
+  const accessories = plan.items.filter((item) => item.include && item.kind === 'accessory');
+  const accessoriesWithoutCount = accessories.filter((item) => !(item.qty > 0));
+  if (accessories.length && accessoriesWithoutCount.length) {
+    push(
+      'warn',
+      'accessory-counts',
+      `${accessoriesWithoutCount.length} من ${accessories.length} إكسسوار من غير عدد — هيتنقلوا برصيد صفر ومش هتقدروا تبيعوهم من الكاشير.`,
+      null,
+    );
+  }
+  const freshPhones = plan.items.filter((item) => item.include && item.kind === 'phone');
+  const freshPieces = freshPhones.reduce((total, item) => total + (item.qty > 0 ? item.qty : 0), 0);
+  if (freshPieces > 0) {
+    push(
+      'warn',
+      'phone-no-imei',
+      `${freshPieces} جهاز جديد هينزلوا بالعدد من غير أرقام IMEI — بيعدّوا في «الهواتف» وبينزلوا المخزن، بس مش هتقدر تبيع الواحد برقمه لحد ما تسجّله.`,
+      null,
+    );
   }
 
   for (const sale of plan.sales) {
@@ -826,7 +955,28 @@ export function planTotals(plan) {
   const repairTotal = repairs.reduce((total, row) => total + row.price, 0);
   const repairCost = repairs.reduce((total, row) => total + row.partsCost, 0);
 
+  // ── Pieces, not just rows ────────────────────────────────────────────────
+  // The «هواتف» section is read in pieces, and the shop thinks in pieces. The
+  // overview, the report and the screen all read these numbers from here so no
+  // two of them can disagree about how many phones are coming across.
+  const countedItems = plan.items.filter((row) => row.include);
+  const counts = {
+    accessoryItems: countedItems.filter((row) => row.kind === 'accessory').length,
+    accessoryPieces: countedItems
+      .filter((row) => row.kind === 'accessory')
+      .reduce((total, row) => total + Math.max(0, Math.trunc(Number(row.qty) || 0)), 0),
+    phoneModels: countedItems.filter((row) => row.kind === 'phone').length,
+    phonePieces: countedItems
+      .filter((row) => row.kind === 'phone')
+      .reduce((total, row) => total + Math.max(0, Math.trunc(Number(row.qty) || 0)), 0),
+    usedModels: countedItems.filter((row) => row.kind === 'used').length,
+    usedDevices: countedItems
+      .filter((row) => row.kind === 'used')
+      .reduce((total, row) => total + usedDeviceCount(row), 0),
+  };
+
   return {
+    counts,
     saleTotal,
     saleCost,
     saleProfit: saleTotal - saleCost,

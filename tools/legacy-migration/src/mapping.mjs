@@ -118,7 +118,7 @@ export const LEGACY_MAP = [
     title: 'إعدادات المحل',
     legacy: 'اسم المحل، الشعار، كلمات السر',
     plan: 'اسم المحل والشعار يتنقلوا. كلمات السر لأ.',
-    dest: 'إعدادات ← اسم المحل، والشعار في «صور» التطبيق',
+    dest: 'إعدادات ‹ اسم المحل، والشعار في «صور» التطبيق',
     inNew: 'app_settings + images/shop-logo.jpg',
     tab: 'settings',
     count: () => 1,
@@ -127,40 +127,40 @@ export const LEGACY_MAP = [
     key: 'mshop_cats',
     title: 'التصنيفات',
     legacy: 'لستة أقسام: جراب، سكرين، سماعات…',
-    plan: 'كل قسم بيبقى تصنيف في شجرة التصنيفات.',
-    dest: 'المخزن ← التصنيفات (أو قسم في الأصناف)',
+    plan: 'كل قسم بيبقى تصنيف في شجرة التصنيفات، وجوّه صفحة قسمه.',
+    dest: 'المخزن ‹ التصنيفات (أو قسم في الأصناف)',
     inNew: 'departments',
-    tab: 'categories',
+    tab: 'accessories',
     count: (_legacy, plan) => plan.categories.filter((row) => row.include).length,
   },
   {
     key: 'mshop_ca',
     title: 'كتالوج الإكسسوارات',
     legacy: 'اسم + سعر شراء + سعر بيع',
-    plan: 'كل سطر صنف في المخزن، بكمية بتكتبها إنت.',
-    dest: 'المخزن ← الأصناف ← تحت قسمه',
+    plan: 'كل سطر صنف في المخزن، بالعدد اللي بتكتبه إنت في صفحة الإكسسوارات (القديم مكانش بيسجّل عدد).',
+    dest: 'الإكسسوارات ‹ عمود «العدد» ‹ المخزن',
     inNew: 'products + stock_levels',
-    tab: 'items',
+    tab: 'accessories',
     count: (_legacy, plan) => plan.items.filter((row) => row.priceSource === 'mshop_ca' && row.include).length,
   },
   {
     key: 'mshop_cu',
     title: 'كتالوج المستعمل',
     legacy: 'اسم + شراء + بيع',
-    plan: 'أصناف تحت قسم «مستعمل».',
-    dest: 'المخزن ← الأصناف ← مستعمل',
-    inNew: 'products',
-    tab: 'items',
+    plan: 'أصناف تحت قسم «مستعمل». القديم مكانش بيسجّل الأجهزة: كل موديل بتضيف له أجهزته (IMEI + الحالة + التكلفة) من صفحة الهواتف، وبينزل رف «مستعمل».',
+    dest: 'الهواتف ‹ رف «مستعمل»',
+    inNew: 'products + units + stock_levels',
+    tab: 'phones',
     count: (_legacy, plan) => plan.items.filter((row) => row.kind === 'used' && row.include).length,
   },
   {
     key: 'mshop_inventory',
     title: 'المخزن (الموبايلات)',
     legacy: 'ماركة، موديل، رام، مساحة، كمية، سعر شراء',
-    plan: 'كل موبايل صنف بشركته وموديله وكميته.',
-    dest: 'المخزن ← الأصناف ← موبايلات جديدة',
+    plan: 'كل موبايل صنف بشركته وموديله وعدده (العدد بيتنقل زي ما هو، من غير أرقام IMEI).',
+    dest: 'الهواتف ‹ رف «جديد» والمخزن',
     inNew: 'products + stock_levels + brands',
-    tab: 'items',
+    tab: 'phones',
     count: (_legacy, plan) => plan.items.filter((row) => row.kind === 'phone' && row.include).length,
   },
   {
@@ -168,9 +168,9 @@ export const LEGACY_MAP = [
     title: 'ماركات الموبايلات',
     legacy: 'أسماء شركات (وتلاتة منها بعلامة زراير)',
     plan: 'بتتوحّد وأي ماركة ظهرت في بيعة، والاسم المكرر بيتشال.',
-    dest: 'المخزن ← الماركات',
+    dest: 'الهواتف ‹ شركات الموبايلات',
     inNew: 'brands',
-    tab: 'brands',
+    tab: 'phones',
     count: (_legacy, plan) => plan.brands.filter((row) => row.include).length,
   },
   {
@@ -188,7 +188,7 @@ export const LEGACY_MAP = [
     title: 'مبيعات الإكسسوارات',
     legacy: 'كل بيعة: صنف، شراء، بيع، ربح، وقت',
     plan: 'الشهر الحالي: فاتورة لكل بيعة. الشهور اللي فاتت: رقم مجمّع.',
-    dest: 'المبيعات ← الفواتير',
+    dest: 'المبيعات ‹ الفواتير',
     inNew: 'sales + sale_lines + sale_payments + stock_movements',
     tab: 'sales',
     count: (_legacy, plan) => plan.sales.filter((row) => row.section === 'acc' && row.include).length,
@@ -198,7 +198,7 @@ export const LEGACY_MAP = [
     title: 'مبيعات المستعمل',
     legacy: 'جهاز مستعمل اتباع',
     plan: 'زي الإكسسوار: تفصيلي في الشهر الحالي، ومجمّع قبله.',
-    dest: 'المبيعات ← الفواتير ← مستعمل',
+    dest: 'المبيعات ‹ الفواتير ‹ مستعمل',
     inNew: 'sales + sale_lines',
     tab: 'sales',
     count: (_legacy, plan) => plan.sales.filter((row) => row.section === 'used' && row.include).length,
@@ -208,7 +208,7 @@ export const LEGACY_MAP = [
     title: 'مبيعات الموبايلات',
     legacy: 'موديل، كمية، شراء، بيع',
     plan: 'فاتورة بسطر واحد لكل جهاز، والكمية بتتخصم من المخزن.',
-    dest: 'المبيعات ← الفواتير',
+    dest: 'المبيعات ‹ الفواتير',
     inNew: 'sales + sale_lines + stock_movements',
     tab: 'sales',
     count: (_legacy, plan) => plan.sales.filter((row) => row.section === 'phones' && row.include).length,
@@ -218,7 +218,7 @@ export const LEGACY_MAP = [
     title: 'السوفت وير',
     legacy: 'جهاز + مبلغ + مدفوع/اتسلّم',
     plan: 'تذكرة سوفت وير في الصيانة.',
-    dest: 'الصيانة ← التذاكر (نوع: سوفت وير)',
+    dest: 'الصيانة ‹ التذاكر (نوع: سوفت وير)',
     inNew: 'repairs (service_kind = software)',
     tab: 'repairs',
     count: (_legacy, plan) => plan.repairs.filter((row) => row.kind === 'software' && row.include).length,
@@ -228,7 +228,7 @@ export const LEGACY_MAP = [
     title: 'الصيانة',
     legacy: 'تذكرة: جهاز، عيب، قطعة، مبلغ، حالة',
     plan: 'تذكرة كاملة بتاريخها وحالتها ومدفوعها.',
-    dest: 'الصيانة ← التذاكر',
+    dest: 'الصيانة ‹ التذاكر',
     inNew: 'repairs',
     tab: 'repairs',
     count: (_legacy, plan) => plan.repairs.filter((row) => row.kind === 'hardware' && row.include).length,
@@ -268,12 +268,12 @@ export const LEGACY_MAP = [
 // ── أين يقع كل صف في السيستم الجديد ───────────────────────────────────────
 // اسم الشاشة اللي المالك هيلاقيها في البرنامج الجديد، والجدول اللي الصف بيتكتب فيه.
 export const DESTINATIONS = {
-  categories: { where: 'المخزن ← التصنيفات', table: 'departments' },
-  brands: { where: 'المخزن ← الماركات', table: 'brands' },
-  items: { where: 'المخزن ← الأصناف', table: 'products + stock_levels' },
-  sales: { where: 'المبيعات ← الفواتير', table: 'sales + sale_lines + sale_payments' },
-  summary: { where: 'المبيعات ← الفواتير (سطر مجمّع)', table: 'sales + sale_lines' },
-  repairs: { where: 'الصيانة ← التذاكر', table: 'repairs' },
+  categories: { where: 'المخزن ‹ التصنيفات', table: 'departments' },
+  brands: { where: 'المخزن ‹ الماركات', table: 'brands' },
+  items: { where: 'المخزن ‹ الأصناف، والهواتف ‹ الهواتف', table: 'products + stock_levels (+ units للمستعمل)' },
+  sales: { where: 'المبيعات ‹ الفواتير', table: 'sales + sale_lines + sale_payments' },
+  summary: { where: 'المبيعات ‹ الفواتير (سطر مجمّع)', table: 'sales + sale_lines' },
+  repairs: { where: 'الصيانة ‹ التذاكر', table: 'repairs' },
   expenses: { where: 'المصاريف', table: 'expenses' },
   wallets: { where: 'المحافظ', table: 'wallets' },
   months: { where: 'مبيعات كل شهر', table: 'sales (فاتورة لكل بيعة أو فاتورة شهر)' },
@@ -328,8 +328,12 @@ export function describeRow(plan, coll, row) {
       },
       next: {
         title: 'في السيستم الجديد',
-        where: `المخزن ← الأصناف ← ${section}`,
-        table: 'products',
+        where: row.kind === 'used'
+          ? `قسم الهواتف ‹ رف «مستعمل» ‹ ${section}`
+          : row.kind === 'phone'
+            ? `قسم الهواتف ‹ رف «جديد» ‹ ${section}`
+            : `المخزن ‹ الأصناف ‹ ${section}`,
+        table: row.kind === 'used' ? 'products + units + stock_levels' : 'products + stock_levels',
         fields: newFields([
           ['الاسم', row.name],
           ['القسم', category?.name ?? '—'],
@@ -340,12 +344,16 @@ export function describeRow(plan, coll, row) {
           ['المساحة', row.storageGb ? `${row.storageGb} جيجا` : null],
           ['سعر الشراء', row.buy ? EGP(row.buy) : null],
           ['سعر البيع', row.sell ? EGP(row.sell) : 'بدون سعر'],
-          ['الكمية اللي هتتسجل', `${row.qty} قطعة`],
+          row.kind === 'used'
+            ? ['أجهزة مسجّلة', `${(row.devices ?? []).length} جهاز`]
+            : ['الكمية اللي هتتسجل', `${row.qty} قطعة`],
         ]),
       },
-      note: row.qty > 0
-        ? 'الكمية دي هي اللي هتتسجل في المخزن، وبتتسجل كاستلام افتتاحي بتاريخ الترحيل.'
-        : 'الكمية صفر — الصنف هيتسجل بلا رصيد. عدّلها لو عنده قطع.',
+      note: row.kind === 'used'
+        ? `${(row.devices ?? []).length} جهاز مسجّل بالرقم. الأجهزة بتتنقل كوحدات في رف «مستعمل»، والعدد بيطلع منها مش من خانة مكتوبة.`
+        : row.qty > 0
+          ? 'الكمية دي هي اللي هتتسجل في المخزن، وبتتسجل كاستلام افتتاحي بتاريخ الترحيل.'
+          : 'الكمية صفر — الصنف هيتسجل بلا رصيد. عدّلها لو عنده قطع.',
     };
   }
 
@@ -359,7 +367,7 @@ export function describeRow(plan, coll, row) {
       },
       next: {
         title: 'في السيستم الجديد',
-        where: parent ? `المخزن ← التصنيفات ← تحت «${parent.name}»` : 'المخزن ← التصنيفات (تصنيف رئيسي)',
+        where: parent ? `المخزن ‹ التصنيفات ‹ تحت «${parent.name}»` : 'المخزن ‹ التصنيفات (تصنيف رئيسي)',
         table: 'departments',
         fields: newFields([
           ['الاسم', row.name],
@@ -381,7 +389,7 @@ export function describeRow(plan, coll, row) {
       old: { title: 'في القديم', fields: [{ label: 'الشركة', value: row.name }] },
       next: {
         title: 'في السيستم الجديد',
-        where: 'المخزن ← الماركات',
+        where: 'المخزن ‹ الماركات',
         table: 'brands',
         fields: newFields([
           ['الاسم', row.name],
@@ -413,8 +421,8 @@ export function describeRow(plan, coll, row) {
       },
       next: {
         title: 'في السيستم الجديد',
-        where: `المبيعات ← فاتورة ${row.date}`
-          + (category ? ` ← ${section(category)}` : ''),
+        where: `المبيعات ‹ فاتورة ${row.date}`
+          + (category ? ` ‹ ${section(category)}` : ''),
         table: 'sales + sale_lines + sale_payments',
         fields: newFields([
           ['رقم الفاتورة', `TRH-${row.date.replace(/-/g, '')}-…`],
@@ -449,7 +457,7 @@ export function describeRow(plan, coll, row) {
       },
       next: {
         title: 'في السيستم الجديد',
-        where: `المبيعات ← فاتورة مجمّعة لشهر ${row.month}`,
+        where: `المبيعات ‹ فاتورة مجمّعة لشهر ${row.month}`,
         table: 'sales (OLD-…) + sale_lines',
         fields: newFields([
           ['الفاتورة', `OLD-${row.month.replace('-', '')}-…`],
@@ -479,7 +487,7 @@ export function describeRow(plan, coll, row) {
       },
       next: {
         title: 'في السيستم الجديد',
-        where: `الصيانة ← التذاكر (${row.kind === 'software' ? 'سوفت وير' : 'صيانة'})`,
+        where: `الصيانة ‹ التذاكر (${row.kind === 'software' ? 'سوفت وير' : 'صيانة'})`,
         table: 'repairs',
         fields: newFields([
           ['رقم التذكرة', row.ticketNo],
@@ -667,6 +675,54 @@ export const FINDING_GUIDES = {
     coll: 'items',
     auto: 'merge-duplicate',
   },
+  'used-no-device': {
+    title: 'مستعمل من غير أجهزة مسجّلة',
+    why: 'القديم كان بيسجّل المستعمل كاسم وسعر بس — مفيش عدد ولا أرقام IMEI. قسم «الهواتف» بيرفع الجهاز المستعمل على رف «مستعمل» بالرقم والحالة، فموديل من غير أجهزة بيفضل في الكتالوج ومش بيبان في الرف.',
+    fix: 'افتح الصف ‹ «أجهزة المستعمل» ‹ الصق أرقام IMEI (رقم في كل سطر) واختار الحالة والتكلفة ‹ «أضف الأجهزة». كل رقم بيتحول جهاز على رف «مستعمل» بتكلفته.',
+    coll: 'items',
+  },
+  'used-imei': {
+    title: 'رقم IMEI غير صحيح',
+    why: 'البرنامج بيقبل ١٥ رقم بس، ورقم التحقق الأخير لازم يطابق (نفس قاعدة الكاشير). رقم غلط بيتحول جهاز مش ممكن يتباع ولا يتسجل.',
+    fix: 'صحّح الرقم من الصف ‹ «أجهزة المستعمل»، أو امسحه لو مش متأكد منه. الأرقام بتتنسخ من علبة الجهاز أو من `*#06#`.',
+    coll: 'items',
+  },
+  'used-imei-duplicate': {
+    title: 'نفس رقم IMEI متكرر',
+    why: 'الرقم فريد في السيستم — تكراره معناه جهازين بنفس الرقم، والبرنامج بيرفض الترحيل بسببه.',
+    fix: 'افتح الصفين وشيل الرقم من واحد منهم، أو صحّحه للرقم الصح.',
+    coll: 'items',
+  },
+  'used-condition': {
+    title: 'جهاز مستعمل من غير حالة',
+    why: 'حالة الجهاز (A / B / C) هي اللي بتخليه «مستعمل» في «الهواتف». جهاز من غير حالة بيتحسب جديد، وده اللي المالك طلب إنه مايحصلش.',
+    fix: 'اختار الحالة لكل جهاز في «أجهزة المستعمل» — A زي الجديد، B خدوش خفيفة، C عيوب واضحة.',
+    coll: 'items',
+  },
+  'used-cost-zero': {
+    title: 'جهاز مستعمل بتكلفة صفر',
+    why: 'الربح بيتحسب من التكلفة، وتكلفة صفر بتخلي الربح هو سعر البيع كله.',
+    fix: 'اكتب سعر الشراء الحقيقي للجهاز (أو للصنف كله من عمود «شراء»).',
+    coll: 'items',
+  },
+  'phone-cost-zero': {
+    title: 'موبايل بتكلفة صفر',
+    why: 'الربح في التقارير بيتحسب من تكلفة الجهاز، وتكلفة صفر بتخلي الربح = سعر البيع.',
+    fix: 'اكتب سعر الشراء في عمود «شراء» — الأداة مش بتخترع سعر.',
+    coll: 'items',
+  },
+  'accessory-counts': {
+    title: 'إكسسوارات من غير أعداد',
+    why: 'القديم مكانش بيسجّل عدد الإكسسوارات خالص. اللي هيتنقل برصيد صفر هيتسجل في المخزن بس مش هينفع يتباع من الكاشير، وهيبان «خلص» من أول يوم.',
+    fix: 'من «الإكسسوارات» ‹ «الأعداد»: اكتب عدد كل صنف عندك دلوقتي (أو دوس «+» جنب اللي عنده قطع). العدد اللي تكتبه هو اللي هيفتح بيه المخزن.',
+    coll: 'items',
+  },
+  'phone-no-imei': {
+    title: 'هواتف جديدة من غير أرقام IMEI',
+    why: 'القديم كان بيسجّل عدد الموبايلات بس، من غير أرقام. العدد بيتنقل صح (وبيبان في «الهواتف» و«المخزن»)، بس الجهاز من غير رقم مش ممكن يتباع برقمه ولا يتسجل في ضمانه.',
+    fix: 'مفيش حاجة لازم تعملها عشان الترحيل ينجح. لو عايز تبيع بالرقم، سجّل أرقام الأجهزة من المخزن ‹ استلام بعد الترحيل، أو بِع بالعدد وسجّل الرقم وقت البيع.',
+    coll: 'items',
+  },
   'item-excluded-with-sales': {
     title: 'صنف مستبعد وله مبيعات',
     why: 'الصنف مش محدد إنه يتنقل، بس فيه بيعة مسجّلة في شهر تفصيلي.',
@@ -714,12 +770,18 @@ export const FINDING_GUIDES = {
 };
 
 /** اسم التبويب اللي بيخص كود التنبيه. */
-export function tabOfFinding(finding) {
+export function tabOfFinding(finding, plan = null) {
   const guide = FINDING_GUIDES[finding.code];
   switch (guide?.coll) {
-    case 'categories': return 'categories';
-    case 'items': return 'items';
-    case 'brands': return 'brands';
+    case 'categories': return 'accessories';
+    case 'items': {
+      // A department page, not one long list: the row decides which shelf the
+      // owner is sent to, so «روح للصف» lands where the row actually lives.
+      const row = plan && finding.ref ? plan.items.find((item) => item.id === finding.ref) : null;
+      if (row?.kind === 'phone' || row?.kind === 'used') return 'phones';
+      return 'accessories';
+    }
+    case 'brands': return 'phones';
     case 'sales': return 'sales';
     case 'months': return 'months';
     case 'wallets': return 'wallets';
@@ -730,7 +792,7 @@ export function tabOfFinding(finding) {
 }
 
 /** التنبيه بشكل واحد للعرض: العنوان، السبب، الحل، ومكان الصف. */
-export function explainFinding(finding) {
+export function explainFinding(finding, plan = null) {
   const guide = FINDING_GUIDES[finding.code] || {
     title: 'ملاحظة',
     why: 'الفحص لقى حاجة محتاجة مراجعة.',
@@ -744,7 +806,7 @@ export function explainFinding(finding) {
     why: guide.why,
     fix: guide.fix,
     auto: guide.auto || null,
-    tab: tabOfFinding(finding),
+    tab: tabOfFinding(finding, plan),
     ref: finding.ref || null,
   };
 }
@@ -766,7 +828,9 @@ export function fieldsOf(plan, coll, row) {
       { field: 'categoryId', label: 'القسم', type: 'select', options: [['', '— بدون قسم —'], ...categories.map((entry) => [entry.id, entry.name])] },
       money('buy', 'سعر الشراء'),
       money('sell', 'سعر البيع'),
-      count('qty', 'الكمية عندك دلوقتي'),
+      // A used handset's count is its devices, not a number someone typed: two
+      // places to say how many phones there are is two answers that disagree.
+      ...(row.kind === 'used' ? [] : [count('qty', row.kind === 'phone' ? 'العدد عندك دلوقتي' : 'الكمية عندك دلوقتي')]),
     ];
     if (row.kind === 'phone') {
       base.push(

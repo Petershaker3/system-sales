@@ -12,7 +12,7 @@ import initSqlJs from 'sql.js';
 import wasmBase64 from 'virtual:sql-wasm';
 
 import { preparePlan, buildFromPlan, backupFileName } from './pipeline.mjs';
-import { buildDefaultPlan, validatePlan, planTotals, CATEGORY_ICONS } from './plan.mjs';
+import { buildDefaultPlan, validatePlan, planTotals, isValidImei, normalizeImei, CATEGORY_ICONS } from './plan.mjs';
 import { buildReport } from './report.mjs';
 import { monthLabel, nameKey, newId, normalizeText } from './util.mjs';
 import {
@@ -35,7 +35,7 @@ const state = {
   history: [],
   future: [],
   page: {},
-  filters: { search: '', kind: 'all', category: 'all', month: 'all', repairKind: 'all' },
+  filters: { search: '', kind: 'all', category: 'all', month: 'all', repairKind: 'all', shelf: 'all', missing: 'all' },
   password: '',
   password2: '',
   includeLogo: true,
@@ -50,6 +50,9 @@ const state = {
   selected: {},
   drawer: null,
   highlight: null,
+  // What is typed in the «أجهزة المستعمل» box but not committed yet. Kept out of
+  // the plan so a half-typed IMEI can never end up in the file.
+  deviceDraft: { text: '', condition: '', cost: '' },
 };
 
 // ── Small formatting helpers ───────────────────────────────────────────────
@@ -253,6 +256,7 @@ function orderedSelection(coll) {
 }
 
 function openDrawer(coll, id) {
+  state.deviceDraft = { text: '', condition: '', cost: '' };
   state.drawer = { coll, id };
   render();
 }
@@ -288,6 +292,9 @@ function mergeGroup(coll, keepId, dropIds) {
       for (const other of others) {
         if (!keep) break;
         keep.qty += other.qty;
+        if (other.devices?.length) {
+          keep.devices = [...(keep.devices ?? []), ...other.devices];
+        }
         if (!keep.sell && other.sell) keep.sell = other.sell;
         if (!keep.buy && other.buy) keep.buy = other.buy;
         if (!keep.categoryId && other.categoryId) keep.categoryId = other.categoryId;
@@ -390,7 +397,7 @@ function mergeDuplicates(coll, refId) {
 }
 
 function runAutoFix(finding) {
-  const guide = explainFinding(finding);
+  const guide = explainFinding(finding, state.plan);
   if (guide.auto === 'merge-duplicate') {
     if (mergeDuplicates(guide.tab === 'brands' ? 'brands' : guide.tab === 'items' ? 'items' : 'categories', finding.ref)) return;
     state.notice = { level: 'warn', text: 'مفيش صف تاني بنفس الاسم أدمجه معاه — راجع الاسم يدوي.' };
@@ -405,7 +412,7 @@ function runAutoFix(finding) {
 
 /** Jump to the row a finding is about, with the details panel already open. */
 function gotoFinding(finding) {
-  const guide = explainFinding(finding);
+  const guide = explainFinding(finding, state.plan);
   const coll = {
     categories: 'categories',
     items: 'items',
@@ -516,7 +523,7 @@ function convertDetailToSummary(month) {
 /**
  * Change how a month travels.
  *
- * Detail → summary can be done by grouping what is already there; summary →
+ * Detail › summary can be done by grouping what is already there; summary ›
  * detail cannot, because the individual sales were never kept. So the second
  * direction rebuilds the plan around that month and says so first.
  */
@@ -597,6 +604,8 @@ function tabCounts() {
     categories: plan.categories.length,
     brands: plan.brands.length,
     items: plan.items.length,
+    accessories: plan.items.filter((item) => item.kind === 'accessory').length,
+    phones: plan.items.filter((item) => item.kind === 'phone' || item.kind === 'used').length,
     months: plan.months.length,
     sales: plan.sales.length,
     repairs: plan.repairs.length,
@@ -612,9 +621,9 @@ function viewLoad() {
     <p class="lead">بتفتح باكب المحل القديم، وتشوف كل حاجة هتبقى إيه في السيستم الجديد، وتعدّل وترتّب وتدمج، وبعدين تطلّع نسخة جاهزة للاستيراد.</p>
     <div class="flow" style="margin-bottom:18px">
       <div class="flow-side"><span class="flow-title">١. افتح الباكب</span><span class="flow-item">ملف JSON من البرنامج القديم</span></div>
-      <div class="flow-arrow">←</div>
+      <div class="flow-arrow">‹</div>
       <div class="flow-side"><span class="flow-title">٢. راجع وعدّل</span><span class="flow-item">خريطة قديم/جديد، تفاصيل كل صف، ترتيب ودمج ومسح</span></div>
-      <div class="flow-arrow">←</div>
+      <div class="flow-arrow">‹</div>
       <div class="flow-side new"><span class="flow-title">٣. ابنِ النسخة</span><span class="flow-item">ملف <span class="mono">.msb1</span> يستورده البرنامج الجديد</span></div>
     </div>
     <div class="drop" id="drop">
@@ -656,6 +665,18 @@ const selectHeader = (coll, visible) => {
   return `<th class="tick"><input type="checkbox" ${all ? 'checked' : ''} data-act="select-visible" data-coll="${coll}"
     data-on="${all ? '0' : '1'}" title="تحديد كل الظاهر"></th>`;
 };
+
+/** «حط نفس العدد للمحدد» — the bulk half of counting a shelf. */
+function bulkCountBar(coll) {
+  const count = selectedIds(coll).length;
+  if (coll !== 'items') return '';
+  return `<div class="row" style="margin:0 0 10px">
+    <span class="muted small">عدد واحد للمحدد:</span>
+    <input type="number" min="0" step="1" id="bulk-count" style="max-width:110px" placeholder="0">
+    <button class="small" data-act="bulk-count" data-coll="items">حط العدد للمحدد</button>
+    ${count ? `<span class="muted small">${num(count)} صف محدد</span>` : '<span class="muted small">حدد الصفوف من عمود «تحديد» الأول</span>'}
+  </div>`;
+}
 
 function selectionBar(coll, options = {}) {
   const count = selectedIds(coll).length;
@@ -742,15 +763,19 @@ function viewOverview() {
   const validation = validatePlan(plan);
   const source = plan.source;
   const errors = validation.findings.filter((finding) => finding.level === 'error').length;
+  // The two things the owner actually stocks, side by side and never added
+  // together: a phone is not an accessory, and a used phone is not a new one.
+  const counts = totals.counts;
   const moving = [
-    ['التصنيفات', validation.includes.categories, 'categories'],
-    ['الماركات', validation.includes.brands, 'brands'],
-    ['الأصناف', validation.includes.items, 'items'],
-    ['المبيعات التفصيلية', validation.includes.sales, 'sales'],
-    ['بنود الشهور المجمّعة', validation.includes.summary, 'months'],
-    ['الصيانة والسوفت وير', validation.includes.repairs, 'repairs'],
-    ['المصاريف', validation.includes.expenses, 'expenses'],
-    ['المحافظ', validation.includes.wallets, 'wallets'],
+    ['أقسام الإكسسوارات', validation.includes.categories, 'accessories', `${num(plan.categories.length)} قسم`],
+    ['أصناف الإكسسوارات', counts.accessoryItems, 'accessories', `${num(counts.accessoryPieces)} قطعة`],
+    ['الهواتف الجديدة', counts.phoneModels, 'phones', `${num(counts.phonePieces)} جهاز`],
+    ['الهواتف المستعملة', counts.usedModels, 'phones', `${num(counts.usedDevices)} جهاز برقمه`],
+    ['المبيعات التفصيلية', validation.includes.sales, 'sales', `${num(plan.sales.length)} بيعة`],
+    ['بنود الشهور المجمّعة', validation.includes.summary, 'months', `${num(plan.summary.length)} بند`],
+    ['الصيانة والسوفت وير', validation.includes.repairs, 'repairs', `${num(plan.repairs.length)} تذكرة`],
+    ['المصاريف', validation.includes.expenses, 'expenses', `${num(plan.expenses.length)} مصروف`],
+    ['المحافظ', validation.includes.wallets, 'wallets', `${num(plan.wallets.length)} محفظة`],
   ];
   return `
   ${state.notice ? note(state.notice) : ''}
@@ -759,7 +784,7 @@ function viewOverview() {
     <p class="lead">ده اللي الأداة فهمته من باكب القديم. من هنا: راجع الخريطة، عدّل اللي تحبه، وصلّح التنبيهات، وبعدين ابنِ النسخة.</p>
     <div class="grid-2">
       <div class="stat"><span>المحل</span><b>${esc(plan.settings.shopName)}</b></div>
-      <div class="stat"><span>الفترة</span><b>${esc(source.firstDay || '—')} ← ${esc(source.lastDay || '—')}</b></div>
+      <div class="stat"><span>الفترة</span><b dir="ltr">${esc(source.firstDay || '—')} — ${esc(source.lastDay || '—')}</b></div>
       <div class="stat"><span>أيام فيها حركة</span><b>${num(source.days)}</b></div>
       <div class="stat"><span>حركات في الملف القديم</span><b>${num(source.records)}</b></div>
     </div>
@@ -774,6 +799,29 @@ function viewOverview() {
   </div>
 
   <div class="card">
+    <h2>الأقسام — كل قسم في صفحته</h2>
+    <p class="lead">مفيش قايمة جانبية: دوس على القسم تلاقي أصنافه وأعداده وأسعاره وأقسامه ومبيعاته في نفس الصفحة.</p>
+    <div class="shelf-strip">
+      <div class="shelf">
+        <h3>الإكسسوارات</h3>
+        ${countCard('أصناف', num(counts.accessoryItems))}
+        ${countCard('قطع', num(counts.accessoryPieces), counts.accessoryPieces === 0 ? 'محتاجة أعداد' : 'هتنزل المخزن')}
+        <div class="row" style="margin-top:10px">
+          <button data-act="tab" data-tab="accessories">افتح الإكسسوارات</button>
+        </div>
+      </div>
+      <div class="shelf used">
+        <h3>الهواتف</h3>
+        ${countCard('موديلات جديدة', num(counts.phoneModels), `${num(counts.phonePieces)} جهاز`)}
+        ${countCard('موديلات مستعملة', num(counts.usedModels), `${num(counts.usedDevices)} جهاز برقمه`)}
+        <div class="row" style="margin-top:10px">
+          <button data-act="tab" data-tab="phones">افتح الهواتف</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>من القديم للجديد — باختصار</h2>
     <div class="flow">
       <div class="flow-side">
@@ -782,12 +830,12 @@ function viewOverview() {
         <span class="flow-item">${num(source.days)} يوم فيه ${num(source.records)} حركة</span>
         <span class="flow-item">مبيعات، صيانة، سوفت وير، مصاريف، كاش</span>
       </div>
-      <div class="flow-arrow">←</div>
+      <div class="flow-arrow">‹</div>
       <div class="flow-side new">
         <span class="flow-title">في السيستم الجديد</span>
-        <span class="flow-item">المخزن ← ${num(validation.includes.items)} صنف تحت ${num(validation.includes.categories)} قسم</span>
-        <span class="flow-item">المبيعات ← ${num(validation.includes.sales)} فاتورة تفصيلية + ${num(validation.includes.summary)} بند مجمّع</span>
-        <span class="flow-item">الصيانة ← ${num(validation.includes.repairs)} تذكرة، والمصاريف ${num(validation.includes.expenses)}، والمحافظ ${num(validation.includes.wallets)}</span>
+        <span class="flow-item">المخزن ‹ ${num(validation.includes.items)} صنف تحت ${num(validation.includes.categories)} قسم</span>
+        <span class="flow-item">المبيعات ‹ ${num(validation.includes.sales)} فاتورة تفصيلية + ${num(validation.includes.summary)} بند مجمّع</span>
+        <span class="flow-item">الصيانة ‹ ${num(validation.includes.repairs)} تذكرة، والمصاريف ${num(validation.includes.expenses)}، والمحافظ ${num(validation.includes.wallets)}</span>
       </div>
     </div>
     <div class="row" style="margin-top:14px">
@@ -801,11 +849,11 @@ function viewOverview() {
     <div class="table-wrap"><table>
       <thead><tr><th>العنصر</th><th>فين في الجديد</th><th class="num">هيتنقل</th><th class="num">الإجمالي</th><th></th></tr></thead>
       <tbody>
-        ${moving.map(([label, count, tab]) => `<tr>
+        ${moving.map(([label, count, tab, total]) => `<tr>
           <td>${label}</td>
           <td class="muted small">${esc(DESTINATION_TEXT[tab] || '')}</td>
           <td class="num"><b>${num(count)}</b></td>
-          <td class="num muted">${num(plan[tab].length)}</td>
+          <td class="num muted">${esc(total)}</td>
           <td class="actions"><button class="small ghost" data-act="tab" data-tab="${tab}">افتح</button></td>
         </tr>`).join('')}
       </tbody>
@@ -818,6 +866,8 @@ function viewOverview() {
     <h2>خطوات النقل</h2>
     <ol class="steps">
       <li><b>راجع الخريطة</b> — تعرف كل حاجة في القديم هتبقى إيه في الجديد. <button class="small ghost" data-act="tab" data-tab="map">افتح الخريطة</button></li>
+      <li><b>راجع الإكسسوارات</b> — الأصناف وأقسامها، واكتب <b>الأعداد</b> اللي عندك دلوقتي. <button class="small ghost" data-act="tab" data-tab="accessories">افتح الإكسسوارات</button></li>
+      <li><b>راجع الهواتف</b> — الجديد بعدده من مخزن القديم، والمستعمل بأجهزته وأرقامه. <button class="small ghost" data-act="tab" data-tab="phones">افتح الهواتف</button></li>
       <li><b>راجع الشهور</b> — تفصيلي للشهر الحالي، ومجمّع للي قبله. <button class="small ghost" data-act="tab" data-tab="months">افتح الشهور</button></li>
       <li><b>عدّل اللي تحبه</b> — أي صف فيه زرار «تفاصيل» بيفتح شكله في القديم والجديد، وتقدر تعدّل وترتّب وتدمج وتمسح.</li>
       <li><b>صلّح التنبيهات</b> — كل تنبيه فوق مكتوب فيه السبب والحل.</li>
@@ -827,13 +877,15 @@ function viewOverview() {
 }
 
 const DESTINATION_TEXT = {
-  categories: 'المخزن ← التصنيفات',
-  brands: 'المخزن ← الماركات',
-  items: 'المخزن ← الأصناف',
-  sales: 'المبيعات ← الفواتير',
+  categories: 'المخزن ‹ التصنيفات',
+  brands: 'المخزن ‹ الماركات',
+  items: 'المخزن ‹ الأصناف',
+  accessories: 'صفحة الإكسسوارات ‹ المخزن',
+  phones: 'قسم الهواتف ‹ رف جديد / رف مستعمل',
+  sales: 'المبيعات ‹ الفواتير',
   months: 'المبيعات (تفصيلي / مجمّع)',
-  summary: 'المبيعات ← الفاتورة المجمّعة',
-  repairs: 'الصيانة ← التذاكر',
+  summary: 'المبيعات ‹ الفاتورة المجمّعة',
+  repairs: 'الصيانة ‹ التذاكر',
   expenses: 'المصاريف',
   wallets: 'المحافظ',
 };
@@ -927,159 +979,366 @@ function viewMap() {
   </div>`;
 }
 
-// ── Categories ────────────────────────────────────────────────────────────
-function viewCategories() {
-  const { filtered, slice, page, pageCount } = filteredAndPaged('categories', state.plan.categories, (row) => `${row.name} ${row.kind}`);
-  const kinds = { item: 'بضاعة بالعدد', phone: 'موبايلات جديدة', used: 'مستعمل' };
-  const mains = state.plan.categories.filter((category) => !category.parentId);
-  return `
-  <div class="card">
-    <h2>التصنيفات ← الأقسام في السيستم الجديد</h2>
+// ── Departments ───────────────────────────────────────────────────────────
+// One page per department: the shop's accessories are a page, the shop's phones
+// are a page, and each page holds everything about its own kind — the sections it
+// is filed under, the items themselves with their numbers and prices, and the
+// money they made. No side list, no tab-hunting: adding a row, changing a count
+// and fixing a name all happen in the row you are looking at.
+
+/** The items of one department, as the page shows them. */
+function departmentRows(kind) {
+  const shelf = state.filters.shelf ?? 'all';
+  return state.plan.items.filter((item) => {
+    if (kind === 'accessory') return item.kind === 'accessory';
+    if (kind === 'phone') return item.kind === 'phone';
+    if (kind === 'used') return item.kind === 'used';
+    return item.kind === 'phone' || item.kind === 'used';
+  }).filter((item) => {
+    if (kind === 'all' && shelf !== 'all' && item.kind !== shelf) return false;
+    if (state.filters.category !== 'all' && (item.categoryId || '') !== state.filters.category) return false;
+    if (state.filters.missing === '1') {
+      const empty = item.kind === 'used' ? (item.devices ?? []).length === 0 : !(item.qty > 0);
+      if (!empty) return false;
+    }
+    const query = normalizeText(state.filters.search).toLowerCase();
+    if (query && !`${item.name} ${item.model}`.toLowerCase().includes(query)) return false;
+    return true;
+  });
+}
+
+const piecesOf = (item) => (item.kind === 'used' ? (item.devices ?? []).length : Math.max(0, Math.trunc(Number(item.qty) || 0)));
+const sumBy = (rows, pick) => rows.reduce((total, row) => total + (Number(pick(row)) || 0), 0);
+
+/** A count cell that can be typed into or stepped, without a second screen. */
+function countCell(item) {
+  if (item.kind === 'used') {
+    const devices = (item.devices ?? []).length;
+    return `<td class="num">
+      <button class="small" data-act="details" data-coll="items" data-id="${esc(item.id)}" title="أضف أجهزة بأرقام IMEI">
+        ${num(devices)} جهاز ${devices ? '· عدّل' : '· أضف'}
+      </button></td>`;
+  }
+  return `<td class="num"><span class="stepper">
+    <button class="tiny" data-act="bump" data-coll="items" data-id="${esc(item.id)}" data-delta="-1" title="أقل بواحد">-</button>
+    <input type="number" step="1" min="0" value="${item.qty}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="qty" data-type="int">
+    <button class="tiny" data-act="bump" data-coll="items" data-id="${esc(item.id)}" data-delta="1" title="أكتر بواحد">+</button>
+  </span></td>`;
+}
+
+function countCard(label, value, hint = '') {
+  return `<div class="count-card"><span>${esc(label)}</span><b>${value}</b>${hint ? `<small>${esc(hint)}</small>` : ''}</div>`;
+}
+
+/** The sections this department's rows are filed under, with their own controls. */
+function departmentSections(coll, rows, kinds) {
+  const ids = new Set(rows.map((row) => row.categoryId).filter(Boolean));
+  const categories = state.plan.categories.filter((category) => ids.has(category.id) || kinds.includes(category.kind));
+  return `<div class="card">
+    <h2>الأقسام اللي بيتحط تحتها</h2>
     <p class="lead">
-      كل تصنيف هنا بيبقى قسم في <b>المخزن ← التصنيفات</b>. تقدر تضيف، تعدّل، ترتّب، تدمج تصنيفين
-      (وكل الأصناف تتحول على واحد)، أو تحذف.
+      دي الأقسام اللي هتظهر في <b>المخزن ‹ التصنيفات</b>. تقدر تسمّيها، ترتّبها، تدمج اتنين
+      في واحد (وكل الأصناف تتحوّل على الباقي)، أو تضيف قسم جديد من هنا.
     </p>
     <div class="row" style="margin-bottom:10px">
-      <input type="text" class="grow" placeholder="دوّر بالاسم…" data-act="search" value="${esc(state.filters.search)}">
-      <button data-act="add-category">+ تصنيف جديد</button>
+      <button data-act="add-category" data-kind="${kinds[0]}">+ قسم جديد</button>
+      ${selectionBar('categories', { merge: true })}
     </div>
-    ${selectionBar('categories', { merge: true })}
     <div class="table-wrap"><table>
       <thead><tr>
-        ${selectHeader('categories', filtered)}<th>يتنقل</th><th>الاسم</th><th>النوع</th><th>تحت تصنيف</th>
-        <th>الأيقونة</th><th>الترتيب</th><th class="num">أصناف</th><th></th>
+        ${selectHeader('categories', categories)}<th>يتنقل</th><th>الاسم</th><th>النوع</th><th>الترتيب</th><th class="num">أصناف</th><th></th>
       </tr></thead>
       <tbody>
-        ${slice.map((category) => {
-          const count = state.plan.items.filter((item) => item.categoryId === category.id).length;
-          return `<tr class="${category.include ? '' : 'excluded'}" data-row="${esc(category.id)}">
-            ${selectCell('categories', category)}
-            ${includeCell('categories', category)}
-            <td><input type="text" value="${esc(category.name)}" data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="name"></td>
-            <td><select data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="kind" ${category.parentId ? 'disabled title="بياخد نوع الأب"' : ''}>
-              ${Object.entries(kinds).map(([value, label]) => `<option value="${value}" ${category.kind === value ? 'selected' : ''}>${label}</option>`).join('')}
-            </select></td>
-            <td><select data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="parentId">
-              <option value="">— تصنيف رئيسي —</option>
-              ${mains.filter((main) => main.id !== category.id).map((main) => `<option value="${esc(main.id)}" ${category.parentId === main.id ? 'selected' : ''}>${esc(main.name)}</option>`).join('')}
-            </select></td>
-            <td><select data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="icon">
-              ${CATEGORY_ICONS.map((icon) => `<option value="${icon}" ${category.icon === icon ? 'selected' : ''}>${icon}</option>`).join('')}
-            </select></td>
-            <td><div class="order"><button class="tiny" data-act="up" data-coll="categories" data-id="${esc(category.id)}" title="فوق">▲</button>
-              <span>${category.sortOrder}</span>
-              <button class="tiny" data-act="down" data-coll="categories" data-id="${esc(category.id)}" title="تحت">▼</button></div></td>
-            <td class="num"><span class="badge plain">${num(count)}</span></td>
-            ${detailsCell('categories', category)}
-          </tr>`;
-        }).join('') || emptyRow(9, 'مفيش تصنيفات مطابقة.')}
+        ${categories.map((category) => `<tr class="${category.include ? '' : 'excluded'}">
+          ${selectCell('categories', category)}
+          ${includeCell('categories', category)}
+          <td><input type="text" value="${esc(category.name)}" data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="name"></td>
+          <td><select data-act="field" data-coll="categories" data-id="${esc(category.id)}" data-field="kind">
+            ${[['item', 'بضاعة بالعدد'], ['phone', 'موبايلات جديدة'], ['used', 'مستعمل']].map(([value, label]) => `<option value="${value}" ${category.kind === value ? 'selected' : ''}>${label}</option>`).join('')}
+          </select></td>
+          <td><div class="order">
+            <button class="tiny" data-act="up" data-coll="categories" data-id="${esc(category.id)}" title="فوق"><span class="tri up"></span></button>
+            <span>${category.sortOrder}</span>
+            <button class="tiny" data-act="down" data-coll="categories" data-id="${esc(category.id)}" title="تحت"><span class="tri down"></span></button>
+          </div></td>
+          <td class="num"><span class="badge plain">${num(state.plan.items.filter((item) => item.categoryId === category.id).length)}</span></td>
+          ${detailsCell('categories', category)}
+        </tr>`).join('') || emptyRow(7, 'مفيش أقسام لسه — دوس «+ قسم جديد».')}
       </tbody>
     </table></div>
-    ${pager('categories', page, pageCount, filtered.length)}
   </div>`;
 }
 
-// ── Brands ────────────────────────────────────────────────────────────────
-function viewBrands() {
-  const { filtered, slice, page, pageCount } = filteredAndPaged('brands', state.plan.brands, (row) => row.name);
-  const types = { touch: 'تاتش', keypad: 'زراير', both: 'الاتنين' };
-  return `
-  <div class="card">
-    <h2>الماركات ← المخزن ← الماركات</h2>
-    <p class="lead">شركات الموبايلات. «صنف جديد» في السيستم الجديد بيطلب الشركة الأول عشان يجيب الموديلات. تقدر تدمج ماركتين في واحدة.</p>
-    <div class="row" style="margin-bottom:10px">
-      <input type="text" class="grow" placeholder="دوّر بالاسم…" data-act="search" value="${esc(state.filters.search)}">
-      <button data-act="add-brand">+ ماركة جديدة</button>
-    </div>
-    ${selectionBar('brands', { merge: true })}
+/** What one department sold, from the months that keep their sales. */
+function departmentSalesCard(label, sections) {
+  const rows = state.plan.sales.filter((sale) => sale.include && sections.includes(sale.section));
+  const byMonth = new Map();
+  for (const sale of rows) {
+    const month = sale.date.slice(0, 7);
+    const entry = byMonth.get(month) || { count: 0, pieces: 0, total: 0, cost: 0 };
+    entry.count += 1;
+    entry.pieces += sale.qty;
+    entry.total += sale.sell * sale.qty;
+    entry.cost += sale.buy * sale.qty;
+    byMonth.set(month, entry);
+  }
+  const total = {
+    count: sumBy([...byMonth.values()], (entry) => entry.count),
+    pieces: sumBy([...byMonth.values()], (entry) => entry.pieces),
+    total: sumBy([...byMonth.values()], (entry) => entry.total),
+    cost: sumBy([...byMonth.values()], (entry) => entry.cost),
+  };
+  return `<div class="card">
+    <h2>مبيعات ${label} — في الشهور اللي بتتنقل بالتفصيل</h2>
+    <p class="lead">
+      الشهور القديمة بتتنقل مجمّعة (رقم الشهر بس)، فمبيعاتها مش بتتفصّل هنا. الجدول ده للشهور
+      اللي اخترت إنها تتنقل <b>تفصيلي</b> — نفس اللي هيبان في «المبيعات ‹ الفواتير».
+    </p>
     <div class="table-wrap"><table>
-      <thead><tr>${selectHeader('brands', filtered)}<th>يتنقل</th><th>الاسم</th><th>النوع</th><th>الترتيب</th><th class="num">موبايلات</th><th></th></tr></thead>
+      <thead><tr><th>الشهر</th><th class="num">بيعات</th><th class="num">قطع</th><th class="num">المبيعات</th><th class="num">التكلفة</th><th class="num">الربح</th></tr></thead>
       <tbody>
-        ${slice.map((brand) => {
-          const count = state.plan.items.filter((item) => item.brandId === brand.id).length;
-          return `<tr class="${brand.include ? '' : 'excluded'}">
-            ${selectCell('brands', brand)}
-            ${includeCell('brands', brand)}
-            <td><input type="text" value="${esc(brand.name)}" data-act="field" data-coll="brands" data-id="${esc(brand.id)}" data-field="name"></td>
-            <td><select data-act="field" data-coll="brands" data-id="${esc(brand.id)}" data-field="deviceType">
-              ${Object.entries(types).map(([value, label]) => `<option value="${value}" ${brand.deviceType === value ? 'selected' : ''}>${label}</option>`).join('')}
-            </select></td>
-            <td><div class="order"><button class="tiny" data-act="up" data-coll="brands" data-id="${esc(brand.id)}">▲</button>
-              <span>${brand.sortOrder}</span>
-              <button class="tiny" data-act="down" data-coll="brands" data-id="${esc(brand.id)}">▼</button></div></td>
-            <td class="num"><span class="badge plain">${num(count)}</span></td>
-            ${detailsCell('brands', brand)}
-          </tr>`;
-        }).join('') || emptyRow(7, 'مفيش ماركات مطابقة.')}
+        ${[...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, entry]) => `<tr>
+          <td>${esc(monthLabel(month))}</td>
+          <td class="num">${num(entry.count)}</td>
+          <td class="num">${num(entry.pieces)}</td>
+          <td class="num">${money(entry.total)}</td>
+          <td class="num">${money(entry.cost)}</td>
+          <td class="num">${money(entry.total - entry.cost)}</td>
+        </tr>`).join('') || emptyRow(6, 'مفيش مبيعات تفصيلية للقسم ده.')}
       </tbody>
+      ${byMonth.size ? `<tfoot><tr><th>الإجمالي</th><th class="num">${num(total.count)}</th><th class="num">${num(total.pieces)}</th><th class="num">${money(total.total)}</th><th class="num">${money(total.cost)}</th><th class="num">${money(total.total - total.cost)}</th></tr></tfoot>` : ''}
     </table></div>
-    ${pager('brands', page, pageCount, filtered.length)}
   </div>`;
 }
 
-// ── Items ─────────────────────────────────────────────────────────────────
-function viewItems() {
-  const kindFilter = state.filters.kind;
-  const categoryFilter = state.filters.category;
-  let rows = state.plan.items;
-  if (kindFilter !== 'all') rows = rows.filter((item) => item.kind === kindFilter);
-  if (categoryFilter !== 'all') rows = rows.filter((item) => (item.categoryId || '') === categoryFilter);
-  const { filtered, slice, page, pageCount } = filteredAndPaged('items', rows, (row) => `${row.name} ${row.model}`);
-  const added = state.plan.items.filter((item) => item.priceSource === 'daily-sales').length;
-  const kinds = { accessory: 'إكسسوار', phone: 'موبايل', used: 'مستعمل' };
+// ── Accessories ───────────────────────────────────────────────────────────
+function viewAccessories() {
+  const all = state.plan.items.filter((item) => item.kind === 'accessory');
+  const rows = departmentRows('accessory');
+  const sliced = rows.slice(0, PAGE_SIZE * 3);
+  const withoutCount = all.filter((item) => !(item.qty > 0)).length;
   const categoryName = new Map(state.plan.categories.map((category) => [category.id, category.name]));
   return `
+  ${state.notice ? note(state.notice) : ''}
   <div class="card">
-    <h2>الأصناف ← المخزن ← الأصناف</h2>
+    <h2>الإكسسوارات — كل حاجة خاصة بيهم في صفحة واحدة</h2>
     <p class="lead">
-      ${num(state.plan.items.length)} صنف: الإكسسوارات من كتالوج القديم (${num(state.plan.items.filter((item) => item.priceSource === 'mshop_ca').length)})،
-      الموبايلات من المخزن (${num(state.plan.items.filter((item) => item.priceSource === 'mshop_inventory').length)})،
-      وأصناف ظهرت في مبيعات الشهر (${num(added)}).
-      <b>الكمية هي اللي عندك دلوقتي</b> — القديم مكانش بيسجّل كمية للإكسسوارات، فاكتبها هنا.
-      كل صنف هيتحط تحت القسم اللي في عمود «القسم»، وده اللي هيبان في المخزن.
+      الأصناف وأقسامها والأعداد والأسعار ومبيعاتهم. <b>العدد اللي بتكتبه هو اللي عندك دلوقتي</b>،
+      وهو اللي هيفتح بيه المخزن في السيستم الجديد.
     </p>
-    <div class="row" style="margin-bottom:10px">
-      <input type="text" class="grow" placeholder="دوّر بالاسم أو الموديل…" data-act="search" value="${esc(state.filters.search)}">
-      <select data-act="filter" data-filter="kind" style="max-width:170px">
-        <option value="all" ${kindFilter === 'all' ? 'selected' : ''}>كل الأنواع</option>
-        ${Object.entries(kinds).map(([value, label]) => `<option value="${value}" ${kindFilter === value ? 'selected' : ''}>${label}</option>`).join('')}
-      </select>
-      <select data-act="filter" data-filter="category" style="max-width:220px">
-        <option value="all" ${categoryFilter === 'all' ? 'selected' : ''}>كل الأقسام</option>
-        ${state.plan.categories.filter((category) => category.include).map((category) => `<option value="${esc(category.id)}" ${categoryFilter === category.id ? 'selected' : ''}>${esc(category.name)}</option>`).join('')}
-      </select>
-      <button data-act="add-item">+ صنف جديد</button>
+    <div class="counts-strip">
+      ${countCard('أصناف', num(all.length), `منهم ${num(all.filter((item) => item.include).length)} هيتنقلوا`)}
+      ${countCard('قطع', num(sumBy(all.filter((item) => item.include), piecesOf)), 'اللي هتنزل المخزن')}
+      ${countCard('قيمة الشراء', `${money(sumBy(all, (item) => item.buy * piecesOf(item)))} ج`, 'بعدد اليوم')}
+      ${countCard('قيمة البيع', `${money(sumBy(all, (item) => (item.sell ?? 0) * piecesOf(item)))} ج`, 'لو اتباعوا بسعرهم')}
+      ${countCard('من غير عدد', num(withoutCount), withoutCount ? 'محتاجين عدد' : 'كلهم بعددهم')}
+    </div>
+    ${withoutCount
+      ? `<div class="note warn">
+          <b>${num(withoutCount)} صنف من غير عدد.</b> القديم مكانش بيسجّل عدد الإكسسوارات خالص، فالأعداد هنا
+          هي اللي هتنزل المخزن. دوس <b>«الأعداد»</b> تحت وهتلاقي الأصناف اللي محتاجة رقم جنب خانة العدد.
+        </div>`
+      : ''}
+  </div>
+
+  <div class="card" data-dept="accessories">
+    <div class="row between" style="margin-bottom:10px">
+      <div class="row">
+        <input type="text" class="grow" placeholder="دوّر بالاسم…" data-act="search" value="${esc(state.filters.search)}">
+        <select data-act="filter" data-filter="category" style="max-width:220px">
+          <option value="all" ${state.filters.category === 'all' ? 'selected' : ''}>كل الأقسام</option>
+          ${state.plan.categories.filter((category) => category.include).map((category) => `<option value="${esc(category.id)}" ${state.filters.category === category.id ? 'selected' : ''}>${esc(category.name)}</option>`).join('')}
+        </select>
+        <button class="small ${state.filters.missing === '1' ? 'primary' : ''}" data-act="filter-toggle" data-filter="missing" data-on="${state.filters.missing === '1' ? '0' : '1'}" data-dept="accessories">
+          الأعداد (${num(withoutCount)})
+        </button>
+      </div>
+      <button data-act="add-item" data-kind="accessory">+ إكسسوار جديد</button>
     </div>
     ${selectionBar('items', { merge: true, moveToCategory: true })}
+    ${bulkCountBar('items')}
     <div class="table-wrap"><table>
       <thead><tr>
-        ${selectHeader('items', filtered)}<th>يتنقل</th><th>الاسم</th><th>النوع</th><th>القسم (هيقع تحته)</th><th>الشركة</th><th>الموديل</th>
-        <th class="num">رام</th><th class="num">مساحة</th><th class="num">شراء</th><th class="num">بيع</th><th class="num">الكمية</th><th></th>
+        ${selectHeader('items', rows)}<th>يتنقل</th><th>الاسم</th><th>القسم</th>
+        <th class="num">شراء</th><th class="num">بيع</th><th class="num">العدد</th><th class="num">قيمة العدد</th><th></th>
       </tr></thead>
       <tbody>
-        ${slice.map((item) => `<tr class="${item.include ? '' : 'excluded'}">
+        ${sliced.map((item) => `<tr class="${item.include ? '' : 'excluded'}">
+          ${selectCell('items', item)}
+          ${includeCell('items', item)}
+          <td><input type="text" value="${esc(item.name)}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="name" style="min-width:190px"></td>
+          <td><select data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="categoryId" style="min-width:150px">${categoryOptions(item.categoryId)}</select></td>
+          <td class="num"><input type="number" step="0.01" value="${item.buy}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="buy" data-type="float" style="width:90px"></td>
+          <td class="num"><input type="number" step="0.01" value="${item.sell ?? ''}" placeholder="—" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="sell" data-type="float" style="width:90px"></td>
+          ${countCell(item)}
+          <td class="num">${money((item.sell ?? 0) * piecesOf(item))}</td>
+          ${detailsCell('items', item)}
+        </tr>`).join('') || emptyRow(9, 'مفيش إكسسوارات مطابقة.')}
+      </tbody>
+    </table></div>
+    ${rows.length > sliced.length ? `<p class="muted small">بيبان ${num(sliced.length)} من ${num(rows.length)} — استخدم البحث لتضييق اللستة.</p>` : ''}
+    <p class="muted small" style="margin:10px 0 0">
+      إجمالي الظاهر: <b>${num(sumBy(rows, piecesOf))}</b> قطعة، بيع بـ<b>${money(sumBy(rows, (item) => (item.sell ?? 0) * piecesOf(item)))}</b> ج.
+      ${categoryName.size ? '' : ''}
+    </p>
+  </div>
+
+  ${departmentSections('categories', all, ['item'])}
+  ${departmentSalesCard('الإكسسوارات', ['acc'])}
+  `;
+}
+
+// ── Phones ────────────────────────────────────────────────────────────────
+function viewPhones() {
+  const fresh = state.plan.items.filter((item) => item.kind === 'phone');
+  const used = state.plan.items.filter((item) => item.kind === 'used');
+  const shelf = state.filters.shelf ?? 'all';
+  const rows = departmentRows('all');
+  const freshRows = rows.filter((item) => item.kind === 'phone');
+  const usedRows = rows.filter((item) => item.kind === 'used');
+  const brands = state.plan.brands;
+  const brandName = new Map(brands.map((brand) => [brand.id, brand.name]));
+  const devicesTotal = sumBy(used, (item) => (item.devices ?? []).length);
+  const usedWithoutDevices = used.filter((item) => !(item.devices ?? []).length).length;
+
+  return `
+  ${state.notice ? note(state.notice) : ''}
+  <div class="card">
+    <h2>الهواتف — رفّين، كل واحد لوحده</h2>
+    <p class="lead">
+      زي قسم «الهواتف» في السيستم الجديد بالظبط: <b>الجديد</b> و<b>المستعمل</b> مبيختلطوش — لا في
+      جدول ولا في إجمالي. الجديد بينزل بعدده من مخزن القديم، والمستعمل بينزل بأجهزته وأرقامها.
+    </p>
+    <div class="shelf-strip">
+      <div class="shelf new">
+        <h3>جديد</h3>
+        ${countCard('موديلات', num(fresh.length))}
+        ${countCard('أجهزة', num(sumBy(fresh.filter((item) => item.include), piecesOf)), 'بتنزل المخزن بالعدد')}
+        ${countCard('تكلفة', `${money(sumBy(fresh, (item) => item.buy * piecesOf(item)))} ج`)}
+        ${countCard('سعر البيع', `${money(sumBy(fresh, (item) => (item.sell ?? 0) * piecesOf(item)))} ج`)}
+      </div>
+      <div class="shelf used">
+        <h3>مستعمل</h3>
+        ${countCard('موديلات', num(used.length))}
+        ${countCard('أجهزة', num(devicesTotal), 'بأرقام IMEI')}
+        ${countCard('تكلفة', `${money(sumBy(used, (item) => (item.devices ?? []).reduce((total, device) => total + (device.cost ?? item.buy), 0)))} ج`)}
+        ${countCard('سعر البيع', `${money(sumBy(used, (item) => (item.sell ?? 0) * (item.devices ?? []).length))} ج`)}
+      </div>
+    </div>
+    ${usedWithoutDevices
+      ? `<div class="note warn">
+          <b>${num(usedWithoutDevices)} موديل مستعمل من غير أجهزة مسجّلة.</b> القديم كان بيسجّل اسم المستعمل
+          وسعره بس — مفيش عدد ولا أرقام. قسم «الهواتف» بيرفع المستعمل بالرقم والحالة، فالموديل من غير
+          أجهزة هيفضل في الكتالوج ومش هيبان على الرف. لو عندك منه دلوقتي: دوس <b>«أضف جهاز»</b> والصق الأرقام.
+        </div>`
+      : ''}
+  </div>
+
+  <div class="card" data-dept="phones">
+    <div class="row between" style="margin-bottom:10px">
+      <div class="row">
+        <input type="text" class="grow" placeholder="دوّر بالموديل أو الشركة…" data-act="search" value="${esc(state.filters.search)}">
+        <select data-act="filter" data-filter="shelf" style="max-width:170px">
+          <option value="all" ${shelf === 'all' ? 'selected' : ''}>الرفّين</option>
+          <option value="phone" ${shelf === 'phone' ? 'selected' : ''}>جديد بس</option>
+          <option value="used" ${shelf === 'used' ? 'selected' : ''}>مستعمل بس</option>
+        </select>
+        <button class="small ${state.filters.missing === '1' ? 'primary' : ''}" data-act="filter-toggle" data-filter="missing" data-on="${state.filters.missing === '1' ? '0' : '1'}">
+          اللي من غير عدد/أجهزة
+        </button>
+      </div>
+      <div class="row">
+        <button data-act="add-item" data-kind="phone">+ موبايل جديد</button>
+        <button data-act="add-item" data-kind="used">+ مستعمل</button>
+      </div>
+    </div>
+    ${selectionBar('items', { merge: true, moveToCategory: true })}
+
+    <h3 class="shelf-title new">رف «جديد» — من مخزن القديم بعدده</h3>
+    <div class="table-wrap"><table data-shelf="new">
+      <thead><tr>
+        ${selectHeader('items', freshRows)}<th>يتنقل</th><th>الموديل</th><th>الشركة</th>
+        <th class="num">رام</th><th class="num">مساحة</th><th class="num">شراء</th><th class="num">بيع</th>
+        <th class="num">العدد</th><th class="num">تكلفة العدد</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${freshRows.map((item) => `<tr class="${item.include ? '' : 'excluded'}">
           ${selectCell('items', item)}
           ${includeCell('items', item)}
           <td><input type="text" value="${esc(item.name)}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="name" style="min-width:180px"></td>
-          <td><span class="badge ${item.kind === 'phone' ? '' : 'plain'}">${kinds[item.kind] || item.kind}</span></td>
-          <td><select data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="categoryId" style="min-width:150px" title="${esc(item.categoryId ? categoryName.get(item.categoryId) || '' : 'بدون قسم')}">${categoryOptions(item.categoryId)}</select></td>
-          <td>${item.kind === 'phone'
-            ? `<select data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="brandId" style="min-width:130px">${brandOptions(item.brandId)}</select>`
-            : '<span class="muted">—</span>'}</td>
-          <td>${item.kind === 'phone'
-            ? `<input type="text" value="${esc(item.model)}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="model" style="min-width:110px">`
-            : '<span class="muted">—</span>'}</td>
-          <td class="num">${item.kind === 'phone' ? `<input type="number" value="${item.ramGb ?? ''}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="ramGb" data-type="int" style="width:70px">` : '—'}</td>
-          <td class="num">${item.kind === 'phone' ? `<input type="number" value="${item.storageGb ?? ''}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="storageGb" data-type="int" style="width:80px">` : '—'}</td>
-          <td class="num"><input type="number" step="0.01" value="${item.buy}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="buy" data-type="float" style="width:90px"></td>
-          <td class="num"><input type="number" step="0.01" value="${item.sell ?? ''}" placeholder="—" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="sell" data-type="float" style="width:90px"></td>
-          <td class="num"><input type="number" step="1" value="${item.qty}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="qty" data-type="int" style="width:70px"></td>
+          <td><select data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="brandId" style="min-width:130px">${brandOptions(item.brandId)}</select></td>
+          <td class="num"><input type="number" value="${item.ramGb ?? ''}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="ramGb" data-type="int" style="width:70px"></td>
+          <td class="num"><input type="number" value="${item.storageGb ?? ''}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="storageGb" data-type="int" style="width:80px"></td>
+          <td class="num"><input type="number" step="0.01" value="${item.buy}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="buy" data-type="float" style="width:95px"></td>
+          <td class="num"><input type="number" step="0.01" value="${item.sell ?? ''}" placeholder="—" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="sell" data-type="float" style="width:95px"></td>
+          ${countCell(item)}
+          <td class="num">${money(item.buy * piecesOf(item))}</td>
           ${detailsCell('items', item)}
-        </tr>`).join('') || emptyRow(13, 'مفيش أصناف مطابقة.')}
+        </tr>`).join('') || emptyRow(11, 'مفيش موبايلات جديدة مطابقة.')}
+      </tbody>
+      ${freshRows.length ? `<tfoot><tr><th colspan="7">إجمالي الجديد</th><th class="num">${num(sumBy(freshRows, piecesOf))}</th><th class="num">${money(sumBy(freshRows, (item) => item.buy * piecesOf(item)))}</th><th></th></tr></tfoot>` : ''}
+    </table></div>
+
+    <h3 class="shelf-title used">رف «مستعمل» — كل جهاز برقمه وحالته</h3>
+    <div class="table-wrap"><table data-shelf="used">
+      <thead><tr>
+        ${selectHeader('items', usedRows)}<th>يتنقل</th><th>الموديل</th><th class="num">شراء</th><th class="num">بيع</th>
+        <th class="num">أجهزة (IMEI)</th><th class="num">تكلفة الأجهزة</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${usedRows.map((item) => `<tr class="${item.include ? '' : 'excluded'}">
+          ${selectCell('items', item)}
+          ${includeCell('items', item)}
+          <td><input type="text" value="${esc(item.name)}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="name" style="min-width:190px"></td>
+          <td class="num"><input type="number" step="0.01" value="${item.buy}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="buy" data-type="float" style="width:95px"></td>
+          <td class="num"><input type="number" step="0.01" value="${item.sell ?? ''}" placeholder="—" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="sell" data-type="float" style="width:95px"></td>
+          ${countCell(item)}
+          <td class="num">${money((item.devices ?? []).reduce((total, device) => total + (device.cost ?? item.buy), 0))}</td>
+          ${detailsCell('items', item)}
+        </tr>`).join('') || emptyRow(8, 'مفيش مستعمل مطابق.')}
+      </tbody>
+      ${usedRows.length ? `<tfoot><tr><th colspan="5">إجمالي المستعمل</th><th class="num">${num(sumBy(usedRows, (item) => (item.devices ?? []).length))}</th><th class="num">${money(sumBy(usedRows, (item) => (item.devices ?? []).reduce((total, device) => total + (device.cost ?? item.buy), 0)))}</th><th></th></tr></tfoot>` : ''}
+    </table></div>
+  </div>
+
+  <div class="card">
+    <div class="row between" style="margin-bottom:10px">
+      <div>
+        <h2>شركات الموبايلات</h2>
+        <p class="lead" style="margin:0">
+          «صنف جديد» في السيستم الجديد بيطلب الشركة الأول. ادمج أي شركتين في واحدة من هنا.
+        </p>
+      </div>
+      <div class="row">
+        <button data-act="add-brand">+ شركة جديدة</button>
+      </div>
+    </div>
+    ${selectionBar('brands', { merge: true })}
+    <div class="table-wrap"><table>
+      <thead><tr>${selectHeader('brands', brands)}<th>يتنقل</th><th>الاسم</th><th>النوع</th><th>الترتيب</th><th class="num">موبايلات</th><th></th></tr></thead>
+      <tbody>
+        ${brands.map((brand) => `<tr class="${brand.include ? '' : 'excluded'}">
+          ${selectCell('brands', brand)}
+          ${includeCell('brands', brand)}
+          <td><input type="text" value="${esc(brand.name)}" data-act="field" data-coll="brands" data-id="${esc(brand.id)}" data-field="name"></td>
+          <td><select data-act="field" data-coll="brands" data-id="${esc(brand.id)}" data-field="deviceType">
+            ${[['touch', 'تاتش'], ['keypad', 'زراير'], ['both', 'الاتنين']].map(([value, label]) => `<option value="${value}" ${brand.deviceType === value ? 'selected' : ''}>${label}</option>`).join('')}
+          </select></td>
+          <td><div class="order">
+            <button class="tiny" data-act="up" data-coll="brands" data-id="${esc(brand.id)}"><span class="tri up"></span></button>
+            <span>${brand.sortOrder}</span>
+            <button class="tiny" data-act="down" data-coll="brands" data-id="${esc(brand.id)}"><span class="tri down"></span></button>
+          </div></td>
+          <td class="num"><span class="badge plain">${num(state.plan.items.filter((item) => item.brandId === brand.id).length)}</span></td>
+          ${detailsCell('brands', brand)}
+        </tr>`).join('') || emptyRow(7, 'مفيش شركات.')}
       </tbody>
     </table></div>
-    ${pager('items', page, pageCount, filtered.length)}
-  </div>`;
+    <p class="muted small">${num(brands.length)} شركة — ${num(fresh.length)} موديل جديد و${num(used.length)} موديل مستعمل عليهم.</p>
+  </div>
+
+  ${departmentSalesCard('الموبايلات', ['phones', 'used'])}
+  `;
 }
 
 // ── Months ────────────────────────────────────────────────────────────────
@@ -1088,7 +1347,7 @@ function viewMonths() {
   return `
   ${state.notice ? note(state.notice) : ''}
   <div class="card">
-    <h2>الشهور ← شكل المبيعات في السيستم الجديد</h2>
+    <h2>الشهور ‹ شكل المبيعات في السيستم الجديد</h2>
     <p class="lead">
       كل شهر تختار: <b>تفصيلي</b> (كل بيعة لوحدها)، أو <b>مجمّع</b> (فاتورة واحدة للشهر بسطر لكل قسم — رقم الشهر بس)،
       أو <b>مش متنقل</b>. الشهور القديمة مجمّعة افتراضيًا زي ما طلبت.
@@ -1149,8 +1408,8 @@ function viewMonths() {
           <td class="num">${num(row.count)}</td>
           <td class="num">${money(row.total)}</td>
           <td class="num">${money(row.cost)}</td>
-          <td><div class="order"><button class="tiny" data-act="up" data-coll="summary" data-id="${esc(row.id)}">▲</button>
-            <button class="tiny" data-act="down" data-coll="summary" data-id="${esc(row.id)}">▼</button></div></td>
+          <td><div class="order"><button class="tiny" data-act="up" data-coll="summary" data-id="${esc(row.id)}"><span class="tri up"></span></button>
+            <button class="tiny" data-act="down" data-coll="summary" data-id="${esc(row.id)}"><span class="tri down"></span></button></div></td>
           ${detailsCell('summary', row)}
         </tr>`).join('')}
       </tbody>
@@ -1170,7 +1429,7 @@ function viewSales() {
   const categoryName = new Map(state.plan.categories.map((category) => [category.id, category.name]));
   return `
   <div class="card">
-    <h2>المبيعات التفصيلية ← المبيعات ← الفواتير</h2>
+    <h2>المبيعات التفصيلية ‹ المبيعات ‹ الفواتير</h2>
     <p class="lead">
       ${num(filtered.length)} بيعة — إجمالي ${money(total)} ج، تكلفة ${money(cost)} ج، ربح ${money(total - cost)} ج.
       كل بيعة بتتحول لفاتورة بسطر واحد، والكمية بتتخصم من المخزون.
@@ -1216,7 +1475,7 @@ function viewRepairs() {
   const total = filtered.filter((row) => row.include).reduce((sum, row) => sum + row.price, 0);
   return `
   <div class="card">
-    <h2>الصيانة والسوفت وير ← الصيانة ← التذاكر</h2>
+    <h2>الصيانة والسوفت وير ‹ الصيانة ‹ التذاكر</h2>
     <p class="lead">${num(filtered.length)} تذكرة — إجمالي ${money(total)} ج. كل تذكرة بتتنقل بتاريخها وحالتها.</p>
     <div class="row" style="margin-bottom:10px">
       <input type="text" class="grow" placeholder="دوّر برقم التذكرة أو الجهاز…" data-act="search" value="${esc(state.filters.search)}">
@@ -1259,7 +1518,7 @@ function viewExpenses() {
   const total = filtered.filter((row) => row.include).reduce((sum, row) => sum + row.amount, 0);
   return `
   <div class="card">
-    <h2>المصاريف ← المصاريف</h2>
+    <h2>المصاريف ‹ المصاريف</h2>
     <p class="lead">${num(filtered.length)} مصروف — ${money(total)} ج. بتتنقل كـ«مدفوعة من برّه الدرج» بتاريخها، عشان متتحاجش وردية مفتوحة.</p>
     <div class="row" style="margin-bottom:10px">
       <input type="text" class="grow" placeholder="دوّر بالتصنيف…" data-act="search" value="${esc(state.filters.search)}">
@@ -1290,7 +1549,7 @@ function viewWallets() {
   return `
   ${state.notice ? note(state.notice) : ''}
   <div class="card">
-    <h2>المحافظ ← المحافظ</h2>
+    <h2>المحافظ ‹ المحافظ</h2>
     <p class="lead">اكتب <b>الرصيد اللي فيها دلوقتي</b>. ده اللي هتفتح بيه في السيستم الجديد. المحافظ الخمسة الأساسية موجودة في النظام أصلًا، فلو شلت علامة واحدة هتتخفي وتبقى برصيد صفر.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>يتنقل</th><th>الاسم</th><th>الرقم</th><th>نوع الدفع</th><th class="num">الرصيد اللي هتفتح بيه</th><th class="num">حد يومي</th><th></th></tr></thead>
@@ -1350,7 +1609,7 @@ function viewBuild() {
   <div class="build-grid">
     <div class="card">
       <h2>ابنِ نسخة السيستم الجديد</h2>
-      <p class="lead">النسخة دي بتتدخل على البرنامج الجديد من «الإعدادات ← النسخة الاحتياطية ← استيراد نسخة».</p>
+      <p class="lead">النسخة دي بتتدخل على البرنامج الجديد من «الإعدادات ‹ النسخة الاحتياطية ‹ استيراد نسخة».</p>
 
       <div class="grid-2">
         <label class="stat"><span>كلمة سر النسخة (8 حروف أو أكتر)</span>
@@ -1384,7 +1643,7 @@ function viewBuild() {
         </div>
         <h3 style="margin-top:18px;font-size:15px">ترجّعها إزاي</h3>
         <ol class="steps">
-          <li>افتح السيستم الجديد ← الإعدادات ← النسخة الاحتياطية.</li>
+          <li>افتح السيستم الجديد ‹ الإعدادات ‹ النسخة الاحتياطية.</li>
           <li>«استيراد نسخة» وحدد الملف اللي حمّلته.</li>
           <li>اكتب كلمة السر اللي كتبتها فوق.</li>
           <li>اقفل البرنامج وافتحه تاني زي ما هيطلب.</li>
@@ -1415,6 +1674,57 @@ function viewBuild() {
 }
 
 // ── The row panel: old shape above, new shape below ───────────────────────
+/**
+ * «أجهزة المستعمل» — the one place a used handset is entered.
+ *
+ * The old catalogue has a name and a price for a used model and nothing else, so
+ * the count has to come from the owner. It is typed as devices — IMEI, condition,
+ * cost — because that is what the new system puts on the «مستعمل» shelf; a bare
+ * number would land on the «جديد» shelf and mix the two kinds.
+ */
+function devicesPanel(row) {
+  const devices = row.devices ?? [];
+  const draft = state.deviceDraft;
+  const conditionLabel = { A: 'A — زي الجديد', B: 'B — خدوش خفيفة', C: 'C — عيوب واضحة' };
+  return `<section class="panel devices" data-devices="${esc(row.id)}">
+    <h4>أجهزة المستعمل (IMEI) — ${num(devices.length)} جهاز</h4>
+    <p class="muted small" style="margin:0 0 8px">
+      كل جهاز بيتسجل برقمه وحالته وتكلفته، وينزل على رف «مستعمل» في قسم الهواتف. العدد هنا
+      مش رقم مكتوب — هو عدد الأجهزة اللي بتضيفها.
+    </p>
+    ${devices.length
+      ? `<div class="table-wrap"><table class="devices-table">
+          <thead><tr><th>IMEI</th><th>الحالة</th><th class="num">التكلفة</th><th></th></tr></thead>
+          <tbody>
+            ${devices.map((device, index) => `<tr>
+              <td class="mono" dir="ltr">${esc(device.imei)}</td>
+              <td><select data-act="device-field" data-id="${esc(row.id)}" data-index="${index}" data-field="condition">
+                ${['A', 'B', 'C'].map((grade) => `<option value="${grade}" ${device.condition === grade ? 'selected' : ''}>${esc(conditionLabel[grade])}</option>`).join('')}
+              </select></td>
+              <td class="num"><input type="number" step="0.01" value="${device.cost ?? ''}" placeholder="${esc(String(row.buy))}"
+                data-act="device-field" data-id="${esc(row.id)}" data-index="${index}" data-field="cost" data-type="float" style="width:100px"></td>
+              <td><button class="small danger" data-act="remove-device" data-id="${esc(row.id)}" data-index="${index}" title="امسح الجهاز">×</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`
+      : '<div class="note warn">مفيش أجهزة. الموديل ده مش هيبان على رف «مستعمل» لحد ما تضيف جهاز برقمه.</div>'}
+    <div class="stack" style="gap:8px;margin-top:10px">
+      <textarea rows="3" data-act="device-text" placeholder="الصق أرقام IMEI — رقم في كل سطر (أو مفصولين بفاصلة)">${esc(draft.text)}</textarea>
+      <div class="row">
+        <select data-act="device-condition" style="max-width:200px">
+          <option value="">— حالة الأجهزة —</option>
+          ${['A', 'B', 'C'].map((grade) => `<option value="${grade}" ${draft.condition === grade ? 'selected' : ''}>${esc(conditionLabel[grade])}</option>`).join('')}
+        </select>
+        <input type="number" step="0.01" data-act="device-cost" value="${esc(draft.cost)}" placeholder="تكلفة الجهاز (اختياري — الافتراضي سعر الشراء)" style="max-width:280px">
+        <button class="primary" data-act="add-devices" data-id="${esc(row.id)}">أضف الأجهزة</button>
+      </div>
+      <p class="muted small" style="margin:0">
+        الرقم لازم يكون ١٥ رقم ورقم التحقق صح — تقدر تلاقيه على علبة الجهاز أو بـ<span class="mono" dir="ltr">*#06#</span>.
+      </p>
+    </div>
+  </section>`;
+}
+
 function viewDrawer() {
   if (!state.drawer) return '';
   const { coll, id } = state.drawer;
@@ -1454,7 +1764,7 @@ function viewDrawer() {
       </div>
       <div class="row">
         <span class="badge ${status.tone === 'on' ? '' : 'plain'}">${status.label}</span>
-        <button class="small ghost" data-act="close-drawer">إغلاق ✕</button>
+        <button class="small ghost" data-act="close-drawer">إغلاق ×</button>
       </div>
     </header>
     <div class="drawer-body">
@@ -1484,14 +1794,16 @@ function viewDrawer() {
         <div class="fields">${fields.map(field).join('') || '<p class="muted small">الصف ده مفيش له حقول قابلة للتعديل.</p>'}</div>
       </section>
 
+      ${coll === 'items' && row.kind === 'used' ? devicesPanel(row) : ''}
+
       <section class="panel">
         <h4>تحكم كامل</h4>
         <div class="row">
           <button class="small" data-act="include" data-coll="${coll}" data-id="${esc(row.id)}" data-toggle="1">
             ${row.include ? 'شيله من النقل' : 'اشمله في النقل'}
           </button>
-          ${canOrder ? `<button class="small ghost" data-act="up" data-coll="${coll}" data-id="${esc(row.id)}">▲ فوق</button>
-          <button class="small ghost" data-act="down" data-coll="${coll}" data-id="${esc(row.id)}">▼ تحت</button>` : ''}
+          ${canOrder ? `<button class="small ghost" data-act="up" data-coll="${coll}" data-id="${esc(row.id)}"><span class="tri up"></span> فوق</button>
+          <button class="small ghost" data-act="down" data-coll="${coll}" data-id="${esc(row.id)}"><span class="tri down"></span> تحت</button>` : ''}
           <button class="small danger" data-act="del" data-coll="${coll}" data-id="${esc(row.id)}">امسح الصف</button>
         </div>
         <p class="muted small" style="margin-top:10px">أي تعديل هنا بيدخل في «رجوع» — تقدر ترجّعه بـCtrl+Z.</p>
@@ -1505,17 +1817,23 @@ function emptyRow(columns, text) {
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────
+// The tool is organised by **department**, not by table.
+//
+// The owner asked for this in as many words (2026-10-23): «افصل بين الأقسام —
+// الإكسسوارات ألاقي كل حاجة خاصة بيه، وكذلك الهواتف، وأقدر أضيف أو أعدّل أي حاجة
+// في نفس المكان، من غير قايمة جانبية». So there is no side rail any more: a
+// strip of departments across the top, and each department is one page where its
+// categories, its items, its numbers and its money all live together.
 const TABS = [
   ['overview', 'النظرة العامة'],
-  ['map', 'من القديم للجديد'],
-  ['categories', 'التصنيفات'],
-  ['brands', 'الماركات'],
-  ['items', 'الأصناف'],
+  ['accessories', 'الإكسسوارات'],
+  ['phones', 'الهواتف'],
   ['months', 'الشهور'],
   ['sales', 'المبيعات التفصيلية'],
   ['repairs', 'الصيانة'],
   ['expenses', 'المصاريف'],
   ['wallets', 'المحافظ'],
+  ['map', 'الخريطة'],
   ['settings', 'الإعدادات'],
   ['build', 'بناء النسخة'],
 ];
@@ -1545,9 +1863,8 @@ function render() {
   const views = {
     overview: viewOverview,
     map: viewMap,
-    categories: viewCategories,
-    brands: viewBrands,
-    items: viewItems,
+    accessories: viewAccessories,
+    phones: viewPhones,
     months: viewMonths,
     sales: viewSales,
     repairs: viewRepairs,
@@ -1572,8 +1889,8 @@ function render() {
           <b style="color:${errors ? 'var(--danger)' : 'var(--ok)'}">${errors ? `${num(errors)} مانع` : 'سليم'}</b>
         </button>
       </div>
-      <button class="small" data-act="undo" ${state.history.length ? '' : 'disabled'} title="تراجع">↶ تراجع</button>
-      <button class="small" data-act="redo" ${state.future.length ? '' : 'disabled'} title="إعادة">↷ إعادة</button>
+      <button class="small" data-act="undo" ${state.history.length ? '' : 'disabled'} title="تراجع">تراجع</button>
+      <button class="small" data-act="redo" ${state.future.length ? '' : 'disabled'} title="إعادة">إعادة</button>
     </div>
     <div class="legend">
       <span><i class="dot on"></i> علامة «يتنقل» = الصف ده هيدخل السيستم الجديد</span>
@@ -1581,20 +1898,21 @@ function render() {
       <span><i class="dot pick"></i> «تحديد» = تختار صفوف للدمج / النقل / المسح</span>
       <span class="muted">كل صف فيه «تفاصيل» بيوريك شكله في القديم والجديد.</span>
     </div>
+    <nav class="tabs" aria-label="أقسام الأداة">
+      ${TABS.map(([key, label]) => `<button data-act="tab" data-tab="${key}" class="${state.tab === key ? 'active' : ''}">
+        <span>${label}</span><span class="count">${key === 'overview' || key === 'settings' || key === 'build' ? '' : num(counts[key] ?? '')}</span>
+      </button>`).join('')}
+      <span class="tabs-files">
+        <button data-act="pick-legacy" class="small ghost">باكب تاني</button>
+        <button data-act="pick-draft" class="small ghost">مسودة</button>
+      </span>
+    </nav>
     <div class="layout">
-      <nav class="tabs">
-        ${TABS.map(([key, label]) => `<button data-act="tab" data-tab="${key}" class="${state.tab === key ? 'active' : ''}">
-          <span>${label}</span><span class="count">${key === 'overview' || key === 'settings' || key === 'build' ? '' : num(counts[key] ?? '')}</span>
-        </button>`).join('')}
-        <hr>
-        <button data-act="pick-legacy" class="small">افتح باكب تاني</button>
-        <button data-act="pick-draft" class="small">افتح مسودة</button>
-      </nav>
       <main>${views[state.tab] ? views[state.tab]() : viewOverview()}
         <div class="row" style="margin:18px 0 4px">
-          <button class="ghost small" data-act="tab" data-tab="${PREV_TAB[state.tab] || 'overview'}">→ اللي قبله</button>
+          <button class="ghost small" data-act="tab" data-tab="${PREV_TAB[state.tab] || 'overview'}">› اللي قبله</button>
           <span class="muted small">${esc(TAB_LABEL[state.tab] || '')}</span>
-          <button class="ghost small" data-act="tab" data-tab="${NEXT_TAB[state.tab] || 'build'}">اللي بعده ←</button>
+          <button class="ghost small" data-act="tab" data-tab="${NEXT_TAB[state.tab] || 'build'}">اللي بعده ‹</button>
         </div>
       </main>
     </div>
@@ -1635,9 +1953,20 @@ function pickFile(accept, handler) {
 function visibleIds(coll) {
   const query = normalizeText(state.filters.search).toLowerCase();
   if (coll === 'items') {
+    // Bulk actions work on what the owner can see: the department page he is
+    // standing on, with its search and its «من غير عدد» switch.
+    const kind = state.tab === 'accessories' ? 'accessory' : state.tab === 'phones' ? 'all' : state.filters.kind;
     let rows = state.plan.items;
-    if (state.filters.kind !== 'all') rows = rows.filter((item) => item.kind === state.filters.kind);
+    if (state.tab === 'accessories') rows = rows.filter((item) => item.kind === 'accessory');
+    else if (state.tab === 'phones') {
+      rows = rows.filter((item) => item.kind === 'phone' || item.kind === 'used');
+      const shelf = state.filters.shelf ?? 'all';
+      if (shelf !== 'all') rows = rows.filter((item) => item.kind === shelf);
+    } else if (kind !== 'all') rows = rows.filter((item) => item.kind === kind);
     if (state.filters.category !== 'all') rows = rows.filter((item) => (item.categoryId || '') === state.filters.category);
+    if (state.filters.missing === '1') {
+      rows = rows.filter((item) => (item.kind === 'used' ? (item.devices ?? []).length === 0 : !(item.qty > 0)));
+    }
     if (query) rows = rows.filter((item) => `${item.name} ${item.model}`.toLowerCase().includes(query));
     return rows.map((row) => row.id);
   }
@@ -1673,6 +2002,12 @@ function handleAction(target) {
     case 'tab':
       state.tab = target.dataset.tab;
       state.filters.search = '';
+      // A department's own switches (which shelf, «من غير عدد») belong to the
+      // department you left; carrying them into the next one hides rows for a
+      // reason nobody can see.
+      state.filters.shelf = 'all';
+      state.filters.missing = 'all';
+      state.filters.kind = 'all';
       state.page = {};
       state.selected = {};
       state.drawer = null;
@@ -1838,7 +2173,7 @@ function handleAction(target) {
         id: newId('cat'),
         name: 'تصنيف جديد',
         parentId: null,
-        kind: 'item',
+        kind: ['item', 'phone', 'used'].includes(target.dataset.kind) ? target.dataset.kind : 'item',
         icon: 'tag',
         sortOrder: (state.plan.categories.length + 1) * 10,
         include: true,
@@ -1858,10 +2193,47 @@ function handleAction(target) {
       render();
       return;
     }
+    case 'filter-toggle': {
+      const key = target.dataset.filter;
+      state.filters[key] = target.dataset.on === '1' ? '1' : 'all';
+      state.page = {};
+      render();
+      return;
+    }
+    case 'bulk-count': {
+      const ids = new Set(selectedIds('items'));
+      const box = document.getElementById('bulk-count');
+      const value = Math.max(0, Math.trunc(Number(box?.value) || 0));
+      if (ids.size === 0) {
+        state.notice = { level: 'warn', text: 'حدد الصفوف الأولى من عمود «تحديد».' };
+        render();
+        return;
+      }
+      planEdit((plan) => {
+        for (const item of plan.items) {
+          if (!ids.has(item.id) || item.kind === 'used') continue;
+          item.qty = value;
+        }
+      });
+      setSelection('items', []);
+      state.notice = { level: 'info', text: `العدد ${num(value)} اتحط على ${num(ids.size)} صنف.` };
+      render();
+      return;
+    }
+    case 'bump': {
+      // One tap per piece. Typing 250 counts one by one is the reason the counts
+      // never got filled in the first place, so the common case is a button.
+      const row = recordOf('items', target.dataset.id);
+      if (!row) return;
+      const next = Math.max(0, Math.trunc(Number(row.qty) || 0) + Number(target.dataset.delta || 0));
+      editRecord('items', row.id, { qty: next });
+      render();
+      return;
+    }
     case 'add-item': {
       addRecord('items', {
         id: newId('item'),
-        kind: 'accessory',
+        kind: target.dataset.kind === 'phone' || target.dataset.kind === 'used' ? target.dataset.kind : 'accessory',
         name: 'صنف جديد',
         categoryId: state.filters.category !== 'all' ? state.filters.category : null,
         brandId: null,
@@ -1879,7 +2251,82 @@ function handleAction(target) {
         sourceRef: '',
         archived: false,
         priceSource: 'added',
+        devices: [],
       });
+      state.notice = { level: 'info', text: 'اتضاف صف جديد — عدّل الاسم والسعر والعدد في مكانه، وبعدين املأ الأجهزة لو مستعمل.' };
+      render();
+      return;
+    }
+    case 'add-devices': {
+      const row = recordOf('items', target.dataset.id);
+      if (!row) return;
+      const raw = state.deviceDraft.text
+        .split(/[\n,;]+/)
+        .map((line) => normalizeImei(line))
+        .filter((line) => line !== '');
+      if (raw.length === 0) {
+        state.notice = { level: 'warn', text: 'الصق أرقام IMEI الأول — رقم في كل سطر.' };
+        render();
+        return;
+      }
+      if (!['A', 'B', 'C'].includes(state.deviceDraft.condition)) {
+        state.notice = { level: 'warn', text: 'اختار حالة الأجهزة (A / B / C) — الحالة هي اللي بتخليها «مستعمل» في الهواتف.' };
+        render();
+        return;
+      }
+      const cost = state.deviceDraft.cost === '' ? null : Number(state.deviceDraft.cost);
+      const existing = new Set((row.devices ?? []).map((device) => normalizeImei(device.imei)));
+      const added = [];
+      const rejected = [];
+      for (const imei of raw) {
+        if (!isValidImei(imei)) {
+          rejected.push(imei);
+          continue;
+        }
+        if (existing.has(imei)) continue;
+        existing.add(imei);
+        added.push({ imei, condition: state.deviceDraft.condition, cost, note: '' });
+      }
+      if (added.length === 0) {
+        state.notice = {
+          level: 'warn',
+          text: rejected.length
+            ? `مفيش رقم اتقبل — ${num(rejected.length)} رقم مش IMEI صحيح (١٥ رقم + رقم تحقق). اتأكد منهم وجرّب تاني.`
+            : 'الأرقام دي متسجلة عند الصنف ده بالفعل.',
+        };
+        render();
+        return;
+      }
+      editRecord('items', row.id, {
+        devices: [...(row.devices ?? []), ...added],
+        qty: (row.devices ?? []).length + added.length,
+      });
+      state.deviceDraft = { text: rejected.join('\n'), condition: '', cost: '' };
+      state.notice = {
+        level: rejected.length ? 'warn' : 'info',
+        text: `اتضاف ${num(added.length)} جهاز على «${row.name}»، و${rejected.length ? `${num(rejected.length)} رقم اترفض — سايبه في الصندوق عشان تصحّحه.` : 'كلهم بأرقام صحيحة.'}`,
+      };
+      render();
+      return;
+    }
+    case 'remove-device': {
+      const row = recordOf('items', target.dataset.id);
+      if (!row) return;
+      const index = Number(target.dataset.index);
+      const devices = (row.devices ?? []).filter((_, at) => at !== index);
+      editRecord('items', row.id, { devices, qty: devices.length });
+      render();
+      return;
+    }
+    case 'device-field': {
+      const row = recordOf('items', target.dataset.id);
+      if (!row) return;
+      const index = Number(target.dataset.index);
+      const field = target.dataset.field;
+      const devices = (row.devices ?? []).map((device, at) => (at === index
+        ? { ...device, [field]: field === 'cost' ? (target.value === '' ? null : Number(target.value)) : target.value }
+        : device));
+      editRecord('items', row.id, { devices });
       render();
       return;
     }
@@ -2000,7 +2447,10 @@ document.addEventListener('change', (event) => {
   if (!target) return;
   const act = target.dataset.act;
   if (target.tagName === 'INPUT' && target.type === 'checkbox') handleAction(target);
-  else if (['field', 'drawer-field', 'setting', 'filter', 'password'].includes(act)) handleAction(target);
+  else if (['field', 'drawer-field', 'setting', 'filter', 'password', 'device-field', 'device-condition'].includes(act)) {
+    if (act === 'device-condition') state.deviceDraft.condition = target.value;
+    else handleAction(target);
+  }
 });
 
 document.addEventListener('input', (event) => {
@@ -2008,6 +2458,10 @@ document.addEventListener('input', (event) => {
   if (target.dataset.act === 'search') {
     state.filters.search = target.value;
   }
+  // The IMEI box edits the draft only. Re-rendering on every keystroke would
+  // throw the caret out of a field someone is pasting fifteen digits into.
+  if (target.dataset.act === 'device-text') state.deviceDraft.text = target.value;
+  if (target.dataset.act === 'device-cost') state.deviceDraft.cost = target.value;
 });
 
 document.addEventListener('keydown', (event) => {
@@ -2215,7 +2669,7 @@ async function runBuild() {
     state.notice = kdfNote
       ? { level: 'warn', text: kdfNote }
       : (!state.built.logoIncluded && state.built.wantedLogo
-        ? { level: 'warn', text: 'النسخة اتبنت، بس الشعار ماتصغّرش في المتصفح ده فاتنقل من غير شعار. تقدر تحطه من «الإعدادات ← الشعار» بعد الاستيراد.' }
+        ? { level: 'warn', text: 'النسخة اتبنت، بس الشعار ماتصغّرش في المتصفح ده فاتنقل من غير شعار. تقدر تحطه من «الإعدادات ‹ الشعار» بعد الاستيراد.' }
         : null);
     // No programmatic scrolling: the build tab re-renders with the result at the
     // top, and some embedded browsers refuse `scrollTo` outright.

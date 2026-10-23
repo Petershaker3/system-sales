@@ -51,7 +51,7 @@ export function parseClock(text) {
   return { hour, minute };
 }
 
-/** `YYYY-MM-DD` plus a legacy clock → epoch milliseconds in local time. */
+/** `YYYY-MM-DD` plus a legacy clock › epoch milliseconds in local time. */
 export function stampMs(day, clockText) {
   if (!day) return null;
   const match = String(day).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -75,7 +75,7 @@ export function middayMs(day) {
   return stampMs(day, '12:00');
 }
 
-/** Epoch milliseconds → `YYYY-MM-DD` in local time. */
+/** Epoch milliseconds › `YYYY-MM-DD` in local time. */
 export function dayOf(ms) {
   const date = new Date(ms);
   const year = date.getFullYear();
@@ -112,7 +112,7 @@ export function idFor(seed) {
   return uuidFrom(bytes.subarray(0, 16));
 }
 
-/** 16 bytes → the canonical 8-4-4-4-12 UUID text with v7/variant bits set. */
+/** 16 bytes › the canonical 8-4-4-4-12 UUID text with v7/variant bits set. */
 function uuidFrom(bytes) {
   const hex = bytesToHex(bytes).split('');
   hex[12] = '7';
@@ -176,7 +176,7 @@ export function numberOr(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** `4GB` / `128` / `6 جيجا` → an integer number of gigabytes, or null. */
+/** `4GB` / `128` / `6 جيجا` › an integer number of gigabytes, or null. */
 export function gigabytes(text) {
   const cleaned = latinDigits(text).toLowerCase().replace(/\s+/g, '');
   const match = cleaned.match(/(\d+(?:\.\d+)?)\s*(gb|g|جيجا|جيجابايت)?/);

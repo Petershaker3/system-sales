@@ -81,10 +81,11 @@ async function main() {
   // The reader already folds identical names, so a duplicate only appears once a
   // person makes one — rename a section to a name that is taken, which is the
   // real-world case (two sections that mean the same thing).
-  document.querySelector('[data-act="tab"][data-tab="categories"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  // The sections live on the accessories page now, not on a tab of their own.
+  document.querySelector('[data-act="tab"][data-tab="accessories"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(80);
-  const rowsBefore = document.querySelectorAll('tbody tr').length;
-  const nameInputs = [...document.querySelectorAll('tbody input[data-field="name"]')];
+  const nameInputs = [...document.querySelectorAll('main input[data-field="name"][data-coll="categories"]')];
+  const rowsBefore = nameInputs.length;
   const last = nameInputs[nameInputs.length - 1];
   last.value = nameInputs[0].value;
   last.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -104,9 +105,10 @@ async function main() {
   console.log('ok    «صلّحها لي» merges the duplicate and the finding disappears');
 
   // The row it fixed is reachable, and the panel opens on it.
-  document.querySelector('[data-act="tab"][data-tab="categories"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  document.querySelector('[data-act="tab"][data-tab="accessories"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(80);
-  const rows = document.querySelectorAll('tbody tr').length;
+  const categoryRows = () => document.querySelectorAll('main input[data-act="select"][data-coll="categories"]').length;
+  const rows = categoryRows();
   if (rows !== rowsBefore - 1) throw new Error(`merge left ${rows} rows, expected ${rowsBefore - 1}`);
 
   // Undo puts the duplicate back, intact.
@@ -114,7 +116,7 @@ async function main() {
   await sleep(80);
   // Undo takes back the merge (the rename before it is still applied, so the
   // row count is what it was: one name changed, not one row removed).
-  if (document.querySelectorAll('tbody tr').length !== rowsBefore) throw new Error('undo did not restore the merged category');
+  if (categoryRows() !== rowsBefore) throw new Error('undo did not restore the merged category');
   console.log('ok    undo brings the merged category back');
 
   if (problems.length) {

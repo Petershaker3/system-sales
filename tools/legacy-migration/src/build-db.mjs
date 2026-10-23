@@ -25,7 +25,7 @@ import {
   toMinor,
   utf8Of,
 } from './util.mjs';
-import { scheduleOf } from './plan.mjs';
+import { normalizeImei, scheduleOf } from './plan.mjs';
 
 /** The identity a restored shop runs on until the owner claims it (`ADR-039`). */
 export const OPEN_OWNER_NAME = 'المالك';
@@ -307,6 +307,10 @@ export function buildShopDatabase({ SQL, plan, logoJpeg = null, now = Date.now()
 
     let movementSeq = 0;
     const nextMovementId = (productId) => `mv-${sha256Hex(`${productId}:${movementSeq += 1}`).slice(0, 24)}`;
+    // The receipt a used handset came in on: `units.received_movement_id` points at
+    // the movement that put it on the shelf, and the stock counter is that same
+    // movement. One receipt, so the shelf and its handsets can never disagree.
+    const openingMovementByProduct = new Map();
 
     // The owner's typed quantity is *today's* count. To end there after the
     // imported sales, the opening receipt carries today's count plus what the
@@ -314,7 +318,13 @@ export function buildShopDatabase({ SQL, plan, logoJpeg = null, now = Date.now()
     // end with one instead of two.
     for (const item of products) {
       const sold = soldByProduct.get(item.id) || 0;
-      const target = Math.max(0, Math.trunc(Number(item.qty) || 0));
+      const devices = Array.isArray(item.devices) ? item.devices : [];
+      // The old catalogue has no count for a used model, and a used handset is
+      // registered by its IMEI — so the number on the shelf is the number of
+      // devices the owner typed, never an invented quantity.
+      const target = item.kind === 'used'
+        ? devices.length
+        : Math.max(0, Math.trunc(Number(item.qty) || 0));
       const openingQty = target + sold;
       if (openingQty > 0) {
         // The opening batch carries the cost the month actually paid for what it
@@ -323,23 +333,71 @@ export function buildShopDatabase({ SQL, plan, logoJpeg = null, now = Date.now()
         const soldCost = detailSales
           .filter((sale) => sale.itemId === item.id)
           .reduce((total, sale) => total + (toMinor(sale.buy) || 0) * Math.max(1, Math.trunc(Number(sale.qty) || 1)), 0);
-        const unitCost = sold > 0 ? Math.ceil(soldCost / sold) : (toMinor(item.buy) || 0);
+        const deviceCosts = devices.map((device) => toMinor(
+          device.cost === null || device.cost === undefined ? item.buy : device.cost,
+        ) || 0);
+        const devicesCost = deviceCosts.reduce((total, value) => total + value, 0);
+        const unitCost = devicesCost > 0
+          ? Math.round(devicesCost / devices.length)
+          : sold > 0 ? Math.ceil(soldCost / sold) : (toMinor(item.buy) || 0);
+        const receiptCost = devicesCost > 0 ? devicesCost + unitCost * sold : unitCost * openingQty;
         const firstSale = detailSales
           .filter((sale) => sale.itemId === item.id)
           .map((sale) => scheduleOf(sale) || stamp)
           .sort((a, b) => a - b)[0];
         const occurredAt = Math.min(stamp, firstSale ? firstSale - 60_000 : stamp);
+        const movementId = nextMovementId(item.id);
         db.run(
           `INSERT INTO stock_movements (id, product_id, kind, quantity_delta, unit_cost_minor,
                                         cost_delta_minor, occurred_at, actor_id, sale_id, sale_line_id,
                                         fifo_layer_id, fifo_received_at, reverses_movement_id,
                                         supplier_name, receipt_kind)
            VALUES (?, ?, 'receipt', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'opening')`,
-          [nextMovementId(item.id), item.id, openingQty, unitCost, unitCost * openingQty, occurredAt, ownerId],
+          [movementId, item.id, openingQty, unitCost, receiptCost, occurredAt, ownerId],
         );
-        addStock(item.id, openingQty, unitCost * openingQty);
+        openingMovementByProduct.set(item.id, movementId);
+        addStock(item.id, openingQty, receiptCost);
       } else {
         addStock(item.id, 0, 0);
+      }
+    }
+
+    // ── Used handsets, each one a unit ──────────────────────────────────────
+    // `units` is what the «هواتف» section reads for the used shelf: its IMEI, its
+    // condition (A/B/C — that is what makes it used) and the cost it was bought
+    // at. Writing a stock count without units would put the money on the new
+    // shelf and mix the two kinds the owner asked to keep apart.
+    let unitCount = 0;
+    for (const item of products) {
+      const devices = Array.isArray(item.devices) ? item.devices : [];
+      if (item.kind !== 'used' || devices.length === 0) continue;
+      const movementId = openingMovementByProduct.get(item.id) ?? null;
+      for (const device of devices) {
+        const imei = normalizeImei(device.imei);
+        const costMinor = toMinor(
+          device.cost === null || device.cost === undefined ? item.buy : device.cost,
+        ) || 0;
+        db.run(
+          `INSERT INTO units (id, product_id, imei, imei2, color, unit_cost_minor, status,
+                              received_movement_id, sale_line_id, retired_reason, created_by,
+                              created_at, condition_grade, battery_health_pct, accessories,
+                              seller_name, seller_phone, seller_national_id, intake_note)
+           VALUES (?, ?, ?, NULL, ?, ?, 'in_stock', ?, NULL, NULL, ?, ?, ?, NULL, NULL,
+                   NULL, NULL, NULL, ?)`,
+          [
+            `unit-${sha256Hex(`${item.id}:${imei}`).slice(0, 24)}`,
+            item.id,
+            imei,
+            normalizeText(item.color) || null,
+            costMinor,
+            movementId,
+            ownerId,
+            stamp,
+            device.condition,
+            normalizeText(device.note) || null,
+          ],
+        );
+        unitCount += 1;
       }
     }
 
@@ -642,6 +700,7 @@ export function buildShopDatabase({ SQL, plan, logoJpeg = null, now = Date.now()
         repairs: tickets.size,
         expenses: plan.expenses.filter((row) => row.include && row.amount > 0).length,
         wallets: walletCount,
+        units: unitCount,
         logoIncluded: Boolean(logoJpeg && logoJpeg.length),
       },
       warnings,
