@@ -1408,7 +1408,8 @@ check(
     waSentPre.phone === '01012345678' &&
     waSentPre.url.startsWith('https://wa.me/201012345678?text=') &&
     waSentPre.message.includes('سنتر بيتر للموبايلات') &&
-    waSentPre.imageDataUrl.startsWith('data:image/png;base64,')
+    waSentPre.imageDataUrl.startsWith('data:image/png;base64,') &&
+    waSentPre.opened === 'window'
 );
 await shot('35-pos-done-receipt-preview');
 await page.click('#finish-sale-btn');
@@ -2109,7 +2110,10 @@ await page.click('[data-sales-detail-resend]');
 await sleep(200);
 check(
   'Clicking «ابعت الإيصال تاني واتساب» in invoice detail modal sends the receipt and shows confirmation toast',
-  (await text('#toasts')).includes('اتبعت الإيصال تاني على واتساب')
+  // The number typed into the detail modal is the one the chat opens on, and the
+  // toast says what to do with the image instead of claiming it was delivered.
+  (await text('#toasts')).includes('واتساب على 01001234567') &&
+    (await text('#toasts')).includes('الصق صورة الإيصال')
 );
 await shot('50-sales-history-owner');
 await page.click('[data-sales-detail-close]');

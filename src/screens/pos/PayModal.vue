@@ -17,6 +17,7 @@ import {
   type PayMethodId,
   shopLogo,
 } from '../../ui/appearance';
+import { chatOpenNote, openChatUrl } from '../../ui/external';
 import { dg, money, moneyInputValue, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
@@ -288,6 +289,13 @@ async function dispatchWhatsAppReceipt(
     warrantyDate,
   });
   const url = buildWhatsAppUrl(normalized, message);
+
+  // Open the chat **before** the first `await`. The receipt image is rendered and
+  // copied below, but a `window.open` that happens after those awaits is no longer
+  // "the click", and the browser blocks it — which is exactly the button that used
+  // to do nothing (`src/ui/external.ts`).
+  const opened = openChatUrl(url);
+
   const canvas = await renderReceiptCanvas(receipt, currentShopProfile());
   const { copied, dataUrl } = await copyReceiptCanvasToClipboard(canvas);
 
@@ -311,6 +319,7 @@ async function dispatchWhatsAppReceipt(
         url: string;
         imageDataUrl: string;
         copied: boolean;
+        opened: string;
       };
     }
   ).__lastWhatsAppSent = {
@@ -319,19 +328,14 @@ async function dispatchWhatsAppReceipt(
     url,
     imageDataUrl: dataUrl,
     copied,
+    opened,
   };
 
-  if (typeof navigator !== 'undefined' && navigator.webdriver !== true && url) {
-    try {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch {
-      // Ignore popup blocker
-    }
-  }
-
   toast(
-    `اتبعت الإيصال على واتساب ${normalized} (صورة الإيصال + رسالة)`,
-    'ok'
+    opened === 'refused'
+      ? `الرقم ${normalized} اتكتب، بس الرابط مش رابط واتساب فما اتفتحش`
+      : `واتساب على ${normalized}: ${chatOpenNote(opened)}`,
+    opened === 'blocked' || opened === 'refused' ? 'info' : 'ok'
   );
 }
 

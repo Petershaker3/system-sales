@@ -30,6 +30,7 @@ import {
   num,
   pcsWord,
 } from '../../ui/format';
+import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
@@ -484,13 +485,9 @@ async function sendDailySummaryWhatsApp(): Promise<void> {
     // Non-blocking clipboard fallback
   }
   const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone || '01000000000');
-  if (
-    ownerPhone &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
+  if (ownerPhone) {
     const url = buildWhatsAppUrl(ownerPhone, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) openChatUrl(url);
   }
   toast('اتبعت ملخص اليوم على واتساب المالك', 'ok');
 }
@@ -500,13 +497,9 @@ function sendOverdueRepairWhatsApp(customerName: string, customerPhone: string, 
   const msg = isReady
     ? `أهلاً ${customerName}، نذكرك إن جهازك (${deviceName} — تذكرة ${ticketNo}) جاهز للاستلام في ${appearance.shopName || 'المحل'}.`
     : `أهلاً ${customerName}، بخصوص جهازك (${deviceName} — تذكرة ${ticketNo}) في ${appearance.shopName || 'المحل'}، جاري استكمال الصيانة وهنبلغك فور انتهاء العمل.`;
-  if (
-    norm &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
+  if (norm) {
     const url = buildWhatsAppUrl(norm, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) openChatUrl(url);
   }
   toast(`تم تجهيز رسالة واتساب للعميل ${customerName}`, 'ok');
 }

@@ -20,6 +20,7 @@ import { withOwnerApproval } from '../../shell/approval';
 import { describeError } from '../../api/errors';
 import { money, moneyInputValue, moneyUnitWord } from '../../ui/format';
 import WalletNumberChips from '../pos/WalletNumberChips.vue';
+import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import CameraScanButton from '../../ui/CameraScanButton.vue';
 import type { ScanReading } from '../../ui/scan';
@@ -547,13 +548,15 @@ function sendTicketWhatsApp(
     errorBanner.value = 'رقم تليفون العميل غير صالح لإرسال رسالة واتساب.';
     return;
   }
-  if (!navigator.webdriver) {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  // Same door as the receipt: the OS opens the chat on the desktop, the browser
+  // does it in the demo (`src/ui/external.ts`).
+  const opened = openChatUrl(url);
   okBanner.value =
-    kind === 'ready'
-      ? `تم تجهيز رسالة واتساب للعميل ${ticket.customerName} إن الجهاز جاهز للاستلام`
-      : `تم تجهيز رسالة واتساب لتذكرة ${ticket.ticketNo}`;
+    opened === 'blocked'
+      ? `المتصفح منع فتح واتساب — الرسالة جاهزة، بس افتح واتساب بنفسك وابعت للعميل ${ticket.customerName}`
+      : kind === 'ready'
+        ? `تم تجهيز رسالة واتساب للعميل ${ticket.customerName} إن الجهاز جاهز للاستلام`
+        : `تم تجهيز رسالة واتساب لتذكرة ${ticket.ticketNo}`;
 }
 
 onMounted(async () => {

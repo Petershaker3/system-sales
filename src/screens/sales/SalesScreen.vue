@@ -31,6 +31,7 @@ import {
   monthName,
   num,
 } from '../../ui/format';
+import { chatOpenNote, openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
@@ -438,6 +439,18 @@ async function resendReceiptWhatsApp(sale: SaleHistoryEntry): Promise<void> {
     changeMinor: 0,
   };
 
+  // The chat opens first: after the renders below the click is gone and the
+  // browser blocks the window (`src/ui/external.ts`).
+  const message = formatWhatsAppMessage(appearance.waTemplate, {
+    customerName: sale.customerName,
+    reference: sale.reference,
+    shopName: appearance.shopName,
+    totalMinor: sale.totalMinor,
+    warrantyDate: warrantyLabelForReceipt(receiptData),
+  });
+  const url = buildWhatsAppUrl(targetPhone, message);
+  const opened = openChatUrl(url);
+
   try {
     const canvas = await renderReceiptCanvas(receiptData, {
       shopName: appearance.shopName,
@@ -448,26 +461,7 @@ async function resendReceiptWhatsApp(sale: SaleHistoryEntry): Promise<void> {
       shopLogo: shopLogo.value,
     });
     await copyReceiptCanvasToClipboard(canvas);
-    const warrantyDate = warrantyLabelForReceipt(receiptData);
-    const message = formatWhatsAppMessage(appearance.waTemplate, {
-      customerName: sale.customerName,
-      reference: sale.reference,
-      shopName: appearance.shopName,
-      totalMinor: sale.totalMinor,
-      warrantyDate,
-    });
-    const url = buildWhatsAppUrl(targetPhone, message);
-    if (
-      url &&
-      typeof window !== 'undefined' &&
-      !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-    ) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
-    toast(
-      `اتبعت الإيصال تاني على واتساب ${targetPhone} (صورة الإيصال + رسالة)`,
-      'ok'
-    );
+    toast(`واتساب على ${targetPhone}: ${chatOpenNote(opened)}`, 'ok');
   } catch (err) {
     toast(describeError(err), 'err');
   }

@@ -172,6 +172,9 @@ pub fn run() {
             // The window's own command: after a restore the pool is closed for
             // good, and only a new process can open the restored database.
             commands::shell::restart_app,
+            // A WhatsApp chat opens in the machine's own browser: a webview
+            // cannot leave the window by itself.
+            commands::shell::open_external_url,
             commands::companion::companion_overview,
             commands::companion::pair_companion_device,
             commands::companion::unpair_companion_device,

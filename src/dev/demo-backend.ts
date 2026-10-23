@@ -4870,6 +4870,16 @@ const handlers: Record<string, (args: Args) => unknown> = {
   // page, which is this stand-in's closest honest equivalent.
   restart_app: () => null,
 
+  // Opening a chat window is the browser's job, and the demo runs in a browser:
+  // `openChatUrl` takes the `window.open` path there, so this stand-in only has to
+  // be honest about having no operating system to hand the URL to.
+  open_external_url: (args) => {
+    const url = str(args, 'url');
+    if (!url.startsWith('https://')) throw { code: 'EXTERNAL_URL_NOT_ALLOWED' };
+    (window as unknown as { __lastExternalOpen?: string }).__lastExternalOpen = url;
+    return null;
+  },
+
   // automatic backup policy (Plan item 1.12, ADR-027)
   list_saved_backups: () => {
     requireManager(false);
