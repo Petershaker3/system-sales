@@ -3003,7 +3003,7 @@ await shot('62b-companion-link-panel');
 // pre-linked to this computer, and the capture made in it lands in the inbox.
 const tryoutBefore = await count('[data-companion-intake-row]');
 await page.click('[data-companion-tryout]');
-await page.waitForSelector('[data-phone-capture-screen]', { timeout: 8000 });
+await page.waitForSelector('[data-companion-tryout-screen] [data-phone-capture-screen]', { timeout: 8000 });
 await sleep(1500);
 await page.waitForSelector('[data-capture-stored-host]', { timeout: 8000 }).catch(() => undefined);
 const tryoutHost = (await text('[data-companion-host-address]')).trim();

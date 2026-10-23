@@ -1243,8 +1243,8 @@ onUnmounted(() => {
       ده شغال طول ما الموبايل على Wi-Fi المحل، من غير إنترنت ومفيش قاعدة بيانات على الموبايل. متابعة المبيعات من برّه المحل (من البيت مثلاً) في المرحلة الرابعة.
     </div>
 
-    <!-- The real handset screen, on the computer (`data-companion-tryout`). -->
-    <div v-if="showTryout" class="tryout" data-companion-tryout>
+    <!-- The real handset screen, on the computer (`data-companion-tryout` opens it). -->
+    <div v-if="showTryout" class="tryout" data-companion-tryout-screen>
       <div class="tryout-head">
         <div>
           <b>شاشة الموبايل الحقيقية</b>
