@@ -3271,6 +3271,7 @@ const PHONE_CAPTURE_SCREEN_VUE: &str =
     include_str!("../../../src/screens/mobile/PhoneCaptureScreen.vue");
 const COMPANION_PAIR_QR_VUE: &str =
     include_str!("../../../src/screens/mobile/CompanionPairQr.vue");
+const PAIR_QR_TS: &str = include_str!("../../../src/screens/mobile/pair-qr.ts");
 const CAMERA_SCAN_BUTTON_VUE: &str =
     include_str!("../../../src/ui/CameraScanButton.vue");
 const SCAN_TS: &str = include_str!("../../../src/ui/scan.ts");
@@ -3836,11 +3837,32 @@ fn each_half_of_the_link_lives_on_the_machine_that_owns_it() {
         "a handset row may not be called connected by markup (`ADR-042`)"
     );
 
-    // One painter for both host screens, so the two cannot drift apart.
-    for required in ["marker", "side", r#"class="pair-qr""#, "buildPairingQrMatrix"] {
+    // One painter for both host screens, so the two cannot drift apart — and it paints
+    // a code a camera can read. The old painter filled the middle of a 21×21 grid with
+    // a hash of the line: it looked like a QR, decoded to nothing, and the shop was told
+    // to scan it. `pair-qr.ts` asks an encoder instead (`ADR-042`).
+    for required in ["marker", r#"class="pair-qr""#, "buildPairQr", "data-qr-pending"] {
         assert!(
             COMPANION_PAIR_QR_VUE.contains(required),
             "CompanionPairQr.vue must own `{required}` for both pairing surfaces (`ADR-042`)"
+        );
+    }
+    for banned in ["buildPairingQrMatrix", "appearance", "192.168.1.10", "hash"] {
+        assert!(
+            !COMPANION_PAIR_QR_VUE.contains(banned),
+            "CompanionPairQr.vue must not invent a code (`{banned}`): what it draws is what the camera reads (`ADR-042`)"
+        );
+    }
+    for required in [
+        "QRCodeWriter",
+        "EncodeHintType.MARGIN",
+        "QUIET_ZONE",
+        "export async function buildPairQr",
+        "import('@zxing/library')",
+    ] {
+        assert!(
+            PAIR_QR_TS.contains(required),
+            "pair-qr.ts must contain `{required}`: the line is encoded for a camera, not painted (`ADR-042`)"
         );
     }
     assert!(
