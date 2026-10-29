@@ -26,12 +26,21 @@ import {
 
 const PAGE_SIZE = 120;
 
+// This browser's own storage. Nothing leaves the machine: it is the same disk
+// the file sits on, reached through `localStorage` instead of the download folder.
+const THEME_KEY = 'system-sales.migration.theme';
+const AUTOSAVE_KEY = 'system-sales.migration.autosave';
+const AUTOSAVE_DELAY = 800;
+
 const state = {
   view: 'load',
   tab: 'overview',
   plan: null,
   legacy: null,
   problems: [],
+  // Only the numbers the report needs — the days themselves are not kept, and a
+  // restored session says so instead of pretending it can rebuild a month.
+  legacyStats: null,
   history: [],
   future: [],
   page: {},
@@ -53,6 +62,14 @@ const state = {
   // What is typed in the «أجهزة المستعمل» box but not committed yet. Kept out of
   // the plan so a half-typed IMEI can never end up in the file.
   deviceDraft: { text: '', condition: '', cost: '' },
+  // الحفظ: الوضع الليلي، وآخر حفظ، وقيم مكتوبة في خانة ولسه مخرجش منها.
+  // `pending` is what makes autosave honest — the value the owner sees is the
+  // value that gets stored, even if the browser dies mid-edit.
+  theme: 'light',
+  savedAt: null,
+  saveState: 'idle',
+  restoredAt: null,
+  pending: new Map(),
 };
 
 // ── Small formatting helpers ───────────────────────────────────────────────
@@ -83,9 +100,207 @@ function download(name, data, type = 'application/octet-stream') {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+// ── Keeping the work: the theme, and autosave ─────────────────────────────
+// The owner edits for an hour at a time, and a browser can close for any
+// reason — a power cut, a crash, the wrong tab. So every change is written to
+// this browser's own storage within a second, and opening the tool again puts
+// the work back instead of starting from an empty screen.
+// Nothing is sent anywhere: `localStorage` is this machine's disk.
+
+function storageGet(key) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); return true; } catch { return false; }
+}
+function storageRemove(key) {
+  try { window.localStorage.removeItem(key); } catch { /* nothing to remove */ }
+}
+
+const clock = (at) => (at ? new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—');
+
+function applyTheme(theme) {
+  state.theme = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = state.theme;
+}
+
+function preferredTheme() {
+  const stored = storageGet(THEME_KEY);
+  if (stored === 'dark' || stored === 'light') return stored;
+  return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light';
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+  storageSet(THEME_KEY, state.theme);
+}
+
+// A value typed into a field is committed on `change`. Between the keystroke and
+// the commit the plan does not have it yet — so it is remembered here, and laid
+// over a copy of the plan when the autosave picture is taken.
+function pendingKey(element) {
+  if (element.dataset.act === 'setting') return `settings:${element.dataset.field}`;
+  return `${element.dataset.act}:${element.dataset.coll}:${element.dataset.id}:${element.dataset.field}`;
+}
+
+function rememberPending(element) {
+  const act = element.dataset.act;
+  if (!['field', 'drawer-field', 'setting'].includes(act)) return;
+  state.pending.set(pendingKey(element), {
+    act,
+    coll: element.dataset.coll,
+    id: element.dataset.id,
+    field: element.dataset.field,
+    type: element.dataset.type,
+    value: element.type === 'checkbox' ? element.checked : element.value,
+  });
+}
+
+function forgetPending(element) {
+  state.pending.delete(pendingKey(element));
+}
+
+/** The plan exactly as it stands on screen, half-typed value included. */
+function planWithPendingEdits() {
+  if (!state.pending.size) return state.plan;
+  const plan = JSON.parse(JSON.stringify(state.plan));
+  for (const edit of state.pending.values()) {
+    let { value } = edit;
+    if (edit.type === 'int') value = Math.max(0, Math.trunc(Number(value) || 0));
+    else if (edit.type === 'float') value = value === '' ? null : Number(value);
+    if (edit.act === 'setting') { plan.settings[edit.field] = value; continue; }
+    const record = (plan[edit.coll] ?? []).find((row) => row.id === edit.id);
+    if (record) record[edit.field] = value;
+  }
+  return plan;
+}
+
+function saveChipText() {
+  if (state.saveState === 'error') return 'التخزين مقفول — نزّل نسخة';
+  if (!state.savedAt) return 'مستني أول تعديل';
+  return `اتحفظ ${clock(state.savedAt)}`;
+}
+
+/** The chip is updated in place: re-rendering on every keystroke would throw
+ *  the caret out of the field being typed in. */
+function updateSaveChip() {
+  const chip = document.getElementById('save-chip');
+  if (chip) {
+    chip.textContent = saveChipText();
+    chip.classList.toggle('bad', state.saveState === 'error');
+  }
+  // The settings card shows the same fact in bigger type.
+  const stamp = document.getElementById('settings-saved-at');
+  if (stamp) stamp.textContent = state.saveState === 'error' ? 'مقفول' : clock(state.savedAt);
+}
+
+function autosave() {
+  if (!state.plan || state.view !== 'review') return false;
+  const payload = JSON.stringify({
+    format: 'system-sales-migration-autosave',
+    version: 1,
+    savedAt: Date.now(),
+    tab: state.tab,
+    legacyStats: state.legacy?.stats ?? state.legacyStats ?? null,
+    plan: planWithPendingEdits(),
+  });
+  const ok = storageSet(AUTOSAVE_KEY, payload);
+  if (ok) {
+    state.savedAt = Date.now();
+    state.saveState = 'saved';
+  } else {
+    // A full or blocked storage must not look like a successful save.
+    state.saveState = 'error';
+  }
+  updateSaveChip();
+  return ok;
+}
+
+let autosaveTimer = null;
+// Set while reacting to another window's save: warning about it must not trigger
+// a save of our own, or two windows would keep waking each other up for ever.
+let saveMuted = false;
+function scheduleAutosave() {
+  if (saveMuted) return;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null;
+    autosave();
+  }, AUTOSAVE_DELAY);
+}
+
+/** Called when the tab is hidden or closed: the last keystroke is written now,
+ *  not 800ms from now. */
+function flushAutosave() {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+  autosave();
+}
+
+function readAutosave() {
+  const raw = storageGet(AUTOSAVE_KEY);
+  if (!raw) return null;
+  try {
+    const saved = JSON.parse(raw);
+    if (saved?.plan?.format !== 'system-sales-migration') return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function restoreAutosave(saved) {
+  state.plan = saved.plan;
+  state.legacy = null;
+  state.legacyStats = saved.legacyStats ?? null;
+  state.problems = [];
+  state.view = 'review';
+  state.tab = TABS.some(([key]) => key === saved.tab) ? saved.tab : 'overview';
+  state.history = [];
+  state.future = [];
+  state.selected = {};
+  state.drawer = null;
+  state.built = null;
+  state.savedAt = saved.savedAt ?? null;
+  state.saveState = 'saved';
+  state.restoredAt = saved.savedAt ?? null;
+  state.notice = {
+    level: 'info',
+    text: `رجّعت الشغل اللي كنت بتحفظه — آخر تعديل ${clock(saved.savedAt)}. لو ده مش اللي عايزه، دوس «ابدأ من جديد» ونزّل باكب المحل.`,
+  };
+}
+
+function startOver() {
+  storageRemove(AUTOSAVE_KEY);
+  state.plan = null;
+  state.legacy = null;
+  state.problems = [];
+  state.view = 'load';
+  state.tab = 'overview';
+  state.history = [];
+  state.future = [];
+  state.selected = {};
+  state.drawer = null;
+  state.pending.clear();
+  state.built = null;
+  state.savedAt = null;
+  state.saveState = 'idle';
+  state.restoredAt = null;
+  state.notice = null;
+  render();
+}
+
 // ── History: every edit is an action with its own inverse ─────────────────
 function perform(action) {
   action.do();
+  // Once a real edit happens the restored-work notice has done its job; leaving
+  // it up makes the owner think the tool is still telling them about a recovery.
+  if (state.restoredAt) {
+    state.restoredAt = null;
+    if (state.notice?.text?.startsWith('رجّعت الشغل')) state.notice = null;
+  }
   state.history.push(action);
   if (state.history.length > 200) state.history.shift();
   state.future.length = 0;
@@ -442,6 +657,7 @@ async function loadLegacyFile(file) {
     }
     state.plan = prepared.plan;
     state.legacy = prepared.legacy;
+    state.legacyStats = prepared.legacy.stats;
     state.problems = prepared.problems;
     state.view = 'review';
     state.tab = 'overview';
@@ -1129,7 +1345,7 @@ function viewAccessories() {
     <div class="counts-strip">
       ${countCard('أصناف', num(all.length), `منهم ${num(all.filter((item) => item.include).length)} هيتنقلوا`)}
       ${countCard('قطع', num(sumBy(all.filter((item) => item.include), piecesOf)), 'اللي هتنزل المخزن')}
-      ${countCard('قيمة الشراء', `${money(sumBy(all, (item) => item.buy * piecesOf(item)))} ج`, 'بعدد اليوم')}
+      ${countCard('قيمة الجملة', `${money(sumBy(all, (item) => item.buy * piecesOf(item)))} ج`, 'بعدد اليوم × سعر الجملة')}
       ${countCard('قيمة البيع', `${money(sumBy(all, (item) => (item.sell ?? 0) * piecesOf(item)))} ج`, 'لو اتباعوا بسعرهم')}
       ${countCard('من غير عدد', num(withoutCount), withoutCount ? 'محتاجين عدد' : 'كلهم بعددهم')}
     </div>
@@ -1160,7 +1376,8 @@ function viewAccessories() {
     <div class="table-wrap"><table>
       <thead><tr>
         ${selectHeader('items', rows)}<th>يتنقل</th><th>الاسم</th><th>القسم</th>
-        <th class="num">شراء</th><th class="num">بيع</th><th class="num">العدد</th><th class="num">قيمة العدد</th><th></th>
+        <th class="num">جملة (شراء)</th><th class="num">بيع</th><th class="num">العدد</th>
+        <th class="num" title="العدد × سعر الجملة">قيمة العدد (جملة)</th><th></th>
       </tr></thead>
       <tbody>
         ${sliced.map((item) => `<tr class="${item.include ? '' : 'excluded'}">
@@ -1171,15 +1388,16 @@ function viewAccessories() {
           <td class="num"><input type="number" step="0.01" value="${item.buy}" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="buy" data-type="float" style="width:90px"></td>
           <td class="num"><input type="number" step="0.01" value="${item.sell ?? ''}" placeholder="—" data-act="field" data-coll="items" data-id="${esc(item.id)}" data-field="sell" data-type="float" style="width:90px"></td>
           ${countCell(item)}
-          <td class="num">${money((item.sell ?? 0) * piecesOf(item))}</td>
+          <td class="num">${money((item.buy ?? 0) * piecesOf(item))}</td>
           ${detailsCell('items', item)}
         </tr>`).join('') || emptyRow(9, 'مفيش إكسسوارات مطابقة.')}
       </tbody>
     </table></div>
     ${rows.length > sliced.length ? `<p class="muted small">بيبان ${num(sliced.length)} من ${num(rows.length)} — استخدم البحث لتضييق اللستة.</p>` : ''}
     <p class="muted small" style="margin:10px 0 0">
-      إجمالي الظاهر: <b>${num(sumBy(rows, piecesOf))}</b> قطعة، بيع بـ<b>${money(sumBy(rows, (item) => (item.sell ?? 0) * piecesOf(item)))}</b> ج.
-      ${categoryName.size ? '' : ''}
+      إجمالي الظاهر: <b>${num(sumBy(rows, piecesOf))}</b> قطعة — بسعر الجملة
+      <b>${money(sumBy(rows, (item) => (item.buy ?? 0) * piecesOf(item)))}</b> ج،
+      ولو اتباعت بسعر البيع <b>${money(sumBy(rows, (item) => (item.sell ?? 0) * piecesOf(item)))}</b> ج.
     </p>
   </div>
 
@@ -1595,6 +1813,29 @@ function viewSettings() {
       السيستم الجديد هيفتح بحساب المالك <b>بدون كلمة سر</b> (زي أول تشغيل)، وبعد كده تحط كلمة السر أو الـPIN من الإعدادات.
       كلمات سر البرنامج القديم مش بتتنقل.
     </div>
+  </div>
+
+  <div class="card" data-saving>
+    <h2>الحفظ والوضع الليلي</h2>
+    <p class="lead">
+      كل تعديل بيتحفظ تلقائيًا في المتصفح اللي بتبص منه، فلو المتصفح قفل لأي سبب الشغل بيرجع
+      زي ما هو. الحفظ ده <b>على جهازك بس</b> — مفيش حاجة بتطلع على الإنترنت.
+    </p>
+    <div class="grid-2">
+      <label class="stat"><span>آخر حفظ تلقائي</span><b id="settings-saved-at">${state.saveState === 'error' ? 'مقفول' : clock(state.savedAt)}</b>
+        <small class="muted">${state.saveState === 'error' ? 'المتصفح رافض يخزّن' : 'تلقائي، من غير ما تدوس حاجة'}</small></label>
+      <label class="stat"><span>اللي اتحفظ</span><b dir="ltr">${num((state.plan.items ?? []).length + (state.plan.sales ?? []).length + (state.plan.summary ?? []).length)}</b><small class="muted">صف أصناف وبيعات</small></label>
+      <label class="stat"><span>حجم الشغل</span><b>${money(Math.round(JSON.stringify(state.plan).length / 1024))} ك.ب</b></label>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button data-act="save-now" class="primary">حفظ دلوقتي</button>
+      <button data-act="save-draft">تنزيل نسخة على جهازي</button>
+      <button data-act="start-over" class="ghost danger">ابدأ من جديد</button>
+    </div>
+    <p class="muted small" style="margin:10px 0 0">
+      «تنزيل نسخة» بينزل ملف مسودة على جهازك — منه تقدر تكمّل على أي جهاز تاني، أو تحتفظ بيه
+      جنب الباكب. «ابدأ من جديد» بيمسح الشغل المحفوظ في المتصفح ويرجعك لشاشة فتح الباكب.
+    </p>
   </div>`;
 }
 
@@ -1849,8 +2090,13 @@ TABS.forEach(([key], index) => {
 function render() {
   const app = document.getElementById('app');
   if (state.view === 'load') {
-    app.innerHTML = `<div class="layout" style="grid-template-columns:1fr;max-width:900px">${viewLoad()}</div>
-      <footer class="foot">أداة ترحيل بيانات — بتشتغل أوفلاين على جهازك</footer>`;
+    app.innerHTML = `<div class="theme-standalone">
+        <button class="small ghost" data-act="theme">${state.theme === 'dark' ? 'الوضع النهاري' : 'الوضع الليلي'}</button>
+      </div>
+      <div class="layout" style="grid-template-columns:1fr;max-width:900px">
+        ${viewLoad()}
+      </div>
+      <footer class="foot">أداة ترحيل بيانات — بتشتغل أوفلاين على جهازك. الشغل بيتحفظ تلقائيًا في المتصفح اللي بتفتح بيه.</footer>`;
     bindDropZone();
     return;
   }
@@ -1889,8 +2135,14 @@ function render() {
           <b style="color:${errors ? 'var(--danger)' : 'var(--ok)'}">${errors ? `${num(errors)} مانع` : 'سليم'}</b>
         </button>
       </div>
+      <div class="save-group">
+        <button class="small primary" data-act="save-now" title="حفظ فوري في المتصفح (Ctrl+S)">حفظ</button>
+        <button class="small ghost" data-act="save-draft" title="نزّل نسخة من الشغل على جهازك">تنزيل نسخة</button>
+        <span class="save-chip${state.saveState === 'error' ? ' bad' : ''}" id="save-chip">${esc(saveChipText())}</span>
+      </div>
       <button class="small" data-act="undo" ${state.history.length ? '' : 'disabled'} title="تراجع">تراجع</button>
       <button class="small" data-act="redo" ${state.future.length ? '' : 'disabled'} title="إعادة">إعادة</button>
+      <button class="small ghost theme-toggle" data-act="theme">${state.theme === 'dark' ? 'الوضع النهاري' : 'الوضع الليلي'}</button>
     </div>
     <div class="legend">
       <span><i class="dot on"></i> علامة «يتنقل» = الصف ده هيدخل السيستم الجديد</span>
@@ -1917,8 +2169,11 @@ function render() {
       </main>
     </div>
     ${viewDrawer()}
-    <footer class="foot">كل حاجة بتشتغل على جهازك — مفيش بيانات بتطلع على الإنترنت.</footer>
+    <footer class="foot">كل حاجة بتشتغل على جهازك — مفيش بيانات بتطلع على الإنترنت. الشغل بيتحفظ تلقائيًا في المتصفح.</footer>
   `;
+  // Every render is a change worth keeping: a tick, a tab, a merge, a typed and
+  // committed value. Debounced, so a burst of redraws writes once.
+  scheduleAutosave();
 }
 
 // ── Events ────────────────────────────────────────────────────────────────
@@ -2414,8 +2669,39 @@ function handleAction(target) {
       render();
       return;
     }
+    case 'save-now': {
+      const ok = autosave();
+      state.notice = ok
+        ? { level: 'info', text: `اتحفظ في المتصفح الساعة ${clock(state.savedAt)}. لو عايز نسخة على جهازك كمان، دوس «تنزيل نسخة».` }
+        : { level: 'warn', text: 'المتصفح رافض يخزّن (ممكن الذاكرة مليانة أو التخزين مقفول). دوس «تنزيل نسخة» وحط الملف على جهازك — منه تقدر تكمّل في أي وقت.' };
+      render();
+      return;
+    }
     case 'save-draft':
-      download('مسودة-الترحيل.json', JSON.stringify(state.plan), 'application/json');
+      download('مسودة-الترحيل.json', JSON.stringify(planWithPendingEdits()), 'application/json');
+      state.notice = { level: 'info', text: 'نزلت نسخة من الشغل على جهازك (مسودة-الترحيل.json). افتحها من «افتح مسودة» في أي وقت.' };
+      render();
+      return;
+    case 'theme':
+      toggleTheme();
+      render();
+      return;
+    case 'restore-autosave': {
+      const saved = readAutosave();
+      // Putting back what is already stored is not a change; writing it again
+      // would only make two windows chase each other.
+      if (saved) { saveMuted = true; restoreAutosave(saved); }
+      render();
+      saveMuted = false;
+      return;
+    }
+    case 'drop-autosave':
+      if (!confirm('هيمسح الشغل المحفوظ في المتصفح ويرجعك لشاشة البداية. متأكد؟')) return;
+      startOver();
+      return;
+    case 'start-over':
+      if (!confirm('هيمسح الشغل اللي في المتصفح ويرجعك لشاشة البداية عشان تنزّل باكب تاني. متأكد؟')) return;
+      startOver();
       return;
     case 'build':
       runBuild();
@@ -2448,6 +2734,9 @@ document.addEventListener('change', (event) => {
   const act = target.dataset.act;
   if (target.tagName === 'INPUT' && target.type === 'checkbox') handleAction(target);
   else if (['field', 'drawer-field', 'setting', 'filter', 'password', 'device-field', 'device-condition'].includes(act)) {
+    // The value is about to be in the plan itself, so it no longer needs the
+    // autosave overlay holding it.
+    forgetPending(target);
     if (act === 'device-condition') state.deviceDraft.condition = target.value;
     else handleAction(target);
   }
@@ -2458,6 +2747,12 @@ document.addEventListener('input', (event) => {
   if (target.dataset.act === 'search') {
     state.filters.search = target.value;
   }
+  // A field being typed in is not committed until `change`. Remembering it here
+  // is what makes «the browser closed mid-edit» lose nothing.
+  if (['field', 'drawer-field', 'setting'].includes(target.dataset.act)) {
+    rememberPending(target);
+    scheduleAutosave();
+  }
   // The IMEI box edits the draft only. Re-rendering on every keystroke would
   // throw the caret out of a field someone is pasting fifteen digits into.
   if (target.dataset.act === 'device-text') state.deviceDraft.text = target.value;
@@ -2465,6 +2760,13 @@ document.addEventListener('input', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    // Ctrl+S: save now instead of the browser's «save this page» dialog.
+    event.preventDefault();
+    flushAutosave();
+    updateSaveChip();
+    return;
+  }
   if (event.key === 'Enter' && event.target.dataset.act === 'search') {
     state.page = {};
     render();
@@ -2647,7 +2949,7 @@ async function runBuild() {
     await tick();
     const report = buildReport({
       plan: state.plan,
-      legacy: state.legacy || { stats: { rolled: 0 } },
+      legacy: state.legacy || { stats: state.legacyStats || { rolled: 0 } },
       result,
       manifest: result.manifest,
       backupName: backupFileName(state.plan.settings.shopName),
@@ -2685,4 +2987,33 @@ async function runBuild() {
 }
 
 // Start.
+// The theme comes back before the first paint, so a dark-mode owner never gets a
+// white flash. The work comes back too, if this browser has any.
+applyTheme(preferredTheme());
+const autosaved = readAutosave();
+if (autosaved) {
+  saveMuted = true;
+  restoreAutosave(autosaved);
+}
 render();
+saveMuted = false;
+
+// Two windows of the tool share one autosave slot. That is not a bug to hide:
+// the older window would silently overwrite the newer one, so the owner is told.
+window.addEventListener('storage', (event) => {
+  if (event.key !== AUTOSAVE_KEY || !state.plan) return;
+  state.notice = {
+    level: 'warn',
+    text: 'فيه نافذة تانية من الأداة مفتوحة بتحفظ في نفس المكان. سيب نافذة واحدة شغالة، وإلا الشغل هيتنازع — انسخ اللي في التانية ونزّلها «تنزيل نسخة» قبل ما تقفلها.',
+  };
+  saveMuted = true;
+  render();
+  saveMuted = false;
+});
+
+// A closed tab, a switched tab, a crashed one: write what is on screen right now.
+window.addEventListener('pagehide', flushAutosave);
+window.addEventListener('beforeunload', flushAutosave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushAutosave();
+});

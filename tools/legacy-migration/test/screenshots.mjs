@@ -59,6 +59,14 @@ const openTab = async (tab) => {
 await openTab('overview');
 await shoot('01-overview');
 
+// The same screen at night. The theme is a real switch, so the picture is taken
+// by pressing it, not by forcing colours in the test.
+await page.click('[data-act="theme"]');
+await wait(300);
+await shoot('01b-overview-dark');
+await page.click('[data-act="theme"]');
+await wait(300);
+
 await openTab('accessories');
 await shoot('02-accessories');
 

@@ -9,7 +9,9 @@
     "smoke": "node test/ui-smoke.mjs",
     "smoke:autofix": "node test/ui-autofix.mjs",
     "build:draft": "node scripts/build-from-draft.mjs",
-    "smoke:draft": "node test/ui-draft.mjs"
+    "smoke:draft": "node test/ui-draft.mjs",
+    "smoke:autosave": "node test/ui-autosave.mjs",
+    "shots": "node test/screenshots.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
