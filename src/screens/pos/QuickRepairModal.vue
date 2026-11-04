@@ -8,11 +8,16 @@ import { computed, nextTick, ref } from 'vue';
 
 import { describeError } from '../../api/errors';
 import { createRepair, type RepairPayMethod, type RepairServiceKind } from '../../api/repairs';
-import { HARDWARE_QUICK_ISSUES, SOFTWARE_QUICK_ISSUES } from '../repairs/repairs';
+import {
+  HARDWARE_QUICK_ISSUES,
+  REPAIR_PAY_METHODS,
+  SOFTWARE_QUICK_ISSUES,
+} from '../repairs/repairs';
 import { moneyUnitWord, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
+import WalletNumberChips from './WalletNumberChips.vue';
 
 const emit = defineEmits<{ close: []; created: []; }>();
 
@@ -22,6 +27,12 @@ const issueText = ref('');
 const priceText = ref('');
 const paidNow = ref(true);
 const payMethod = ref<RepairPayMethod>('cash');
+/**
+ * On which number the money landed (`ADR-041`). The screens that take money always
+ * name the number when a company holds more than one: `WalletNumberChips` shows
+ * nothing for a single number, which is the common case.
+ */
+const payWalletId = ref<string | null>(null);
 const customerName = ref('');
 const customerPhone = ref('');
 const busy = ref(false);
@@ -31,12 +42,6 @@ const deviceInput = ref<HTMLInputElement | null>(null);
 const issues = computed(() =>
   kind.value === 'software' ? SOFTWARE_QUICK_ISSUES : HARDWARE_QUICK_ISSUES
 );
-
-const PAY_METHODS: readonly { id: RepairPayMethod; label: string }[] = [
-  { id: 'cash', label: 'كاش' },
-  { id: 'vf', label: 'فودافون كاش' },
-  { id: 'instapay', label: 'إنستاباي' },
-];
 
 function toggleIssue(word: string): void {
   const parts = issueText.value
@@ -83,7 +88,10 @@ async function submit(): Promise<void> {
       issue: issueText.value.trim(),
       estimatedPriceMinor: priceMinor,
       depositMinor: paidNow.value ? priceMinor : 0,
-      payMethod: payMethod.value,
+      // A ticket that is not collected now takes its deposit in cash, exactly as
+      // the repairs screen does; a collected one names the method it was paid by.
+      payMethod: paidNow.value ? payMethod.value : 'cash',
+      payWalletId: paidNow.value ? payWalletId.value : null,
       // «مدفوع دلوقتي» معناه الجهاز اتسلّم من نفس الشاشة؛ التذكرة بتتقفل
       // عشان ما تفضلش معلّقة في «الصيانة» وهي خلصت.
       deliverNow: paidNow.value,
@@ -177,18 +185,26 @@ nextTick(() => deviceInput.value?.focus());
         <span>مدفوع واتسلّم دلوقتي (يظهر في الدرج ويروح للتقارير)</span>
       </label>
 
-      <div v-if="paidNow" class="seg" role="group" aria-label="طريقة الدفع">
-        <button
-          v-for="m in PAY_METHODS"
-          :key="m.id"
-          type="button"
-          class="seg-b"
-          :class="{ on: payMethod === m.id }"
-          :data-quick-repair-pay="m.id"
-          @click="payMethod = m.id"
-        >
-          {{ m.label }}
-        </button>
+      <div v-if="paidNow" class="stack" style="gap: 8px">
+        <div class="seg" role="group" aria-label="طريقة الدفع">
+          <button
+            v-for="m in REPAIR_PAY_METHODS"
+            :key="m.id"
+            type="button"
+            class="seg-b"
+            :class="{ on: payMethod === m.id }"
+            :data-quick-repair-pay="m.id"
+            @click="payMethod = m.id"
+          >
+            {{ m.label }}
+          </button>
+        </div>
+        <!-- لو الشركة عندها أكتر من رقم، المبلغ لازم يتكتب على الرقم الصح -->
+        <WalletNumberChips
+          :method="payMethod"
+          v-model="payWalletId"
+          data-quick-repair-pay-wallet
+        />
       </div>
 
       <p v-if="error" class="error" role="alert">{{ error }}</p>

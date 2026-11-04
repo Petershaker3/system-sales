@@ -6,6 +6,7 @@
 import type { WalletAlertState, WalletOp, WalletPayMethod } from '../../api/wallet.ts';
 import type { ServiceFeeMode } from '../../ui/appearance.ts';
 import { parseMoney } from '../../ui/format.ts';
+import { monthStart } from '../sales/analytics.ts';
 
 /**
  * Quick names for the «ضيف محفظة تانية» row. `company` is the group the number is filed under
@@ -194,16 +195,21 @@ export function opWalletDeltaMinor(
 /**
  * The running month, for the monthly ceiling (`0034`).
  *
- * A monthly limit is a figure of the calendar month the provider bills on, not of
- * the period the screen happens to be showing — so this window never follows the
- * period chips.
+ * A monthly limit is a figure of the month the provider bills on, not of the period
+ * the screen happens to be showing — so this window never follows the period chips.
+ *
+ * The month is the **shop's** month, not the calendar's: it opens on the 1st at the
+ * business hour (05:00 through `monthStart()`), exactly like the reports do. A window
+ * that started at midnight would hand the previous month's last evening — a shift that
+ * ends at 5 in the morning — to this month's allowance, and the meter would disagree
+ * with the month totals one screen away.
  */
 export function resolveWalletMonthBounds(now: Date = new Date()): {
   readonly fromMs: number;
   readonly toMs: number;
 } {
   return {
-    fromMs: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime(),
+    fromMs: monthStart(now).getTime(),
     toMs: now.getTime(),
   };
 }

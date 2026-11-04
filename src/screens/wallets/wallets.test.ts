@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { setBusinessDayStartHour } from '../sales/analytics.ts';
 import {
   computeAutoWalletFeeMinor,
   computeWalletAlertState,
   drawerCashDeltaForCustomerOp,
   resolveServiceFeeMinor,
+  resolveWalletMonthBounds,
   walletBalanceAfterCustomerOp,
   walletStateBadge,
 } from './wallets.ts';
@@ -50,3 +52,32 @@ test('computeWalletAlertState classifies ok, low, near, over, and neg', () => {
   assert.equal(computeWalletAlertState(-100, 300_000, 9_000_000), 'neg');
   assert.equal(walletStateBadge('low')?.label, 'قربت تخلص');
 });
+
+test('the monthly meter runs on the shop month, which opens at 05:00 on the 1st', () => {
+  // The owner's «بداية اليوم» choice is applied on boot; a unit test sets it itself
+  // (the module default stays midnight so a calculation that never read it does not
+  // invent a shift).
+  setBusinessDayStartHour(5);
+  try {
+    assertMonthOpensAtFive();
+  } finally {
+    setBusinessDayStartHour(0);
+  }
+});
+
+function assertMonthOpensAtFive(): void {
+  // 5 November, mid-afternoon: the month opened on 1 November at 05:00.
+  const now = new Date(2026, 10, 5, 14, 30);
+  const { fromMs, toMs } = resolveWalletMonthBounds(now);
+  assert.equal(fromMs, new Date(2026, 10, 1, 5, 0, 0, 0).getTime());
+  assert.equal(toMs, now.getTime());
+
+  // 3 AM on 1 November is still the night of 31 October in this shop, so the running
+  // month is October: a wallet that spent its allowance last night has not got a
+  // fresh one at midnight.
+  const lateNight = new Date(2026, 10, 1, 3, 0);
+  assert.equal(
+    resolveWalletMonthBounds(lateNight).fromMs,
+    new Date(2026, 9, 1, 5, 0, 0, 0).getTime(),
+  );
+}
