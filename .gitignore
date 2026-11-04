@@ -78,3 +78,6 @@ adb-status-evidence.txt
 dist-demo/
 releases/
 
+
+# The owner's own backups are data, not source. They stay on his machine.
+backup-*.msb1
