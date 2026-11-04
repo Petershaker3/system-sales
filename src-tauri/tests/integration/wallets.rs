@@ -135,7 +135,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
     let vf = after_update
         .wallets
         .iter()
-        .find(|w| w.wallet.id == "vf")
+        .find(|w| w.wallet.id.as_str() == "vf")
         .expect("vf wallet");
     assert_eq!(vf.wallet.daily_limit_minor, 6_000_000);
     assert_eq!(
