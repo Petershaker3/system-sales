@@ -34,6 +34,7 @@ import {
 import { chatOpenNote, openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
+import ReturnModal from '../pos/ReturnModal.vue';
 import { toast } from '../../ui/toast';
 import {
   buildWhatsAppUrl,
@@ -396,6 +397,35 @@ function filterByCategory(catId: string): void {
   state.limit = 150;
 }
 
+/**
+ * المرتجع مكانه هنا، مش في «المخزن» (قرار ٢٠٢٦-١١-٠٥).
+ *
+ * المرتجع بيلغي بيعة، والبيعة معروفة برقم فاتورتها — والفاتورة نفسها في الشاشة
+ * دي. «المخزن» مالوش فواتير أصلًا: هو بيسأل «كام في الرف وكام تمنه»، ولو فتحنا
+ * المرتجع من هناك يبقى الفلوس بترجع من غير ما حد يشوف البيعة اللي بترجع.
+ * والمخزن بيستلم القطعة تاني بحركتها العادية لما المرتجع يتم.
+ */
+const returnOpen = ref(false);
+/** الفاتورة اللي المرتجع بدأ منها؛ `null` = بحث حر بالرقم أو التليفون. */
+const returnReference = ref<string | null>(null);
+
+function openReturn(reference: string | null = null): void {
+  returnReference.value = reference;
+  returnOpen.value = true;
+}
+
+function closeReturn(): void {
+  returnOpen.value = false;
+  returnReference.value = null;
+}
+
+/** بعد أي مرتجع أو استبدال: الفواتير اتغيرت، فالشاشة تعيد القراءة. */
+async function onReturnRecorded(): Promise<void> {
+  closeReturn();
+  selectedSaleId.value = null;
+  await loadAll();
+}
+
 function openInvoiceModal(sale: SaleHistoryEntry): void {
   selectedSaleId.value = sale.saleId;
   resendPhoneDraft.value = sale.customerPhone ?? '';
@@ -643,6 +673,14 @@ onBeforeUnmount(() => {
         {{ isOwner ? 'كل مبيعات المحل' : 'مبيعاتك انت بس' }}
       </span>
       <span class="sp" />
+      <button
+        type="button"
+        class="btn"
+        data-sales-return
+        @click="openReturn()"
+      >
+        <Icon name="undo-2" /> مرتجع / استبدال
+      </button>
       <button
         type="button"
         class="btn"
@@ -1164,6 +1202,16 @@ onBeforeUnmount(() => {
                 <small v-if="r.lineLevel" class="muted">
                   من {{ money(r.x.totalMinor) }}
                 </small>
+                <!-- المرتجع باين على الفاتورة نفسها، مش مخبّي في نافذة التفاصيل:
+                     المالك بيسأل «الفاتورة دي رجع منها حاجة؟» وهو بيقرا القايمة. -->
+                <small
+                  v-if="r.x.alreadyRefundedMinor > 0 && !r.x.isCancelled"
+                  class="sv-returned"
+                  :title="`رجّع للعميل ${money(r.x.alreadyRefundedMinor)}`"
+                  :data-sales-inv-returned="r.x.reference"
+                >
+                  <Icon name="undo-2" /> مرتجع {{ money(r.x.alreadyRefundedMinor) }}
+                </small>
               </td>
             </tr>
           </tbody>
@@ -1337,6 +1385,15 @@ onBeforeUnmount(() => {
 
       <template #foot>
         <button
+          v-if="!selectedSale.isCancelled"
+          type="button"
+          class="btn"
+          data-sales-detail-return
+          @click="openReturn(selectedSale.reference)"
+        >
+          <Icon name="undo-2" /> مرتجع من الفاتورة دي
+        </button>
+        <button
           v-if="isOwner && !selectedSale.isCancelled && !showCancelBox"
           type="button"
           class="btn ghost danger"
@@ -1365,5 +1422,15 @@ onBeforeUnmount(() => {
         </button>
       </template>
     </Modal>
+
+    <!-- المرتجع والاستبدال: نفس النافذة اللي الكاشير بيفتحها، بفاتورة محددة -->
+    <ReturnModal
+      v-if="returnOpen"
+      :initial-sale-reference="returnReference"
+      :is-owner="isOwner"
+      @close="closeReturn"
+      @returned="onReturnRecorded"
+      @exchanged="onReturnRecorded"
+    />
   </div>
 </template>

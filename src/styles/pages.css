@@ -272,6 +272,18 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .sv-empty svg.i { width: 34px; height: 34px; }
 .sv-empty b { color: var(--text); font-size: 1.05rem; }
 .sv-more { align-self: center; }
+/* «مرتجع» على صف الفاتورة نفسها في «المبيعات» (قرار ٢٠٢٦-١١-٠٥): الفاتورة
+   اللي رجع منها حاجة بتقول كده وهي في القايمة، من غير ما تفتحها. */
+.sv-returned {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 6px;
+  color: var(--warn, #a86b00);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.sv-returned svg { width: 12px; height: 12px; }
 .sv-month { min-width: 168px; }
 .sv-days tr.zero td, .sv-days tr.zero b { color: var(--muted); font-weight: 400; }
 .sv-days .tag { margin-inline-start: 6px; }

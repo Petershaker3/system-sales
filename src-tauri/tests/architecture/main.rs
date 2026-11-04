@@ -3537,6 +3537,7 @@ fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_
 /// agree. A flow that forgot to ask, or that read its money back out of the method instead of the
 /// name on the row, would pass its own tests and still leave two numbers of one company counting
 /// the same money — which is the thing `ADR-040` could not finish.
+const PHONES_SCREEN_VUE: &str = include_str!("../../../src/screens/phones/PhonesScreen.vue");
 const WALLET_FLOW_MIGRATION: &str =
     include_str!("../../src/data/migrations/0031_wallet_in_every_money_flow.sql");
 const CUSTOMER_REPOSITORY: &str = include_str!("../../src/data/repositories/customer.rs");
@@ -4366,4 +4367,40 @@ fn reports_cover_every_section_and_rate_the_day_in_one_word() {
             "ReportsScreen.vue must contain `{required}`: an amount with no section is a number nobody can act on (`ADR-047`)"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// `ADR-052`: المرتجع مكانه مع الفاتورة، مش مع المخزن
+// ---------------------------------------------------------------------------
+
+/// A return undoes a sale, so it opens where the sale is: «المبيعات». The till
+/// keeps the two doors that need the cart (exchange, and buying a used handset
+/// against this invoice), and «المخزن» opens neither — it receives the piece
+/// afterwards as an ordinary stock movement.
+#[test]
+fn a_return_opens_where_the_invoice_is() {
+    for required in [
+        "data-sales-return",
+        "data-sales-detail-return",
+        "data-sales-inv-returned",
+        "ReturnModal",
+        ":initial-sale-reference=\"returnReference\"",
+    ] {
+        assert!(
+            SALES_SCREEN_VUE.contains(required),
+            "«المبيعات» must carry `{required}`: a return is found by its invoice (`ADR-052`)"
+        );
+    }
+    assert!(
+        POS_SCREEN_VUE.contains("data-open-returns") && POS_SCREEN_VUE.contains("data-pos-tradein"),
+        "the till keeps exchange and the used-handset credit, because both need the cart (`ADR-052`)"
+    );
+    assert!(
+        !PHONES_SCREEN_VUE.contains("ReturnModal"),
+        "«الهواتف» is a shelf, not a counter: it must not open the return dialog (`ADR-052`)"
+    );
+    assert!(
+        !STORE_SCREEN_VUE.contains("ReturnModal"),
+        "«المخزن» has no invoices, so it must never be a way for money to go back (`ADR-052`)"
+    );
 }

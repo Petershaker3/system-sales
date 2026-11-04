@@ -61,7 +61,7 @@ import WarrantyModal from './WarrantyModal.vue';
 
 
 const props = defineProps<{ session: Session }>();
-const emit = defineEmits<{ go: [screen: 'store' | 'phones']; 'shift-changed': [] }>();
+const emit = defineEmits<{ go: [screen: 'store']; 'shift-changed': [] }>();
 
 const catalogue = ref<PosCatalog | null>(null);
 const productImages = ref<ProductImage[]>([]);
@@ -837,9 +837,8 @@ function onKey(event: KeyboardEvent): void {
     modal.value = 'services';
     return;
   }
-  // `F10` (مرتجع/استبدال) اتنقل مع قسم «الهواتف»: المرتجع بقى من هناك.
   if (key === 'F10') {
-    emit('go', 'phones');
+    modal.value = 'returns';
     return;
   }
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
@@ -989,7 +988,7 @@ const KEYS: readonly [string, string][] = [
   ['F4', 'العميل'],
   ['F8', 'انتظار'],
   ['F9', 'خدمات'],
-  ['F10', 'الهواتف والمرتجع'],
+  ['F10', 'مرتجع / استبدال'],
   ['F12', 'دفع'],
   ['Del', 'حذف سطر'],
   ['+ / −', 'الكمية'],
@@ -1120,16 +1119,25 @@ const KEYS: readonly [string, string][] = [
       >
         <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
       </button>
-      <!-- الاستبدال والمرتجع اتنقلوا لقسم «الهواتف» (2026-11-02): جهاز العميل
-           بيتقيّم وبيترجع من مكانه، مش من وسط الفاتورة. -->
+      <!-- استبدال جهاز مستعمل: الرصيد بيتخصم من إجمالي الفاتورة دي، فمكانه هنا
+           بالضرورة — شاشة تانية ما تعرفش السلة اللي واقفة. -->
       <button
         type="button"
         class="btn ghost"
-        data-pos-repairs-link
-        title="الصيانة والمرتجع في قسم الهواتف"
-        @click="emit('go', 'phones')"
+        data-pos-tradein
+        @click="showTradeInModal = true"
       >
-        <Icon name="wrench" /><span>الهواتف</span>
+        <Icon name="recycle" /><span>استبدال مستعمل</span>
+      </button>
+      <!-- المرتجع الرسمي مكانه «المبيعات» (على الفاتورة نفسها)، لكن الاستبدال
+           بيتم مع السلة اللي في إيد الكاشير، فالباب ده بيفضل مفتوح هنا كمان. -->
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-returns
+        @click="modal = 'returns'"
+      >
+        <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
       </button>
     </div>
 

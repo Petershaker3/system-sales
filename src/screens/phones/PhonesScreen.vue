@@ -24,7 +24,6 @@ import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosCatalog, type PosProduct } from '../../api/pos';
 import { money, num, pcsText } from '../../ui/format';
 import ImeiCheckModal from '../store/ImeiCheckModal.vue';
-import ReturnModal from '../pos/ReturnModal.vue';
 import ServicesModal from '../pos/ServicesModal.vue';
 import QuickRepairModal from '../pos/QuickRepairModal.vue';
 import { imeiLabel, isPlaceholderImei } from '../pos/imei';
@@ -55,7 +54,6 @@ import {
 const servicesOpen = ref(false);
 const repairOpen = ref(false);
 const imeiCheckOpen = ref(false);
-const returnsOpen = ref(false);
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading');
 const loadError = ref('');
@@ -252,9 +250,7 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
       <button type="button" class="btn sm" data-phone-act="imei" @click="imeiCheckOpen = true">
         <Icon name="search" /> فحص الآيمي (IMEI Check)
       </button>
-      <button type="button" class="btn sm" data-phone-act="returns" @click="returnsOpen = true">
-        <Icon name="undo-2" /> المرتجع
-      </button>
+
     </div>
 
     <!-- the split, before the first scroll: how much is new, how much is used.
@@ -587,14 +583,6 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
     <ServicesModal v-if="servicesOpen" @close="servicesOpen = false" />
     <QuickRepairModal v-if="repairOpen" @close="repairOpen = false" @created="load()" />
     <ImeiCheckModal v-if="imeiCheckOpen" @close="imeiCheckOpen = false" />
-    <ReturnModal
-      v-if="returnsOpen"
-      :is-owner="true"
-      @close="returnsOpen = false"
-      @returned="load()"
-      @exchanged="load()"
-    />
-
     <!-- the phone rules, and where they live ------------------------------- -->
     <section class="setup">
       <h3><Icon name="sliders-horizontal" /> إعدادات الهواتف</h3>
