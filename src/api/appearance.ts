@@ -17,6 +17,8 @@ export interface AppearanceDto {
   readonly digits: string;
   /** `egp` (default) or `piastre`: what money fields type and show (`ADR-044`). */
   readonly moneyUnit?: string;
+  /** `day` (deduct the day's expenses from the day) or `month` (monthly only). */
+  readonly expensesDeduct?: string;
   readonly images?: string;
   readonly imeiMode?: string;
   readonly payMethods?: string;
@@ -53,6 +55,7 @@ export type AppearanceKey =
   | 'ui.scale'
   | 'ui.digits'
   | 'ui.money_unit'
+  | 'ui.expenses_deduct'
   | 'ui.images'
   | 'ui.imei_mode'
   | 'ui.day_start'

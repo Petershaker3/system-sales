@@ -21,6 +21,7 @@ import {
   BILL_TYPES,
   opWalletDeltaMinor,
   RECONCILE_REASONS,
+  resolveWalletMonthBounds,
   resolveWalletPeriodBounds,
   TELECOM_OPERATORS,
   WALLET_PERIODS,
@@ -52,6 +53,15 @@ const emit = defineEmits<{
 const isOwner = computed<boolean>(() => props.session.role === 'manager');
 
 const wallets = ref<readonly WalletSummary[]>([]);
+/**
+ * What moved on each wallet this calendar month, keyed by wallet id.
+ *
+ * The overview's `period` stats follow the chips (today, week, month…); the monthly
+ * ceiling does not. One extra read of the same command, for the month's own window,
+ * keeps the two questions apart instead of making the meter change when he taps
+ * «آخر 7 أيام».
+ */
+const monthUsedMinor = ref<ReadonlyMap<string, number>>(new Map());
 const ops = ref<readonly WalletOp[]>([]);
 const period = ref<WalletPeriodKey>('today');
 const selectedWalletId = ref<string>('all');
@@ -133,6 +143,13 @@ async function refresh(): Promise<void> {
     );
     wallets.value = overview.wallets;
     ops.value = overview.ops;
+
+    // Same call, the month's window: `usedMinor` is what the ceiling is spent on.
+    const month = resolveWalletMonthBounds();
+    const monthly = await walletsOverview(month.fromMs, month.fromMs, month.toMs, null, 1);
+    const used = new Map<string, number>();
+    for (const w of monthly.wallets) used.set(w.wallet.id, w.period.usedMinor);
+    monthUsedMinor.value = used;
   } catch (err) {
     toast(describeError(err), 'err');
   } finally {
@@ -156,6 +173,17 @@ function meterPct(w: WalletSummary): number {
     Math.min(100, Math.round((w.balanceMinor / maxMinor) * 100))
   );
 }
+
+/** How much of the month's ceiling is used, 0–100, or `null` when there is none. */
+const monthUsedPct = (ws: WalletSummary): number | null => {
+  const limit = ws.wallet.monthlyLimitMinor;
+  if (limit <= 0) return null;
+  const used = monthUsedMinor.value.get(ws.wallet.id) ?? 0;
+  return Math.max(0, Math.min(100, Math.round((used / limit) * 100)));
+};
+
+const monthUsedOf = (ws: WalletSummary): number =>
+  monthUsedMinor.value.get(ws.wallet.id) ?? 0;
 
 function openServicesModal(): void {
   servicesOpen.value = true;
@@ -555,6 +583,21 @@ onBeforeUnmount(() => {
           شركة: <bdi dir="auto">{{ ws.wallet.company }}</bdi>
         </div>
 
+        <!-- الحد الشهري: كم استهلك من الشهر لحد دلوقتي -->
+        <div v-if="monthUsedPct(ws) !== null" class="wl-month" :data-wal-month="ws.wallet.id">
+          <span>
+            الشهر: <b class="num">{{ money(monthUsedOf(ws)) }}</b> من
+            <b class="num">{{ money(ws.wallet.monthlyLimitMinor) }}</b> ·
+            <b class="num">{{ num(monthUsedPct(ws) ?? 0) }}%</b>
+          </span>
+          <div class="wl-month-bar">
+            <i
+              :class="{ over: (monthUsedPct(ws) ?? 0) >= 100, hot: (monthUsedPct(ws) ?? 0) >= 80 && (monthUsedPct(ws) ?? 0) < 100 }"
+              :style="{ width: `${monthUsedPct(ws) ?? 0}%` }"
+            ></i>
+          </div>
+        </div>
+
         <div class="wl-stats">
           <span>
             النهارده: <b class="num">{{ num(ws.today.opsCount) }}</b> عملية ·
@@ -602,7 +645,13 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Summary table per wallet -->
-    <div class="card" style="padding: 0; overflow: hidden" data-wallets-summary-card>
+    <div
+      class="card"
+      :class="{ 'today-frame': period === 'today' }"
+      :data-wallets-today-frame="period === 'today'"
+      style="padding: 0; overflow: hidden"
+      data-wallets-summary-card
+    >
       <div class="between" style="padding: 12px 16px">
         <b>ملخص كل محفظة ({{ currentPeriodLabel }})</b>
         <span class="muted" style="font-size: 0.82rem">

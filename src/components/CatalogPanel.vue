@@ -15,6 +15,7 @@
 import { computed, onMounted, ref } from 'vue';
 
 import * as api from '../api/catalog';
+import { listAllProductUnits } from '../api/inventory';
 import { listCategories } from '../api/categories';
 import type { CategoryEntry } from '../api/categories';
 import { describeError } from '../api/errors';
@@ -26,7 +27,10 @@ import {
   type ProductImage,
 } from '../api/images';
 import { approxKilobytes, shrinkImageFile } from '../screens/store/image';
+import { digitsOf, filterProducts } from '../screens/store/catalog-search';
 import CameraScanButton from '../ui/CameraScanButton.vue';
+import Modal from '../ui/Modal.vue';
+import { toast } from '../ui/toast';
 import { money, moneyInputValue, moneyUnitWord } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import type { IconName } from '../ui/icons';
@@ -44,7 +48,13 @@ const busy = ref(false);
 const products = ref<Product[]>([]);
 const images = ref<ProductImage[]>([]);
 const filter = ref<ProductStatus>('active');
-const barcodeSearch = ref('');
+/**
+ * واحد للبحث كله: الاسم، الكود/الباركود، أو سيريال الجهاز. البحث فوري على اللي
+ * محمّل في الشاشة، فمفيش استناه ولا طلب سيرفر لكل حرف.
+ */
+const search = ref('');
+/** IMEIs on the shelf, by product — the third thing he searches by. */
+const serialsByProduct = ref<ReadonlyMap<string, readonly string[]>>(new Map());
 const fileInput = ref<HTMLInputElement | null>(null);
 const pickingProduct = ref<Product | null>(null);
 
@@ -132,12 +142,22 @@ function statusLabel(status: ProductStatus): string {
 async function load(): Promise<void> {
   busy.value = true;
   try {
-    const [loadedProducts, loadedImages] = await Promise.all([
+    const [loadedProducts, loadedImages, units] = await Promise.all([
       api.listProducts(filter.value),
       listProductImages(),
+      // A session without the inventory read still searches by name and code.
+      listAllProductUnits().catch(() => []),
     ]);
     products.value = loadedProducts;
     images.value = loadedImages;
+    const byProduct = new Map<string, string[]>();
+    for (const unit of units) {
+      const list = byProduct.get(unit.productId) ?? [];
+      if (unit.imei) list.push(unit.imei);
+      if (unit.imei2) list.push(unit.imei2);
+      byProduct.set(unit.productId, list);
+    }
+    serialsByProduct.value = byProduct;
     error.value = '';
   } catch (err) {
     error.value = describeError(err);
@@ -256,6 +276,7 @@ async function submit(): Promise<void> {
     if (updated.categoryId !== chosen) await api.setProductCategory(updated.id, chosen);
     error.value = '';
     resetForm();
+    toast(`اتحفظ تعديل «${updated.name}»`, 'ok');
     await load();
   } catch (err) {
     error.value = describeError(err);
@@ -279,30 +300,46 @@ async function toggleArchive(product: Product): Promise<void> {
 }
 
 /**
- * Typed or pasted barcode search.
+ * ما في الشاشة، مفلتر بالبحث الحالي.
  *
- * No camera and no decoder: barcode capture is BLOCKED (`ADR-008`), and a value
- * the operator types needs neither.
+ * البحث محلي عشان يبان فورًا مع كل حرف؛ 「Enter」 بس هو اللي بيروح للسيرفر
+ * (باركود صنف مش في القائمة الحالية، أو صنف مؤرشف).
  */
-async function searchByBarcode(): Promise<void> {
-  const needle = barcodeSearch.value.trim();
-  if (needle === '') return;
+const shownProducts = computed(() =>
+  filterProducts(products.value, search.value, serialsByProduct.value)
+);
+
+/**
+ * Enter: لو مفيش نتيجة محلية، اسأل السيرفر عن باركود مطابق بالظبط.
+ *
+ * No camera and no decoder here: barcode capture is BLOCKED (`ADR-008`), and a
+ * value the operator types needs neither.
+ */
+async function searchNow(): Promise<void> {
+  const needle = search.value.trim();
+  if (needle === '') {
+    await load();
+    return;
+  }
+  if (shownProducts.value.length > 0) return;
+  if (digitsOf(needle) === '') return;
   busy.value = true;
   try {
     const found = await api.findProductByBarcode(needle);
     products.value = [found];
     error.value = '';
-  } catch (err) {
-    error.value = describeError(err);
+  } catch {
+    // مفيش باركود مطابق: الرسالة اللي فوق الجدول أوضح من خطأ سيرفر هنا.
+    error.value = '';
   } finally {
     busy.value = false;
   }
 }
 
-/** The camera beside a barcode box reads one code and runs the same search. */
+/** The camera beside the search box reads one code and searches for it. */
 function onSearchScan(reading: ScanReading): void {
-  barcodeSearch.value = reading.raw;
-  void searchByBarcode();
+  search.value = reading.raw;
+  void searchNow();
 }
 
 /** One reading into the edit form's barcode box — no search, nothing submitted. */
@@ -311,7 +348,7 @@ function onFormBarcodeScan(reading: ScanReading): void {
 }
 
 function clearSearch(): void {
-  barcodeSearch.value = '';
+  search.value = '';
   void load();
 }
 
@@ -348,90 +385,109 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Search by barcode: typed, pasted, or read with the camera. -->
-    <form class="row" @submit.prevent="searchByBarcode">
+    <!-- شيء واحد للبحث: الاسم، الكود، أو السيريال — فوري مع كل حرف -->
+    <form class="row" data-catalog-search @submit.prevent="searchNow">
       <input
-        v-model="barcodeSearch"
+        v-model="search"
         class="grow"
-        placeholder="ابحث بالباركود (اكتب أو الصق أو امسح)"
+        type="search"
+        placeholder="ابحث بالاسم أو الكود/الباركود أو سيريال الجهاز"
         autocomplete="off"
+        aria-label="بحث في المخزن"
+        data-catalog-search-input
       />
       <CameraScanButton :compact="true" data-catalog-search-scan @scan="onSearchScan" />
-      <button type="submit" :disabled="busy">بحث</button>
-      <button type="button" @click="clearSearch">مسح</button>
+      <button type="submit" :disabled="busy" data-catalog-search-go>بحث</button>
+      <button type="button" data-catalog-search-clear @click="clearSearch">مسح</button>
     </form>
-
-    <!-- Edit only: a new product is «صنف جديد» above (ADR-018 §3). -->
-    <p v-if="editingId === null" class="hint">
-      الإضافة من «صنف جديد» فوق. ومن هنا تعدّل صنف موجود أو تأرشفه.
+    <p v-if="search.trim() !== ''" class="hint" data-catalog-search-count>
+      {{ shownProducts.length === 0 ? 'مفيش نتايج مطابقة.' : `${shownProducts.length} من ${products.length}` }}
     </p>
-    <form v-else class="panel-form" @submit.prevent="submit">
-      <p class="hint">تعديل منتج</p>
 
-      <label class="field">
-        <span>الاسم</span>
-        <input v-model="formName" required autocomplete="off" />
-      </label>
+    <!-- التعديل في نافذة: الفورم كان بيتفتح فوق الجدول وبرّه الشاشة، فكان بيبان
+         كأن زر «تعديل» مش شغّال. -->
+    <p v-if="editingId === null" class="hint">
+      الإضافة من «صنف جديد» فوق. ودوس «تعديل» على أي صنف عشان تغيّر اسمه أو سعره أو تصنيفه.
+    </p>
 
-      <label class="field">
-        <span>النوع</span>
-        <select v-model="formDisposition">
-          <option value="quantity">كمّي</option>
-          <option value="serialized">مسلسّل</option>
-          <option value="one_off">قطعة تُباع مرة واحدة</option>
-        </select>
-      </label>
+    <Modal
+      v-if="editingId !== null"
+      title="تعديل صنف"
+      :sub="formName"
+      size="md"
+      @close="resetForm"
+    >
+      <form id="catalog-edit-form" class="panel-form" data-catalog-edit-form @submit.prevent="submit">
+        <label class="field">
+          <span>الاسم</span>
+          <input v-model="formName" required autocomplete="off" data-autofocus data-edit-name />
+        </label>
 
-      <label class="field">
-        <span>التصنيف</span>
-        <select v-model="formCategory">
-          <option value="">من غير تصنيف</option>
-          <option v-for="c in categoryOptions" :key="c.id" :value="c.id">{{ c.label }}</option>
-        </select>
-      </label>
+        <label class="field">
+          <span>النوع</span>
+          <select v-model="formDisposition" data-edit-disposition>
+            <option value="quantity">كمّي</option>
+            <option value="serialized">مسلسّل</option>
+            <option value="one_off">قطعة تُباع مرة واحدة</option>
+          </select>
+        </label>
 
-      <label class="field">
-        <span>الباركود (اختياري)</span>
-        <div class="row" style="margin-bottom: 0">
-          <input v-model="formBarcode" class="grow" dir="ltr" autocomplete="off" />
-          <CameraScanButton
-            :compact="true"
-            data-edit-barcode-scan
-            @scan="onFormBarcodeScan"
+        <label class="field">
+          <span>التصنيف</span>
+          <select v-model="formCategory" data-edit-category>
+            <option value="">من غير تصنيف</option>
+            <option v-for="c in categoryOptions" :key="c.id" :value="c.id">{{ c.label }}</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>الباركود (اختياري)</span>
+          <div class="row" style="margin-bottom: 0">
+            <input v-model="formBarcode" class="grow" dir="ltr" autocomplete="off" data-edit-barcode />
+            <CameraScanButton
+              :compact="true"
+              data-edit-barcode-scan
+              @scan="onFormBarcodeScan"
+            />
+            <button
+              type="button"
+              data-edit-generate-barcode
+              title="اعمل كود EAN-13 للمحل يبدأ بـ 2"
+              @click="generateEditShopCode"
+            >
+              اعمل كود للمحل
+            </button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>سعر البيع (اختياري) — {{ moneyUnitWord() }}</span>
+          <input
+            v-model="formPriceMinor"
+            inputmode="decimal"
+            autocomplete="off"
+            placeholder="اتركه فارغًا إذا لم يُحدَّد السعر"
+            data-edit-price
           />
-          <button
-            type="button"
-            data-edit-generate-barcode
-            title="اعمل كود EAN-13 للمحل يبدأ بـ 2"
-            @click="generateEditShopCode"
-          >
-            اعمل كود للمحل
-          </button>
-        </div>
-      </label>
+        </label>
+        <p class="hint">
+          ترك الحقل فارغًا يعني أن السعر غير محدد، وهو ليس نفس الصفر.
+          الصفر يعني منتجًا مجانيًا فعلًا.
+        </p>
 
-      <label class="field">
-        <span>سعر البيع (اختياري) — {{ moneyUnitWord() }}</span>
-        <input
-          v-model="formPriceMinor"
-          inputmode="decimal"
-          autocomplete="off"
-          placeholder="اتركه فارغًا إذا لم يُحدَّد السعر"
-        />
-      </label>
-      <p class="hint">
-        ترك الحقل فارغًا يعني أن السعر غير محدد، وهو ليس نفس الصفر.
-        الصفر يعني منتجًا مجانيًا فعلًا.
-      </p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+      </form>
 
-      <div class="row">
-        <button type="submit" :disabled="busy">حفظ</button>
-        <button type="button" @click="resetForm">إلغاء</button>
-      </div>
-    </form>
+      <template #foot>
+        <button type="submit" form="catalog-edit-form" :disabled="busy" data-edit-save>حفظ</button>
+        <button type="button" class="ghost" @click="resetForm">إلغاء</button>
+      </template>
+    </Modal>
 
     <!-- List -->
-    <p v-if="products.length === 0 && !busy" class="hint">لا توجد منتجات.</p>
+    <p v-if="shownProducts.length === 0 && !busy" class="hint" data-catalog-empty>
+      {{ products.length === 0 ? 'لا توجد منتجات.' : 'مفيش صنف مطابق للبحث.' }}
+    </p>
 
     <input
       id="img-file"
@@ -445,7 +501,7 @@ onMounted(() => {
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
 
     <ul class="list">
-      <li v-for="product in products" :key="product.id" class="item">
+      <li v-for="product in shownProducts" :key="product.id" class="item">
         <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1">
           <button
             v-if="product.status === 'active'"
@@ -502,6 +558,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
+            :data-edit-product="product.id"
             :disabled="busy || product.status !== 'active'"
             @click="startEdit(product)"
           >

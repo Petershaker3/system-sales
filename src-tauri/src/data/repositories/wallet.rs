@@ -13,7 +13,8 @@ use crate::domain::wallet::{
 pub async fn list_wallets(conn: &mut SqliteConnection) -> Result<Vec<WalletRecord>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
-                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+                max_limit_minor, daily_limit_minor, monthly_limit_minor, pay_method, sort, hidden,
+                is_custom, created_at
          FROM wallets
          ORDER BY sort ASC, id ASC",
     )
@@ -30,7 +31,8 @@ pub async fn find_wallet_by_id(
 ) -> Result<Option<WalletRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
-                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+                max_limit_minor, daily_limit_minor, monthly_limit_minor, pay_method, sort, hidden,
+                is_custom, created_at
          FROM wallets
          WHERE id = ?1",
     )
@@ -51,7 +53,8 @@ pub async fn find_wallet_by_name(
 ) -> Result<Option<WalletRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
-                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+                max_limit_minor, daily_limit_minor, monthly_limit_minor, pay_method, sort, hidden,
+                is_custom, created_at
          FROM wallets
          WHERE lower(trim(name)) = lower(trim(?1))
          LIMIT 1",
@@ -83,8 +86,8 @@ pub async fn insert_wallet(
         "INSERT INTO wallets (
             id, name, company, number, color,
             opening_balance_minor, min_alert_minor, max_limit_minor, daily_limit_minor,
-            pay_method, sort, hidden, is_custom, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            monthly_limit_minor, pay_method, sort, hidden, is_custom, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )
     .bind(wallet.id.as_str())
     .bind(wallet.name.as_str())
@@ -95,6 +98,7 @@ pub async fn insert_wallet(
     .bind(wallet.min_alert_minor)
     .bind(wallet.max_limit_minor)
     .bind(wallet.daily_limit_minor)
+    .bind(wallet.monthly_limit_minor)
     .bind(wallet.pay_method.map(|m| m.as_str()))
     .bind(wallet.sort)
     .bind(i64::from(wallet.hidden))
@@ -116,7 +120,8 @@ pub async fn list_payment_wallets(
 ) -> Result<Vec<WalletRecord>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
-                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+                max_limit_minor, daily_limit_minor, monthly_limit_minor, pay_method, sort, hidden,
+                is_custom, created_at
          FROM wallets
          WHERE pay_method = ?1 AND hidden = 0
          ORDER BY sort ASC, id ASC",
@@ -136,7 +141,8 @@ pub async fn primary_payment_wallet(
 ) -> Result<Option<WalletRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, name, company, number, color, opening_balance_minor, min_alert_minor,
-                max_limit_minor, daily_limit_minor, pay_method, sort, hidden, is_custom, created_at
+                max_limit_minor, daily_limit_minor, monthly_limit_minor, pay_method, sort, hidden,
+                is_custom, created_at
          FROM wallets
          WHERE pay_method = ?1
          ORDER BY hidden ASC, sort ASC, id ASC
@@ -166,10 +172,11 @@ pub async fn update_wallet(
              min_alert_minor = ?6,
              max_limit_minor = ?7,
              daily_limit_minor = ?8,
-             pay_method = ?9,
-             sort = ?10,
-             hidden = ?11,
-             company = ?12
+             monthly_limit_minor = ?9,
+             pay_method = ?10,
+             sort = ?11,
+             hidden = ?12,
+             company = ?13
          WHERE id = ?1",
     )
     .bind(wallet.id.as_str())
@@ -180,6 +187,7 @@ pub async fn update_wallet(
     .bind(wallet.min_alert_minor)
     .bind(wallet.max_limit_minor)
     .bind(wallet.daily_limit_minor)
+    .bind(wallet.monthly_limit_minor)
     .bind(wallet.pay_method.map(|m| m.as_str()))
     .bind(wallet.sort)
     .bind(i64::from(wallet.hidden))
@@ -599,6 +607,7 @@ fn row_to_wallet(row: sqlx::sqlite::SqliteRow) -> Result<WalletRecord, sqlx::Err
     let min_alert_minor: i64 = row.try_get("min_alert_minor")?;
     let max_limit_minor: i64 = row.try_get("max_limit_minor")?;
     let daily_limit_minor: i64 = row.try_get("daily_limit_minor")?;
+    let monthly_limit_minor: i64 = row.try_get("monthly_limit_minor")?;
     let pay_method_raw: Option<String> = row.try_get("pay_method")?;
     let sort: i64 = row.try_get("sort")?;
     let hidden_raw: i64 = row.try_get("hidden")?;
@@ -615,6 +624,7 @@ fn row_to_wallet(row: sqlx::sqlite::SqliteRow) -> Result<WalletRecord, sqlx::Err
         min_alert_minor,
         max_limit_minor,
         daily_limit_minor,
+        monthly_limit_minor,
         pay_method: WalletPayMethod::parse_optional(pay_method_raw.as_deref())
             .map_err(|_| sqlx::Error::RowNotFound)?,
         sort,

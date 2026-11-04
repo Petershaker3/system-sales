@@ -404,6 +404,11 @@ const todayRating = computed(() =>
  * (owner, 2026-11-02).
  */
 const todayNetProfitMinor = computed(() => todayRating.value.netMinor);
+/**
+ * «خصم المصاريف» من الإعدادات: `month` معناها إن صافي اليوم يفضل عن البيع
+ * والخدمة بس، والمصاريف تتحسب مرة واحدة في ملخص الشهر.
+ */
+const expensesInMonthOnly = computed(() => appearance.expensesDeduct === 'month');
 
 /** One line that says the same thing as the word, in money. */
 const todayRatingLine = computed(() => {
@@ -799,7 +804,7 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- كل اللي حصل النهارده: كل قسم وفلوسه، والمصاريف اللي خرجت، والصافي -->
-      <section class="card" data-reports-day-sections>
+      <section class="card today-frame" data-reports-day-sections data-reports-day-frame>
         <div class="card-h">
           <h3><Icon name="receipt" /> كل اللي حصل النهارده</h3>
           <span class="muted small">من أول اليوم لحد دلوقتي</span>
@@ -843,16 +848,19 @@ onBeforeUnmount(() => {
             <small class="muted">
               من الدرج {{ money(todayDrawerExpensesMinor) }} · من برّه
               {{ money(todayOutsideExpensesMinor) }}
+              <template v-if="expensesInMonthOnly"> · بتتحسب في ملخص الشهر</template>
             </small>
           </div>
         </div>
         <div class="dr-total" :class="todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
-          <span>صافي النهارده بعد المصاريف</span>
+          <span data-day-net-label>
+            {{ expensesInMonthOnly ? 'صافي النهارده قبل المصاريف (المصاريف في ملخص الشهر)' : 'صافي النهارده بعد المصاريف' }}
+          </span>
           <strong class="num" data-day-net>{{ money(todayRating.netMinor) }}</strong>
         </div>
       </section>
 
-      <div class="cards" data-reports-today-kpis>
+      <div class="cards today-frame no-chip" data-reports-today-kpis data-reports-today-frame>
         <div class="card kpi" data-reports-today-kpi="sales">
           <div class="label">مبيعات النهارده</div>
           <div class="value num">{{ money(todayData.salesMinor) }}</div>
@@ -901,8 +909,12 @@ onBeforeUnmount(() => {
           <div class="value num" :class="{ 'danger-t': todayNetProfitMinor < 0 }">
             {{ money(todayNetProfitMinor) }}
           </div>
-          <div class="sub muted">
-            بعد {{ money(todayExpensesMinor) }} مصاريف النهارده
+          <div class="sub muted" data-today-net-sub>
+            {{
+              expensesInMonthOnly
+                ? 'قبل المصاريف — المصاريف بتظهر في ملخص الشهر'
+                : `بعد ${money(todayExpensesMinor)} مصاريف النهارده`
+            }}
           </div>
         </div>
 

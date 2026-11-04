@@ -45,7 +45,7 @@ const emit = defineEmits<{
 }>();
 
 const overview = ref<ExpenseOverview | null>(null);
-const period = ref<ExpensePeriodKey>('month');
+const period = ref<ExpensePeriodKey>('today');
 const loading = ref(true);
 const saving = ref(false);
 
@@ -166,7 +166,13 @@ onMounted(() => {
     </div>
 
     <!-- The three numbers the current window adds up to. -->
-    <div class="cards" data-expenses-totals>
+    <!-- أرقام الفترة المختارة؛ «النهارده» (الافتراضي) بتاخد الإطار الأخضر -->
+    <div
+      class="cards"
+      :class="{ 'today-frame': period === 'today' }"
+      :data-expenses-today-frame="period === 'today'"
+      data-expenses-totals
+    >
       <div class="card">
         <div class="muted" style="font-size: 0.85rem">إجمالي المصاريف</div>
         <div class="num" style="font-size: 1.45rem; font-weight: 700" data-expenses-total>

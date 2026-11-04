@@ -42,7 +42,7 @@ import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
 import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
-import { money, moneyUnitWord } from '../ui/format';
+import { money, moneyUnitWord, num } from '../ui/format';
 import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
 import type { ScanReading } from '../ui/scan';
@@ -83,6 +83,40 @@ const receiveSupplier = ref('');
 const receiveUnitCost = ref('');
 const imeiDraft = ref('');
 const receiveImeis = ref<string[]>([]);
+
+/**
+ * سطر في «توريد واحد» قبل الحفظ.
+ *
+ * صاحب المحل بيستلم الشحنة كلها مرة واحدة (٥ أصناف مثلًا) وبيعمل التوريد بعد ما
+ * يخلص، مش صنف صنف بحفظ منفصل. كل سطر بيقفل على اللي اتكتب وقت إضافته — الصنف
+ * والكمية والتكلفة وأرقام الـIMEI — فالتعديل بعد كده في الفورم مش بيغيّر سطر
+ * اتضاف.
+ */
+interface PendingReceipt {
+  readonly key: number;
+  readonly productId: string;
+  readonly productName: string;
+  readonly quantity: number;
+  readonly unitCost: number;
+  readonly supplier: string;
+  readonly mode: 'supplier' | 'opening';
+  readonly imeis: readonly string[];
+}
+
+const pendingReceipts = ref<PendingReceipt[]>([]);
+let pendingKey = 0;
+
+const pendingPieces = computed(() =>
+  pendingReceipts.value.reduce((sum, line) => sum + line.quantity, 0)
+);
+
+const pendingTotalMinor = computed(() =>
+  pendingReceipts.value.reduce((sum, line) => sum + line.quantity * line.unitCost, 0)
+);
+
+function removePending(key: number): void {
+  pendingReceipts.value = pendingReceipts.value.filter((line) => line.key !== key);
+}
 const removeQuantity = ref('');
 const error = ref('');
 const notice = ref('');
@@ -296,20 +330,21 @@ function parseNonNegativeInteger(raw: string): number | null {
   return Number(trimmed);
 }
 
-async function submitReceive(): Promise<void> {
+/** اقرأ الفورم الحالي كسطر توريد، أو `null` مع رسالة لو فيه حاجة ناقصة. */
+function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
   const quantity = parseNonNegativeInteger(receiveQuantity.value);
   const unitCost = parseNonNegativeInteger(receiveUnitCost.value);
   if (quantity === null || quantity < 1) {
     error.value = 'الكمية يجب أن تكون عددًا صحيحًا أكبر من صفر.';
-    return;
+    return null;
   }
   if (unitCost === null) {
     error.value = 'سعر الوحدة يجب أن يكون عددًا صحيحًا غير سالب.';
-    return;
+    return null;
   }
   if (selectedIsSerial.value && receiveImeis.value.length > quantity) {
     error.value = 'عدد أرقام الـ IMEI أكبر من الكمية.';
-    return;
+    return null;
   }
   if (
     selectedIsSerial.value &&
@@ -317,49 +352,118 @@ async function submitReceive(): Promise<void> {
     receiveImeis.value.length !== quantity
   ) {
     error.value = `وضع الـ IMEI إلزامي: سجّل ${quantity} رقم IMEI قبل الحفظ.`;
-    return;
+    return null;
   }
+  if (selectedProductId.value === '') {
+    error.value = 'اختار الصنف الأول.';
+    return null;
+  }
+  return {
+    productId: selectedProductId.value,
+    quantity,
+    unitCost,
+    supplier: receiptMode.value === 'supplier' ? receiveSupplier.value.trim() : '',
+    mode: receiptMode.value,
+    imeis: selectedIsSerial.value ? [...receiveImeis.value] : [],
+  };
+}
 
+/** امسح الفورم بعد ما السطر اتحفظ أو اتضاف: التوريد الجاي حاجة تانية. */
+function resetReceiptForm(): void {
+  receiveQuantity.value = '';
+  receiveUnitCost.value = '';
+  receiveSupplier.value = '';
+  imeiDraft.value = '';
+  receiveImeis.value = [];
+  error.value = '';
+}
+
+/** استلم سطر واحد فعلاً. */
+async function receiveLine(line: Omit<PendingReceipt, 'key' | 'productName'>): Promise<boolean> {
+  const preShortages = await shortagesOverview()
+    .then((ov) => ov.items.filter((sh) => sh.productId === line.productId))
+    .catch(() => []);
+  let outcome;
+  if (line.mode === 'opening') {
+    const approved = await withOwnerApproval(
+      () => inventory.receiveOpeningStock(line.productId, line.quantity, line.unitCost, [...line.imeis]),
+      'تسجيل بضاعة أول المدة'
+    );
+    if (approved.status === 'cancelled') return false;
+    outcome = approved.value;
+  } else {
+    outcome = await inventory.receiveStock(
+      line.productId,
+      line.quantity,
+      line.unitCost,
+      line.supplier,
+      [...line.imeis]
+    );
+  }
+  for (const sh of preShortages) {
+    toast(formatArrivedToast(sh), 'ok');
+  }
+  notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
+  emit('received', line.productId);
+  return true;
+}
+
+async function submitReceive(): Promise<void> {
+  const line = readReceiptForm();
+  if (line === null) return;
   busy.value = true;
   notice.value = '';
   try {
-    const productId = selectedProductId.value;
-    const preShortages = await shortagesOverview()
-      .then((ov) => ov.items.filter((sh) => sh.productId === productId))
-      .catch(() => []);
-    const imeis = selectedIsSerial.value ? [...receiveImeis.value] : [];
-    let outcome;
-    if (receiptMode.value === 'opening') {
-      const approved = await withOwnerApproval(
-        () => inventory.receiveOpeningStock(productId, quantity, unitCost, imeis),
-        'تسجيل بضاعة أول المدة'
-      );
-      if (approved.status === 'cancelled') return;
-      outcome = approved.value;
-    } else {
-      outcome = await inventory.receiveStock(
-        productId,
-        quantity,
-        unitCost,
-        receiveSupplier.value.trim(),
-        imeis
-      );
-    }
-    notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
-    for (const sh of preShortages) {
-      toast(formatArrivedToast(sh), 'ok');
-    }
-    emit('received', productId);
-    receiveQuantity.value = '';
-    receiveUnitCost.value = '';
-    // The supplier is cleared with the rest of the delivery: the next delivery is
-    // usually from somebody else, and a stale label would be a false record.
-    receiveSupplier.value = '';
-    imeiDraft.value = '';
-    receiveImeis.value = [];
-    error.value = '';
+    if (await receiveLine(line)) resetReceiptForm();
     await refreshPosition();
   } catch (err) {
+    error.value = describeError(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/**
+ * «أضف للتوريد»: صنف تاني في نفس الشحنة.
+ *
+ * من غير حفظ: السطر بيقف في القائمة تحت، و«احفظ التوريد» هو اللي بيكتبهم كلهم.
+ */
+function addToBatch(): void {
+  const line = readReceiptForm();
+  if (line === null) return;
+  const product = selectedProduct.value;
+  pendingReceipts.value = [
+    ...pendingReceipts.value,
+    {
+      key: pendingKey++,
+      productName: product?.name ?? line.productId,
+      ...line,
+    },
+  ];
+  resetReceiptForm();
+  notice.value = 'اتضاف سطر للتوريد — كمّل باقي الأصناف أو احفظ.';
+}
+
+/** حفظ الشحنة كلها: كل سطر بيتسجل بحبته، وأي خطأ بيوقف ويقول سببه. */
+async function saveBatch(): Promise<void> {
+  if (pendingReceipts.value.length === 0 || busy.value) return;
+  busy.value = true;
+  notice.value = '';
+  const done: number[] = [];
+  try {
+    for (const line of pendingReceipts.value) {
+      const stored = await receiveLine(line);
+      if (!stored) break;
+      done.push(line.key);
+    }
+    pendingReceipts.value = pendingReceipts.value.filter((line) => !done.includes(line.key));
+    if (done.length > 0) {
+      notice.value = `اتحفظ توريد ${done.length} صنف.`;
+      await refreshPosition();
+    }
+  } catch (err) {
+    // اللي اتحفظ قبل الخطأ بيتشال من القائمة، والباقي بيفضل عشان ما يتكررش.
+    pendingReceipts.value = pendingReceipts.value.filter((line) => !done.includes(line.key));
     error.value = describeError(err);
   } finally {
     busy.value = false;
@@ -561,8 +665,58 @@ void loadPickers();
         <p v-else class="hint">
           بضاعة أول المدة بتدخل المخزن من غير اسم مورد ومش بتتحسب في مشتريات الموردين.
         </p>
-        <button type="submit" :disabled="busy">استلام</button>
+
+        <!-- شحنة واحدة فيها أكتر من صنف: أضف سطر ورا سطر، وبعدين احفظ مرة واحدة -->
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button type="submit" :disabled="busy" data-stock-receive>استلام على طول</button>
+          <button
+            type="button"
+            class="btn soft"
+            :disabled="busy"
+            data-stock-add-to-batch
+            @click="addToBatch"
+          >
+            <Icon name="plus" /> أضف للتوريد
+          </button>
+        </div>
       </form>
+
+      <!-- سلة التوريد: السطور اللي هتتحفظ مع بعض -->
+      <section v-if="pendingReceipts.length > 0" class="batch" data-stock-batch>
+        <div class="batch-head">
+          <b>توريد {{ num(pendingReceipts.length) }} صنف</b>
+          <span class="muted">
+            {{ num(pendingPieces) }} قطعة · {{ money(pendingTotalMinor) }}
+          </span>
+        </div>
+        <ul class="batch-list">
+          <li v-for="line in pendingReceipts" :key="line.key" :data-stock-batch-line="line.key">
+            <span class="batch-name"><bdi dir="auto">{{ line.productName }}</bdi></span>
+            <span class="muted num">{{ num(line.quantity) }} × {{ money(line.unitCost) }}</span>
+            <span v-if="line.supplier" class="muted">· {{ line.supplier }}</span>
+            <span v-if="line.mode === 'opening'" class="tag warn">أول المدة</span>
+            <span class="sp"></span>
+            <button
+              type="button"
+              class="icon-btn xs"
+              :title="`شيل ${line.productName}`"
+              :data-stock-batch-remove="line.key"
+              @click="removePending(line.key)"
+            >
+              <Icon name="x" :size="12" />
+            </button>
+          </li>
+        </ul>
+        <button
+          type="button"
+          class="btn primary"
+          :disabled="busy || pendingReceipts.length === 0"
+          data-stock-save-batch
+          @click="saveBatch"
+        >
+          <Icon name="check" /> احفظ التوريد ({{ num(pendingReceipts.length) }})
+        </button>
+      </section>
 
       <!-- Remove -->
       <form class="form" @submit.prevent="submitRemove">
@@ -597,6 +751,14 @@ void loadPickers();
 </template>
 
 <style scoped>
+/* سلة التوريد: قايمة قصيرة فوق زر الحفظ، عشان يشوف الشحنة قبل ما تسجل. */
+.batch { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface-2); }
+.batch-head { display: flex; justify-content: space-between; gap: 8px; font-size: .86rem; margin-bottom: 6px; }
+.batch-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; }
+.batch-list li { display: flex; align-items: center; gap: 6px; font-size: .84rem; }
+.batch-name { font-weight: 600; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-list .sp { flex: 1; }
+
 /* Minimal, matching CatalogPanel. */
 .stock {
   margin-top: 1.5rem;

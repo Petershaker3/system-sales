@@ -23,6 +23,10 @@ import { describeError } from '../../api/errors';
 import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosCatalog, type PosProduct } from '../../api/pos';
 import { money, num, pcsText } from '../../ui/format';
+import ImeiCheckModal from '../store/ImeiCheckModal.vue';
+import ReturnModal from '../pos/ReturnModal.vue';
+import ServicesModal from '../pos/ServicesModal.vue';
+import QuickRepairModal from '../pos/QuickRepairModal.vue';
 import { imeiLabel, isPlaceholderImei } from '../pos/imei';
 import ImeiEditModal from './ImeiEditModal.vue';
 import Icon from '../../ui/Icon.vue';
@@ -40,6 +44,18 @@ import {
   phoneKindWord,
   type PhoneHandset,
 } from './phones';
+
+/**
+ * خدمات الهواتف: أربع عمليات بتخص الجهاز نفسه، في قسم الهواتف نفسه
+ * (طلب صاحب المحل، 2026-11-02) — وبنفس الترتيب اللي طلبه:
+ * خدمات ← صيانة وسوفت وير ← فحص الآيمي ← المرتجع.
+ *
+ * الاستبدال والمرتجع بقوا هنا بدل ما يبقوا زراير منفصلة في شاشة البيع.
+ */
+const servicesOpen = ref(false);
+const repairOpen = ref(false);
+const imeiCheckOpen = ref(false);
+const returnsOpen = ref(false);
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading');
 const loadError = ref('');
@@ -223,6 +239,22 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
     <div class="page-h">
       <h2>الهواتف</h2>
       <span class="sub">الجديد لوحده، والمستعمل لوحده — كل جهاز بIMEIه وتكلفته وسعره</span>
+    </div>
+
+    <!-- خدمات الهواتف — بالترتيب اللي طلبه صاحب المحل -->
+    <div class="phone-actions" data-phone-actions>
+      <button type="button" class="btn sm" data-phone-act="services" @click="servicesOpen = true">
+        <Icon name="smartphone" /> خدمات
+      </button>
+      <button type="button" class="btn sm" data-phone-act="repair" @click="repairOpen = true">
+        <Icon name="wrench" /> صيانة وسوفت وير
+      </button>
+      <button type="button" class="btn sm" data-phone-act="imei" @click="imeiCheckOpen = true">
+        <Icon name="search" /> فحص الآيمي (IMEI Check)
+      </button>
+      <button type="button" class="btn sm" data-phone-act="returns" @click="returnsOpen = true">
+        <Icon name="undo-2" /> المرتجع
+      </button>
     </div>
 
     <!-- the split, before the first scroll: how much is new, how much is used.
@@ -551,6 +583,18 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
       @saved="onImeiSaved"
     />
 
+    <!-- خدمات الهواتف: النوافذ اللي بيفتحها الشريط فوق -->
+    <ServicesModal v-if="servicesOpen" @close="servicesOpen = false" />
+    <QuickRepairModal v-if="repairOpen" @close="repairOpen = false" @created="load()" />
+    <ImeiCheckModal v-if="imeiCheckOpen" @close="imeiCheckOpen = false" />
+    <ReturnModal
+      v-if="returnsOpen"
+      :is-owner="true"
+      @close="returnsOpen = false"
+      @returned="load()"
+      @exchanged="load()"
+    />
+
     <!-- the phone rules, and where they live ------------------------------- -->
     <section class="setup">
       <h3><Icon name="sliders-horizontal" /> إعدادات الهواتف</h3>
@@ -832,6 +876,12 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
   display: grid;
   gap: 6px;
   flex-shrink: 0;
+}
+.phone-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
 }
 .filter-line {
   display: flex;

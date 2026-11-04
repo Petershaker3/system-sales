@@ -99,6 +99,26 @@ export function setBusinessDayStartHour(hour: number): void {
     Number.isFinite(hour) && hour >= 0 && hour <= 23 ? Math.floor(hour) : 0;
 }
 
+/**
+ * Where a day's expenses are taken from (`ui.expenses_deduct`).
+ *
+ * `day` — the default — is what every screen has always shown: «صافي النهارده»
+ * is the day's profit minus what left the shop that day. `month` keeps the day
+ * about selling and serving only; the expenses are still counted, once, in the
+ * monthly total. `applyAppearance` sets the owner's choice on boot.
+ */
+let expensesDeductMode: 'day' | 'month' = 'day';
+
+/** Set where the day's expenses are taken from. Anything else keeps the day. */
+export function setExpensesDeductMode(mode: string): void {
+  expensesDeductMode = mode === 'month' ? 'month' : 'day';
+}
+
+/** The mode currently in force, for a label that has to say which one it is. */
+export function expensesDeductModeValue(): 'day' | 'month' {
+  return expensesDeductMode;
+}
+
 /** The hour currently in force, for callers that need to say it out loud. */
 export function businessDayStartHourValue(): number {
   return businessDayStartHour;
@@ -1563,7 +1583,9 @@ const DAY_RATING_TONES: Record<DayRatingKey, DayRating['tone']> = {
 export function rateDay(input: DayRatingInput): DayRating {
   const servicesProfit = input.servicesProfitMinor ?? 0;
   const grossMinor = input.goodsProfitMinor + servicesProfit + input.walletFeesMinor;
-  const netMinor = grossMinor - input.expensesMinor;
+  // `month`: the day stays a figure about selling and serving; its expenses land
+  // once, in the monthly summary, instead of shrinking every day on their own.
+  const netMinor = expensesDeductMode === 'month' ? grossMinor : grossMinor - input.expensesMinor;
   const idle =
     input.salesMinor === 0 &&
     servicesProfit === 0 &&

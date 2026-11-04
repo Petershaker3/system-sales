@@ -191,6 +191,23 @@ export function opWalletDeltaMinor(
 }
 
 /** Compute millisecond boundaries (`todayFromMs`, `periodFromMs`, `periodToMs`) for a period key. */
+/**
+ * The running month, for the monthly ceiling (`0034`).
+ *
+ * A monthly limit is a figure of the calendar month the provider bills on, not of
+ * the period the screen happens to be showing — so this window never follows the
+ * period chips.
+ */
+export function resolveWalletMonthBounds(now: Date = new Date()): {
+  readonly fromMs: number;
+  readonly toMs: number;
+} {
+  return {
+    fromMs: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime(),
+    toMs: now.getTime(),
+  };
+}
+
 export function resolveWalletPeriodBounds(
   period: WalletPeriodKey,
   now: Date = new Date()

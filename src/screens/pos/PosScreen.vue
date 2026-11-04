@@ -48,6 +48,7 @@ import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
 import PayModal from './PayModal.vue';
 import PriceModal from './PriceModal.vue';
+import QuickRepairModal from './QuickRepairModal.vue';
 import QtyModal from './QtyModal.vue';
 import ReturnModal from './ReturnModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
@@ -60,7 +61,7 @@ import WarrantyModal from './WarrantyModal.vue';
 
 
 const props = defineProps<{ session: Session }>();
-const emit = defineEmits<{ go: [screen: 'store']; 'shift-changed': [] }>();
+const emit = defineEmits<{ go: [screen: 'store' | 'phones']; 'shift-changed': [] }>();
 
 const catalogue = ref<PosCatalog | null>(null);
 const productImages = ref<ProductImage[]>([]);
@@ -80,6 +81,8 @@ const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
 const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'services' | 'returns'>(null);
+/** «إضافة صيانة / سوفت وير» من غير ما يسيب الفاتورة (2026-11-02). */
+const quickRepair = ref(false);
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
@@ -834,8 +837,9 @@ function onKey(event: KeyboardEvent): void {
     modal.value = 'services';
     return;
   }
+  // `F10` (مرتجع/استبدال) اتنقل مع قسم «الهواتف»: المرتجع بقى من هناك.
   if (key === 'F10') {
-    modal.value = 'returns';
+    emit('go', 'phones');
     return;
   }
   if (key === 'F12' || (key === 'Enter' && (event.ctrlKey || event.metaKey))) {
@@ -985,7 +989,7 @@ const KEYS: readonly [string, string][] = [
   ['F4', 'العميل'],
   ['F8', 'انتظار'],
   ['F9', 'خدمات'],
-  ['F10', 'مرتجع / استبدال'],
+  ['F10', 'الهواتف والمرتجع'],
   ['F12', 'دفع'],
   ['Del', 'حذف سطر'],
   ['+ / −', 'الكمية'],
@@ -1017,6 +1021,16 @@ const KEYS: readonly [string, string][] = [
              and a barcode box that reverses what is typed is worse than no
              camera at all. -->
         <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
+        <!-- صيانة/سوفت وير الجهاز اللي واقف على الكاشير: تذكرة سريعة هنا نفسها -->
+        <button
+          type="button"
+          class="btn sm soft quick-repair-btn"
+          data-pos-quick-repair
+          title="سجّل جهاز صيانة أو سوفت وير من غير ما تسيب الفاتورة"
+          @click="quickRepair = true"
+        >
+          <Icon name="wrench" /><span>إضافة صيانة / سوفت وير</span>
+        </button>
         <div v-if="query.trim() !== ''" class="results">
           <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
             <div>
@@ -1101,26 +1115,21 @@ const KEYS: readonly [string, string][] = [
       <button
         type="button"
         class="btn ghost"
-        data-pos-tradein
-        @click="showTradeInModal = true"
-      >
-        <Icon name="recycle" /><span>استبدال مستعمل</span>
-      </button>
-      <button
-        type="button"
-        class="btn ghost"
         data-open-services
         @click="modal = 'services'"
       >
         <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
       </button>
+      <!-- الاستبدال والمرتجع اتنقلوا لقسم «الهواتف» (2026-11-02): جهاز العميل
+           بيتقيّم وبيترجع من مكانه، مش من وسط الفاتورة. -->
       <button
         type="button"
         class="btn ghost"
-        data-open-returns
-        @click="modal = 'returns'"
+        data-pos-repairs-link
+        title="الصيانة والمرتجع في قسم الهواتف"
+        @click="emit('go', 'phones')"
       >
-        <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
+        <Icon name="wrench" /><span>الهواتف</span>
       </button>
     </div>
 
@@ -1525,6 +1534,11 @@ const KEYS: readonly [string, string][] = [
       :warranty-months="invoice.lines[state.selected]?.warrantyMonths ?? 0"
       @close="closeModal"
       @apply="onApplyLineWarranty"
+    />
+    <QuickRepairModal
+      v-if="quickRepair"
+      @close="quickRepair = false"
+      @created="emit('shift-changed')"
     />
     <ServicesModal
       v-if="modal === 'services'"

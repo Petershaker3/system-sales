@@ -29,6 +29,10 @@ pub enum AppearanceKey {
     /// The hour the shop's day begins (`ui.day_start`): 0 is midnight,
     /// anything later keeps the hours after midnight on the day that is ending.
     DayStart,
+    /// Where the day's expenses are taken from (`ui.expenses_deduct`):
+    /// `day` subtracts them from the same day's net, `month` keeps the day
+    /// independent and shows the deduction in the monthly summary only.
+    ExpensesDeduct,
     PayMethods,
     DiscountLimitPct,
     ShopName,
@@ -58,7 +62,7 @@ pub enum AppearanceKey {
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 33] = [
+    pub const ALL: [AppearanceKey; 34] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -69,6 +73,7 @@ impl AppearanceKey {
         AppearanceKey::Images,
         AppearanceKey::ImeiMode,
         AppearanceKey::DayStart,
+        AppearanceKey::ExpensesDeduct,
         AppearanceKey::PayMethods,
         AppearanceKey::DiscountLimitPct,
         AppearanceKey::ShopName,
@@ -108,6 +113,7 @@ impl AppearanceKey {
             AppearanceKey::Images => "ui.images",
             AppearanceKey::ImeiMode => "ui.imei_mode",
             AppearanceKey::DayStart => "ui.day_start",
+            AppearanceKey::ExpensesDeduct => "ui.expenses_deduct",
             AppearanceKey::PayMethods => "ui.pay_methods",
             AppearanceKey::DiscountLimitPct => "ui.discount_limit_pct",
             AppearanceKey::ShopName => "ui.shop_name",
@@ -156,6 +162,7 @@ impl AppearanceKey {
                 | AppearanceKey::Images
                 | AppearanceKey::ImeiMode
                 | AppearanceKey::DayStart
+                | AppearanceKey::ExpensesDeduct
                 | AppearanceKey::PayMethods
                 | AppearanceKey::DiscountLimitPct
                 | AppearanceKey::ShopName
@@ -187,6 +194,9 @@ impl AppearanceKey {
 pub const CANONICAL_PAY_METHODS: [&str; 6] = [
     "cash", "vf", "instapay", "card", "install", "credit",
 ];
+
+/// Where a day's expenses are taken from, by default (`ui.expenses_deduct`).
+pub const DEFAULT_EXPENSES_DEDUCT: &str = "day";
 
 /// Default enabled payment methods (`ADR-020` §1: all enabled).
 pub const DEFAULT_PAY_METHODS: &str = "cash,vf,instapay,card,install,credit";
@@ -391,6 +401,8 @@ pub struct Appearance {
     pub imei_mode: String,
     /// `ui.day_start`: the hour the shop's day begins, as a string.
     pub day_start: String,
+    /// `ui.expenses_deduct`: `day` (default) or `month`.
+    pub expenses_deduct: String,
     pub pay_methods: String,
     pub discount_limit_pct: String,
     pub shop_name: String,
@@ -436,6 +448,9 @@ impl Default for Appearance {
             images: "on".to_owned(),
             imei_mode: "optional".to_owned(),
             day_start: "5".to_owned(),
+            // The day that just ended shows what it made after its own expenses:
+            // that is the number the owner has been reading, so it stays the default.
+            expenses_deduct: DEFAULT_EXPENSES_DEDUCT.to_owned(),
             pay_methods: DEFAULT_PAY_METHODS.to_owned(),
             discount_limit_pct: DEFAULT_DISCOUNT_LIMIT_PCT.to_owned(),
             shop_name: DEFAULT_SHOP_NAME.to_owned(),
@@ -619,6 +634,7 @@ impl Appearance {
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
             AppearanceKey::DayStart => matches!(value, "0" | "3" | "5" | "6" | "8"),
+            AppearanceKey::ExpensesDeduct => matches!(value, "day" | "month"),
             AppearanceKey::ReceiptMode => matches!(value, "wa" | "none" | "print" | "both"),
             AppearanceKey::PrinterEnabled => matches!(value, "on" | "off"),
             AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
@@ -661,6 +677,7 @@ impl Appearance {
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
             AppearanceKey::DayStart => self.day_start = value,
+            AppearanceKey::ExpensesDeduct => self.expenses_deduct = value,
             AppearanceKey::ReceiptMode => self.receipt_mode = value,
             AppearanceKey::PrinterEnabled => self.printer_enabled = value,
             AppearanceKey::ReceiptPaper => self.receipt_paper = value,

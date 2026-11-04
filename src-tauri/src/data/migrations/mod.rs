@@ -167,3 +167,9 @@ pub const OPTIONAL_REPAIR_CUSTOMER: &str =
 /// it never left. Append-only triggers are recreated unchanged (`ADR-043`).
 pub const EXPENSES_OUTSIDE_THE_DRAWER: &str =
     include_str!("0032_expenses_outside_the_drawer.sql");
+
+/// `0034`: a wallet can carry a monthly ceiling (`monthly_limit_minor`), separate
+/// from the balance ceiling and the daily one, so a Vodafone Cash or InstaPay
+/// account can say how much of this month's allowance is already used. Purely
+/// additive: every existing wallet starts at 0, meaning «no limit».
+pub const WALLET_MONTHLY_LIMIT: &str = include_str!("0034_wallet_monthly_limit.sql");

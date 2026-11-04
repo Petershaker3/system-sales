@@ -30,6 +30,8 @@ export interface WalletRecord {
   readonly minAlertMinor: number;
   readonly maxLimitMinor: number;
   readonly dailyLimitMinor: number;
+  /** The month's ceiling for this number; 0 means «no limit» (`0034`). */
+  readonly monthlyLimitMinor: number;
   readonly payMethod: WalletPayMethod | null;
   readonly sort: number;
   readonly hidden: boolean;
@@ -99,6 +101,7 @@ export interface UpdateWalletPayload {
   readonly minAlertMinor: number;
   readonly maxLimitMinor: number;
   readonly dailyLimitMinor: number;
+  readonly monthlyLimitMinor: number;
   readonly payMethod: WalletPayMethod | null;
   readonly company: string | null;
   readonly sort: number;

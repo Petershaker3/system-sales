@@ -39,6 +39,8 @@ interface EditableWalletRow {
   minAlertEgp: string;
   maxLimitEgp: string;
   dailyLimitEgp: string;
+  /** The month's ceiling (`0034`); 0 means «no limit». */
+  monthlyLimitEgp: string;
   payMethod: WalletPayMethod | '';
   sort: number;
   hidden: boolean;
@@ -78,6 +80,7 @@ function summaryToRow(ws: WalletSummary): EditableWalletRow {
     minAlertEgp: moneyInputValue(w.minAlertMinor),
     maxLimitEgp: moneyInputValue(w.maxLimitMinor),
     dailyLimitEgp: moneyInputValue(w.dailyLimitMinor),
+    monthlyLimitEgp: moneyInputValue(w.monthlyLimitMinor),
     payMethod: w.payMethod ?? '',
     sort: w.sort,
     hidden: w.hidden,
@@ -115,6 +118,7 @@ async function saveWalletRow(
   const minMinor = parseMoney(row.minAlertEgp) ?? 0;
   const maxMinor = parseMoney(row.maxLimitEgp) ?? 0;
   const dailyMinor = parseMoney(row.dailyLimitEgp) ?? 0;
+  const monthlyMinor = parseMoney(row.monthlyLimitEgp) ?? 0;
 
   busy.value = true;
   try {
@@ -127,6 +131,7 @@ async function saveWalletRow(
       minAlertMinor: Math.max(0, minMinor),
       maxLimitMinor: Math.max(0, maxMinor),
       dailyLimitMinor: Math.max(0, dailyMinor),
+      monthlyLimitMinor: Math.max(0, monthlyMinor),
       payMethod: row.payMethod === '' ? null : row.payMethod,
       company: row.company.trim() || null,
       sort: row.sort,
@@ -166,6 +171,7 @@ async function moveWalletRow(
       minAlertMinor: Math.max(0, parseMoney(a.minAlertEgp) ?? 0),
       maxLimitMinor: Math.max(0, parseMoney(a.maxLimitEgp) ?? 0),
       dailyLimitMinor: Math.max(0, parseMoney(a.dailyLimitEgp) ?? 0),
+      monthlyLimitMinor: Math.max(0, parseMoney(a.monthlyLimitEgp) ?? 0),
       payMethod: a.payMethod === '' ? null : a.payMethod,
       company: a.company.trim() || null,
       sort: a.sort,
@@ -180,6 +186,7 @@ async function moveWalletRow(
       minAlertMinor: Math.max(0, parseMoney(b.minAlertEgp) ?? 0),
       maxLimitMinor: Math.max(0, parseMoney(b.maxLimitEgp) ?? 0),
       dailyLimitMinor: Math.max(0, parseMoney(b.dailyLimitEgp) ?? 0),
+      monthlyLimitMinor: Math.max(0, parseMoney(b.monthlyLimitEgp) ?? 0),
       payMethod: b.payMethod === '' ? null : b.payMethod,
       company: b.company.trim() || null,
       sort: b.sort,
@@ -529,6 +536,18 @@ async function saveAutoFeeSettings(): Promise<void> {
               inputmode="numeric"
               placeholder="0 = من غير حد"
               :data-wal-set-daily="view.row.id"
+              @change="saveWalletRow(view.row)"
+            />
+          </div>
+          <div class="field">
+            <label class="lbl">الحد الشهري للتحويلات</label>
+            <input
+              v-model="view.row.monthlyLimitEgp"
+              class="in mono"
+              dir="ltr"
+              inputmode="numeric"
+              placeholder="0 = من غير حد شهري"
+              :data-wal-set-monthly="view.row.id"
               @change="saveWalletRow(view.row)"
             />
           </div>

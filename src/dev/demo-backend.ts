@@ -953,6 +953,8 @@ interface DemoWallet {
   minAlertMinor: number;
   maxLimitMinor: number;
   dailyLimitMinor: number;
+  /** The month's ceiling (`0034`); 0 means «no limit». */
+  monthlyLimitMinor: number;
   payMethod: 'vf' | 'instapay' | null;
   sort: number;
   hidden: boolean;
@@ -998,6 +1000,7 @@ const demoWallets: DemoWallet[] = [
     minAlertMinor: 300_000,
     maxLimitMinor: 9_000_000,
     dailyLimitMinor: 6_000_000,
+    monthlyLimitMinor: 60_000_000,
     payMethod: 'vf',
     sort: 1,
     hidden: false,
@@ -1014,6 +1017,7 @@ const demoWallets: DemoWallet[] = [
     minAlertMinor: 250_000,
     maxLimitMinor: 9_000_000,
     dailyLimitMinor: 6_000_000,
+    monthlyLimitMinor: 60_000_000,
     payMethod: null,
     sort: 2,
     hidden: false,
@@ -1030,6 +1034,7 @@ const demoWallets: DemoWallet[] = [
     minAlertMinor: 200_000,
     maxLimitMinor: 9_000_000,
     dailyLimitMinor: 6_000_000,
+    monthlyLimitMinor: 60_000_000,
     payMethod: null,
     sort: 3,
     hidden: false,
@@ -1046,6 +1051,7 @@ const demoWallets: DemoWallet[] = [
     minAlertMinor: 150_000,
     maxLimitMinor: 9_000_000,
     dailyLimitMinor: 6_000_000,
+    monthlyLimitMinor: 60_000_000,
     payMethod: null,
     sort: 4,
     hidden: false,
@@ -1062,6 +1068,7 @@ const demoWallets: DemoWallet[] = [
     minAlertMinor: 0,
     maxLimitMinor: 0,
     dailyLimitMinor: 12_000_000,
+    monthlyLimitMinor: 150_000_000,
     payMethod: 'instapay',
     sort: 5,
     hidden: false,
@@ -4762,6 +4769,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       minAlertMinor: 0,
       maxLimitMinor: 0,
       dailyLimitMinor: 0,
+      monthlyLimitMinor: 0,
       payMethod: null,
       sort: maxSort + 1,
       hidden: false,
@@ -4792,6 +4800,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     w.color = str(args, 'color').trim().toLowerCase() || w.color;
     w.openingBalanceMinor = Math.max(0, numArg(args, 'openingBalanceMinor'));
     w.minAlertMinor = Math.max(0, numArg(args, 'minAlertMinor'));
+    w.monthlyLimitMinor = Math.max(0, numArg(args, 'monthlyLimitMinor'));
     w.maxLimitMinor = Math.max(0, numArg(args, 'maxLimitMinor'));
     w.dailyLimitMinor = Math.max(0, numArg(args, 'dailyLimitMinor'));
     w.payMethod = payMethod;

@@ -183,9 +183,11 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .vr small { font-size: .78rem; }
 
 /* ===== المحافظ (دفتر أرصدة المحل وحركاتها — Plan 1.10 / ADR-025) ===== */
-.wl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+/* الكروت مدمجة (طلب صاحب المحل، 2026-11-02): مسافات وحشو أقل، وخط أخف للملخصات
+   مع تباعد أسطر أوسع — الكارت بيقول أرقام كتير من غير ما يبقى مزحوم. */
+.wl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .wl-card {
-  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: var(--r-l);
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-m);
   border: 1px solid var(--border); background: var(--surface); text-align: start; cursor: pointer;
 }
 .wl-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
@@ -195,11 +197,22 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 .wl-head { display: flex; align-items: center; gap: 8px; }
 .wl-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
 .wl-head b { font-size: .95rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wl-bal { font-size: 1.45rem; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; }
+.wl-bal { font-size: 1.22rem; font-weight: 600; line-height: 1.35; letter-spacing: -.01em; }
 .wl-meter { height: 5px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
 .wl-meter i { display: block; height: 100%; border-radius: 99px; }
-.wl-num { font-size: .78rem; }
-.wl-stats { display: flex; justify-content: space-between; gap: 8px; font-size: .78rem; color: var(--muted); padding-top: 4px; border-top: 1px solid var(--border); }
+.wl-num { font-size: .75rem; line-height: 1.5; }
+.wl-stats { display: flex; flex-direction: column; gap: 2px; font-size: .74rem; font-weight: 400; color: var(--muted); line-height: 1.7; padding-top: 5px; border-top: 1px solid var(--border); }
+.wl-stats b { font-weight: 500; }
+/* ملخص المحافظ: خط أخف وتباعد أوسع، عشان الأرقام تتقري بسرعة. */
+.wl-summary td, .wl-summary th { padding: 6px 10px; font-weight: 400; line-height: 1.55; }
+.wl-summary td b, .wl-summary tfoot td b { font-weight: 500; }
+.wl-summary thead th { font-size: .76rem; font-weight: 600; }
+/* سطر «الحد الشهري» جوه الكارت */
+.wl-month { display: flex; flex-direction: column; gap: 3px; font-size: .73rem; color: var(--muted); line-height: 1.6; }
+.wl-month-bar { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.wl-month-bar i { display: block; height: 100%; border-radius: 99px; background: var(--accent-text); }
+.wl-month-bar i.hot { background: var(--warn); }
+.wl-month-bar i.over { background: var(--danger); }
 .wl-summary tbody tr { cursor: pointer; }
 .wl-summary tbody tr.on td { background: var(--accent-weak); }
 .wl-summary tfoot td { border-top: 1.5px solid var(--border-strong); background: var(--surface-2); }
@@ -384,3 +397,30 @@ table.t tr.sub td { background: var(--surface-2); font-size: .82rem; padding: 7p
 
 
 
+
+/* ===== إطار «النهارده» =====
+   طلب صاحب المحل: الأرقام اللي بتاعة النهارده بس تتعرف من نظرة — إطار أخضر حوالين
+   الكروت أو الجدول، وشريط صغير مكتوب عليه «النهارده». الإطار برّه الصندوق
+   (outline) عشان ما يغيّرش أي مقاس جوّاه. */
+.today-frame { position: relative; outline: 2px solid var(--ok); outline-offset: 5px; border-radius: var(--r-l); }
+.today-frame::before {
+  content: "النهارده";
+  position: absolute;
+  inset-inline-start: 0;
+  top: -27px;
+  background: var(--ok);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  z-index: 2;
+  white-space: nowrap;
+}
+/* بلوكين ورا بعض في نفس الشاشة: واحد بس بياخد الشريط، والتاني إطار من غير شريط. */
+.today-frame.no-chip::before { display: none; }
+/* الجدول اللي فوقه شريط أصلاً: الشريط يقعد على الحدّ نفسه. */
+.card.today-frame::before { top: -11px; }
+html[data-theme="dark"] .today-frame { outline-color: #35c48a; }
+html[data-theme="dark"] .today-frame::before { background: #2a9e70; color: #04140d; }

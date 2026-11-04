@@ -298,6 +298,8 @@ pub struct WalletRecord {
     pub min_alert_minor: i64,
     pub max_limit_minor: i64,
     pub daily_limit_minor: i64,
+    /// The month's ceiling for this number (`0034`). 0 means «no limit».
+    pub monthly_limit_minor: i64,
     pub pay_method: Option<WalletPayMethod>,
     pub sort: i64,
     pub hidden: bool,

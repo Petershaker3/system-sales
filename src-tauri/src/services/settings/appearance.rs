@@ -70,6 +70,7 @@ pub async fn update(
         AppearanceKey::Images => validated.images,
         AppearanceKey::ImeiMode => validated.imei_mode,
         AppearanceKey::DayStart => validated.day_start,
+        AppearanceKey::ExpensesDeduct => validated.expenses_deduct,
         AppearanceKey::PayMethods => validated.pay_methods,
         AppearanceKey::DiscountLimitPct => validated.discount_limit_pct,
         AppearanceKey::ShopName => validated.shop_name,

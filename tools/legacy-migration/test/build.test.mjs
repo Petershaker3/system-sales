@@ -16,6 +16,7 @@ import { preparePlan, buildFromPlan } from '../src/pipeline.mjs';
 import { normalizePlanIds, planTotals as planTotalsForTest, validatePlan } from '../src/plan.mjs';
 import { readBackupFile } from '../src/backup.mjs';
 import { isUuid } from '../src/util.mjs';
+import { MIGRATIONS } from '../src/migrations.generated.mjs';
 
 const require = createRequire(import.meta.url);
 const SQL = await initSqlJs({
@@ -63,10 +64,12 @@ test('the built database passes every integrity check the app runs on boot', () 
   assert.deepEqual(one('PRAGMA foreign_key_check'), null);
 });
 
-test('the schema is the repository schema, with all thirty-three migrations recorded', () => {
+test('the schema is the repository schema, with every migration recorded', () => {
   const result = build(prepared.plan);
   const { all } = open(result.dbBytes);
-  assert.equal(all('SELECT version FROM _sqlx_migrations').length, 33);
+  // The count moves with the repository (0034 added the wallet monthly limit);
+  // what matters is that the file carries the repository's migrations, all of them.
+  assert.equal(all('SELECT version FROM _sqlx_migrations').length, MIGRATIONS.length);
   assert.equal(all("SELECT name FROM sqlite_master WHERE type='table' AND name='sale_lines'").length, 1);
 });
 

@@ -138,6 +138,10 @@ const selectedSale = computed<SaleHistoryEntry | null>(() => {
 
 const firstDay = computed(() => firstSaleDay(history.value, today.value));
 const len = computed(() => daysIn(state.from, state.to));
+/** «النهارده» بالظبط — أوضح إشارة على الشاشة إن الأرقام دي مش أرقام الشهر. */
+const isTodayRange = computed(
+  () => state.range === 'today' || (len.value === 1 && state.from.getTime() === today.value.getTime()),
+);
 const isMonth = computed(() => state.range === 'month' || state.range === 'month-x');
 const atToday = computed(() => state.to.getTime() >= today.value.getTime());
 const atFirst = computed(() => state.from.getTime() <= firstDay.value.getTime());
@@ -829,7 +833,8 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="cards">
+    <!-- الأرقام دي بتاعة الفترة المختارة؛ لما تكون «النهارده» بتاخد الإطار الأخضر -->
+    <div class="cards" :class="{ 'today-frame': isTodayRange }" :data-sales-today-frame="isTodayRange">
       <div class="card kpi" data-sales-kpi="sales">
         <div class="label">المبيعات</div>
         <div class="value num" data-sales-kpi-sales-value>

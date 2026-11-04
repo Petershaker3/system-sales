@@ -37,6 +37,8 @@ pub struct UpdateWalletInput {
     pub min_alert_minor: i64,
     pub max_limit_minor: i64,
     pub daily_limit_minor: i64,
+    /// The month's ceiling for this number (`0034`). 0 means «no limit».
+    pub monthly_limit_minor: i64,
     pub pay_method: Option<String>,
     /// The company this number belongs to (`ADR-040`). Blank clears the grouping.
     pub company: Option<String>,
@@ -644,6 +646,7 @@ pub async fn create_wallet(
         min_alert_minor: 0,
         max_limit_minor: 0,
         daily_limit_minor: 0,
+        monthly_limit_minor: 0,
         pay_method: None,
         sort,
         hidden: false,
@@ -773,6 +776,7 @@ pub async fn update_wallet(
     let min_alert_minor = validate_non_negative_minor(input.min_alert_minor)?;
     let max_limit_minor = validate_non_negative_minor(input.max_limit_minor)?;
     let daily_limit_minor = validate_non_negative_minor(input.daily_limit_minor)?;
+    let monthly_limit_minor = validate_non_negative_minor(input.monthly_limit_minor)?;
     let pay_method = WalletPayMethod::parse_optional(input.pay_method.as_deref())?;
     let company = validate_wallet_company(input.company.as_deref())?;
     let actor = session.user_id();
@@ -807,6 +811,7 @@ pub async fn update_wallet(
     existing.min_alert_minor = min_alert_minor;
     existing.max_limit_minor = max_limit_minor;
     existing.daily_limit_minor = daily_limit_minor;
+    existing.monthly_limit_minor = monthly_limit_minor;
     existing.pay_method = pay_method;
     existing.company = company;
     existing.sort = input.sort;

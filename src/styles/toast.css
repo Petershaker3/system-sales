@@ -2,10 +2,17 @@
    Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
    class names and values are kept so the real screens match the mockup (DESIGN.md). */
 /* ===== رسائل التنبيه ===== */
-#toasts { position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
-/* والنافذة مفتوحة: الرسايل فوق على جنب، عشان ما تغطيش كلام النافذة */
-body.has-modal #toasts { bottom: auto; top: 14px; left: auto; transform: none; inset-inline-start: 16px; align-items: flex-start; max-width: 340px; }
+/* فوق على اليمين (طلب صاحب المحل، 2026-11-02): الرسالة تبان في وشه وقت ما يسجّل
+   بيعة أو موبايل، مش تحت الشاشة بعيد عن اللي بيعمله. */
+#toasts { position: fixed; top: 14px; inset-inline-end: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
+/* والنافذة مفتوحة: نفس المكان، أضيق، عشان ما تغطيش كلام النافذة */
+body.has-modal #toasts { top: 14px; align-items: flex-end; max-width: 340px; }
 body.has-modal .toast { max-width: 340px; }
+/* على الموبايل اليمين ضيّق: الرسالة تاخد عرض الشاشة من غير ما تخرج برّاها. */
+@media (max-width: 620px) {
+  #toasts { inset-inline: 10px; max-width: none; align-items: stretch; }
+  .toast { max-width: none; }
+}
 .toast {
   background: #1b1d21; color: #ffffff; padding: 10px 14px; border-radius: var(--r-m); box-shadow: var(--shadow);
   display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: .9rem; max-width: 440px; animation: tin .18s ease-out; transition: opacity .3s, transform .3s;

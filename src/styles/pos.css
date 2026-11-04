@@ -169,3 +169,12 @@ html[data-look="box"] .imei-tag { background: var(--sticker-bg); color: var(--st
 html[data-look="box"] .imei-tag svg.i { color: var(--sticker-ink); }
 html[data-look="box"] .inv-tab.on { background: var(--surface); color: var(--text); border-color: var(--ink-line); }
 html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
+
+/* زر «إضافة صيانة / سوفت وير» جنب مربع البحث (2026-11-02): بنفس ارتفاع البحث
+   عشان يقعد في نفس السطر، وما يضايقش البحث على الشاشات الضيقة. */
+.quick-repair-btn { height: 60px; padding: 0 14px; border-radius: var(--r-m); flex: none; }
+.quick-repair-btn span { white-space: nowrap; }
+@media (max-width: 900px) {
+  .quick-repair-btn { height: 44px; }
+  .quick-repair-btn span { display: none; }
+}

@@ -460,17 +460,9 @@ async function submitBillOp(): Promise<void> {
         </div>
 
         <form v-else-if="selectedWallet" @submit.prevent="submitWalletOp">
+          <!-- السحب على اليمين والإيداع على الشمال (طلب صاحب المحل، 2026-11-02):
+               الأول في الصفحة العربية بيقع على اليمين، فالسحب هو الأول. -->
           <div class="g2" style="margin-bottom: 12px">
-            <button
-              type="button"
-              class="btn"
-              :class="walletType === 'deposit' ? 'primary' : 'ghost'"
-              data-svc-wallet-type="deposit"
-              @click="walletType = 'deposit'"
-            >
-              <Icon name="arrow-down-to-line" />
-              <span>إيداع (العميل بيدفع كاش، وانت بتحوّل من محفظتك)</span>
-            </button>
             <button
               type="button"
               class="btn"
@@ -480,6 +472,16 @@ async function submitBillOp(): Promise<void> {
             >
               <Icon name="arrow-up-from-line" />
               <span>سحب (العميل بيحوّل على محفظتك، وانت بتديله كاش)</span>
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :class="walletType === 'deposit' ? 'primary' : 'ghost'"
+              data-svc-wallet-type="deposit"
+              @click="walletType = 'deposit'"
+            >
+              <Icon name="arrow-down-to-line" />
+              <span>إيداع (العميل بيدفع كاش، وانت بتحوّل من محفظتك)</span>
             </button>
           </div>
 
@@ -556,13 +558,14 @@ async function submitBillOp(): Promise<void> {
               </small>
             </div>
 
-            <div class="field">
+            <!-- الملاحظة على جنب في نفس السطر: بتاخد عرض صغير ومش بتاكل سطر كامل. -->
+            <div class="field field-inline-note">
               <label class="lbl" for="svc-note">ملاحظة (اختياري)</label>
               <input
                 id="svc-note"
                 v-model="svcNoteText"
-                class="in"
-                placeholder="لو محتاج تفكّر نفسك"
+                class="in sm"
+                placeholder="ملاحظة قصيرة"
                 data-svc-note
               />
             </div>

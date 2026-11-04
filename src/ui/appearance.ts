@@ -12,7 +12,7 @@ import type { AppearanceKey } from '../api/appearance';
 import * as imagesApi from '../api/images';
 import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './color.ts';
 import type { Grounds, Rgb } from './color.ts';
-import { setBusinessDayStartHour } from '../screens/sales/analytics.ts';
+import { setBusinessDayStartHour, setExpensesDeductMode } from '../screens/sales/analytics.ts';
 import { setDigits, setMoneyUnit } from './format.ts';
 import type { Digits, MoneyUnit } from './format.ts';
 import type { IconName } from './icons.ts';
@@ -34,6 +34,15 @@ export type ImeiModeChoice = 'optional' | 'required';
  * (2026-11-02).
  */
 export type DayStartChoice = '0' | '3' | '5' | '6' | '8';
+/**
+ * Where a day's expenses are taken from (`ui.expenses_deduct`).
+ *
+ * `day` (default) subtracts them from that day's own net — the number the owner
+ * has been reading since the shop opened. `month` keeps «صافي النهارده» a figure
+ * about selling and serving only, and lets the expenses land once, in the
+ * monthly summary.
+ */
+export type ExpensesDeductChoice = 'day' | 'month';
 export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit';
 export type ReceiptModeChoice = 'wa' | 'none' | 'print' | 'both';
 export type PrinterEnabledChoice = 'on' | 'off';
@@ -201,6 +210,7 @@ export interface Appearance {
   images: ImagesChoice;
   imeiMode: ImeiModeChoice;
   dayStartHour: DayStartChoice;
+  expensesDeduct: ExpensesDeductChoice;
   payMethods: string;
   discountLimitPct: string;
   shopName: string;
@@ -242,6 +252,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   images: 'on',
   imeiMode: 'optional',
   dayStartHour: '5',
+  expensesDeduct: 'day',
   payMethods: DEFAULT_PAY_METHODS,
   discountLimitPct: DEFAULT_DISCOUNT_LIMIT_PCT,
   shopName: DEFAULT_SHOP_NAME,
@@ -335,6 +346,11 @@ export function normalizeAppearance(raw: unknown): Appearance {
       r['dayStartHour'],
       ['0', '3', '5', '6', '8'] as const,
       DEFAULT_APPEARANCE.dayStartHour
+    ),
+    expensesDeduct: oneOf(
+      r['expensesDeduct'],
+      ['day', 'month'] as const,
+      DEFAULT_APPEARANCE.expensesDeduct
     ),
     payMethods: normalizePayMethods(r['payMethods']),
     discountLimitPct: normalizeDiscountLimitPct(r['discountLimitPct']),
@@ -465,6 +481,8 @@ export function applyAppearance(a: Appearance = appearance): void {
   // The reports' day window follows this: a sale after midnight stays on the
   // day that is ending until the hour the owner calls the start of the day.
   setBusinessDayStartHour(Number(a.dayStartHour));
+  // The reports read this when they decide what «صافي» means for a day.
+  setExpensesDeductMode(a.expensesDeduct);
 
   // The grounds depend on the look, the theme and the accent tint, so they are
   // read after those are set, with the previous muted correction removed.
@@ -491,6 +509,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   images: 'ui.images',
   imeiMode: 'ui.imei_mode',
   dayStartHour: 'ui.day_start',
+  expensesDeduct: 'ui.expenses_deduct',
   payMethods: 'ui.pay_methods',
   discountLimitPct: 'ui.discount_limit_pct',
   shopName: 'ui.shop_name',

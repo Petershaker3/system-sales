@@ -31,6 +31,7 @@ import CategoriesCard from './CategoriesCard.vue';
 import DevicesPrinterCard from './DevicesPrinterCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
 import DayStartCard from './DayStartCard.vue';
+import ExpensesDeductCard from './ExpensesDeductCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
 import MoneyUnitCard from './MoneyUnitCard.vue';
 import OwnerAccountCard from './OwnerAccountCard.vue';
@@ -194,6 +195,7 @@ async function onResetSettings(): Promise<void> {
         <div v-show="showSection('catalog')" class="s-sec" data-settings-panel="catalog">
           <ImeiModeCard />
           <DayStartCard />
+          <ExpensesDeductCard />
           <ProductImagesCard />
           <CategoriesCard />
           <BrandsCard />
