@@ -144,3 +144,59 @@ pub async fn count_layers(
         .await?;
     Ok(count)
 }
+
+/// Every active product's id: the sweep `stock_value` walks.
+pub async fn list_active_product_ids(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT id FROM products WHERE status = 'active'")
+        .fetch_all(&mut *conn)
+        .await
+}
+
+/// One delivery as the receiving log reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiptRecord {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub supplier_name: Option<String>,
+    pub occurred_at: i64,
+}
+
+/// The receipts recorded in `stock_movements`, newest first.
+///
+/// `kind = 'receipt'` only: a sale and a reconciliation are movements too, and
+/// neither of them is a delivery.
+pub async fn list_receipts(
+    conn: &mut SqliteConnection,
+    limit: i64,
+) -> Result<Vec<ReceiptRecord>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT m.id, m.product_id, p.name AS product_name, m.quantity_delta,
+                m.unit_cost_minor, m.supplier_name, m.occurred_at
+           FROM stock_movements m
+           JOIN products p ON p.id = m.product_id
+          WHERE m.kind = 'receipt'
+          ORDER BY m.occurred_at DESC, m.id DESC
+          LIMIT ?1",
+    )
+    .bind(limit)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| ReceiptRecord {
+            id: row.get("id"),
+            product_id: row.get("product_id"),
+            product_name: row.get("product_name"),
+            quantity: row.get("quantity_delta"),
+            unit_cost_minor: row.get("unit_cost_minor"),
+            supplier_name: row.get("supplier_name"),
+            occurred_at: row.get("occurred_at"),
+        })
+        .collect())
+}

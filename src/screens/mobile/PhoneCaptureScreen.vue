@@ -44,7 +44,16 @@ import {
 
 const props = defineProps<{
   session: Session;
+  /**
+   * «جرّب شاشة الموبايل» on the computer (`MobileCompanionScreen.vue`): the panel
+   * hands the phone the line it is already showing, so the person trying it links
+   * to this very computer in one click instead of retyping an IP. Empty in normal
+   * use — a real handset scans the code.
+   */
+  tryoutPayload?: string;
 }>();
+
+const emit = defineEmits<{ changed: [] }>();
 
 const companion = ref<CompanionStatus | null>(null);
 const products = ref<readonly PosProduct[]>([]);
@@ -53,6 +62,18 @@ let ticker: ReturnType<typeof setInterval> | undefined;
 
 const pastePayload = ref('');
 const hostAddress = ref('');
+
+/**
+ * Is the hand-typed half of the pairing card showing?
+ *
+ * Once a phone knows its computer, the paste box, the QR button and the two
+ * address fields are no longer questions — they are the same answer, printed
+ * again, taking the space where the capture form should be. A linked phone opens
+ * with «متّصل بكمبيوتر المحل» and one small link to change it; the fields only come
+ * back when the person asks. In the computer's try-out window they never come back:
+ * the computer linked the phone itself.
+ */
+const linkEditing = ref(false);
 const hostCode = ref('');
 const linkBusy = ref(false);
 const linkResult = ref<{ ok: boolean; detail: string } | null>(null);
@@ -77,7 +98,11 @@ const expenseSaving = ref(false);
 // it is a form. The button still stays disabled until the draft is complete.
 const expenseTouched = ref(false);
 
-const deviceName = computed(() => `موبايل ${props.session.displayName}`.trim());
+const deviceName = computed(() =>
+  (props.tryoutPayload ?? '').trim() === ''
+    ? `موبايل ${props.session.displayName}`.trim()
+    : `موبايل تجربة — ${props.session.displayName}`.trim(),
+);
 
 /**
  * The computer this phone already sends to, as the phone itself stored it.
@@ -143,6 +168,16 @@ const costMinor = computed(() => {
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
 });
+
+/**
+ * Has the person started filling the form?
+ *
+ * An empty form is not a mistake — it is a form, and it is empty the moment a
+ * capture is saved and the fields are cleared. Without this flag the screen
+ * shouted «اكتب اسم الصنف» right after a successful save, which reads like a
+ * failure at the one moment the shop should see «تم».
+ */
+const formTouched = ref(false);
 
 const draftError = computed(() =>
   validateCaptureDraft({
@@ -240,6 +275,8 @@ async function connectAndTest(): Promise<void> {
     linkResult.value = { ok: result.ok, detail: result.detail };
     companion.value = result.status;
     toast(result.detail, result.ok ? 'ok' : 'err');
+    // A new computer was accepted: fold the fields away again and show the link.
+    if (result.ok) linkEditing.value = false;
   } catch (error) {
     const reason = describeError(error);
     linkResult.value = { ok: false, detail: reason };
@@ -256,6 +293,9 @@ async function pushAll(): Promise<void> {
     companion.value = result.status;
     linkResult.value = { ok: result.ok, detail: result.detail };
     toast(result.detail, result.ok ? 'ok' : 'err');
+    // The computer is a different screen (or the panel behind this one): say that
+    // something arrived, so its inbox is not stale while the person keeps looking.
+    if (result.ok) emit('changed');
   } catch (error) {
     toast(describeError(error), 'err');
   } finally {
@@ -309,6 +349,7 @@ function dropPhoto(index: number): void {
 }
 
 function resetForm(): void {
+  formTouched.value = false;
   productName.value = '';
   barcode.value = '';
   imeiText.value = '';
@@ -438,7 +479,7 @@ async function clearDelivered(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadAll();
+  void loadAll().then(() => tryoutLink());
   ticker = setInterval(() => {
     nowMs.value = Date.now();
     void companionOverview()
@@ -450,6 +491,25 @@ onMounted(() => {
 onUnmounted(() => {
   if (ticker !== undefined) clearInterval(ticker);
 });
+
+/**
+ * The computer's «جرّب شاشة الموبايل»: take the line it is showing, fill the pair
+ * fields from it, and connect once. It is the same call a scan would make, so what
+ * the owner tries is the real link, not a rehearsal of it.
+ *
+ * Runs once. A phone that has already been linked is left alone — retyping the
+ * address would undo a link the shop made this morning.
+ */
+async function tryoutLink(): Promise<void> {
+  const payload = (props.tryoutPayload ?? '').trim();
+  if (payload === '' || storedHost.value !== '') return;
+  pastePayload.value = payload;
+  const parsed = parsePairPayload(payload);
+  if (parsed === null) return;
+  hostAddress.value = formatHostAddress(parsed.host, parsed.port);
+  hostCode.value = parsed.pairCode;
+  await connectAndTest();
+}
 </script>
 
 <template>
@@ -508,7 +568,42 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <div class="stack" style="gap: 8px">
+      <div v-if="storedHost !== '' && !linkEditing" class="remembered" data-capture-stored-host>
+        <span>
+          <template v-if="tryoutPayload !== undefined">
+            الموبايل مربوط بكمبيوتر المحل
+            <bdi dir="ltr" class="mono">{{ storedHost }}</bdi>
+            — الكمبيوتر هو اللي كتبه، مش محتاج تكتبه هنا.
+          </template>
+          <template v-else>
+            الموبايل متظبط على الكمبيوتر
+            <bdi dir="ltr" class="mono">{{ storedHost }}</bdi>
+            — مش محتاج تكتبه تاني.
+          </template>
+        </span>
+        <span class="row" style="gap: 8px; margin-bottom: 0">
+          <button
+            type="button"
+            class="btn sm"
+            :disabled="linkBusy"
+            data-capture-probe
+            @click="probeStoredHost"
+          >
+            <Icon name="wifi" /> {{ linkBusy ? 'بيجرّب…' : 'جرّب الاتصال' }}
+          </button>
+          <button
+            v-if="tryoutPayload === undefined"
+            type="button"
+            class="btn sm ghost"
+            data-capture-change-host
+            @click="linkEditing = true"
+          >
+            غيّر الكمبيوتر
+          </button>
+        </span>
+      </div>
+
+      <div v-if="storedHost === '' || linkEditing" class="stack" style="gap: 8px">
         <div class="field">
           <label for="mshop-paste">امسح أو الصق باركود الربط من الكمبيوتر</label>
           <div class="row" style="gap: 8px; margin-bottom: 0">
@@ -553,47 +648,33 @@ onUnmounted(() => {
             />
           </div>
         </div>
-        <div v-if="storedHost !== ''" class="remembered" data-capture-stored-host>
-          <span>
-            الموبايل متظبط على الكمبيوتر
-            <bdi dir="ltr" class="mono">{{ storedHost }}</bdi>
-            — مش محتاج تكتبه تاني.
-          </span>
-          <button
-            type="button"
-            class="btn sm"
-            :disabled="linkBusy"
-            data-capture-probe
-            @click="probeStoredHost"
-          >
-            <Icon name="wifi" /> {{ linkBusy ? 'بيجرّب…' : 'جرّب الاتصال' }}
-          </button>
-        </div>
-        <div class="row" style="gap: 8px">
-          <button
-            type="button"
-            class="btn primary"
-            :disabled="linkBusy"
-            data-capture-connect
-            @click="connectAndTest"
-          >
-            <Icon name="wifi" /> وصّل بالكمبيوتر
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            :disabled="pushing || waitingCount === 0"
-            data-capture-push
-            @click="pushAll"
-          >
-            {{ pushing ? 'بيّبعت…' : `ابعت اللي مستني (${num(waitingCount)})` }}
-          </button>
-        </div>
-        <span class="muted" data-capture-device>
-          الموبايل بعرّف نفسه باسم <bdi dir="rtl">{{ deviceName }}</bdi>
-          (<bdi dir="auto">{{ deviceModel }}</bdi>) — وده السبب الوحيد لظهوره عند الكمبيوتر.
-        </span>
       </div>
+
+      <div class="row" style="gap: 8px">
+        <button
+          type="button"
+          class="btn primary"
+          :disabled="linkBusy"
+          data-capture-connect
+          @click="connectAndTest"
+        >
+          <Icon name="wifi" /> وصّل بالكمبيوتر
+        </button>
+        <button
+          type="button"
+          class="btn ghost"
+          :disabled="pushing || waitingCount === 0"
+          data-capture-push
+          @click="pushAll"
+        >
+          {{ pushing ? 'بيّبعت…' : `ابعت اللي مستني (${num(waitingCount)})` }}
+        </button>
+      </div>
+
+      <span class="muted" data-capture-device>
+        الموبايل بعرّف نفسه باسم <bdi dir="rtl">{{ deviceName }}</bdi>
+        (<bdi dir="auto">{{ deviceModel }}</bdi>) — وده السبب الوحيد لظهوره عند الكمبيوتر.
+      </span>
     </section>
 
     <section class="card" data-capture-form>
@@ -613,6 +694,7 @@ onUnmounted(() => {
             type="text"
             placeholder="آيفون 15 برو ماكس 256"
             data-capture-name
+            @input="formTouched = true"
           />
         </div>
 
@@ -713,7 +795,13 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <p v-if="draftError !== null" class="warn" data-capture-error>{{ draftError }}</p>
+        <p
+          v-if="draftError !== null && (formTouched || productName.trim() !== '' || barcode !== '')"
+          class="warn"
+          data-capture-error
+        >
+          {{ draftError }}
+        </p>
 
         <div class="row" style="gap: 8px">
           <button

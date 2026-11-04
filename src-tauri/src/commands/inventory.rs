@@ -26,6 +26,7 @@ use crate::domain::identity::Sensitivity;
 use crate::domain::supplier::SupplierName;
 use crate::domain::unit::ReceiptKind;
 use crate::services::identity::IdentityContext;
+use crate::services::inventory::imei as imei_use_cases;
 use crate::services::inventory::stock::{self as use_cases, StockServiceError};
 
 type Ctx<'a> = State<'a, IdentityContext>;
@@ -40,6 +41,14 @@ pub struct InventoryCommandError {
 
 impl From<StockServiceError> for InventoryCommandError {
     fn from(error: StockServiceError) -> Self {
+        Self {
+            code: error.code(),
+        }
+    }
+}
+
+impl From<imei_use_cases::SetImeiError> for InventoryCommandError {
+    fn from(error: imei_use_cases::SetImeiError) -> Self {
         Self {
             code: error.code(),
         }
@@ -67,6 +76,28 @@ pub struct StockPositionDto {
     pub quantity: i64,
     pub total_cost_minor: Option<i64>,
     pub effective_cost_minor: i64,
+}
+
+/// What the whole stock is worth at cost, and how many pieces it holds (`value`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockValueDto {
+    pub value_minor: i64,
+    pub quantity: i64,
+    pub products: i64,
+}
+
+/// One delivery in the receiving log.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiptRowDto {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub supplier_name: Option<String>,
+    pub occurred_at: i64,
 }
 
 /// What one movement changed.
@@ -306,3 +337,49 @@ pub async fn reconcile_stock_count(
     })
 }
 
+
+/// Give a device its real IMEI after it was registered without one.
+///
+/// The stand-in number a used handset gets («بدون IMEI») is a placeholder the
+/// shop owns, so replacing it with the number on the box is an inventory fix —
+/// and only while the piece is still in stock.
+#[tauri::command]
+pub async fn set_unit_imei(
+    ctx: Ctx<'_>,
+    unit_id: String,
+    imei: String,
+) -> Result<String, InventoryCommandError> {
+    Ok(imei_use_cases::set_imei(&ctx.pool, ctx.tokens.as_ref(), &unit_id, &imei).await?)
+}
+
+/// What the stock is worth at cost, in one answer (`value`, owner 2026-11-02).
+#[tauri::command]
+pub async fn stock_value(ctx: Ctx<'_>) -> Result<StockValueDto, InventoryCommandError> {
+    let view = use_cases::stock_value(&ctx.pool, ctx.tokens.as_ref()).await?;
+    Ok(StockValueDto {
+        value_minor: view.value_minor,
+        quantity: view.quantity,
+        products: view.products,
+    })
+}
+
+/// The receiving log, newest first — what came in, from whom, and at what cost.
+#[tauri::command]
+pub async fn list_receipts(
+    ctx: Ctx<'_>,
+    limit: Option<i64>,
+) -> Result<Vec<ReceiptRowDto>, InventoryCommandError> {
+    let rows = use_cases::list_receipts(&ctx.pool, ctx.tokens.as_ref(), limit.unwrap_or(100)).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ReceiptRowDto {
+            id: r.id,
+            product_id: r.product_id,
+            product_name: r.product_name,
+            quantity: r.quantity,
+            unit_cost_minor: r.unit_cost_minor,
+            supplier_name: r.supplier_name,
+            occurred_at: r.occurred_at,
+        })
+        .collect())
+}

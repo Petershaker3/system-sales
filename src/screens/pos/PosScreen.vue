@@ -18,6 +18,7 @@ import type { RegisteredUsedPhone } from '../../api/brands';
 import { type Customer, listCustomers } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
+import * as catalogApi from '../../api/catalog';
 import { listProductImages, type ProductImage } from '../../api/images';
 import * as posApi from '../../api/pos';
 import type { PosCatalog, PosProduct } from '../../api/pos';
@@ -46,9 +47,11 @@ import { asIconName, tileIcon } from './icons';
 import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
 import PayModal from './PayModal.vue';
+import PriceModal from './PriceModal.vue';
 import QtyModal from './QtyModal.vue';
 import ReturnModal from './ReturnModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
+import { isSellableInPos, posOnHand } from './sellable';
 import ServicesModal from './ServicesModal.vue';
 import VariantPickerModal from './VariantPickerModal.vue';
 import { collapseFamilies, familyPriceSummary, type PosTileEntry } from './variants';
@@ -100,6 +103,7 @@ const imeiTarget = ref<
   | { readonly mode: 'add'; readonly product: PosProduct }
   | { readonly mode: 'line'; readonly lineIndex: number; readonly product: PosProduct }
 >(null);
+const priceTarget = ref<PosProduct | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
 
 const linesBox = ref<HTMLElement | null>(null);
@@ -160,11 +164,34 @@ function brandWords(id: string | null): string {
   return brand === undefined ? '' : `${brand.name} ${brand.aliases}`;
 }
 
-/** Products this build can sell: counted by quantity. */
+/**
+ * Products the sales screen offers: anything counted by quantity, and every
+ * phone kept by IMEI.
+ *
+ * Phones were left out until «البيع بالـ IMEI جاي مع وحدات الأجهزة» landed, so
+ * searching a device found nothing at all and the owner could not sell one
+ * (2026-11-02). The unit picker below is that missing piece: a phone is sold by
+ * choosing the piece, one line per IMEI.
+ */
 const sellable = computed<PosProduct[]>(() =>
-  (catalogue.value?.products ?? []).filter((p) => p.disposition === 'quantity')
+  (catalogue.value?.products ?? []).filter(isSellableInPos)
 );
 const notYetSellable = computed(() => (catalogue.value?.products.length ?? 0) - sellable.value.length);
+
+/**
+ * How many pieces of each phone are on the shelf, counted from its units.
+ *
+ * A phone's stock is its pieces, not a `stock_levels` row: the old program's
+ * phones came in as units and that balance stays at zero, so reading it would
+ * have shown every phone as «خلصان» on a shelf that is actually full.
+ */
+const unitCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {};
+  for (const u of catalogue.value?.units ?? []) {
+    counts[u.productId] = (counts[u.productId] ?? 0) + 1;
+  }
+  return counts;
+});
 
 function asSellable(p: PosProduct): SellableProduct {
   const categoryKind =
@@ -174,7 +201,7 @@ function asSellable(p: PosProduct): SellableProduct {
     id: p.id,
     name: p.name,
     priceMinor: p.salePriceMinor,
-    onHand: p.onHand,
+    onHand: posOnHand(p, isSerialProduct(p), unitCounts.value),
     serial: isSerialProduct(p),
     defaultWarrantyMonths: defaultWarrantyMonthsForKind(categoryKind, appearance),
   };
@@ -289,6 +316,28 @@ const discountNeedsOwnerBadge = computed(() =>
   )
 );
 const empty = computed(() => invoice.value.lines.length === 0);
+
+/**
+ * Lines the shelf cannot fulfil. Refused here, before the payment, because the
+ * backend's refusal arrives after the customer has already handed over the money
+ * — and a product registered a minute ago has no stock until it is received.
+ */
+const stockShort = computed(() =>
+  cart.stockShortfalls(invoice.value.lines, (id) => byId.value.get(id)?.onHand ?? null)
+);
+
+/** The sentence for the first shortage, or '' when every line is covered. */
+/** The shelf per product, for the modal's own check before it commits. */
+const stockOnHandMap = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = {};
+  for (const p of sellable.value) out[p.id] = p.onHand;
+  return out;
+});
+
+function stockShortText(): string {
+  const first = stockShort.value[0];
+  return first === undefined ? '' : cart.stockShortfallText(first);
+}
 const selectedCustomer = computed<Customer | null>(() => {
   const cid = invoice.value.customerId;
   if (!cid) return null;
@@ -349,11 +398,12 @@ function refuse(message: string): void {
 
 function pick(p: PosProduct, quantity = 1, imei: string | null = null): void {
   if (p.salePriceMinor === null) {
-    refuse(
-      isOwner.value
-        ? `«${p.name}» مالوش سعر بيع. حدد السعر من المخزن الأول`
-        : `«${p.name}» مالوش سعر بيع. كلّم المالك`
-    );
+    if (isOwner.value) {
+      // Not a dead end any more: the price is typed here and saved to the model.
+      priceTarget.value = p;
+      return;
+    }
+    refuse(`«${p.name}» مالوش سعر بيع. كلّم المالك يحددله سعر.`);
     return;
   }
   const free = freeOf(p);
@@ -368,7 +418,11 @@ function pick(p: PosProduct, quantity = 1, imei: string | null = null): void {
   const result = cart.addProduct(state, asSellable(p), quantity, imei);
   if (!result.ok) {
     if (result.reason === 'no-price') {
-      refuse(isOwner.value ? `«${p.name}» مالوش سعر بيع. حدد السعر من المخزن الأول` : `«${p.name}» مالوش سعر بيع. كلّم المالك`);
+      if (isOwner.value) {
+        priceTarget.value = p;
+        return;
+      }
+      refuse(`«${p.name}» مالوش سعر بيع. كلّم المالك يحددله سعر.`);
     } else if (result.reason === 'out-of-stock') {
       refuse(`«${p.name}» خلصان من المخزن`);
     } else if (result.reason === 'imei-taken') {
@@ -414,6 +468,36 @@ function onPickImei(imei: string | null): void {
 
 function closeImeiModal(): void {
   imeiTarget.value = null;
+  void nextTick(focusSearch);
+}
+
+/**
+ * Save the typed price on the product, then carry on with the very sale the
+ * owner was trying to make. The catalogue is re-read so the line, the invoice
+ * total and Rust's own re-read inside `record_sale` all agree on one number.
+ */
+async function savePrice(minor: number): Promise<void> {
+  const target = priceTarget.value;
+  priceTarget.value = null;
+  if (target === null) return;
+  try {
+    await catalogApi.updateProduct(target.id, { salePriceMinor: minor });
+    await load();
+  } catch (err) {
+    toast(describeError(err), 'err');
+    return;
+  }
+  const fresh = byId.value.get(target.id);
+  if (fresh === undefined) {
+    toast(`اتحفظ السعر، بس «${target.name}» مش ظاهر في البيع دلوقتي`, 'err');
+    return;
+  }
+  toast(`سعر «${fresh.name}» بقى ${money(fresh.salePriceMinor ?? minor)}`, 'ok');
+  pick(fresh);
+}
+
+function closePriceModal(): void {
+  priceTarget.value = null;
   void nextTick(focusSearch);
 }
 
@@ -605,6 +689,14 @@ async function payExactCash(): Promise<void> {
       openLineImei(missingIdx);
       return;
     }
+  }
+  if (cart.linesWithInvalidProductId(invoice.value.lines).length > 0) {
+    refuse(describeError({ code: 'SALE_INVALID_PRODUCT_ID' }));
+    return;
+  }
+  if (stockShort.value.length > 0) {
+    refuse(stockShortText());
+    return;
   }
   exactCashBusy.value = true;
   try {
@@ -904,136 +996,136 @@ const KEYS: readonly [string, string][] = [
 
 <template>
   <div class="pos-wrap">
-    <div class="pos">
-      <section class="catalog">
-        <div class="search-row">
-          <div class="search">
-            <label class="search-box">
-              <Icon name="search" />
-              <input
-                id="q"
-                ref="searchInput"
-                v-model="query"
-                placeholder="ابحث بالاسم أو امسح الباركود…"
-                autocomplete="off"
-                spellcheck="false"
-                aria-label="بحث"
-                @input="onQueryInput"
-              />
-              <kbd>/</kbd>
-            </label>
-            <!-- The camera sits beside the box rather than inside its <label>: a
-                 control inside a label changes the caret geometry of an RTL input,
-                 and a barcode box that reverses what is typed is worse than no
-                 camera at all. -->
-            <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
-            <div v-if="query.trim() !== ''" class="results">
-              <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
-                <div>
-                  <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
-                </div>
-                <div style="margin-top: 8px; display: flex; justify-content: center; gap: 8px">
-                  <button
-                    type="button"
-                    class="btn sm"
-                    data-pos-shortage-free
-                    @mousedown.prevent.stop="addQueryToShortages"
-                  >
-                    <Icon name="clipboard-list" /> لو العميل طالبه: ضيف «{{ query.trim() }}» للنواقص
-                  </button>
-                </div>
-              </div>
-              <div
-                v-for="u in unitMatches"
-                :key="u.id"
-                class="result unit-res"
-                @mousedown.prevent="pickUnitMatch(u.imei, u.productId)"
+    <div class="search-row">
+      <div class="search">
+        <label class="search-box">
+          <Icon name="search" />
+          <input
+            id="q"
+            ref="searchInput"
+            v-model="query"
+            placeholder="ابحث بالاسم أو امسح الباركود…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="بحث"
+            @input="onQueryInput"
+          />
+          <kbd>/</kbd>
+        </label>
+        <!-- The camera sits beside the box rather than inside its <label>: a
+             control inside a label changes the caret geometry of an RTL input,
+             and a barcode box that reverses what is typed is worse than no
+             camera at all. -->
+        <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
+        <div v-if="query.trim() !== ''" class="results">
+          <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
+            <div>
+              <Icon name="search" /> مفيش نتيجة لـ «{{ query.trim() }}». جرّب جزء من الاسم أو آخر 4 أرقام من الـ IMEI
+            </div>
+            <div style="margin-top: 8px; display: flex; justify-content: center; gap: 8px">
+              <button
+                type="button"
+                class="btn sm"
+                data-pos-shortage-free
+                @mousedown.prevent.stop="addQueryToShortages"
               >
-                <div class="ico"><Icon name="smartphone" /></div>
-                <div class="t">
-                  <div class="n"><bdi dir="rtl">{{ byId.get(u.productId)?.name ?? 'موبايل' }}</bdi></div>
-                  <div class="s">
-                    <span>IMEI <bdi dir="ltr" class="mono">…{{ u.imei.slice(-4) }}</bdi></span>
-                    <span v-if="u.color">{{ u.color }}</span>
-                  </div>
-                </div>
-                <div class="p num">
-                  {{
-                    byId.get(u.productId)?.salePriceMinor === null || byId.get(u.productId)?.salePriceMinor === undefined
-                      ? 'بدون سعر'
-                      : money(byId.get(u.productId)!.salePriceMinor!)
-                  }}
-                </div>
-              </div>
-              <div
-                v-for="(p, at) in results"
-                :key="p.id"
-                class="result"
-                :class="{ on: at === highlighted }"
-                @mousedown.prevent="pickResult(at)"
-                @mouseenter="highlighted = at"
-              >
-                <div class="ico" :class="{ img: !!tileImage(p) }">
-                  <img v-if="tileImage(p)" :src="tileImage(p)!" alt="" />
-                  <Icon v-else :name="iconOf(p)" />
-                </div>
-                <div class="t">
-
-                  <div class="n"><bdi dir="rtl">{{ p.name }}</bdi></div>
-                  <div class="s">
-                    <span :class="{ 'danger-t': freeOf(p) <= 0 }">{{ freeOf(p) <= 0 ? 'خلصان' : `متاح ${num(freeOf(p))}` }}</span>
-                    <span v-if="p.barcode"><bdi dir="ltr" class="mono">{{ p.barcode }}</bdi></span>
-                  </div>
-                </div>
-                <button
-                  v-if="freeOf(p) <= 0"
-                  type="button"
-                  class="btn sm result-sh-btn"
-                  :data-pos-shortage-prod="p.id"
-                  title="سجّله في النواقص عشان يظهر وقت الشراء"
-                  @mousedown.prevent.stop="addProductToShortages(p)"
-                >
-                  <Icon name="clipboard-list" /> ضيف للنواقص
-                </button>
-                <div class="p num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</div>
-                <span v-if="at === highlighted" class="enter"><kbd>Enter</kbd></span>
-              </div>
+                <Icon name="clipboard-list" /> لو العميل طالبه: ضيف «{{ query.trim() }}» للنواقص
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            class="btn ghost"
-            data-pos-check-imei
-            @click="showImeiCheck = true"
+          <div
+            v-for="u in unitMatches"
+            :key="u.id"
+            class="result unit-res"
+            @mousedown.prevent="pickUnitMatch(u.imei, u.productId)"
           >
-            <Icon name="search" /><span>فحص IMEI</span>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-pos-tradein
-            @click="showTradeInModal = true"
+            <div class="ico"><Icon name="smartphone" /></div>
+            <div class="t">
+              <div class="n"><bdi dir="rtl">{{ byId.get(u.productId)?.name ?? 'موبايل' }}</bdi></div>
+              <div class="s">
+                <span>IMEI <bdi dir="ltr" class="mono">…{{ u.imei.slice(-4) }}</bdi></span>
+                <span v-if="u.color">{{ u.color }}</span>
+              </div>
+            </div>
+            <div class="p num">
+              {{
+                byId.get(u.productId)?.salePriceMinor === null || byId.get(u.productId)?.salePriceMinor === undefined
+                  ? 'بدون سعر'
+                  : money(byId.get(u.productId)!.salePriceMinor!)
+              }}
+            </div>
+          </div>
+          <div
+            v-for="(p, at) in results"
+            :key="p.id"
+            class="result"
+            :class="{ on: at === highlighted }"
+            @mousedown.prevent="pickResult(at)"
+            @mouseenter="highlighted = at"
           >
-            <Icon name="recycle" /><span>استبدال مستعمل</span>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-open-services
-            @click="modal = 'services'"
-          >
-            <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
-          </button>
-          <button
-            type="button"
-            class="btn ghost"
-            data-open-returns
-            @click="modal = 'returns'"
-          >
-            <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
-          </button>
-        </div>
+            <div class="ico" :class="{ img: !!tileImage(p) }">
+              <img v-if="tileImage(p)" :src="tileImage(p)!" alt="" />
+              <Icon v-else :name="iconOf(p)" />
+            </div>
+            <div class="t">
 
+              <div class="n"><bdi dir="rtl">{{ p.name }}</bdi></div>
+              <div class="s">
+                <span :class="{ 'danger-t': freeOf(p) <= 0 }">{{ freeOf(p) <= 0 ? 'خلصان' : `متاح ${num(freeOf(p))}` }}</span>
+                <span v-if="p.barcode"><bdi dir="ltr" class="mono">{{ p.barcode }}</bdi></span>
+              </div>
+            </div>
+            <button
+              v-if="freeOf(p) <= 0"
+              type="button"
+              class="btn sm result-sh-btn"
+              :data-pos-shortage-prod="p.id"
+              title="سجّله في النواقص عشان يظهر وقت الشراء"
+              @mousedown.prevent.stop="addProductToShortages(p)"
+            >
+              <Icon name="clipboard-list" /> ضيف للنواقص
+            </button>
+            <div class="p num">{{ p.salePriceMinor === null ? 'بدون سعر' : money(p.salePriceMinor) }}</div>
+            <span v-if="at === highlighted" class="enter"><kbd>Enter</kbd></span>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="btn ghost"
+        data-pos-check-imei
+        @click="showImeiCheck = true"
+      >
+        <Icon name="search" /><span>فحص IMEI</span>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-pos-tradein
+        @click="showTradeInModal = true"
+      >
+        <Icon name="recycle" /><span>استبدال مستعمل</span>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-services
+        @click="modal = 'services'"
+      >
+        <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-open-returns
+        @click="modal = 'returns'"
+      >
+        <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
+      </button>
+    </div>
+
+    <div class="pos">
+      <section class="catalog">
         <div v-if="loadError" class="note warn"><Icon name="triangle-alert" /><span>{{ loadError }}</span></div>
 
         <div class="chips cats">
@@ -1149,7 +1241,7 @@ const KEYS: readonly [string, string][] = [
 
           <div v-if="isOwner && notYetSellable > 0" class="note tiles-note">
             <Icon name="info" />
-            <span>{{ countWord(notYetSellable, 'صنف', 'صنفين', 'أصناف') }} بالـ IMEI أو قطعة واحدة مش ظاهرة هنا لسه. البيع بالـ IMEI جاي مع وحدات الأجهزة.</span>
+            <span>{{ countWord(notYetSellable, 'صنف', 'صنفين', 'أصناف') }} بتتباع مرة واحدة (قطعة مفردة) مش ظاهرة هنا. الأجهزة اللي بالـ IMEI ظاهرة وبتبيع من نفس المكان.</span>
           </div>
         </div>
       </section>
@@ -1387,6 +1479,7 @@ const KEYS: readonly [string, string][] = [
       :seller-name="props.session.displayName"
       :trade-in-credit-minor="activeTradeIn?.creditMinor ?? 0"
       :trade-in-label="activeTradeIn?.productName ?? null"
+      :stock-on-hand="stockOnHandMap"
       @close="closeModal"
       @paid="onPaid"
       @price-changed="onPriceChanged"
@@ -1464,6 +1557,12 @@ const KEYS: readonly [string, string][] = [
       :free-stock="freeStockMap"
       @close="closeVariantModal"
       @pick="onPickVariant"
+    />
+    <PriceModal
+      v-if="priceTarget !== null"
+      :name="priceTarget.name"
+      @close="closePriceModal"
+      @save="savePrice"
     />
     <ImeiPickerModal
       v-if="imeiTarget !== null"

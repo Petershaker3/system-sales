@@ -3,6 +3,7 @@
 // `docs/PLAN.md` §16, §19; `ADR-028`):
 //   1. `shop`    — المحل
 //   2. `look`    — الشكل
+//   2b.`rail`    — الشريط الجانبي (الترتيب، فاتح/غامق، الدليل)
 //   3. `catalog` — الأصناف والبيع
 //   4. `users`   — المستخدمين والصلاحيات
 //   5. `pay`     — المحافظ والدفع
@@ -29,12 +30,14 @@ import BrandsCard from './BrandsCard.vue';
 import CategoriesCard from './CategoriesCard.vue';
 import DevicesPrinterCard from './DevicesPrinterCard.vue';
 import DiscountLimitCard from './DiscountLimitCard.vue';
+import DayStartCard from './DayStartCard.vue';
 import ImeiModeCard from './ImeiModeCard.vue';
 import MoneyUnitCard from './MoneyUnitCard.vue';
 import OwnerAccountCard from './OwnerAccountCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
+import RailSettingsCard from './RailSettingsCard.vue';
 import RecoveryCodeCard from './RecoveryCodeCard.vue';
 import ShopProfileCard from './ShopProfileCard.vue';
 import {
@@ -182,9 +185,15 @@ async function onResetSettings(): Promise<void> {
           <AppearanceCard />
         </div>
 
+        <!-- 2b. الشريط الجانبي -->
+        <div v-show="showSection('rail')" class="s-sec" data-settings-panel="rail">
+          <RailSettingsCard />
+        </div>
+
         <!-- 3. الأصناف والبيع -->
         <div v-show="showSection('catalog')" class="s-sec" data-settings-panel="catalog">
           <ImeiModeCard />
+          <DayStartCard />
           <ProductImagesCard />
           <CategoriesCard />
           <BrandsCard />

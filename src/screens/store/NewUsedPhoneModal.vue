@@ -25,7 +25,13 @@ import CameraScanButton from '../../ui/CameraScanButton.vue';
 import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
-import { normalizeImeiDigits, validateImeiInput } from '../pos/imei';
+import {
+  imeiLabel,
+  nextPlaceholderCounter,
+  normalizeImeiDigits,
+  placeholderImei,
+  validateImeiInput,
+} from '../pos/imei';
 import {
   brandsFor,
   cleanModel,
@@ -134,6 +140,18 @@ function imeiErrorText(code: string): string {
     : 'رقم التحقق الأخير (Luhn) غلط — راجع الرقم.';
 }
 
+/**
+ * The IMEIs already in the shop. A used handset without an IMEI gets a stand-in
+ * number («بدون IMEI») and those must not repeat, so the next free counter is
+ * read from here instead of guessed.
+ */
+const takenImeis = ref<ReadonlySet<string>>(new Set());
+
+const imeiIsBlank = computed(() => imei.value.trim() === '');
+
+/** The stand-in number this handset will get if the IMEI stays empty. */
+const autoImei = computed(() => placeholderImei(nextPlaceholderCounter(takenImeis.value)));
+
 const imeiDigitsCount = computed(() => normalizeImeiDigits(imei.value).length);
 const imeiValidation = computed(() => validateImeiInput(imei.value));
 const imei2Validation = computed(() => {
@@ -154,6 +172,12 @@ const saleMinorPreview = computed(() => {
 const marginMinorPreview = computed(() => saleMinorPreview.value - costMinorPreview.value);
 
 async function load(): Promise<void> {
+  // The numbers already on the shelf, so a stand-in one never repeats.
+  void posCatalog()
+    .then((catalog) => {
+      takenImeis.value = new Set((catalog.units ?? []).map((u) => u.imei));
+    })
+    .catch(() => undefined);
   try {
     const [cats, bs, app] = await Promise.all([
       listCategories(),
@@ -308,17 +332,21 @@ async function submit(keepOpen: boolean): Promise<void> {
     error.value = 'اختار مساحة التاتش (مثلاً 128GB).';
     return;
   }
+  // «بالنسبة المستعمل خلي الايمي مش اجباري» (owner, 2026-11-02): a handset with
+  // no IMEI is registered with the shop's own stand-in number, and the screens
+  // read it as «بدون IMEI» rather than pretending it is a real one.
   const v1 = imeiValidation.value;
-  if (!v1.ok) {
+  if (!imeiIsBlank.value && !v1.ok) {
     error.value = imeiErrorText(v1.code);
     return;
   }
+  const imeiToSave = imeiIsBlank.value ? autoImei.value : v1.ok ? v1.imei : '';
   const v2 = imei2Validation.value;
   if (v2 && !v2.ok) {
     error.value = imeiErrorText(v2.code);
     return;
   }
-  if (v2 && v2.ok && v2.imei === v1.imei) {
+  if (v2 && v2.ok && v2.imei === imeiToSave) {
     error.value = 'الـ IMEI التاني لازم يكون مختلف عن الـ IMEI الأولاني.';
     return;
   }
@@ -362,7 +390,7 @@ async function submit(keepOpen: boolean): Promise<void> {
     storageGb: device.value === 'touch' ? storageGb.value : null,
     ramGb: device.value === 'touch' ? ramGb.value : null,
     color: color.value.trim() || null,
-    imei: v1.imei,
+    imei: imeiToSave,
     imei2: v2 && v2.ok ? v2.imei : null,
     conditionGrade: conditionGrade.value,
     batteryHealthPct: batteryPct,
@@ -394,7 +422,12 @@ async function submit(keepOpen: boolean): Promise<void> {
       registered = await createUsedPhone(payload);
     }
 
-    toast(`اتسجّل «${registered.product.name}» بالـ IMEI ${registered.imei}`, 'ok');
+    toast(
+      imeiLabel(registered.imei) === 'بدون IMEI'
+        ? `اتسجّل «${registered.product.name}» برقم داخلي مؤقت (بدون IMEI)`
+        : `اتسجّل «${registered.product.name}» بالـ IMEI ${registered.imei}`,
+      'ok'
+    );
     emit('saved', registered, keepOpen);
     if (keepOpen) {
       imei.value = '';
@@ -559,8 +592,7 @@ onMounted(load);
     <div class="row2">
       <div class="field">
         <span class="lbl">
-          IMEI الأساسي <b>*</b>
-          <span class="muted">(اطلب <bdi dir="ltr">*#06#</bdi> وقارن بالعلبة)</span>
+          IMEI الأساسي <span class="muted">(اختياري — اطلب <bdi dir="ltr">*#06#</bdi> وقارن بالعلبة)</span>
         </span>
         <div class="imei-inline">
           <input
@@ -570,7 +602,7 @@ onMounted(load);
             :class="{ mono: imei !== '' }"
             :dir="imei ? 'ltr' : 'rtl'"
             maxlength="19"
-            placeholder="15 رقم"
+            placeholder="15 رقم — أو سيبه فاضي"
           />
           <CameraScanButton
             :compact="true"
@@ -593,6 +625,12 @@ onMounted(load);
           </span>
           <span v-else class="tag err-tag">
             {{ imeiErrorText(imeiValidation.code) }} ({{ imeiDigitsCount }}/15)
+          </span>
+        </div>
+        <div v-if="imeiIsBlank" class="imei-status-line" data-nu-imei-auto>
+          <span class="tag">
+            من غير IMEI — هيتسجل برقم داخلي مؤقت <bdi dir="ltr" class="mono">{{ autoImei }}</bdi>
+            وبيبان في كل الشاشات «بدون IMEI»
           </span>
         </div>
         <div v-if="imeiCheckReport" class="imei-report-mini" data-nu-imei-report>

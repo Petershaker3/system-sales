@@ -9,6 +9,7 @@ import type { IconName } from '../../ui/icons.ts';
 export type SettingsTabId =
   | 'shop'
   | 'look'
+  | 'rail'
   | 'catalog'
   | 'users'
   | 'pay'
@@ -27,6 +28,9 @@ export interface SettingsTabMeta {
 export const SETTINGS_TABS: readonly SettingsTabMeta[] = [
   { id: 'shop', icon: 'store', label: 'المحل' },
   { id: 'look', icon: 'palette', label: 'الشكل' },
+  // Where the rail is arranged and where the guide and light/dark live now: they
+  // are settings about the shop's own frame, not places inside the shop.
+  { id: 'rail', icon: 'sliders-horizontal', label: 'الشريط الجانبي' },
   { id: 'catalog', icon: 'tags', label: 'الأصناف والبيع' },
   { id: 'users', icon: 'users', label: 'المستخدمين والصلاحيات' },
   { id: 'pay', icon: 'wallet', label: 'المحافظ والدفع' },

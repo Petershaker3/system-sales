@@ -12,6 +12,7 @@ import {
   num,
   parseCount,
   parseMoney,
+  pcsText,
   pcsWord,
   setDigits,
   setMoneyUnit,
@@ -58,6 +59,15 @@ test('counted words follow Egyptian usage', () => {
   assert.equal(pcsWord(12), '12 قطعة');
   assert.equal(monthsTxt(12), '12 شهر');
   assert.equal(countWord(3, 'نوع', 'نوعين', 'أنواع'), '3 أنواع');
+});
+
+test('a count and its word are written once, never «100 100 قطعة»', () => {
+  // The phones shelf printed the number twice because the word already carries
+  // it (owner, 2026-11-02).
+  assert.equal(pcsText(1), '1 قطعة');
+  assert.equal(pcsText(2), 'قطعتين');
+  assert.equal(pcsText(100), '100 قطعة');
+  assert.equal(pcsText(0), '0 قطعة');
 });
 
 test('the owner can read money in piastres instead of pounds', () => {

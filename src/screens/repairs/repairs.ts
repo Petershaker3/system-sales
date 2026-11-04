@@ -1,3 +1,4 @@
+import { addDays, dayEnd, dayStart } from '../sales/analytics.ts';
 import type {
   RepairPayMethod,
   RepairServiceKind,
@@ -97,20 +98,22 @@ export function repairPeriodRange(
     return { fromTs: null, toTs: null };
   }
   const now = new Date(nowMs);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const endOfToday = startOfToday + 86_400_000 - 1;
+  // The shop's own day (`ui.day_start`), the same one the reports use.
+  const startOfToday = dayStart(now).getTime();
+  const endOfToday = dayEnd(now).getTime();
+  const startOfYesterday = dayStart(addDays(now, -1)).getTime();
   if (period === 'today') {
     return { fromTs: startOfToday, toTs: endOfToday };
   }
   if (period === 'yesterday') {
     return {
-      fromTs: startOfToday - 86_400_000,
+      fromTs: startOfYesterday,
       toTs: startOfToday - 1,
     };
   }
   if (period === 'week') {
     return {
-      fromTs: startOfToday - 6 * 86_400_000,
+      fromTs: dayStart(addDays(now, -6)).getTime(),
       toTs: endOfToday,
     };
   }

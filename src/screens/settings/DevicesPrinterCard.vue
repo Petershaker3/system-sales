@@ -21,7 +21,7 @@ import { num } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import CompanionPairQr from '../mobile/CompanionPairQr.vue';
-import { buildPairingQrMatrix, deviceLinkLabel } from '../mobile/companion';
+import { deviceLinkLabel } from '../mobile/companion';
 import { buildPrinterTogglePatch, formatPrinterStatusSummary } from './tabs';
 
 const companion = ref<CompanionStatus | null>(null);
@@ -42,13 +42,12 @@ const hostAddress = computed(() => {
   return `${ip}:${port}`;
 });
 
-const remoteQrMatrix = computed(() =>
-  buildPairingQrMatrix(
-    companion.value?.remotePayload ??
-      `MSHOP-REMOTE|v1|${appearance.shopName || 'موبايل ستور'}|RMT-9042`,
-    21,
-  ),
-);
+/**
+ * The owner's follow-up code. It is the computer's own `remotePayload` and nothing
+ * else: a code assembled here from a guessed shop name would be a code that scans
+ * and then answers «مش عارف المحل ده» (`ADR-042`).
+ */
+const remotePayload = computed(() => companion.value?.remotePayload ?? '');
 
 async function loadCompanion(): Promise<void> {
   companion.value = await companionOverview().catch(() => null);
@@ -322,29 +321,12 @@ onMounted(() => {
       </div>
 
       <div v-if="companion?.remoteEnabled" class="qr-box" data-remote-qr-box>
-        <div class="pair-qr" data-remote-qr>
-          <svg
-            viewBox="0 0 21 21"
-            width="120"
-            height="120"
-            shape-rendering="crispEdges"
-            aria-label="كود المتابعة من برّه المحل"
-          >
-            <rect width="21" height="21" fill="#ffffff" />
-            <template v-for="(row, r) in remoteQrMatrix" :key="r">
-              <template v-for="(cell, c) in row" :key="`${r}-${c}`">
-                <rect
-                  v-if="cell"
-                  :x="c"
-                  :y="r"
-                  width="1"
-                  height="1"
-                  fill="#141517"
-                />
-              </template>
-            </template>
-          </svg>
-        </div>
+        <CompanionPairQr
+          :payload="remotePayload"
+          marker="data-remote-qr"
+          aria-label="كود المتابعة من برّه المحل"
+          :width="140"
+        />
         <div class="stack" style="gap: 4px">
           <b>كود متابعة المالك من برّه المحل: <bdi dir="ltr" class="mono">{{ companion?.remoteCode ?? 'RMT-9042' }}</bdi></b>
           <span class="muted">

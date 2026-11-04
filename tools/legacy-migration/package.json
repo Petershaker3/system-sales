@@ -1,0 +1,34 @@
+{
+  "name": "system-sales-legacy-migration",
+  "version": "1.0.0",
+  "description": "يحوّل نسخة السيستم القديم (JSON) إلى نسخة .msb1 يقبلها السيستم الجديد",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/owner-defaults.test.mjs test/plan.test.mjs test/build.test.mjs test/mapping.test.mjs test/merge-days.test.mjs",
+    "migrate": "node scripts/run-migration.mjs",
+    "smoke": "node test/ui-smoke.mjs",
+    "smoke:autofix": "node test/ui-autofix.mjs",
+    "build:draft": "node scripts/build-from-draft.mjs",
+    "smoke:draft": "node test/ui-draft.mjs",
+    "smoke:autosave": "node test/ui-autosave.mjs",
+    "smoke:newer": "node test/ui-newer.mjs",
+    "smoke:used": "node test/ui-used.mjs",
+    "merge:newer": "node scripts/merge-newer.mjs",
+    "shots": "node test/screenshots.mjs"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/hashes": "^1.8.0",
+    "esbuild": "^0.28.2",
+    "sql.js": "^1.15.1"
+  },
+  "devDependencies": {
+    "jpeg-js": "^0.4.4",
+    "jsdom": "^30.1.3"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}

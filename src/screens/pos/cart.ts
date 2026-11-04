@@ -34,6 +34,59 @@ export interface CartLine {
   warrantyMonths?: number;
 }
 
+/** A line the shop cannot fulfil from what it holds. */
+export interface StockShortfall {
+  readonly name: string;
+  readonly wanted: number;
+  readonly onHand: number;
+}
+
+/**
+ * The lines whose quantity is more than the shelf holds.
+ *
+ * The backend refuses such a sale at commit ("COST_INSUFFICIENT_STOCK"), which
+ * arrives after the customer has paid and reads as a bug. Said before the payment
+ * instead, with the number and where to fix it — a product registered a minute ago
+ * has no stock yet, so this is the common case, not an edge one (owner, 2026-11-02).
+ */
+export function stockShortfalls(
+  lines: readonly CartLine[],
+  onHandOf: (productId: string) => number | null,
+): StockShortfall[] {
+  const out: StockShortfall[] = [];
+  for (const line of lines) {
+    const onHand = onHandOf(line.productId);
+    if (onHand === null) continue;
+    if (line.quantity > onHand) {
+      out.push({ name: line.name, wanted: line.quantity, onHand: Math.max(0, onHand) });
+    }
+  }
+  return out;
+}
+
+/** What one shortfall says, in the shop's words. */
+export function stockShortfallText(shortfall: StockShortfall): string {
+  return `«${shortfall.name}»: مطلوب ${shortfall.wanted} والمخزن فيه ${shortfall.onHand} — استلم الكمية من «المخزن ← الاستلام» الأول.`;
+}
+
+/** A product id the backend can look up: the catalogue's UUID, nothing else. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The lines whose product id is not an identifier.
+ *
+ * The backend answered such a line with `SALE_NOT_FOUND`, which reads as «the
+ * invoice does not exist» and sends the shopkeeper looking for a document that was
+ * never missing. Checked here, before the call, so the operator is told what to do:
+ * take the line out and add the item again.
+ */
+export function linesWithInvalidProductId(
+  lines: readonly CartLine[],
+): CartLine[] {
+  return lines.filter((line) => !UUID_PATTERN.test(line.productId));
+}
+
 export interface Invoice {
   readonly id: string;
   lines: CartLine[];

@@ -21,6 +21,10 @@ pub struct PosProductRow {
     pub department_id: Option<String>,
     /// The phone's company (ADR-018 §2), or `None` for anything but a phone.
     pub brand_id: Option<String>,
+    /// `keypad` or `touch` for a phone (ADR-019): «زراير» or «سمارت». `None`
+    /// for anything that is not a phone, and for a phone the owner never typed
+    /// a type for.
+    pub device_type: Option<String>,
     /// The variant parent this product belongs to (ADR-018 §4), or `None`.
     pub parent_id: Option<String>,
     /// The parent's base name («جراب سيليكون ملون») shown on the family tile.
@@ -50,6 +54,7 @@ pub async fn list_sellable(
     let rows = sqlx::query(
         "SELECT p.id, p.name, p.disposition, p.tracking, p.barcode, p.sale_price_minor, p.department_id,
                 p.brand_id,
+                p.device_type,
                 p.parent_id,
                 vp.name AS parent_name,
                 vp.dimension_1,
@@ -87,6 +92,7 @@ pub async fn list_sellable(
             sale_price_minor: row.get("sale_price_minor"),
             department_id: row.get("department_id"),
             brand_id: row.get("brand_id"),
+            device_type: row.get("device_type"),
             parent_id: row.get("parent_id"),
             parent_name: row.get("parent_name"),
             dimension_1: row.get("dimension_1"),

@@ -82,8 +82,78 @@ export interface MonthBreakdownRow {
 
 /* --- Date helpers --- */
 
-export function dayStart(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+/**
+ * The hour the shop's day begins (`ui.day_start`).
+ *
+ * The shop closes after midnight, so a sale at 1:30 AM belongs to the day that
+ * has just ended — «من أول تاني يوم» — not to a day that started while the
+ * shutters were still up. The default here is midnight so a calculation that
+ * never read the setting (a test, a migration check) keeps the plain answer;
+ * `applyAppearance` sets the owner's choice on boot.
+ */
+let businessDayStartHour = 0;
+
+/** Set the hour the day begins (0–23). Anything else falls back to midnight. */
+export function setBusinessDayStartHour(hour: number): void {
+  businessDayStartHour =
+    Number.isFinite(hour) && hour >= 0 && hour <= 23 ? Math.floor(hour) : 0;
+}
+
+/** The hour currently in force, for callers that need to say it out loud. */
+export function businessDayStartHourValue(): number {
+  return businessDayStartHour;
+}
+
+export function dayStart(d: Date, hour: number = businessDayStartHour): Date {
+  const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const start = new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate(),
+    hour,
+    0,
+    0,
+    0,
+  );
+  // Before the starting hour it is still the previous business day.
+  if (start.getTime() > d.getTime()) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, hour, 0, 0, 0);
+  }
+  return hour === 0 ? midnight : start;
+}
+
+/**
+ * The start of the business day `d` *names*.
+ *
+ * Once the day opens at 5 in the morning, a bare date (`new Date(2026, 10, 1)`, which is
+ * what a date picker and `parseIsoDay` hand us) is a *label*, not an instant: running it
+ * through `dayStart()` moved it back to 31 October at 05:00, so «من 1 نوفمبر» quietly
+ * picked up a day of October and every monthly figure started one business day early.
+ * A label stays its own day; a real timestamp is looked up as usual.
+ */
+export function shopDayStart(d: Date): Date {
+  const isLabel =
+    d.getHours() === 0 &&
+    d.getMinutes() === 0 &&
+    d.getSeconds() === 0 &&
+    d.getMilliseconds() === 0;
+  if (!isLabel) return dayStart(d);
+  return new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate(),
+    businessDayStartHour,
+    0,
+    0,
+    0,
+  );
+}
+
+/** The first instant after the business day that contains `d`. */
+export function dayEnd(d: Date, hour: number = businessDayStartHour): Date {
+  const start = dayStart(d, hour);
+  const next = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1, hour, 0, 0, 0);
+  return new Date(next.getTime() - 1);
 }
 
 export function sameDay(a: Date, b: Date): boolean {
@@ -91,7 +161,17 @@ export function sameDay(a: Date, b: Date): boolean {
 }
 
 export function addDays(d: Date, n: number): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  // The time of day is kept: a business day now starts at 5 in the morning, and
+  // dropping the hour here would have moved every window back to midnight.
+  return new Date(
+    d.getFullYear(),
+    d.getMonth(),
+    d.getDate() + n,
+    d.getHours(),
+    d.getMinutes(),
+    d.getSeconds(),
+    d.getMilliseconds(),
+  );
 }
 
 export function isoDay(d: Date): string {
@@ -112,11 +192,16 @@ export function parseIsoDay(raw: string): Date | null {
 }
 
 export function monthStart(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
+  // The first *business* day of the month: 1 October at the shop's own hour, not at
+  // midnight — otherwise `inRange()` opened October on 30 September at 05:00.
+  const bd = shopDayStart(d);
+  return new Date(bd.getFullYear(), bd.getMonth(), 1, bd.getHours());
 }
 
+/** The last business day of the month, at the same hour `monthStart` opens it. */
 export function monthEnd(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  const bd = shopDayStart(d);
+  return new Date(bd.getFullYear(), bd.getMonth() + 1, 0, bd.getHours());
 }
 
 export function sameMonth(a: Date, b: Date): boolean {
@@ -128,7 +213,7 @@ export function monthKey(d: Date): string {
 }
 
 export function daysIn(from: Date, to: Date): number {
-  return Math.round((dayStart(to).getTime() - dayStart(from).getTime()) / 86_400_000) + 1;
+  return Math.round((shopDayStart(to).getTime() - shopDayStart(from).getTime()) / 86_400_000) + 1;
 }
 
 export function pct(now: number, before: number): number | null {
@@ -142,8 +227,8 @@ export function inRange(
   from: Date,
   to: Date,
 ): SaleHistoryEntry[] {
-  const a = dayStart(from).getTime();
-  const b = addDays(to, 1).getTime();
+  const a = shopDayStart(from).getTime();
+  const b = addDays(shopDayStart(to), 1).getTime();
   return list.filter((x) => !x.isCancelled && x.occurredAt >= a && x.occurredAt < b);
 }
 
@@ -152,7 +237,7 @@ export function inSpan(
   from: Date,
   end: Date,
 ): SaleHistoryEntry[] {
-  const a = dayStart(from).getTime();
+  const a = shopDayStart(from).getTime();
   const b = end.getTime();
   return list.filter((x) => !x.isCancelled && x.occurredAt >= a && x.occurredAt < b);
 }
@@ -166,7 +251,7 @@ export function prevPeriod(
   if (!month) {
     return { from: addDays(from, -len), to: addDays(to, -len), partial: false };
   }
-  const pf = new Date(from.getFullYear(), from.getMonth() - 1, 1);
+  const pf = new Date(from.getFullYear(), from.getMonth() - 1, 1, from.getHours());
   const pe = monthEnd(pf);
   const partial = dayStart(to).getTime() < monthEnd(from).getTime();
   const last = partial ? addDays(pf, len - 1) : pe;
@@ -330,16 +415,73 @@ export function asRows(list: readonly SaleHistoryEntry[]): FilteredSaleRow[] {
     .map((x) => ({ x, lines: x.lines, lineLevel: false }));
 }
 
+/**
+ * The invoice's own discount, in the share that belongs to the lines still in view.
+ *
+ * Line totals carry the *line* discount but never the invoice-level one, so a
+ * filtered report (a category, a product, a search that matched one line) used to
+ * read higher than the same sale in the unfiltered total — the shop's own money
+ * changing with a filter. This divides that discount over the lines by their share
+ * of the invoice, so the parts add back up to the whole.
+ */
+export function rowInvoiceDiscountShareMinor(r: FilteredSaleRow): number {
+  // Only the lines still in view: the rest of the discount belongs to the lines the
+  // filter hid, and handing it to the visible ones would make a filtered report say
+  // the shop took less money than it did.
+  return lineInvoiceDiscountShares(r).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * The invoice's own discount, split over the lines in view, one figure per line.
+ *
+ * Line totals carry the *line* discount but never the invoice-level one, so a filtered
+ * report (a category, a product, a search that matched one line) used to read higher than
+ * the same sale unfiltered — the shop's own money changing with a filter. Each line takes
+ * its share of the invoice by what it is worth within the invoice, and when every line is
+ * in view the last one absorbs the rounding, so the parts add back up to the whole exactly.
+ * `byProduct` and `byCategory` use the same figures, so a table of what sold adds up to the
+ * total printed above it.
+ */
+export function lineInvoiceDiscountShares(r: FilteredSaleRow): number[] {
+  const invoiceDiscount = Math.max(0, r.x.linesSubtotalMinor - r.x.totalMinor);
+  if (invoiceDiscount === 0 || r.lines.length === 0) return r.lines.map(() => 0);
+  const included = r.lines.reduce((a, l) => a + l.lineTotalMinor, 0);
+  if (included <= 0) return r.lines.map(() => 0);
+  const wholeInvoiceInView = included >= r.x.linesSubtotalMinor;
+
+  const shares: number[] = [];
+  let walked = 0;
+  let given = 0;
+  for (const l of r.lines) {
+    walked += l.lineTotalMinor;
+    const upTo = Math.min(
+      invoiceDiscount,
+      Math.round(
+        (invoiceDiscount * Math.min(walked, r.x.linesSubtotalMinor)) / r.x.linesSubtotalMinor,
+      ),
+    );
+    const share = Math.max(0, upTo - given);
+    shares.push(share);
+    given += share;
+  }
+  if (wholeInvoiceInView && shares.length > 0) {
+    const last = shares.length - 1;
+    shares[last] = Math.max(0, shares[last]! + (invoiceDiscount - given));
+  }
+  return shares;
+}
+
 export function rowAmountMinor(r: FilteredSaleRow): number {
-  return r.lineLevel
-    ? r.lines.reduce((a, l) => a + l.lineTotalMinor, 0)
-    : r.x.totalMinor;
+  if (!r.lineLevel) return r.x.totalMinor;
+  const lines = r.lines.reduce((a, l) => a + l.lineTotalMinor, 0);
+  return Math.max(0, lines - rowInvoiceDiscountShareMinor(r));
 }
 
 export function rowProfitMinor(r: FilteredSaleRow): number {
-  return r.lineLevel
-    ? r.lines.reduce((a, l) => a + (l.lineProfitMinor ?? 0), 0)
-    : (r.x.profitMinor ?? 0);
+  if (!r.lineLevel) return r.x.profitMinor ?? 0;
+  const lines = r.lines.reduce((a, l) => a + (l.lineProfitMinor ?? 0), 0);
+  // A discount is money the shop did not take, so it comes off the profit too.
+  return lines - rowInvoiceDiscountShareMinor(r);
 }
 
 export function totalsOf(rows: readonly FilteredSaleRow[]): SalesTotals {
@@ -374,7 +516,9 @@ export function byDay(
     pcs: number;
   }>();
 
-  for (let d = dayStart(from); d.getTime() <= dayStart(to).getTime(); d = addDays(d, 1)) {
+  const first = shopDayStart(from);
+  const lastDay = shopDayStart(to);
+  for (let d = first; d.getTime() <= lastDay.getTime(); d = addDays(d, 1)) {
     const iso = isoDay(d);
     const e = {
       day: d,
@@ -389,7 +533,10 @@ export function byDay(
   }
 
   for (const r of rows) {
-    const e = idx.get(isoDay(new Date(r.x.occurredAt)));
+    // The business day the owner set (`ui.day_start`), not the calendar one: a sale
+    // at 1:30 AM belongs to the day that is ending, so the bars must add up to the
+    // headline above them.
+    const e = idx.get(isoDay(dayStart(new Date(r.x.occurredAt))));
     if (!e) continue;
     e.salesMinor += rowAmountMinor(r);
     e.profitMinor += rowProfitMinor(r);
@@ -412,7 +559,9 @@ export function byProduct(rows: readonly FilteredSaleRow[]): ProductBreakdownRow
   }>();
 
   for (const r of rows) {
-    for (const l of r.lines) {
+    const shares = lineInvoiceDiscountShares(r);
+    for (const [i, l] of r.lines.entries()) {
+      const share = shares[i] ?? 0;
       const k = l.productId || l.productName;
       const existing = m.get(k) ?? {
         key: k,
@@ -424,8 +573,8 @@ export function byProduct(rows: readonly FilteredSaleRow[]): ProductBreakdownRow
         profitMinor: 0,
       };
       existing.qty += l.quantity;
-      existing.salesMinor += l.lineTotalMinor;
-      existing.profitMinor += l.lineProfitMinor ?? 0;
+      existing.salesMinor += l.lineTotalMinor - share;
+      existing.profitMinor += (l.lineProfitMinor ?? 0) - share;
       m.set(k, existing);
     }
   }
@@ -461,7 +610,9 @@ export function byCategory(
   }>();
 
   for (const r of rows) {
-    for (const l of r.lines) {
+    const shares = lineInvoiceDiscountShares(r);
+    for (const [i, l] of r.lines.entries()) {
+      const share = shares[i] ?? 0;
       const catId = l.categoryId ?? 'uncategorized';
       const mainId = l.parentCategoryId ?? catId;
       const mainName =
@@ -478,8 +629,8 @@ export function byCategory(
         subs: new Map(),
       };
       main.qty += l.quantity;
-      main.salesMinor += l.lineTotalMinor;
-      main.profitMinor += l.lineProfitMinor ?? 0;
+      main.salesMinor += l.lineTotalMinor - share;
+      main.profitMinor += (l.lineProfitMinor ?? 0) - share;
       m.set(mainId, main);
 
       if (mainId !== catId) {
@@ -492,8 +643,8 @@ export function byCategory(
           profitMinor: 0,
         };
         sub.qty += l.quantity;
-        sub.salesMinor += l.lineTotalMinor;
-        sub.profitMinor += l.lineProfitMinor ?? 0;
+        sub.salesMinor += l.lineTotalMinor - share;
+        sub.profitMinor += (l.lineProfitMinor ?? 0) - share;
         main.subs.set(catId, sub);
       }
     }

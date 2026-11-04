@@ -304,58 +304,6 @@ export function resolveMobileScanToPos(
   };
 }
 
-/**
- * Deterministic 21×21 QR matrix for pairing phones over shop Wi-Fi (`pair-qr`).
- */
-export function buildPairingQrMatrix(payload: string, size = 21): boolean[][] {
-  const n = Math.max(21, size);
-  const grid: boolean[][] = Array.from({ length: n }, () =>
-    Array.from({ length: n }, () => false),
-  );
-
-  const drawFinder = (r0: number, c0: number) => {
-    for (let r = 0; r < 7; r += 1) {
-      for (let c = 0; c < 7; c += 1) {
-        const border = r === 0 || r === 6 || c === 0 || c === 6;
-        const inner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
-        grid[r0 + r]![c0 + c] = border || inner;
-      }
-    }
-  };
-
-  drawFinder(0, 0);
-  drawFinder(0, n - 7);
-  drawFinder(n - 7, 0);
-
-  // Timing lines
-  for (let i = 8; i < n - 8; i += 1) {
-    grid[6]![i] = i % 2 === 0;
-    grid[i]![6] = i % 2 === 0;
-  }
-
-  // Deterministic hash bits from payload
-  let seed = 2166136261;
-  for (let i = 0; i < payload.length; i += 1) {
-    seed ^= payload.charCodeAt(i);
-    seed = Math.imul(seed, 16777619) >>> 0;
-  }
-
-  for (let r = 0; r < n; r += 1) {
-    for (let c = 0; c < n; c += 1) {
-      const inTopLeft = r < 8 && c < 8;
-      const inTopRight = r < 8 && c >= n - 8;
-      const inBottomLeft = r >= n - 8 && c < 8;
-      const isTiming = r === 6 || c === 6;
-      if (inTopLeft || inTopRight || inBottomLeft || isTiming) continue;
-      seed ^= (r * 31 + c * 17) & 0xff;
-      seed = Math.imul(seed, 16777619) >>> 0;
-      grid[r]![c] = (seed & 1) === 1;
-    }
-  }
-
-  return grid;
-}
-
 export interface RemoteOwnerSnapshot {
   readonly shopName: string;
   readonly remoteCode: string;

@@ -36,12 +36,12 @@ test('a phone drops «الموبايل» and gains «الالتقاط» (`ADR-04
   );
   assert.deepEqual(
     navFor('manager').map((item) => item.id),
-    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'expenses', 'mobile', 'settings'],
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'phones', 'reports', 'expenses', 'mobile', 'settings'],
     'the desktop rail, with the phone preview where it always was',
   );
   assert.deepEqual(
     navFor('manager', true).map((item) => item.id),
-    ['pos', 'sales', 'wallets', 'repairs', 'store', 'reports', 'expenses', 'capture', 'settings'],
+    ['pos', 'sales', 'wallets', 'repairs', 'store', 'phones', 'reports', 'expenses', 'capture', 'settings'],
     'the same shop on a phone: preview out, capture in, same place in the rail',
   );
   assert.deepEqual(
@@ -58,4 +58,47 @@ test('every screen id has a title and a place in NAV', () => {
   }
   assert.equal(roleName('manager'), 'المالك');
   assert.equal(roleName('sales'), 'بيّاع');
+});
+
+test('«الإعدادات» is not a section: it sits apart, at the foot of the rail', async () => {
+  const { navSectionsFor, settingsNavItem } = await import('./nav.ts');
+  const sections = navSectionsFor('manager').map((item) => item.id);
+  assert.ok(!sections.includes('settings'), 'the door to the shop’s setup is not one of its pages');
+  assert.equal(settingsNavItem()?.label, 'الإعدادات');
+  assert.ok(sections.includes('store') && sections.includes('pos'));
+  // A seller has no settings door at all, and no owner screens either.
+  assert.ok(!navSectionsFor('sales').some((item) => item.id === 'store'));
+});
+
+test('the rail order is the owner’s, and nothing is ever lost', async () => {
+  const { orderSections, parseNavOrder, moveSection, SECTION_ORDER } = await import('./nav.ts');
+  const { navSectionsFor } = await import('./nav.ts');
+  const items = navSectionsFor('manager');
+
+  // An empty stored order is «what this build ships».
+  assert.deepEqual(parseNavOrder(''), []);
+  assert.deepEqual(
+    orderSections(items, parseNavOrder('')).map((i) => i.id),
+    items.map((i) => i.id),
+  );
+
+  // A stored order puts its sections first, in the given order.
+  assert.deepEqual(
+    orderSections(items, parseNavOrder('store,pos')).slice(0, 2).map((i) => i.id),
+    ['store', 'pos'],
+  );
+
+  // A stored order from an older (or newer) build cannot drop a screen, invent
+  // one, or repeat one.
+  assert.deepEqual(parseNavOrder('store,store,,wat,pos'), ['store', 'pos']);
+  assert.deepEqual(parseNavOrder('store'), ['store']);
+  const ordered = orderSections(items, parseNavOrder('store')).map((i) => i.id);
+  assert.equal(ordered.length, items.length);
+  assert.deepEqual([...ordered].sort(), items.map((i) => i.id).sort());
+
+  // Moving is a swap, and the ends are walls rather than corruption.
+  const base = [...SECTION_ORDER];
+  assert.deepEqual(moveSection(base, 'pos', 1).slice(0, 2), ['sales', 'pos']);
+  assert.deepEqual(moveSection(base, 'pos', -1).slice(0, 2), ['pos', 'sales']);
+  assert.deepEqual(moveSection(base, 'capture', 1), base);
 });

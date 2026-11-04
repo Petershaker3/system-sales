@@ -114,14 +114,21 @@ export function defaultInvoiceReceiptMode(
   return eff;
 }
 
+/**
+ * What the finished sale says about its receipt.
+ *
+ * «اتبعت» would be a claim this app cannot make: sending happens in WhatsApp, by
+ * the person pasting the image. What it did is open the chat with the message
+ * written and the image copied, so the label says exactly that (`ADR-022` §2.3).
+ */
 export function receiptModeDoneLabel(mode: ReceiptMode): string {
   switch (mode) {
     case 'wa':
-      return 'اتبعت على واتساب';
+      return 'واتساب جاهز';
     case 'print':
       return 'اتطبع';
     case 'both':
-      return 'اتطبع واتبعت واتساب';
+      return 'اتطبع وواتساب جاهز';
     case 'none':
       return 'من غير إيصال';
   }

@@ -9,7 +9,7 @@ import CameraScanButton from '../../ui/CameraScanButton.vue';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import type { ScanReading } from '../../ui/scan';
-import { imeiLuhn, normalizeImeiDigits } from './imei';
+import { imeiLuhn, isPlaceholderImei, normalizeImeiDigits } from './imei';
 
 const props = defineProps<{
   product: PosProduct;
@@ -175,7 +175,8 @@ function onEnter(): void {
         >
           <Icon name="smartphone" />
           <bdi dir="ltr" class="mono imei-digits">
-            {{ u.imei.slice(0, 11) }}<b>{{ u.imei.slice(11) }}</b>
+            <template v-if="isPlaceholderImei(u.imei)">بدون IMEI <b class="muted">(رقم داخلي مؤقت)</b></template>
+            <template v-else>{{ u.imei.slice(0, 11) }}<b>{{ u.imei.slice(11) }}</b></template>
           </bdi>
           <span v-if="u.conditionGrade" class="tag">فئة {{ u.conditionGrade }}</span>
           <span

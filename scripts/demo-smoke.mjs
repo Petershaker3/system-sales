@@ -16,6 +16,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+  BinaryBitmap,
+  DecodeHintType,
+  HybridBinarizer,
+  QRCodeReader,
+  RGBLuminanceSource,
+} from '@zxing/library';
+
 import { launch } from '../docs/ui/mockup-v1/tools/launch.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173/';
@@ -43,6 +51,58 @@ page.on('console', (m) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
+
+/**
+ * Decode a QR the way a phone camera would: a screenshot of the element, read back.
+ *
+ * The pairing QR used to be a drawing of a QR code, so «it looks right» is exactly
+ * the claim that was already false. This takes the pixels the screen really shows.
+ */
+async function decodeRenderedQr(selector) {
+  const png = await page.$eval(selector, async (el) => {
+    const rect = el.getBoundingClientRect();
+    const svg = el.querySelector('svg');
+    if (svg === null) return null;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+    const scale = Math.max(6, Math.round(480 / Math.max(rect.width, 1)));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(rect.width) * scale;
+    canvas.height = Math.round(rect.height) * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let binary = '';
+    const bytes = new Uint8Array(data.buffer);
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    return { width: canvas.width, height: canvas.height, rgba: btoa(binary) };
+  });
+  if (png === null) return null;
+
+  const raw = Buffer.from(png.rgba, 'base64');
+  const pixels = new Uint8ClampedArray(png.width * png.height);
+  for (let i = 0, p = 0; i < raw.length; i += 4, p += 1) {
+    pixels[p] = Math.round(0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2]);
+  }
+  const hints = new Map();
+  hints.set(DecodeHintType.CHARACTER_SET, 'UTF-8');
+  try {
+    return new QRCodeReader()
+      .decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(pixels, png.width, png.height))), hints)
+      .getText();
+  } catch {
+    return null;
+  }
+}
+
 const text = (sel) => page.$eval(sel, (el) => el.textContent?.trim() ?? '').catch(() => '');
 const count = (sel) => page.$$eval(sel, (els) => els.length);
 /**
@@ -58,6 +118,13 @@ const fill = (sel, value) =>
     },
     value
   );
+
+/** Open «الإعدادات» — an icon at the foot of the rail, apart from the sections. */
+async function openSettings() {
+  await page.click('[data-rail-settings]');
+  await page.waitForSelector('[data-settings-layout]', { timeout: 5000 });
+  await sleep(150);
+}
 
 async function clickText(selector, label) {
   const handles = await page.$$(selector);
@@ -104,7 +171,12 @@ await signIn('يوسف', '2222');
 await page.waitForSelector('.tile');
 check('seller lands on the sales screen', (await text('.topbar h1')) === 'البيع');
 const rail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
-check('seller sees no owner screens on the rail', !rail.includes('المخزن') && !rail.includes('الإعدادات'), rail.join(','));
+check('seller sees no owner screens on the rail', !rail.includes('المخزن'), rail.join(','));
+check(
+  'the settings door is an icon at the foot of the rail, not a section',
+  (await count('.rail [data-rail-settings]')) === 0 &&
+    (await count('.rail .rail-foot [data-rail-lock]')) === 1
+);
 check('tiles show the best sellers (12)', (await count('.tile')) === 12);
 check('the demo marker is in the top bar', (await text('.fresh-tag')).includes('تجربة'));
 await shot('02-pos-seller');
@@ -223,13 +295,12 @@ await page.keyboard.press('Escape');
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(60);
 
-// theme switch for everyone
-await clickText('.rail .nav-btn', 'غامق');
-await sleep(150);
-check('a seller can switch to dark', (await page.$eval('html', (h) => h.dataset.theme)) === 'dark');
-await shot('06-pos-dark');
-await clickText('.rail .nav-btn', 'فاتح');
-await sleep(100);
+// light/dark left the rail with the guide: both are settings (2026-10-23)
+check(
+  'the rail carries neither the guide nor a light/dark button',
+  (await count('.rail [data-rail-guide-btn]')) === 0 &&
+    (await count('.rail .nav-btn[title="فاتح / غامق"]')) === 0
+);
 
 // --- lock, PIN, switch (plan item 1.1, ADR-017) -----------------------------
 await page.keyboard.down('Control');
@@ -305,8 +376,12 @@ check('the old PIN stops working and the new one works', oldPinRefused && (await
 
 // --- the owner changes the look --------------------------------------------
 const ownerRail = await page.$$eval('.rail .nav-btn span', (els) => els.map((e) => e.textContent));
-check('the owner sees المخزن and الإعدادات', ownerRail.includes('المخزن') && ownerRail.includes('الإعدادات'));
-await clickText('.rail .nav-btn', 'الإعدادات');
+check(
+  'the owner sees المخزن, and الإعدادات is an icon apart from the sections',
+  ownerRail.includes('المخزن') && !ownerRail.includes('الإعدادات') &&
+    (await count('.rail [data-rail-settings]')) === 1
+);
+await openSettings();
 await page.waitForSelector('.look-card');
 await clickText('.look-card', 'علبة الموبايل');
 await page.waitForSelector('#look-pass', { timeout: 3000 });
@@ -316,6 +391,33 @@ await page.keyboard.press('Enter');
 await sleep(300);
 check('the box look is applied and stored', (await page.$eval('html', (h) => h.dataset.look)) === 'box');
 await shot('07-settings-box');
+
+// the mode lives in الإعدادات ← الشريط الجانبي now
+await page.click('[data-settings-tab="rail"]');
+await page.waitForSelector('[data-rail-theme]', { timeout: 3000 });
+await page.click('[data-theme-choice="dark"]');
+await sleep(150);
+const reauthOpen = (await count('[data-rail-reauth]')) === 1;
+if (reauthOpen) {
+  await page.type('[data-rail-reauth]', '1234');
+  await page.keyboard.press('Enter');
+  await sleep(250);
+}
+check('the owner changes light/dark from الإعدادات ← الشريط الجانبي', (await page.$eval('html', (h) => h.dataset.theme)) === 'dark');
+await shot('08-settings-dark');
+await page.click('[data-theme-choice="light"]');
+await sleep(120);
+const reauthAgain = (await count('[data-rail-reauth]')) === 1;
+if (reauthAgain) {
+  await page.type('[data-rail-reauth]', '1234');
+  await page.keyboard.press('Enter');
+  await sleep(200);
+}
+check('and back to light', (await page.$eval('html', (h) => h.dataset.theme)) === 'light');
+// back to every section: the rest of this script reads cards on other tabs, and
+// the rail tab had hidden them (`v-show`)
+await page.click('[data-settings-tab="all"]');
+await sleep(200);
 await clickText('.swatch', '');
 
 // --- the owner's categories (plan item 1.2, ADR-018 §1) --------------------
@@ -872,7 +974,7 @@ check(
 );
 await shot('24-pos-product-image');
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#show-product-images');
 await sleep(120);
 check(
@@ -888,7 +990,7 @@ check(
   'turning off «اعرض صور الأصناف» hides product images on the sales screen without deleting them',
   (await count('.tile .ico.img img')) === 0
 );
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#show-product-images');
 await page.$eval('#show-product-images', (el) => el.click());
 await sleep(150);
@@ -1014,7 +1116,7 @@ await shot('26-pos-imei-linked');
 await page.click('.line .icon-btn.danger');
 await sleep(100);
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#imei-mode-required');
 await page.$eval('#imei-mode-required', (el) => el.click());
 await sleep(150);
@@ -1037,7 +1139,7 @@ check(
 );
 await page.click('.line .icon-btn.danger');
 await sleep(100);
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#imei-mode-optional');
 await page.$eval('#imei-mode-optional', (el) => el.click());
 await sleep(150);
@@ -1145,7 +1247,7 @@ check(
 await page.keyboard.press('Escape');
 await sleep(120);
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#pay-method-toggle-install');
 await page.$eval('#pay-method-toggle-install', (el) => el.click());
 await sleep(120);
@@ -1231,7 +1333,7 @@ check(
 );
 
 // --- Arabic receipt on WhatsApp & shop profile (ADR-022, plan item 1.7) ----
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-profile"]');
 await sleep(150);
 check(
@@ -1366,7 +1468,12 @@ check(
     waSentPre.phone === '01012345678' &&
     waSentPre.url.startsWith('https://wa.me/201012345678?text=') &&
     waSentPre.message.includes('سنتر بيتر للموبايلات') &&
-    waSentPre.imageDataUrl.startsWith('data:image/png;base64,')
+    waSentPre.imageDataUrl.startsWith('data:image/png;base64,') &&
+    waSentPre.opened === 'window'
+);
+check(
+  'the finished sale says «واتساب جاهز» — the chat is open and the image is copied, not «اتبعت»',
+  (await text('.done-wrap')).includes('واتساب جاهز') && !(await text('.done-wrap')).includes('اتبعت على واتساب')
 );
 await shot('35-pos-done-receipt-preview');
 await page.click('#finish-sale-btn');
@@ -1405,7 +1512,7 @@ await page.click('#finish-sale-btn');
 await sleep(150);
 
 // --- Plan item 1.8: Default warranty periods & line warranty (ADR-023) ------
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('#set-warrantyUsed', { timeout: 3000 });
 await sleep(150);
 const initialWarranties = await page.evaluate(() => ({
@@ -1685,7 +1792,7 @@ check(
 await shot('43-wallets-screen');
 
 // Navigate to «الإعدادات» and verify «محافظ المحل» & «عمولات الخدمات» cards
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
 await sleep(150);
 check(
@@ -1801,7 +1908,7 @@ check(
 await shot('47-store-damaged-stock');
 
 // --- Plan item 1.12: Automatic backup policy (ADR-027) ----------------------
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-backup-policy-card]', { timeout: 3000 });
 await sleep(200);
 const backupCardText = await text('[data-backup-policy-card]');
@@ -1872,9 +1979,11 @@ const settingsTabLabels = await page.$$eval(
   (els) => els.map((e) => (e.textContent ?? '').trim()),
 );
 check(
-  'Settings sidebar lists all 8 approved settings tabs in exact order',
+  // «الشريط الجانبي» joined them on 2026-10-23: the rail's order, light/dark and
+  // the guide are settings about the shop's own frame.
+  'Settings sidebar lists the approved settings tabs in exact order',
   settingsTabLabels.join('، ') ===
-    'المحل، الشكل، الأصناف والبيع، المستخدمين والصلاحيات، المحافظ والدفع، الإيصال والضمان، النسخ الاحتياطي، الأجهزة والطابعة',
+    'المحل، الشكل، الشريط الجانبي، الأصناف والبيع، المستخدمين والصلاحيات، المحافظ والدفع، الإيصال والضمان، النسخ الاحتياطي، الأجهزة والطابعة',
   settingsTabLabels.join('، ')
 );
 
@@ -1963,6 +2072,9 @@ check(
   'Enabling «مرحّل المتابعة البعيدة للمالك» in «الأجهزة والطابعة» reveals the encrypted read-only remote QR code',
   (await count('[data-remote-followup-card]')) === 1 &&
     (await count('[data-remote-qr]')) === 1 &&
+    (await page.$eval('[data-remote-qr]', (el) => el.getAttribute('data-qr-payload') ?? '')).startsWith(
+      'MSHOP-REMOTE|v1|'
+    ) &&
     (await text('[data-remote-followup-card]')).includes('RMT-9042')
 );
 
@@ -2065,7 +2177,10 @@ await page.click('[data-sales-detail-resend]');
 await sleep(200);
 check(
   'Clicking «ابعت الإيصال تاني واتساب» in invoice detail modal sends the receipt and shows confirmation toast',
-  (await text('#toasts')).includes('اتبعت الإيصال تاني على واتساب')
+  // The number typed into the detail modal is the one the chat opens on, and the
+  // toast says what to do with the image instead of claiming it was delivered.
+  (await text('#toasts')).includes('واتساب على 01001234567') &&
+    (await text('#toasts')).includes('الصق صورة الإيصال')
 );
 await shot('50-sales-history-owner');
 await page.click('[data-sales-detail-close]');
@@ -2603,9 +2718,14 @@ check(
   await page.waitForSelector('[data-stock-count-modal]', { timeout: 3000 });
   await sleep(250);
 
+  // The demo shelf also holds handsets the shop has really registered (A15,
+  // A16 ×2, a used iPhone 16), so the count is read from the screen, not assumed:
+  // what this scenario proves is that a missing IMEI is pinned to its device.
+  const scTotal = Number((await text('[data-sc-kpi-scanned-units]')).split('/')[1]?.trim());
   check(
-    'StockCountModal opens and flags all 3 registered in-stock IMEI units until scanned',
-    (await text('[data-sc-kpi-missing-units]')).includes('3 جهاز')
+    'StockCountModal counts every registered in-stock IMEI unit',
+    Number.isInteger(scTotal) && scTotal >= 3,
+    String(scTotal)
   );
 
   check(
@@ -2621,21 +2741,38 @@ check(
   await page.keyboard.press('Enter');
   await sleep(150);
   check(
-    'Scanning 2 IMEIs updates scanned count to 2 / 3 and isolates the 1 missing IMEI',
-    (await text('[data-sc-kpi-scanned-units]')).includes('2 / 3') &&
-      (await text('[data-sc-kpi-missing-units]')).includes('1 جهاز') &&
+    'scanning two IMEIs is counted against the shelf, and the rest are flagged missing',
+    (await text('[data-sc-kpi-scanned-units]')).includes(`2 / ${scTotal}`) &&
+      (await text('[data-sc-kpi-missing-units]')).includes(`${scTotal - 2} جهاز`) &&
       (await text('[data-sc-scan-feedback]')).includes('اتمسح الموبايل ✓')
   );
 
   await page.click('[data-sc-tab="missing_imeis"]');
   await sleep(150);
+  const missingText = await text('[data-sc-missing-list]');
   check(
     '«IMEI ناقص» tab pinpoints the exact missing device (Galaxy A24 · IMEI 864219042345679)',
-    (await count('[data-sc-missing-unit]')) === 1 &&
-      (await text('[data-sc-missing-list]')).includes('864219042345679') &&
-      (await text('[data-sc-missing-list]')).includes('Samsung Galaxy A24 128GB مستعمل فئة B')
+    (await count('[data-sc-missing-unit]')) === scTotal - 2 &&
+      missingText.includes('864219042345679') &&
+      missingText.includes('Samsung Galaxy A24 128GB مستعمل فئة B')
   );
   await shot('58-stock-count-modal');
+
+  // Everything on the shelf was seen except that one A24: the handsets are marked
+  // counted by hand (the chips live in the rows tab, not in the summary), so the
+  // reconciliation retires the missing device only.
+  await page.click('[data-sc-tab="all"]');
+  await sleep(200);
+  for (let guard = 0; guard < 40; guard += 1) {
+    const next = await page.$$eval(
+      '[data-sc-unit-chip].missing',
+      (els, keep) => els.find((e) => !(e.textContent ?? '').includes(keep))?.getAttribute('data-sc-unit-chip') ?? null,
+      '864219042345679'
+    );
+    if (next === null) break;
+    await page.click(`[data-sc-unit-chip="${next}"]`);
+    await sleep(120);
+  }
 
   await page.click('[data-sc-submit]');
   await page.waitForSelector('.modal .approver', { timeout: 3000 });
@@ -2646,7 +2783,8 @@ check(
   check(
     'Approving Stock Count reconciliation with Owner PIN retires the missing IMEI and updates stock',
     (await text('#toasts')).includes('اتسجّلت تسوية الجرد') &&
-      (await text('#toasts')).includes('استبعاد 1 جهاز IMEI ناقص')
+      (await text('#toasts')).includes('استبعاد 1 جهاز IMEI ناقص'),
+    (await text('#toasts')).replace(/\s+/g, ' ')
   );
 
   // --- Phase 2 Item 2.5: Monthly Reports & Evaluation (ADR-035) ------------
@@ -2816,17 +2954,110 @@ check(
   (await count('[data-companion-intake-row]')) === 0 &&
     (await text('[data-companion-inbox-empty]')).includes('مفيش مسودة')
 );
-check('the pairing QR is drawn, not described', (await count('[data-companion-qr] svg')) === 1);
+// The QR must be a QR code, not a drawing of one: it carries the computer's own
+// line, its module count is a real version, and its payload is what the phone parses.
+const qrBefore = await page.$eval('[data-companion-qr]', (el) => ({
+  payload: el.getAttribute('data-qr-payload'),
+  modules: el.getAttribute('data-qr-modules'),
+  pathLength: (el.querySelector('path')?.getAttribute('d') ?? '').length,
+}));
 const payloadBefore = await text('[data-companion-payload]');
+const decodedQr = await decodeRenderedQr('[data-companion-qr]');
+check(
+  'a camera reading the QR on screen gets the exact line the computer printed',
+  decodedQr === payloadBefore.trim() && decodedQr.startsWith('MSHOP-PAIR|v1|'),
+  String(decodedQr)
+);
+check(
+  'the pairing QR is a real QR code carrying the line the phone will read',
+  (await count('[data-companion-qr] svg')) === 1 &&
+    qrBefore.payload === payloadBefore.trim() &&
+    qrBefore.payload.startsWith('MSHOP-PAIR|v1|') &&
+    /^(\d+)x\1$/.test(qrBefore.modules ?? '') &&
+    Number((qrBefore.modules ?? '0x0').split('x')[0]) >= 21 &&
+    (Number((qrBefore.modules ?? '0x0').split('x')[0]) - 21) % 4 === 0 &&
+    qrBefore.pathLength > 200,
+  `${qrBefore.modules} · ${qrBefore.pathLength} chars`
+);
 await page.click('[data-companion-rotate]');
 await sleep(400);
 const payloadAfter = await text('[data-companion-payload]');
+const qrAfter = await page.$eval('[data-companion-qr]', (el) => ({
+  payload: el.getAttribute('data-qr-payload'),
+  modules: el.getAttribute('data-qr-modules'),
+}));
 check(
-  'a new pair code changes the line the phone reads',
-  payloadBefore !== payloadAfter && /PAIR-\d+/.test(payloadAfter) && !payloadBefore.includes(payloadAfter.split('|').pop()),
+  'a new pair code changes the line the phone reads — and the code it scans',
+  payloadBefore !== payloadAfter &&
+    /PAIR-\d+/.test(payloadAfter) &&
+    !payloadBefore.includes(payloadAfter.split('|').pop()) &&
+    qrAfter.payload === payloadAfter.trim() &&
+    qrAfter.payload !== qrBefore.payload,
   `${payloadBefore} → ${payloadAfter}`
 );
 await shot('62b-companion-link-panel');
+
+// --- «جرّب شاشة الموبايل»: the real handset screen, on the computer ----------
+// The owner's second complaint was that he could not see what the phone app is
+// worth. A screenshot of a phone is not the app; this opens the app itself,
+// pre-linked to this computer, and the capture made in it lands in the inbox.
+const tryoutBefore = await count('[data-companion-intake-row]');
+await page.click('[data-companion-tryout]');
+await page.waitForSelector('[data-companion-tryout-screen] [data-phone-capture-screen]', { timeout: 8000 });
+await sleep(1500);
+await page.waitForSelector('[data-capture-stored-host]', { timeout: 8000 }).catch(() => undefined);
+const tryoutHost = (await text('[data-companion-host-address]')).trim();
+const tryoutStored = await text('[data-capture-stored-host]');
+check(
+  '«جرّب شاشة الموبايل» opens the real capture screen, already linked to this computer',
+  tryoutStored.includes(tryoutHost) && (await text('[data-capture-link-tag]')).includes('متّصل'),
+  `${tryoutHost} · ${tryoutStored.replace(/\s+/g, ' ')}`
+);
+check(
+  '…and it does not ask the owner to type an address the computer already knows',
+  (await page.$('[data-capture-paste]')) === null && (await page.$('[data-capture-host]')) === null,
+  'a linked phone shows the state, not the form'
+);
+await shot('62c-companion-tryout-phone');
+
+// Focus via the DOM, then type: the screen is an overlay and a toast can sit on top
+// of the field, so a click-to-focus lands on the toast and the typing goes nowhere.
+await page.$eval('[data-capture-name]', (el) => el.focus());
+await page.keyboard.type('شاحن أنكر 30 وات');
+await page.$eval('[data-capture-qty]', (el) => el.focus());
+await page.keyboard.down('Control');
+await page.keyboard.press('KeyA');
+await page.keyboard.up('Control');
+await page.keyboard.type('3');
+await sleep(150);
+await page.$eval('[data-capture-cost]', (el) => {
+  el.value = '120';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(200);
+await page.$eval('[data-capture-save]', (el) => el.click());
+await sleep(900);
+// A linked phone sends the moment it saves, so what has to be true here is that
+// the capture left the handset and said so — a queue the shop forgets to empty is
+// the failure this screen exists to prevent.
+check(
+  'a capture saved in the trial screen is sent to the computer straight away',
+  (await text('#toasts')).includes('الكمبيوتر أخد') &&
+    !(await text('#toasts')).includes('اكتب اسم الصنف'),
+  (await text('#toasts')).replace(/\s+/g, ' ')
+);
+await page.click('[data-companion-tryout-close]');
+await sleep(900);
+const tryoutRows = await page.$$eval('[data-companion-intake-row]', (els) =>
+  els.map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim())
+);
+check(
+  '…and it arrives in the computer’s inbox, under the phone that made it',
+  tryoutRows.length === tryoutBefore + 1 &&
+    tryoutRows.some((row) => row.includes('شاحن أنكر 30 وات') && row.includes('تجربة')),
+  `${tryoutBefore} → ${tryoutRows.length}`
+);
+await shot('62d-companion-tryout-inbox');
 
 
   await page.click('[data-mobile-mode="remote"]');
@@ -3000,7 +3231,7 @@ if (!(await ask('رصيد بداية: شاحن آيفون'))) {
 // password and shows the next code once.
 const CODE_SHAPE = /^[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){4}$/;
 const shownCode = () => page.$$eval('.rc-code span', (els) => els.map((e) => e.textContent?.trim() ?? '').join('-'));
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('.recovery-card', { timeout: 3000 });
 await sleep(200);
 check('the settings show the recovery code card with its date', (await text('.recovery-card .s-row b')).includes('اتعمل'));
@@ -3103,7 +3334,7 @@ await sleep(300);
 const vfBalBefore = await text('[data-wal-balance="vf"]');
 const walletCardsBefore = await count('[data-wal-card]');
 
-await clickText('.rail .nav-btn', 'الإعدادات');
+await openSettings();
 await page.waitForSelector('[data-card="shop-wallets"]', { timeout: 3000 });
 await sleep(250);
 await page.type('[data-wal-new-name]', 'فودافون كاش ٢');
@@ -3341,11 +3572,14 @@ check(
 );
 await shot('72-phone-expense-in-inbox');
 
+const inboxRowsBeforeAccept = await count('[data-companion-intake-row]');
 await page.click('[data-companion-accept]');
 await sleep(700);
 check(
-  'accepting it empties the inbox',
-  (await text('[data-companion-inbox-count]')).includes('مفيش')
+  'accepting it takes that one draft out of the inbox',
+  (await count('[data-companion-intake-row]')) === inboxRowsBeforeAccept - 1 &&
+    !(await text('[data-companion-inbox]')).includes('كهربا'),
+  `${inboxRowsBeforeAccept} → ${await count('[data-companion-intake-row]')}`
 );
 
 const drawerBeforeAccept = await (async () => {
@@ -3388,6 +3622,84 @@ check(
   (await count('[data-camera-scan-panel]')) >= 1
 );
 await shot('71-camera-beside-barcode');
+
+// --- «الهواتف»: two shelves, each with its own handsets and its own money ----
+// The owner's request (2026-10-23): «المستعمل ميتخلطش بالجديد، كل حاجة لوحدها»,
+// «الجرد بالعدد وينقسم زراير», and no «أجهزة/موديلات» tab pair.
+await page.$eval('.rail .nav-btn[title="الهواتف"]', (el) => el.click());
+await page.waitForSelector('[data-phones-screen]', { timeout: 5000 });
+await sleep(400);
+
+check(
+  'the phones section is two shelves — جديد and مستعمل — not one list with a filter',
+  (await count('[data-phone-shelf]')) === 2 && (await count('[data-shelf-jump]')) === 2
+);
+check(
+  'no tabs left: one shelf answers «كام جهاز» and «بكام» together, with the handsets under their model',
+  (await count('[data-phone-tab]')) === 0 &&
+    (await count('[data-phone-shelf="new"] [data-phone-model]')) >= 2 &&
+    (await count('[data-phone-shelf="new"] [data-phone-unit]')) >= 2
+);
+
+const newShelf = () => text('[data-phone-shelf="new"]');
+const usedShelf = () => text('[data-phone-shelf="used"]');
+check(
+  'each shelf carries its own value — buying and selling, never a shared total',
+  (await newShelf()).includes('قيمة الشراء') &&
+    (await newShelf()).includes('قيمة البيع المتوقعة') &&
+    (await usedShelf()).includes('قيمة الشراء') &&
+    (await usedShelf()).includes('قيمة البيع المتوقعة')
+);
+
+const NEW_IMEI = '357111111111112';
+const USED_IMEI = '357444444444441';
+check(
+  'a used handset appears on the used shelf and never on the new one',
+  (await usedShelf()).includes(USED_IMEI) && !(await newShelf()).includes(USED_IMEI)
+);
+check(
+  'a new handset appears on the new shelf with its IMEI, and not on the used one',
+  (await newShelf()).includes(NEW_IMEI) && !(await usedShelf()).includes(NEW_IMEI)
+);
+check(
+  'the used shelf says what makes it used — the grade and the battery',
+  (await usedShelf()).includes('فئة B') && (await usedShelf()).includes('88%')
+);
+await shot('80-phones-new-shelf');
+
+await page.click('[data-count-mode="money"]');
+await sleep(250);
+check(
+  '«بالفلوس» reads the same two shelves as money, and «بالعدد» as pieces',
+  (await newShelf()).includes('قيمة البيع المتوقعة') && (await count('[data-count-mode="money"]')) === 1
+);
+await shot('81-phones-used-shelf');
+
+await page.click('[data-count-mode="number"]');
+await sleep(200);
+await page.type('[data-phone-search]', USED_IMEI);
+await sleep(300);
+check(
+  'search keeps each shelf whole: a used IMEI fills the used shelf and empties the new one',
+  (await count('[data-phone-shelf="used"] [data-phone-unit]')) >= 1 &&
+    (await count('[data-phone-shelf="new"] [data-phone-unit]')) === 0
+);
+await page.$eval('[data-phone-search]', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await sleep(200);
+
+// the phone settings are buttons at the foot, not a fourth tab
+await page.$eval('[data-goto="receipt"]', (el) => el.click());
+await sleep(400);
+check(
+  'a phone setting opens the settings tab that owns it',
+  (await text('.topbar h1')) === 'الإعدادات' &&
+    (await page.$eval('[data-settings-panel="receipt"]', (el) => getComputedStyle(el).display)) !== 'none'
+);
+await page.click('[data-settings-tab="all"]');
+await sleep(150);
 
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();

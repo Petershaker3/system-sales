@@ -121,6 +121,20 @@ export function pcsWord(n: number): string {
   return countWord(n, 'قطعة', 'قطعتين', 'قطع');
 }
 
+/**
+ * «1 قطعة»، «قطعتين»، «100 قطعة» — the count and its word, written once.
+ *
+ * `pcsWord` already carries the number for 3+, so a screen that prints
+ * `num(n) pcsWord(n)` says it twice: the phones shelf read «100 100 قطعة»
+ * (owner, 2026-11-02). Use this wherever the number is not printed separately.
+ */
+export function pcsText(n: number): string {
+  const count = Number.isFinite(n) ? Math.trunc(n) : 0;
+  // «0 قطعة» و«1 قطعة» بياخدوا الكلمة المفردة؛ من 2 لفوق `pcsWord` بتكتب العدد معاها.
+  if (count <= 1) return `${num(count)} قطعة`;
+  return pcsWord(count);
+}
+
 /** «نوع»، «نوعين»، «4 أنواع»، «12 نوع». */
 export function kindsWord(n: number): string {
   return countWord(n, 'نوع', 'نوعين', 'أنواع');

@@ -22,6 +22,8 @@ export interface PosProduct {
   readonly categoryId: string | null;
   /** The phone's company (ADR-018 §2), or `null` for anything but a phone. */
   readonly brandId: string | null;
+  /** `keypad` («زراير») or `touch` («سمارت») for a phone; `null` when unknown. */
+  readonly deviceType?: 'touch' | 'keypad' | null;
   /** The variant parent this product belongs to (ADR-018 §4), or `null`. */
   readonly parentId?: string | null;
   /** The parent's base name («جراب سيليكون ملون») shown on the family tile. */

@@ -5,6 +5,7 @@
  */
 
 import type { ShiftSummary } from '../../api/shift.ts';
+import { chatOpenNote, openChatUrl } from '../../ui/external.ts';
 import { money as egp } from '../../ui/format.ts';
 import { normalizeEgyptianPhone } from './receipt.ts';
 
@@ -131,12 +132,13 @@ export function sendShiftReportViaWhatsApp(
   ownerPhone: string,
   countedCashMinor: number,
   closeNote: string | null = null
-): { url: string; text: string } {
+): { url: string; text: string; note: string } {
   const text = formatShiftWhatsAppReport(summary, shopName, countedCashMinor, closeNote);
   const local = normalizeEgyptianPhone(ownerPhone);
   const intl = local ? `2${local}` : '';
   const base = intl ? `https://wa.me/${intl}` : 'https://wa.me/';
   const url = `${base}?text=${encodeURIComponent(text)}`;
+  let note = '';
 
   if (typeof window !== 'undefined') {
     (
@@ -159,11 +161,10 @@ export function sendShiftReportViaWhatsApp(
       differenceMinor: countedCashMinor - summary.totals.expectedCashMinor,
     };
 
-    const isWebDriver = typeof navigator !== 'undefined' && navigator.webdriver === true;
-    if (!isWebDriver && typeof window.open === 'function') {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    }
+    // One door out of the app, shared with the receipt and the repair messages:
+    // the OS opens the chat on the desktop, the browser does it in the demo.
+    note = chatOpenNote(openChatUrl(url));
   }
 
-  return { url, text };
+  return { url, text, note };
 }

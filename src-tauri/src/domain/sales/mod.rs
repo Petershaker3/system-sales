@@ -23,6 +23,12 @@ pub enum SaleError {
     ProductArchived,
     /// No sale carries the id a caller named.
     NotFound,
+    /// A line names a product id that is not an identifier at all.
+    ///
+    /// Kept apart from `NotFound`: a malformed product id has nothing to do with
+    /// invoices, and reporting it as «لا توجد عملية بيع» sent the operator looking
+    /// for a document that was never missing.
+    InvalidProductId,
     /// A confirmed total no longer matches the authoritative prices.
     ///
     /// Raised when the operator confirmed a total and, by the time the sale
@@ -98,6 +104,7 @@ impl SaleError {
             SaleError::Empty => "SALE_EMPTY",
             SaleError::ProductArchived => "SALE_PRODUCT_ARCHIVED",
             SaleError::NotFound => "SALE_NOT_FOUND",
+            SaleError::InvalidProductId => "SALE_INVALID_PRODUCT_ID",
             SaleError::PriceChanged => "SALE_PRICE_CHANGED",
             SaleError::DispositionNotSupported => "SALE_DISPOSITION_NOT_SUPPORTED",
             SaleError::PriceNotSet => "SALE_PRICE_NOT_SET",
@@ -137,6 +144,9 @@ impl fmt::Display for SaleError {
             SaleError::Empty => write!(f, "a sale must carry at least one line"),
             SaleError::ProductArchived => write!(f, "the product is archived and off sale"),
             SaleError::NotFound => write!(f, "no sale with this id"),
+            SaleError::InvalidProductId => {
+                write!(f, "a line names a product id that is not an identifier")
+            }
             SaleError::PriceChanged => {
                 write!(f, "a confirmed price changed before the sale could commit")
             }

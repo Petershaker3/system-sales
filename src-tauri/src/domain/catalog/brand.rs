@@ -230,6 +230,65 @@ pub fn brand_aliases(id: BrandId) -> &'static str {
     default_brand(id).map(|default| default.aliases).unwrap_or("")
 }
 
+/// The old shop's other spellings of the same company: it wrote `INFINX` for
+/// Infinix, `REDMI` for Xiaomi's line, and `HUAWEI`/`HONOR` in capitals.
+fn default_brand_by_name(name: &str) -> Option<&'static DefaultBrand> {
+    let lower = name.trim().to_lowercase();
+    let canonical = match lower.as_str() {
+        "infinx" => "infinix",
+        "redmi" => "xiaomi",
+        "galaxy" => "samsung",
+        other => other,
+    };
+    DEFAULT_BRANDS
+        .iter()
+        .find(|default| default.name.eq_ignore_ascii_case(canonical))
+}
+
+/// The Arabic spellings for a company, by id and — when the id is not one of
+/// the app's own — by its name.
+///
+/// A shop migrated from the old program brings its companies with the old
+/// program's ids, so `brand_aliases` alone answered nothing for every single one
+/// of them: typing «سامسونج» on the sales screen found no phone at all
+/// (2026-11-02). Matching the name as a fallback costs one comparison and makes
+/// those companies searchable without touching the imported rows.
+pub fn brand_aliases_for(id: BrandId, name: &str) -> &'static str {
+    match default_brand(id) {
+        Some(default) => default.aliases,
+        None => default_brand_by_name(name)
+            .map(|default| default.aliases)
+            .unwrap_or(""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_default_company_is_known_by_its_id() {
+        let samsung = DEFAULT_BRANDS[0].brand_id();
+        assert!(brand_aliases_for(samsung, "Samsung").contains("سامسونج"));
+    }
+
+    #[test]
+    fn a_migrated_company_is_known_by_its_name() {
+        // The old shop's ids are not the app's, and its spelling is its own.
+        let legacy = BrandId::from_uuid(Uuid::parse_str("b414b313-341d-7aec-85c1-0c2baf69fbb3").unwrap());
+        assert!(brand_aliases_for(legacy, "Samsung").contains("سامسونج"));
+        assert!(brand_aliases_for(legacy, "HUAWEI").contains("هواوي"));
+        assert!(brand_aliases_for(legacy, "INFINX").contains("انفينكس"));
+        assert!(brand_aliases_for(legacy, "REDMI").contains("ريدمي"));
+    }
+
+    #[test]
+    fn the_owners_own_company_has_no_spellings() {
+        let own = BrandId::from_uuid(Uuid::parse_str("b414b313-341d-7aec-85c1-0c2baf69fbb4").unwrap());
+        assert_eq!(brand_aliases_for(own, "Sulean"), "");
+    }
+}
+
 /// Whether a company may be deleted: one the owner added, with no phone at all
 /// (archived ones included — `products.brand_id` is ON DELETE RESTRICT).
 pub fn can_delete_brand(id: BrandId, products: i64) -> Result<(), BrandError> {

@@ -395,3 +395,42 @@ fn row_to_unit(row: sqlx::sqlite::SqliteRow) -> UnitRecord {
         intake_note: row.get("intake_note"),
     }
 }
+
+/// One unit by its own id (`/data-phone-unit` in the phones section).
+pub async fn find_by_id(
+    conn: &mut SqliteConnection,
+    unit_id: &str,
+) -> Result<Option<UnitRecord>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT id, product_id, imei, imei2, color, unit_cost_minor, status,
+                received_movement_id, sale_line_id, retired_reason, created_by, created_at,
+                condition_grade, battery_health_pct, accessories,
+                seller_name, seller_phone, seller_national_id, intake_note
+         FROM units
+         WHERE id = ?1
+         LIMIT 1",
+    )
+    .bind(unit_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    Ok(row.map(row_to_unit))
+}
+
+/// Replace a unit's primary IMEI, only while it is still in stock.
+///
+/// The caller has already validated the number and proved nobody else holds it;
+/// this returns how many rows changed so a unit sold in the meantime is caught
+/// rather than overwritten.
+pub async fn update_imei(
+    conn: &mut SqliteConnection,
+    unit_id: &str,
+    imei: &str,
+) -> Result<u64, sqlx::Error> {
+    let done = sqlx::query("UPDATE units SET imei = ?2 WHERE id = ?1 AND status = 'in_stock'")
+        .bind(unit_id)
+        .bind(imei)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected())
+}

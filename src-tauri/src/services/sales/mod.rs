@@ -381,7 +381,7 @@ pub async fn record_sale_with_discounts(
             ),
         };
 
-        let id = Uuid::parse_str(&line.product_id).map_err(|_| SaleError::NotFound)?;
+        let id = Uuid::parse_str(&line.product_id).map_err(|_| SaleError::InvalidProductId)?;
         let product = product_repo::find_by_id(&mut *tx, ProductId::from_uuid(id))
             .await
             .map_err(|_| DomainError::StorageUnavailable)?
@@ -2012,7 +2012,7 @@ pub async fn record_sale_exchange(
             ),
         };
 
-        let id = Uuid::parse_str(&line.product_id).map_err(|_| SaleError::NotFound)?;
+        let id = Uuid::parse_str(&line.product_id).map_err(|_| SaleError::InvalidProductId)?;
         let product = product_repo::find_by_id(&mut *tx, ProductId::from_uuid(id))
             .await
             .map_err(|_| DomainError::StorageUnavailable)?

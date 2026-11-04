@@ -114,6 +114,17 @@ export async function listAllProductUnits(): Promise<ProductUnit[]> {
   return invoke<ProductUnit[]>('list_all_product_units');
 }
 
+/**
+ * Give a device its real IMEI after it was registered without one.
+ *
+ * A used handset with no IMEI gets the shop's own stand-in number, shown as
+ * «بدون IMEI». This replaces it with the number on the box, while the piece is
+ * still in stock; the backend refuses a number another device already holds.
+ */
+export async function setUnitImei(unitId: string, imei: string): Promise<string> {
+  return invoke<string>('set_unit_imei', { unitId, imei });
+}
+
 /** One product's physical count input during a Stock Count reconciliation (`ADR-034`). */
 export interface StockCountItemInput {
   readonly productId: string;
@@ -164,4 +175,39 @@ export async function removeStock(productId: string, quantity: number): Promise<
  */
 export async function getPosition(productId: string): Promise<StockPosition> {
   return invoke<StockPosition>('get_position', { productId });
+}
+
+/** What the whole stock is worth at cost, and how many pieces it holds. */
+export interface StockValue {
+  /** Cost of everything on hand, in piastres. Devices and items together. */
+  readonly valueMinor: number;
+  readonly quantity: number;
+  readonly products: number;
+}
+
+/**
+ * One answer for «قيمة المخزن بالجملة» — cost, never the sale price.
+ *
+ * Spends `ManageInventory` and `ViewCostAndProfit`, like `getPosition`, but asks
+ * for the whole shop at once instead of one product at a time.
+ */
+export async function stockValue(): Promise<StockValue> {
+  return invoke<StockValue>('stock_value');
+}
+
+/** One delivery in the receiving log. */
+export interface ReceiptRow {
+  readonly id: string;
+  readonly productId: string;
+  readonly productName: string;
+  readonly quantity: number;
+  readonly unitCostMinor: number;
+  /** The label the operator typed when it came in, if he typed one. */
+  readonly supplierName: string | null;
+  readonly occurredAt: number;
+}
+
+/** The receiving log, newest first. */
+export async function listReceipts(limit = 100): Promise<ReceiptRow[]> {
+  return invoke<ReceiptRow[]>('list_receipts', { limit });
 }

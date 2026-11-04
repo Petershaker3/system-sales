@@ -12,7 +12,7 @@ mod shop_code;
 mod variant;
 
 pub use brand::{
-    brand_aliases, brand_lines, can_delete_brand, is_default_brand, phone_title, storage_label,
+    brand_aliases, brand_aliases_for, brand_lines, can_delete_brand, is_default_brand, phone_title, storage_label,
     Brand, BrandDeviceType, BrandError, BrandId, BrandName, DefaultBrand, DeviceType,
     PhoneDetails, PhoneModel, DEFAULT_BRANDS,
 };

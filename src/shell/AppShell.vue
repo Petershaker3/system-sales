@@ -8,6 +8,8 @@
 // open invoices stay where they are. «قفل» on the rail and Ctrl+L lock the
 // screen (App.vue owns the lock).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { restartApp } from '../api/app';
+import { databaseUnreachable } from '../ui/db-health';
 
 import * as api from '../api/identity';
 import type { Session, UserSummary } from '../api/identity';
@@ -18,13 +20,7 @@ import {
 } from '../api/shift';
 import { runPeriodicBackupTick } from '../api/backup';
 import { describeError } from '../api/errors';
-import {
-  appearance,
-  loadShopLogo,
-  resolvedTheme,
-  shopLogo,
-  toggleTheme,
-} from '../ui/appearance';
+import { appearance, loadShopLogo, shopLogo } from '../ui/appearance';
 import { fmtTime } from '../ui/format';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
@@ -34,6 +30,7 @@ import SalesScreen from '../screens/sales/SalesScreen.vue';
 import WalletsScreen from '../screens/wallets/WalletsScreen.vue';
 import RepairsScreen from '../screens/repairs/RepairsScreen.vue';
 import StoreScreen from '../screens/store/StoreScreen.vue';
+import PhonesScreen from '../screens/phones/PhonesScreen.vue';
 import ReportsScreen from '../screens/reports/ReportsScreen.vue';
 import ExpensesScreen from '../screens/expenses/ExpensesScreen.vue';
 import MobileCompanionScreen from '../screens/mobile/MobileCompanionScreen.vue';
@@ -44,7 +41,15 @@ import DrawerExpenseModal from './DrawerExpenseModal.vue';
 import { openModeHint, openMode } from './open-mode';
 import ShiftModal from './ShiftModal.vue';
 import { isPhone } from './device';
-import { avatarColour, navFor, roleName, TITLES } from './nav';
+import {
+  avatarColour,
+  navSectionsFor,
+  orderSections,
+  parseNavOrder,
+  roleName,
+  settingsNavItem,
+  TITLES,
+} from './nav';
 import type { ScreenId } from './nav';
 
 const props = defineProps<{ session: Session; busy: boolean; users: readonly UserSummary[] }>();
@@ -106,11 +111,43 @@ function openSalesMonthFromReports(key: string): void {
   salesFocusTarget.value = { kind: 'month', key };
   screen.value = 'sales';
 }
-const items = computed(() => navFor(props.session.role, isPhone()));
-const dark = computed(() => {
-  void appearance.theme;
-  return resolvedTheme() === 'dark';
-});
+/**
+ * The rail: the shop's own screens in the order the owner arranged
+ * (الإعدادات ← الشريط الجانبي). «الإعدادات» is not one of them — it is the single
+ * door to the shop's setup, and it sits alone at the bottom so it cannot be
+ * mistaken for a section or reached by muscle memory meant for one.
+ */
+const items = computed(() =>
+  orderSections(
+    navSectionsFor(props.session.role, isPhone()),
+    parseNavOrder(appearance.navOrder),
+  ),
+);
+const settingsItem = settingsNavItem();
+/**
+ * A screen inside the shell (a settings card) can send the operator to the guide.
+ *
+ * A custom event rather than a prop: «الإعدادات» is mounted deep inside the shell,
+ * and threading a callback through every screen it is not part of would be a wire
+ * that exists for one button.
+ */
+function onOpenGuideRequest(): void {
+  screen.value = 'guide';
+}
+
+/**
+ * A screen asks for one settings tab (the phones screen's setup cards, which would
+ * otherwise have to duplicate the settings UI to change one number).
+ */
+async function onOpenSettingsRequest(event: Event): Promise<void> {
+  const detail = (event as CustomEvent<{ tab?: string }>).detail;
+  screen.value = 'settings';
+  await nextTick();
+  const tab = detail?.tab;
+  if (tab === 'shop' || tab === 'look' || tab === 'rail' || tab === 'catalog' || tab === 'users' || tab === 'pay' || tab === 'receipt' || tab === 'backup' || tab === 'devices') {
+    settingsScreen.value?.openTab(tab);
+  }
+}
 
 // A seller never lands on an owner screen, even after a switch or a role change.
 watch(
@@ -252,18 +289,24 @@ onMounted(() => {
   }, 15_000);
   document.addEventListener('mousedown', onDocClick);
   window.addEventListener('keydown', onSwitchKey, true);
+  window.addEventListener('mshop:open-guide', onOpenGuideRequest);
+  window.addEventListener('mshop:open-settings', onOpenSettingsRequest);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
   document.removeEventListener('mousedown', onDocClick);
   window.removeEventListener('keydown', onSwitchKey, true);
+  window.removeEventListener('mshop:open-guide', onOpenGuideRequest);
+  window.removeEventListener('mshop:open-settings', onOpenSettingsRequest);
 });
 
-async function switchTheme(): Promise<void> {
+
+/** A dead database pool is repaired by the next process, not by another call. */
+async function restartNow(): Promise<void> {
   try {
-    await toggleTheme();
-  } catch (err) {
-    toast(describeError(err), 'err');
+    await restartApp();
+  } catch {
+    // If the restart itself is refused, the sentence above is still the truth.
   }
 }
 </script>
@@ -289,27 +332,38 @@ async function switchTheme(): Promise<void> {
         <span>{{ item.label }}</span>
       </button>
       <div class="sp" />
-      <button
-        type="button"
-        class="nav-btn"
-        :class="{ active: screen === 'guide' }"
-        title="دليل السيستم الشامل (F1)"
-        data-rail-guide-btn
-        @click="screen = 'guide'"
-      >
-        <Icon name="info" />
-        <span>الدليل</span>
-      </button>
-      <button type="button" class="nav-btn" title="فاتح / غامق" @click="switchTheme">
-        <Icon :name="dark ? 'sun' : 'moon'" />
-        <span>{{ dark ? 'فاتح' : 'غامق' }}</span>
-      </button>
-      <!-- No lock while the shop runs without an account (`ADR-039`): the lock ends
-           a session, and this shop has no session row to end. -->
-      <button v-if="!open" type="button" class="nav-btn" title="قفل الشاشة (Ctrl+L)" :disabled="busy" @click="emit('lock')">
-        <Icon name="lock-keyhole" />
-        <span>قفل</span>
-      </button>
+      <!-- The foot of the rail: the app's own doors, apart from the shop's sections.
+           The guide and light/dark live in الإعدادات ← الشريط الجانبي now: they are
+           settings, not places in the shop, and a rail that mixed the two made
+           «الإعدادات» look like one more page among nine. -->
+      <div class="rail-foot" data-rail-foot>
+        <button
+          v-if="settingsItem && props.session.role === 'manager'"
+          type="button"
+          class="nav-btn nav-icon"
+          :class="{ active: screen === 'settings' }"
+          title="الإعدادات"
+          aria-label="الإعدادات"
+          data-rail-settings
+          @click="screen = 'settings'"
+        >
+          <Icon name="settings" />
+        </button>
+        <!-- No lock while the shop runs without an account (`ADR-039`): the lock ends
+             a session, and this shop has no session row to end. -->
+        <button
+          v-if="!open"
+          type="button"
+          class="nav-btn nav-icon"
+          title="قفل الشاشة (Ctrl+L)"
+          aria-label="قفل الشاشة"
+          data-rail-lock
+          :disabled="busy"
+          @click="emit('lock')"
+        >
+          <Icon name="lock-keyhole" />
+        </button>
+      </div>
     </nav>
 
     <main class="main">
@@ -464,6 +518,29 @@ async function switchTheme(): Promise<void> {
         </div>
       </header>
 
+      <!--
+        One sentence for a dead database, at the top, with the one action that works.
+        Every screen would otherwise answer «تعذّر الوصول إلى قاعدة بيانات المحل» on its
+        own and the operator would read them as separate bugs (owner report,
+        2026-11-02: a sale and the categories list both failed after a restore).
+      -->
+      <div
+        v-if="databaseUnreachable"
+        class="open-note"
+        role="alert"
+        data-db-unreachable
+        style="border-color: var(--danger, #c0392b)"
+      >
+        <Icon name="database" />
+        <span class="t">
+          البرنامج مش قادر يقرأ قاعدة بيانات المحل في الجلسة دي — ده بيحصل بعد استعادة نسخة
+          أو لو الملف مقفول. اقفله خالص وافتحه تاني، وكل حاجة هتشتغل زي ما هي.
+        </span>
+        <button type="button" class="btn sm primary" data-db-restart @click="restartNow">
+          إعادة التشغيل
+        </button>
+      </div>
+
       <!-- The shop is open: one line, one button, and the till carries on. -->
       <div v-if="open" class="open-note" data-open-mode-note>
         <Icon name="info" />
@@ -497,6 +574,7 @@ async function switchTheme(): Promise<void> {
           @changed="refreshShiftState"
         />
         <StoreScreen v-else-if="screen === 'store'" :session="session" />
+        <PhonesScreen v-else-if="screen === 'phones'" />
         <ReportsScreen
           v-else-if="screen === 'reports'"
           :session="session"

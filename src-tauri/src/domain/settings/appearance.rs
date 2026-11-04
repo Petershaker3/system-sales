@@ -26,6 +26,9 @@ pub enum AppearanceKey {
     MoneyUnit,
     Images,
     ImeiMode,
+    /// The hour the shop's day begins (`ui.day_start`): 0 is midnight,
+    /// anything later keeps the hours after midnight on the day that is ending.
+    DayStart,
     PayMethods,
     DiscountLimitPct,
     ShopName,
@@ -48,10 +51,14 @@ pub enum AppearanceKey {
     BackupEvery2h,
     BackupUsbAuto,
     BackupVerify,
+    /// The order of the rail's sections (`ui.nav_order`). A device preference
+    /// about a layout, stored with the rest of the look because it is the same
+    /// kind of choice — and because `src/` holds no `localStorage`.
+    NavOrder,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 31] = [
+    pub const ALL: [AppearanceKey; 33] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -61,6 +68,7 @@ impl AppearanceKey {
         AppearanceKey::MoneyUnit,
         AppearanceKey::Images,
         AppearanceKey::ImeiMode,
+        AppearanceKey::DayStart,
         AppearanceKey::PayMethods,
         AppearanceKey::DiscountLimitPct,
         AppearanceKey::ShopName,
@@ -83,6 +91,7 @@ impl AppearanceKey {
         AppearanceKey::BackupEvery2h,
         AppearanceKey::BackupUsbAuto,
         AppearanceKey::BackupVerify,
+        AppearanceKey::NavOrder,
     ];
 
     /// The stored key.
@@ -98,6 +107,7 @@ impl AppearanceKey {
             AppearanceKey::MoneyUnit => "ui.money_unit",
             AppearanceKey::Images => "ui.images",
             AppearanceKey::ImeiMode => "ui.imei_mode",
+            AppearanceKey::DayStart => "ui.day_start",
             AppearanceKey::PayMethods => "ui.pay_methods",
             AppearanceKey::DiscountLimitPct => "ui.discount_limit_pct",
             AppearanceKey::ShopName => "ui.shop_name",
@@ -120,6 +130,7 @@ impl AppearanceKey {
             AppearanceKey::BackupEvery2h => "ui.backup_every_2h",
             AppearanceKey::BackupUsbAuto => "ui.backup_usb_auto",
             AppearanceKey::BackupVerify => "ui.backup_verify",
+            AppearanceKey::NavOrder => "ui.nav_order",
         }
     }
 
@@ -144,6 +155,7 @@ impl AppearanceKey {
             AppearanceKey::MoneyUnit
                 | AppearanceKey::Images
                 | AppearanceKey::ImeiMode
+                | AppearanceKey::DayStart
                 | AppearanceKey::PayMethods
                 | AppearanceKey::DiscountLimitPct
                 | AppearanceKey::ShopName
@@ -166,6 +178,7 @@ impl AppearanceKey {
                 | AppearanceKey::BackupEvery2h
                 | AppearanceKey::BackupUsbAuto
                 | AppearanceKey::BackupVerify
+                | AppearanceKey::NavOrder
         )
     }
 }
@@ -204,6 +217,39 @@ pub fn parse_pay_methods(raw: &str) -> Option<String> {
         .filter(|m| seen.contains(m))
         .collect();
     Some(ordered.join(","))
+}
+
+/// The rail's sections, in the order this build ships (`shell/nav.ts`). «الإعدادات»
+/// is not one of them: it sits alone at the bottom of the rail, away from the
+/// sections that move.
+pub const NAV_SECTIONS: [&str; 10] = [
+    "pos", "sales", "wallets", "repairs", "store", "phones", "reports", "expenses", "mobile",
+    "capture",
+];
+
+/// Validate a comma-separated rail order.
+///
+/// Every token must be a section this build has, and none may repeat. A list
+/// that leaves a section out is accepted and returned as given: the frontend
+/// appends what is missing in the built-in order, so a rail can never lose a
+/// button because the stored order predates it.
+pub fn parse_nav_order(raw: &str) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::new();
+    for part in raw.split(',') {
+        let token = part.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let canonical = NAV_SECTIONS.iter().copied().find(|s| s.eq_ignore_ascii_case(token))?;
+        if seen.contains(&canonical) {
+            return None;
+        }
+        seen.push(canonical);
+    }
+    if seen.is_empty() {
+        return None;
+    }
+    Some(seen.join(","))
 }
 
 /// Default seller discount limit percentage without owner PIN approval (`ADR-021`, `PLAN.md` §4).
@@ -343,6 +389,8 @@ pub struct Appearance {
     pub money_unit: String,
     pub images: String,
     pub imei_mode: String,
+    /// `ui.day_start`: the hour the shop's day begins, as a string.
+    pub day_start: String,
     pub pay_methods: String,
     pub discount_limit_pct: String,
     pub shop_name: String,
@@ -365,6 +413,7 @@ pub struct Appearance {
     pub backup_every_2h: String,
     pub backup_usb_auto: String,
     pub backup_verify: String,
+    pub nav_order: String,
 }
 
 impl Default for Appearance {
@@ -386,6 +435,7 @@ impl Default for Appearance {
             money_unit: DEFAULT_MONEY_UNIT.to_owned(),
             images: "on".to_owned(),
             imei_mode: "optional".to_owned(),
+            day_start: "5".to_owned(),
             pay_methods: DEFAULT_PAY_METHODS.to_owned(),
             discount_limit_pct: DEFAULT_DISCOUNT_LIMIT_PCT.to_owned(),
             shop_name: DEFAULT_SHOP_NAME.to_owned(),
@@ -408,6 +458,10 @@ impl Default for Appearance {
             backup_every_2h: DEFAULT_BACKUP_EVERY_2H.to_owned(),
             backup_usb_auto: DEFAULT_BACKUP_USB_AUTO.to_owned(),
             backup_verify: DEFAULT_BACKUP_VERIFY.to_owned(),
+            // Empty means «the built-in order»: a shop that never touched the
+            // rail is not forced through a stored copy of today's layout, so a
+            // later section still appears where its author put it.
+            nav_order: String::new(),
         }
     }
 }
@@ -434,6 +488,16 @@ impl Appearance {
                         reason: "invalid enabled payment methods list (cash must stay enabled)",
                     })?;
                 self.pay_methods = canonical;
+                return Ok(());
+            }
+            AppearanceKey::NavOrder => {
+                let canonical = parse_nav_order(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "rail order must be known section ids without duplicates",
+                    }
+                })?;
+                self.nav_order = canonical;
                 return Ok(());
             }
             AppearanceKey::DiscountLimitPct => {
@@ -554,6 +618,7 @@ impl Appearance {
             AppearanceKey::MoneyUnit => matches!(value, "egp" | "piastre"),
             AppearanceKey::Images => matches!(value, "on" | "off"),
             AppearanceKey::ImeiMode => matches!(value, "optional" | "required"),
+            AppearanceKey::DayStart => matches!(value, "0" | "3" | "5" | "6" | "8"),
             AppearanceKey::ReceiptMode => matches!(value, "wa" | "none" | "print" | "both"),
             AppearanceKey::PrinterEnabled => matches!(value, "on" | "off"),
             AppearanceKey::ReceiptPaper => matches!(value, "80" | "58"),
@@ -575,7 +640,8 @@ impl Appearance {
             | AppearanceKey::WarrantyItem
             | AppearanceKey::ServiceFeePct
             | AppearanceKey::ServiceFeeMin
-            | AppearanceKey::BillFee => unreachable!(),
+            | AppearanceKey::BillFee
+            | AppearanceKey::NavOrder => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -594,6 +660,7 @@ impl Appearance {
             AppearanceKey::MoneyUnit => self.money_unit = value,
             AppearanceKey::Images => self.images = value,
             AppearanceKey::ImeiMode => self.imei_mode = value,
+            AppearanceKey::DayStart => self.day_start = value,
             AppearanceKey::ReceiptMode => self.receipt_mode = value,
             AppearanceKey::PrinterEnabled => self.printer_enabled = value,
             AppearanceKey::ReceiptPaper => self.receipt_paper = value,
@@ -615,7 +682,8 @@ impl Appearance {
             | AppearanceKey::WarrantyItem
             | AppearanceKey::ServiceFeePct
             | AppearanceKey::ServiceFeeMin
-            | AppearanceKey::BillFee => unreachable!(),
+            | AppearanceKey::BillFee
+            | AppearanceKey::NavOrder => unreachable!(),
         }
         Ok(())
     }
@@ -728,6 +796,28 @@ mod tests {
             a.set("ui.money_unit", "dollar").map_err(|e| e.code()),
             Err("SETTING_VALUE_INVALID")
         );
+    }
+
+    #[test]
+    fn the_rail_order_keeps_known_sections_and_refuses_made_up_ones() {
+        let mut a = Appearance::default();
+        assert_eq!(a.nav_order, "", "the built-in order until the owner changes it");
+        assert!(a.set("ui.nav_order", "store,pos,sales").is_ok());
+        assert_eq!(a.nav_order, "store,pos,sales");
+        assert_eq!(
+            AppearanceKey::parse("ui.nav_order"),
+            Some(AppearanceKey::NavOrder)
+        );
+        // A button that is not a section, a repeat, and nothing at all are refused:
+        // an order is a permutation of real screens, not free text.
+        for bad in ["store,store", "settings,store", "nope", ""] {
+            assert_eq!(
+                a.set("ui.nav_order", bad).map_err(|e| e.code()),
+                Err("SETTING_VALUE_INVALID"),
+                "{bad}"
+            );
+        }
+        assert_eq!(a.nav_order, "store,pos,sales", "a refusal changes nothing");
     }
 
     #[test]

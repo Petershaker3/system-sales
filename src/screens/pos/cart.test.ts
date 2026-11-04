@@ -15,6 +15,9 @@ import {
   discountSummary,
   drop,
   hold,
+  linesWithInvalidProductId,
+  stockShortfallText,
+  stockShortfalls,
   moveSelection,
   newCart,
   openNewInvoice,
@@ -254,3 +257,33 @@ test('cart lines inherit defaultWarrantyMonths and setLineWarranty updates 0..60
 
 
 
+
+test('a line the backend cannot look up is named before the sale is sent', () => {
+  const lines = [
+    { productId: '57e54839-5dc1-75d5-8f6d-02227ada50e1', name: 'كابل', unitPriceMinor: 1000, quantity: 1 },
+    { productId: 'ph_log_1', name: 'سكرين', unitPriceMinor: 2000, quantity: 1 },
+    { productId: '', name: 'جراب', unitPriceMinor: 500, quantity: 2 },
+  ];
+  const broken = linesWithInvalidProductId(lines);
+  assert.equal(broken.length, 2);
+  assert.deepEqual(
+    broken.map((l) => l.name),
+    ['سكرين', 'جراب'],
+  );
+  assert.equal(linesWithInvalidProductId([lines[0]!]).length, 0);
+});
+
+test('a line with no stock is named before the payment, not after it', () => {
+  const lines = [
+    { productId: 'a', name: 'وصلة TC+IPH 777', unitPriceMinor: 10_000, quantity: 1 },
+    { productId: 'b', name: 'جراب', unitPriceMinor: 5_000, quantity: 3 },
+    { productId: 'c', name: 'غير معروف', unitPriceMinor: 1_000, quantity: 2 },
+  ];
+  const stock: Record<string, number> = { a: 0, b: 5 };
+  const short = stockShortfalls(lines, (id) => stock[id] ?? null);
+  assert.equal(short.length, 1);
+  assert.equal(short[0]!.name, 'وصلة TC+IPH 777');
+  assert.equal(short[0]!.onHand, 0);
+  assert.match(stockShortfallText(short[0]!), /المخزن فيه 0/);
+  assert.match(stockShortfallText(short[0]!), /الاستلام/);
+});

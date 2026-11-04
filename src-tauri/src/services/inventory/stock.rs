@@ -1106,6 +1106,122 @@ pub async fn list_all_units_in_stock(
     Ok(units)
 }
 
+/// What the whole stock is worth at cost, and how many pieces it holds.
+///
+/// The owner measures his stock at the wholesale price, never at the sale price
+/// (`2026-10-23`). Reading that one product at a time needed a request per product
+/// and left the screen with a total it could not trust; this answers it once, from
+/// the same authority `position` reads (`stock_levels.total_cost_minor`, with a
+/// legacy FIFO position reported at its summed layers).
+///
+/// Requires `Permission::ManageInventory` **and** `Permission::ViewCostAndProfit`:
+/// it is a cost figure, not a quantity.
+pub struct StockValueView {
+    /// Cost of everything on hand, in piastres.
+    pub value_minor: i64,
+    /// Pieces on hand across every product that has any.
+    pub quantity: i64,
+    /// How many products those pieces belong to.
+    pub products: i64,
+}
+
+pub async fn stock_value(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+) -> Result<StockValueView, StockServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageInventory)?;
+    session.authorize(Permission::ViewCostAndProfit)?;
+
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let ids = repo::list_active_product_ids(&mut conn)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let mut value_minor = 0i64;
+    let mut quantity = 0i64;
+    let mut products = 0i64;
+    for id in ids {
+        let stored = load_position(&mut conn, &id).await?;
+        let layers = repo::list_layers(&mut conn, &id)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        // Same reading as `position()`, so the total and the per-product figure
+        // can never disagree.
+        let (on_hand, total_cost_minor) = match legacy_average(&id, stored.as_ref(), layers)? {
+            Some(average) => (average.on_hand, average.total_cost_minor),
+            None => (
+                stored.as_ref().map(|position| position.quantity).unwrap_or(0),
+                stored
+                    .as_ref()
+                    .and_then(|position| position.total_cost_minor)
+                    .unwrap_or(0),
+            ),
+        };
+        if on_hand > 0 {
+            products += 1;
+            quantity += on_hand;
+            value_minor += total_cost_minor;
+        }
+    }
+
+    Ok(StockValueView {
+        value_minor,
+        quantity,
+        products,
+    })
+}
+
+/// One delivery that came in: what, how many, at what cost, from whom.
+pub struct ReceiptRow {
+    pub id: String,
+    pub product_id: String,
+    pub product_name: String,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub supplier_name: Option<String>,
+    pub occurred_at: i64,
+}
+
+/// The receiving log, newest first — the deliveries, not the sales (`2026-11-02`).
+///
+/// Requires `Permission::ManageInventory`. The cost is zeroed for an operator who
+/// may not see cost, exactly as `list_all_units_in_stock` does.
+pub async fn list_receipts(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    limit: i64,
+) -> Result<Vec<ReceiptRow>, StockServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::ManageInventory)?;
+    let can_view_cost = session.role().allows(Permission::ViewCostAndProfit);
+    let limit = limit.clamp(1, 500);
+
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let rows = repo::list_receipts(&mut conn, limit)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let mut out: Vec<ReceiptRow> = rows
+        .into_iter()
+        .map(|r| ReceiptRow {
+            id: r.id,
+            product_id: r.product_id,
+            product_name: r.product_name,
+            quantity: r.quantity,
+            unit_cost_minor: r.unit_cost_minor,
+            supplier_name: r.supplier_name,
+            occurred_at: r.occurred_at,
+        })
+        .collect();
+    if !can_view_cost {
+        for r in &mut out {
+            r.unit_cost_minor = 0;
+        }
+    }
+    Ok(out)
+}
+
 /// One product's physical count input during a Stock Count reconciliation (`ADR-034`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StockCountItemInput {

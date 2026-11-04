@@ -19,6 +19,8 @@ pub mod pos;
 pub mod repair;
 pub mod sales;
 pub mod settings;
+/// Restarting the running application (`commands/shell.rs`).
+pub mod shell;
 pub mod shift;
 pub mod shortage;
 pub mod wallet;

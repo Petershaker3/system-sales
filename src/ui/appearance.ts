@@ -5,11 +5,14 @@
 
 import { reactive, ref } from 'vue';
 
+import { SECTION_ORDER } from '../shell/nav.ts';
+
 import * as api from '../api/appearance';
 import type { AppearanceKey } from '../api/appearance';
 import * as imagesApi from '../api/images';
 import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './color.ts';
 import type { Grounds, Rgb } from './color.ts';
+import { setBusinessDayStartHour } from '../screens/sales/analytics.ts';
 import { setDigits, setMoneyUnit } from './format.ts';
 import type { Digits, MoneyUnit } from './format.ts';
 import type { IconName } from './icons.ts';
@@ -21,6 +24,16 @@ export type Scale = 'normal' | 'large';
 export type MoneyUnitChoice = MoneyUnit;
 export type ImagesChoice = 'on' | 'off';
 export type ImeiModeChoice = 'optional' | 'required';
+
+/**
+ * The hour the shop's day begins (`ui.day_start`).
+ *
+ * «من أول 12 ص» is midnight — a sale at 1 AM belongs to the new day. «من أول
+ * تاني يوم» is any later hour: the shop is still open after midnight, so those
+ * sales stay on the day that is ending. 5 AM is the default the owner picked
+ * (2026-11-02).
+ */
+export type DayStartChoice = '0' | '3' | '5' | '6' | '8';
 export type PayMethodId = 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit';
 export type ReceiptModeChoice = 'wa' | 'none' | 'print' | 'both';
 export type PrinterEnabledChoice = 'on' | 'off';
@@ -187,6 +200,7 @@ export interface Appearance {
   moneyUnit: MoneyUnitChoice;
   images: ImagesChoice;
   imeiMode: ImeiModeChoice;
+  dayStartHour: DayStartChoice;
   payMethods: string;
   discountLimitPct: string;
   shopName: string;
@@ -209,6 +223,12 @@ export interface Appearance {
   backupEvery2h: BackupToggleChoice;
   backupUsbAuto: BackupToggleChoice;
   backupVerify: BackupToggleChoice;
+  /**
+   * The rail's section order (`ui.nav_order`), as stored. Empty means «the order
+   * this build ships» — so a rail nobody arranged is never frozen against a
+   * section added later. Read it through `parseNavOrder` / `orderSections`.
+   */
+  navOrder: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -221,6 +241,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   moneyUnit: 'egp',
   images: 'on',
   imeiMode: 'optional',
+  dayStartHour: '5',
   payMethods: DEFAULT_PAY_METHODS,
   discountLimitPct: DEFAULT_DISCOUNT_LIMIT_PCT,
   shopName: DEFAULT_SHOP_NAME,
@@ -243,6 +264,7 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   backupEvery2h: DEFAULT_BACKUP_EVERY_2H,
   backupUsbAuto: DEFAULT_BACKUP_USB_AUTO,
   backupVerify: DEFAULT_BACKUP_VERIFY,
+  navOrder: '',
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -272,6 +294,25 @@ export const FONTS: readonly { id: FontChoice; name: string }[] = [
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
+/**
+ * A stored rail order, kept to sections this build has.
+ *
+ * Rust already refuses an unknown token on the way in (`parse_nav_order`), so this
+ * is the reader's half of the same rule: a database restored from a newer build,
+ * or a hand-edited row, must not put a button on the rail that has no screen.
+ */
+function normalizeNavOrder(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const seen: string[] = [];
+  for (const part of raw.split(',')) {
+    const token = part.trim();
+    if (!SECTION_ORDER.some((id) => id === token)) continue;
+    if (seen.includes(token)) continue;
+    seen.push(token);
+  }
+  return seen.join(',');
+}
+
 /** Anything read back from the backend → a valid appearance (unknown values fall back). */
 export function normalizeAppearance(raw: unknown): Appearance {
   const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
@@ -290,6 +331,11 @@ export function normalizeAppearance(raw: unknown): Appearance {
     ),
     images: oneOf(r['images'], ['on', 'off'] as const, DEFAULT_APPEARANCE.images),
     imeiMode: oneOf(r['imeiMode'], ['optional', 'required'] as const, DEFAULT_APPEARANCE.imeiMode),
+    dayStartHour: oneOf(
+      r['dayStartHour'],
+      ['0', '3', '5', '6', '8'] as const,
+      DEFAULT_APPEARANCE.dayStartHour
+    ),
     payMethods: normalizePayMethods(r['payMethods']),
     discountLimitPct: normalizeDiscountLimitPct(r['discountLimitPct']),
     shopName: normalizeText(r['shopName'], DEFAULT_SHOP_NAME, false, 120),
@@ -343,6 +389,7 @@ export function normalizeAppearance(raw: unknown): Appearance {
       ['on', 'off'] as const,
       DEFAULT_BACKUP_VERIFY
     ),
+    navOrder: normalizeNavOrder(r['navOrder']),
   };
 }
 
@@ -415,6 +462,9 @@ export function applyAppearance(a: Appearance = appearance): void {
   root.style.setProperty('--accent', a.accent);
   setDigits(a.digits);
   setMoneyUnit(a.moneyUnit);
+  // The reports' day window follows this: a sale after midnight stays on the
+  // day that is ending until the hour the owner calls the start of the day.
+  setBusinessDayStartHour(Number(a.dayStartHour));
 
   // The grounds depend on the look, the theme and the accent tint, so they are
   // read after those are set, with the previous muted correction removed.
@@ -440,6 +490,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   moneyUnit: 'ui.money_unit',
   images: 'ui.images',
   imeiMode: 'ui.imei_mode',
+  dayStartHour: 'ui.day_start',
   payMethods: 'ui.pay_methods',
   discountLimitPct: 'ui.discount_limit_pct',
   shopName: 'ui.shop_name',
@@ -462,6 +513,7 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   backupEvery2h: 'ui.backup_every_2h',
   backupUsbAuto: 'ui.backup_usb_auto',
   backupVerify: 'ui.backup_verify',
+  navOrder: 'ui.nav_order',
 };
 
 export type ServiceFeeMode = ServiceFeeModeChoice;

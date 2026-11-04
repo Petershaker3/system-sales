@@ -2,14 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { PosUnit } from '../../api/pos';
-import {
-  imeiLuhn,
-  isSerialProduct,
-  normalizeImeiDigits,
-  requiresImeiOnSale,
-  searchUnitsByImei,
-  validateImeiInput,
-} from './imei.ts';
+import { imeiLabel, imeiLuhn, imeiTail, isPlaceholderImei, isSerialProduct, nextPlaceholderCounter, normalizeImeiDigits, placeholderImei, requiresImeiOnSale, searchUnitsByImei, validateImeiInput } from './imei.ts';
 
 describe('pos/imei', () => {
   it('normalizes Arabic digits and checks 15-digit Luhn IMEIs', () => {
@@ -75,4 +68,29 @@ describe('pos/imei', () => {
     assert.equal(bySubstring.length, 1);
     assert.equal(bySubstring[0]?.id, 'u2');
   });
+});
+
+it('the shop’s stand-in number is a valid 15-digit IMEI', () => {
+  for (const n of [1, 18, 26, 999]) {
+    const number = placeholderImei(n);
+    assert.equal(number.length, 15);
+    assert.equal(imeiLuhn(number), true, `${number} must pass the same check as a real one`);
+    assert.equal(isPlaceholderImei(number), true);
+  }
+});
+
+it('a used phone with no IMEI reads «بدون IMEI», not a number', () => {
+  // «بالنسبة المستعمل خلي الايمي مش اجباري» — the stand-in is the shop's, and no
+  // screen may present it as the device's real number.
+  assert.equal(imeiLabel(placeholderImei(3)), 'بدون IMEI');
+  assert.equal(imeiLabel('356938035643809'), '356938035643809');
+  assert.equal(imeiLabel(''), 'بدون IMEI');
+  assert.equal(imeiTail(placeholderImei(3)), 'بدون IMEI');
+});
+
+it('the next stand-in number is one nobody has', () => {
+  const taken = [placeholderImei(1), placeholderImei(2)];
+  const next = nextPlaceholderCounter(taken);
+  assert.equal(isPlaceholderImei(placeholderImei(next)), true);
+  assert.equal(taken.includes(placeholderImei(next)), false);
 });

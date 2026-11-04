@@ -4,6 +4,7 @@
  * a browser.
  */
 
+import { addDays, dayEnd, dayStart, monthStart } from '../sales/analytics.ts';
 import type { PaidFrom } from '../../api/expenses';
 
 export type ExpensePeriodKey = 'today' | 'yesterday' | 'week' | 'month' | 'all';
@@ -39,18 +40,24 @@ export function expensePeriodBounds(
     return { fromMs: null, toMs: null };
   }
   const now = new Date(nowMs);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const endOfToday = startOfToday + 86_400_000 - 1;
+  // The shop's own day (`ui.day_start`), shared with التقارير والمبيعات: after
+  // midnight the till is still open, so «النهارده» must mean the same day on
+  // every screen — otherwise the expenses total and the profit total disagree.
+  const startOfToday = dayStart(now).getTime();
+  const endOfToday = dayEnd(now).getTime();
+  const startOfYesterday = dayStart(addDays(now, -1)).getTime();
   if (period === 'today') {
     return { fromMs: startOfToday, toMs: endOfToday };
   }
   if (period === 'yesterday') {
-    return { fromMs: startOfToday - 86_400_000, toMs: startOfToday - 1 };
+    return { fromMs: startOfYesterday, toMs: startOfToday - 1 };
   }
   if (period === 'week') {
-    return { fromMs: startOfToday - 6 * 86_400_000, toMs: endOfToday };
+    return { fromMs: dayStart(addDays(now, -6)).getTime(), toMs: endOfToday };
   }
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  // The same first day the reports use, moved to the shop's hour: `inRange()` starts a
+  // month at `dayStart(monthStart(...))`, and the two screens must agree on it.
+  const startOfMonth = dayStart(monthStart(now)).getTime();
   return { fromMs: startOfMonth, toMs: endOfToday };
 }
 

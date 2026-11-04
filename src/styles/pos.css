@@ -2,17 +2,23 @@
    Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
    class names and values are kept so the real screens match the mockup (DESIGN.md). */
 /* ===== شاشة البيع ===== */
-.pos-wrap { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; }
+.pos-wrap { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
 .pos { display: grid; grid-template-columns: minmax(0, 1fr) 440px; min-height: 0; }
-.catalog { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 14px 16px 0; gap: 12px; }
-.search-row { display: flex; gap: 10px; align-items: stretch; flex: none; }
+.catalog { display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 12px 16px 0; gap: 12px; }
+/* شريط البحث بعرض الشاشة كلها فوق العمودين: البحث أول حاجة العين بتقع عليها،
+   ومساحته بتفرق في القراءة أكتر من مساحة كروت الأصناف اللي تحته. */
+.search-row {
+  display: flex; gap: 10px; align-items: stretch; flex: none;
+  padding: 12px 16px 11px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
 .search { position: relative; flex: 1; min-width: 0; }
 .search-box {
-  display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 14px; border: 1.5px solid var(--border-strong);
+  display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 16px; border: 1.5px solid var(--border-strong);
   border-radius: var(--r-m); background: var(--surface); color: var(--muted);
 }
 .search-box:focus-within { border-color: var(--accent-text); outline: 1px solid var(--accent-text); outline-offset: -1px; }
-.search-box input { flex: 1; border: 0; background: transparent; outline: none; font-size: 1.06rem; min-width: 0; height: 100%; color: var(--text); }
+.search-box input { flex: 1; border: 0; background: transparent; outline: none; font-size: 1.18rem; font-weight: 500; min-width: 0; height: 100%; color: var(--text); }
+.search-box svg.i { width: 26px; height: 26px; }
 .svc-btn { height: auto; min-height: 54px; padding: 0 18px; font-size: 1rem; border-radius: var(--r-m); }
 .results {
   position: absolute; top: calc(100% + 6px); inset-inline: 0; background: var(--surface); border: 1px solid var(--border);

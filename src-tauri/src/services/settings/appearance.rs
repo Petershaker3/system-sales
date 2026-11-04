@@ -69,6 +69,7 @@ pub async fn update(
         AppearanceKey::MoneyUnit => validated.money_unit,
         AppearanceKey::Images => validated.images,
         AppearanceKey::ImeiMode => validated.imei_mode,
+        AppearanceKey::DayStart => validated.day_start,
         AppearanceKey::PayMethods => validated.pay_methods,
         AppearanceKey::DiscountLimitPct => validated.discount_limit_pct,
         AppearanceKey::ShopName => validated.shop_name,
@@ -91,6 +92,7 @@ pub async fn update(
         AppearanceKey::BackupEvery2h => validated.backup_every_2h,
         AppearanceKey::BackupUsbAuto => validated.backup_usb_auto,
         AppearanceKey::BackupVerify => validated.backup_verify,
+        AppearanceKey::NavOrder => validated.nav_order,
     };
     let now = Timestamp::now();
 

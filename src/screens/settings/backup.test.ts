@@ -9,7 +9,10 @@ import {
   formatBackupVerifyBadge,
   isPeriodicBackupDue,
   MAX_RETAINED_BACKUPS,
+  pickDroppedBackupFile,
+  restoreNeedsRestart,
   retainBackups,
+  suggestedBackupFileName,
   USB_VOLUME_NAME,
 } from './backup.ts';
 
@@ -57,4 +60,56 @@ test('checks the 2-hour periodic schedule and rotates to 30 retained backups', (
   assert.equal(retained.length, 30);
   assert.equal(retained[0]?.id, 'backup-35.msb');
   assert.equal(retained[29]?.id, 'backup-06.msb');
+});
+
+test('a dropped package is the file that gets imported, and a photo is not', () => {
+  // Windows hands over absolute paths, extension included, so the panel never
+  // has to ask the operator to type one.
+  assert.equal(
+    pickDroppedBackupFile(['C:\\Users\\peter\\Desktop\\نسخة.MSB1']),
+    'C:\\Users\\peter\\Desktop\\نسخة.MSB1',
+  );
+  // The automatic policy writes `.msb`; a manual package is `.msb1`.
+  assert.equal(pickDroppedBackupFile(['/tmp/backup-20261022-0900-abc.msb']), '/tmp/backup-20261022-0900-abc.msb');
+  assert.equal(pickDroppedBackupFile(['/tmp/invoice.pdf', '/tmp/shop.msb1']), '/tmp/shop.msb1');
+  assert.equal(pickDroppedBackupFile(['/tmp/invoice.pdf']), null);
+  assert.equal(pickDroppedBackupFile([]), null);
+});
+
+test('the suggested name is dated, minute-precise, and inside the data dir', () => {
+  const name = suggestedBackupFileName(new Date(2026, 9, 22, 14, 35, 9));
+  assert.equal(name, 'backup-2026-10-22-1435.msb1');
+  // No separators: a name is relative by construction, never a path.
+  assert.equal(name.includes('/'), false);
+  assert.equal(name.includes('\\'), false);
+});
+
+test('only a restore that closed the pool asks for a restart', () => {
+  // Authorization runs before `pool.close()`, so these leave the app usable and
+  // the panel must not send the operator through a pointless restart.
+  for (const code of [
+    'REAUTHENTICATION_REQUIRED',
+    'PERMISSION_DENIED',
+    'NO_ACTIVE_SESSION',
+    'SESSION_IDLE_EXPIRED',
+    'SESSION_LIFETIME_EXPIRED',
+    'SECURE_STORAGE_UNAVAILABLE',
+    'BACKUP_UNSAFE_PATH',
+  ]) {
+    assert.equal(restoreNeedsRestart(code), false, code);
+  }
+  // Everything the engine can answer after the pool is closed needs the restart.
+  for (const code of [
+    'BACKUP_DECRYPT_FAILED',
+    'BACKUP_FILE_TRUNCATED',
+    'BACKUP_HEADER_INVALID',
+    'BACKUP_NOT_A_BACKUP_FILE',
+    'BACKUP_UNSUPPORTED_VERSION',
+    'BACKUP_RESTORE_FAILED',
+  ]) {
+    assert.equal(restoreNeedsRestart(code), true, code);
+  }
+  // Unknown fails closed, exactly like the backend.
+  assert.equal(restoreNeedsRestart(undefined), true);
+  assert.equal(restoreNeedsRestart(null), true);
 });

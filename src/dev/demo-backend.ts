@@ -362,6 +362,49 @@ interface DemoUnit {
   sellerNationalId?: string | null;
 }
 const productUnits: DemoUnit[] = [];
+
+// The demo shelf has handsets of both kinds, because the «الهواتف» section shows
+// two shelves and a demo with an empty used shelf proves nothing. Costs are what
+// the shop paid, so the section's shelf value and its average are real numbers.
+{
+  // A phone, not a case: «جراب شفاف سامسونج A15» also contains «A15».
+  const findPhone = (needle: string): DemoProduct | undefined =>
+    products.find(
+      (x) =>
+        x.name.includes(needle) &&
+        (x.disposition === 'serialized' ||
+          x.disposition === 'one_off' ||
+          x.tracking === 'serial_optional' ||
+          x.tracking === 'serial_required'),
+    );
+  const seedHandset = (
+    needle: string,
+    imei: string,
+    color: string,
+    costEgp: number,
+    bornDaysAgo: number,
+    used: { grade: 'A' | 'B' | 'C'; battery: number } | null = null,
+  ): void => {
+    const product = findPhone(needle);
+    if (!product) return;
+    productUnits.push({
+      id: newId('u'),
+      productId: product.id,
+      imei,
+      imei2: null,
+      color,
+      unitCostMinor: costEgp * 100,
+      status: 'in_stock',
+      createdAt: now() - bornDaysAgo * 86_400_000,
+      conditionGrade: used ? used.grade : null,
+      batteryHealthPct: used ? used.battery : null,
+    });
+  };
+  seedHandset('A15', '357111111111112', 'أسود', 6_400, 3);
+  seedHandset('A16', '357222222222225', 'أزرق', 7_700, 9);
+  seedHandset('A16', '357333333333338', 'أبيض', 7_900, 21);
+  seedHandset('iPhone 16', '357444444444441', 'أسود', 41_000, 12, { grade: 'B', battery: 88 });
+}
 function demoNormalizeImei(raw: string): string {
   return raw
     .trim()
@@ -3580,6 +3623,26 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const x = products.find((y) => y.barcode === str(args, 'barcode'));
     return x === undefined ? fail('NO_PRODUCT_WITH_THIS_BARCODE') : productDto(x);
   },
+  stock_value: () => {
+    requireManager(true);
+    let valueMinor = 0;
+    let quantity = 0;
+    let count = 0;
+    for (const p of products) {
+      if (p.status !== 'active') continue;
+      if (p.onHand > 0) {
+        count += 1;
+        quantity += p.onHand;
+        valueMinor += p.totalCostMinor;
+      }
+    }
+    return { valueMinor, quantity, products: count };
+  },
+  // The demo backend keeps no movement log; the real one reads `stock_movements`.
+  list_receipts: () => {
+    requireManager();
+    return [];
+  },
   get_position: (args) => {
     requireManager(true);
     const x = findProduct(str(args, 'productId'));
@@ -4781,6 +4844,60 @@ const handlers: Record<string, (args: Args) => unknown> = {
       mustChangePassword: false,
       integrityFault: false,
     }));
+  },
+
+  // Manual encrypted backup (ADR-003). Mirrors `commands::backup` closely enough to
+  // exercise the panel: `ManageSettings` is manager-only AND freshly authenticated,
+  // so a session that has not re-proved its password hears
+  // `REAUTHENTICATION_REQUIRED` — the refusal the panel now answers with a password
+  // dialog instead of a dead end. Writing stays inside the data dir (relative,
+  // traversal-free); reading accepts an absolute path, because the package comes
+  // from another machine.
+  create_backup: (args) => {
+    requireManager(true);
+    const output = str(args, 'output').trim();
+    const leavesTheDataDir =
+      output === '' ||
+      output.startsWith('/') ||
+      output.startsWith('\\') ||
+      /^[A-Za-z]:/.test(output) ||
+      output.split(/[\\/]/).includes('..');
+    if (leavesTheDataDir) fail('BACKUP_UNSAFE_PATH');
+    const password = str(args, 'password');
+    if (password === '') fail('BACKUP_PASSWORD_REQUIRED');
+    if (password.length < 8) fail('BACKUP_PASSWORD_TOO_WEAK');
+    return { databaseLen: 1_482_752, imageCount: 12 };
+  },
+  restore_backup: (args) => {
+    // Same order as Rust: resolve the path, then authorize — both before anything
+    // is touched, so neither refusal may claim the app is dead.
+    const backupPath = str(args, 'backupPath').trim();
+    if (backupPath === '') fail('BACKUP_UNSAFE_PATH');
+    // `resolve_readable`: absolute is accepted (the package comes from another
+    // machine), a relative path must stay inside the data dir.
+    const absolute =
+      backupPath.startsWith('/') || backupPath.startsWith('\\') || /^[A-Za-z]:/.test(backupPath);
+    if (!absolute && backupPath.split(/[\\/]/).includes('..')) fail('BACKUP_UNSAFE_PATH');
+    requireManager(true);
+    const password = str(args, 'password');
+    if (password === '') fail('BACKUP_PASSWORD_REQUIRED');
+    if (password.length < 8) fail('BACKUP_DECRYPT_FAILED');
+    return { databaseLen: 1_482_752, imageCount: 12 };
+  },
+
+  // Restart (the real one exits the process and starts a new one). The demo has no
+  // process to restart, so it says so instead of pretending: `App.vue` reloads the
+  // page, which is this stand-in's closest honest equivalent.
+  restart_app: () => null,
+
+  // Opening a chat window is the browser's job, and the demo runs in a browser:
+  // `openChatUrl` takes the `window.open` path there, so this stand-in only has to
+  // be honest about having no operating system to hand the URL to.
+  open_external_url: (args) => {
+    const url = str(args, 'url');
+    if (!url.startsWith('https://')) throw { code: 'EXTERNAL_URL_NOT_ALLOWED' };
+    (window as unknown as { __lastExternalOpen?: string }).__lastExternalOpen = url;
+    return null;
   },
 
   // automatic backup policy (Plan item 1.12, ADR-027)

@@ -161,14 +161,14 @@ async function submitOpenShift(): Promise<void> {
 function sendWhatsAppReport(): void {
   const open = props.shiftState.openShift;
   if (!open) return;
-  sendShiftReportViaWhatsApp(
+  const sent = sendShiftReportViaWhatsApp(
     open,
     appearance.shopName,
     appearance.shopPhone,
     countedCashMinor.value,
     closeNote.value.trim() || null
   );
-  toast('تم تجهيز وفتح تقرير الوردية على واتساب للمالك', 'ok');
+  toast(`تقرير الوردية للمالك: ${sent.note}`, 'ok');
 }
 
 async function submitCloseShift(): Promise<void> {

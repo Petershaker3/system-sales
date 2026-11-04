@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 use crate::data::repositories::catalog::brand as brand_repo;
 use crate::data::repositories::catalog::pos as repo;
 use crate::data::repositories::inventory::unit as unit_repo;
-use crate::domain::catalog::brand_aliases;
+use crate::domain::catalog::brand_aliases_for;
 use crate::domain::identity::{DomainError, Permission, Timestamp};
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::session as identity_session;
@@ -83,7 +83,7 @@ pub async fn read(
         .map(|brand| PosBrand {
             id: brand.id.as_str(),
             name: brand.name.as_str().to_string(),
-            aliases: brand_aliases(brand.id),
+            aliases: brand_aliases_for(brand.id, brand.name.as_str()),
             sort_order: brand.sort_order,
         })
         .collect();

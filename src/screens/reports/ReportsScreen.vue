@@ -30,6 +30,7 @@ import {
   num,
   pcsWord,
 } from '../../ui/format';
+import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
@@ -397,6 +398,13 @@ const todayRating = computed(() =>
   }),
 );
 
+/**
+ * صافي الربح: what the day actually left after the cost of what was sold, the
+ * services and the expenses — «توتال الربح» alone never answered that
+ * (owner, 2026-11-02).
+ */
+const todayNetProfitMinor = computed(() => todayRating.value.netMinor);
+
 /** One line that says the same thing as the word, in money. */
 const todayRatingLine = computed(() => {
   const r = todayRating.value;
@@ -484,13 +492,9 @@ async function sendDailySummaryWhatsApp(): Promise<void> {
     // Non-blocking clipboard fallback
   }
   const ownerPhone = normalizeEgyptianPhone(appearance.shopPhone || '01000000000');
-  if (
-    ownerPhone &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
+  if (ownerPhone) {
     const url = buildWhatsAppUrl(ownerPhone, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) openChatUrl(url);
   }
   toast('اتبعت ملخص اليوم على واتساب المالك', 'ok');
 }
@@ -500,13 +504,9 @@ function sendOverdueRepairWhatsApp(customerName: string, customerPhone: string, 
   const msg = isReady
     ? `أهلاً ${customerName}، نذكرك إن جهازك (${deviceName} — تذكرة ${ticketNo}) جاهز للاستلام في ${appearance.shopName || 'المحل'}.`
     : `أهلاً ${customerName}، بخصوص جهازك (${deviceName} — تذكرة ${ticketNo}) في ${appearance.shopName || 'المحل'}، جاري استكمال الصيانة وهنبلغك فور انتهاء العمل.`;
-  if (
-    norm &&
-    typeof window !== 'undefined' &&
-    !(typeof navigator !== 'undefined' && navigator.webdriver === true)
-  ) {
+  if (norm) {
     const url = buildWhatsAppUrl(norm, msg);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) openChatUrl(url);
   }
   toast(`تم تجهيز رسالة واتساب للعميل ${customerName}`, 'ok');
 }
@@ -699,6 +699,9 @@ onBeforeUnmount(() => {
   <div class="page" data-reports-screen>
     <div class="page-h">
       <h2>التقارير</h2>
+      <span class="sub">
+        النهارده والشهر في مكان واحد: المبيعات، الربح، صافي الربح بعد المصاريف، وأكتر حاجة بتتباع.
+      </span>
       <div class="seg" role="tablist" aria-label="نوع التقرير">
         <button
           type="button"
@@ -890,6 +893,16 @@ onBeforeUnmount(() => {
                   : 0,
               )
             }}%
+          </div>
+        </div>
+
+        <div class="card kpi" data-reports-today-kpi="net-profit">
+          <div class="label">صافي الربح</div>
+          <div class="value num" :class="{ 'danger-t': todayNetProfitMinor < 0 }">
+            {{ money(todayNetProfitMinor) }}
+          </div>
+          <div class="sub muted">
+            بعد {{ money(todayExpensesMinor) }} مصاريف النهارده
           </div>
         </div>
 
@@ -1311,6 +1324,14 @@ onBeforeUnmount(() => {
             <Icon :name="chProfit >= 0 ? 'trending-up' : 'trending-down'" />
             {{ num(Math.abs(chProfit)) }}% عن {{ vsPrevLabel }}
           </div>
+        </div>
+
+        <div class="card kpi" data-reports-kpi="net-profit">
+          <div class="label">صافي الربح</div>
+          <div class="value num" :class="{ 'danger-t': monthNetMinor < 0 }">
+            {{ money(monthNetMinor) }}
+          </div>
+          <div class="sub muted">بعد {{ money(monthExpensesMinor) }} مصاريف الشهر</div>
         </div>
 
         <div class="card kpi" data-reports-kpi="invoices">

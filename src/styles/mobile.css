@@ -20,9 +20,13 @@
   }
   .rail::-webkit-scrollbar { display: none; }
   .rail .logo, .rail .sp { display: none; }
-  /* «الدليل» زر فوق، والشكل (فاتح/غامق) في الإعدادات ← الشكل: الشريط التحتاني
-     للمحل نفسه، ومش لحاجة الاتنين ملزقين في بعض. */
-  .rail [data-rail-guide-btn], .rail .nav-btn[title="فاتح / غامق"] { display: none; }
+  /* الشريط التحتاني للمحل نفسه؛ أبواب البرنامج (الإعدادات والقفل) في آخره بعد فاصل،
+     وأيقونة بلا اسم عشان تاخد أقل مساحة على شاشة ضيقة. */
+  .rail .rail-foot {
+    flex-direction: row; width: auto; margin: 0; padding: 0 0 0 6px; gap: 2px;
+    border-top: 0; border-inline-start: 1px solid var(--border);
+  }
+  .nav-btn.nav-icon { width: 46px; flex: none; height: 100%; }
   .nav-btn {
     width: auto; min-width: 0; flex: 1 1 0; padding: 6px 4px 5px; gap: 2px; font-size: .7rem;
   }
@@ -85,7 +89,12 @@
   .tile .ico.img { width: 42px; height: 42px; }
   .tile .name { font-size: .86rem; }
   /* الفاتورة مش بتتخنق في نص شاشة: الصفحة كلها بتتلف، والزرار الكبير بيلزق تحت. */
-  .pos-wrap { grid-template-rows: auto auto; height: auto; min-height: 100%; }
+  .pos-wrap { grid-template-rows: auto auto auto; height: auto; min-height: 100%; }
+  /* على الموبايل الشريط بيلزق تحت الشريط العلوي، ومساحته محدودة: نفس العرض
+     الكامل بس بسطور أقل. */
+  .search-row { padding: 8px 12px; flex-wrap: wrap; }
+  .search-row .search { flex: 1 1 100%; }
+  .search-row > .btn { flex: 1 1 auto; }
   .tiles { flex: none; overflow: visible; }
   .cart { border-inline-start: 0; border-top: 1px solid var(--border); max-height: none; }
   .lines { flex: none; min-height: 96px; overflow: visible; }

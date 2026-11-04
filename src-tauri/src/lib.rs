@@ -114,9 +114,12 @@ pub fn run() {
             commands::inventory::receive_opening_stock,
             commands::inventory::list_product_units,
             commands::inventory::list_all_product_units,
+            commands::inventory::set_unit_imei,
             commands::inventory::remove_stock,
             commands::inventory::reconcile_stock_count,
             commands::inventory::get_position,
+            commands::inventory::stock_value,
+            commands::inventory::list_receipts,
             commands::pos::pos_catalog,
             commands::sales::record_sale,
             commands::sales::cancel_sale,
@@ -169,6 +172,12 @@ pub fn run() {
             commands::backup::copy_latest_backup_to_usb,
             commands::backup::restore_saved_backup,
             commands::backup::run_periodic_backup_tick,
+            // The window's own command: after a restore the pool is closed for
+            // good, and only a new process can open the restored database.
+            commands::shell::restart_app,
+            // A WhatsApp chat opens in the machine's own browser: a webview
+            // cannot leave the window by itself.
+            commands::shell::open_external_url,
             commands::companion::companion_overview,
             commands::companion::pair_companion_device,
             commands::companion::unpair_companion_device,

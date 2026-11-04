@@ -16,6 +16,8 @@
  * a test below asserts this map has no separate entry for a missing account.
  */
 
+import { noteDatabaseFailure } from '../ui/db-health.ts';
+
 /** Every code Rust can emit. Kept exhaustive so a new code is a compile error. */
 export const ErrorCode = {
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
@@ -144,6 +146,7 @@ export const ErrorCode = {
   SALE_EMPTY: 'SALE_EMPTY',
   SALE_PRODUCT_ARCHIVED: 'SALE_PRODUCT_ARCHIVED',
   SALE_NOT_FOUND: 'SALE_NOT_FOUND',
+  SALE_INVALID_PRODUCT_ID: 'SALE_INVALID_PRODUCT_ID',
   SALE_PRICE_CHANGED: 'SALE_PRICE_CHANGED',
   SALE_DISPOSITION_NOT_SUPPORTED: 'SALE_DISPOSITION_NOT_SUPPORTED',
   SALE_PRICE_NOT_SET: 'SALE_PRICE_NOT_SET',
@@ -455,6 +458,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SALE_PRODUCT_ARCHIVED]:
     'هذا المنتج مؤرشف ولا يمكن بيعه.',
   [ErrorCode.SALE_NOT_FOUND]: 'لا توجد عملية بيع بهذا المعرّف.',
+  [ErrorCode.SALE_INVALID_PRODUCT_ID]:
+    'الصنف اللي في الفاتورة معرّفه مش صحيح — امسحه من السلة وضيفه تاني.',
   [ErrorCode.SALE_PRICE_CHANGED]:
     'تغيّر السعر بعد تأكيد الإجمالي. راجع الأسعار وأكّد من جديد.',
   [ErrorCode.SALE_DISPOSITION_NOT_SUPPORTED]:
@@ -723,6 +728,36 @@ export function asCommandError(value: unknown): CommandError | null {
 }
 
 /**
+ * A restore closed the database pool in this session.
+ *
+ * `commands::backup::restore_backup` closes the pool before it applies the
+ * package, and the pool never reopens: the restored database is opened by the
+ * next process (owner decision 2026-10-15 — a restore never restarts itself).
+ * From that moment every command fails with `LOCAL_STORAGE_UNAVAILABLE`, whose
+ * stock text is «أبلغ المسؤول الفني» — true about the storage, useless as an
+ * instruction, and alarming about data that is safe on disk.
+ *
+ * The screen that ran the restore, and only it, knows the pool is closed. It
+ * says so here, and the sentence every later screen shows becomes the one
+ * action that actually works.
+ */
+let closedByRestore = false;
+
+/** Called by the screen that restored, once the pool is known to be closed. */
+export function noteRestoreClosedTheDatabase(): void {
+  closedByRestore = true;
+}
+
+/** Tests only: forget the session, so one test cannot change another's answer. */
+export function forgetRestoreClosedTheDatabase(): void {
+  closedByRestore = false;
+}
+
+/** What a closed pool means to the operator: one action, not a technician. */
+export const RESTART_AFTER_RESTORE_MESSAGE =
+  'البيانات اتغيرت والبرنامج محتاج يتقفل ويتفتح عشان يقراها — اقفل البرنامج خالص وافتحه تاني.';
+
+/**
  * Turn anything thrown by `invoke` into an Arabic sentence.
  *
  * A non-command failure (a transport problem, for instance) has no code, and
@@ -730,5 +765,12 @@ export function asCommandError(value: unknown): CommandError | null {
  */
 export function describeError(value: unknown): string {
   const error = asCommandError(value);
-  return error === null ? UNKNOWN_CODE_MESSAGE : messageFor(error.code);
+  if (error === null) return UNKNOWN_CODE_MESSAGE;
+  // A dead database is a fact about the run, not about this one command: say it
+  // once at the top of the shell rather than screen by screen.
+  noteDatabaseFailure(error.code);
+  if (closedByRestore && error.code === ErrorCode.LOCAL_STORAGE_UNAVAILABLE) {
+    return RESTART_AFTER_RESTORE_MESSAGE;
+  }
+  return messageFor(error.code);
 }

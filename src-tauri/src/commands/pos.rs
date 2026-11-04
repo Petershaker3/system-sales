@@ -40,6 +40,8 @@ pub struct PosProductDto {
     pub category_id: Option<String>,
     /// The phone's company (ADR-018 §2), or `null`.
     pub brand_id: Option<String>,
+    /// `keypad` («زراير») or `touch` («سمارت») for a phone, or `null`.
+    pub device_type: Option<String>,
     /// The variant parent this product belongs to (ADR-018 §4), or `null`.
     pub parent_id: Option<String>,
     /// The parent's base name («جراب سيليكون ملون») shown on the family tile.
@@ -126,6 +128,7 @@ pub async fn pos_catalog(ctx: Ctx<'_>) -> Result<PosCatalogDto, PosCommandError>
                 sale_price_minor: row.sale_price_minor,
                 category_id: row.department_id,
                 brand_id: row.brand_id,
+                device_type: row.device_type,
                 parent_id: row.parent_id,
                 parent_name: row.parent_name,
                 dimension_1: row.dimension_1,

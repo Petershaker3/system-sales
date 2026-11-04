@@ -4,6 +4,7 @@
  * Matches `docs/ui/mockup-v1/views/shortages.js` and `docs/ui/SALES-SHORTAGES.md`.
  */
 
+import { addDays, dayStart } from '../sales/analytics.ts';
 import { fmtDate, fmtTime, toLatinDigits } from '../../ui/format.ts';
 
 /**
@@ -69,9 +70,10 @@ export function parseWaitingCustomer(raw: string): {
  */
 export function formatShortageWhen(createdAtMs: number, now: Date = new Date()): string {
   const d = new Date(createdAtMs);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 86_400_000;
-  const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  // The shop's own day, so «النهارده» on a shortage matches «النهارده» in the till.
+  const todayStart = dayStart(now).getTime();
+  const yesterdayStart = dayStart(addDays(now, -1)).getTime();
+  const dStart = dayStart(d).getTime();
   if (dStart === todayStart) {
     return `النهارده ${fmtTime(d)}`;
   }

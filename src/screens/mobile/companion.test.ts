@@ -22,7 +22,6 @@ import {
   relativeLinkAge,
   validateCaptureDraft,
   buildMobileSalesSnapshot,
-  buildPairingQrMatrix,
   buildRemoteOwnerSnapshot,
   filterMobileLookupProducts,
   resolveMobileScanToPos,
@@ -158,9 +157,8 @@ describe('LAN Companion & Mobile Helper (Plan 3.2 / ADR-037)', () => {
     });
     assert.equal(sellerLook[0]!.costMinor, null);
 
-    const qr = buildPairingQrMatrix('MSHOP-PAIR|v1|سنتر بيتر|192.168.1.10:8787|PAIR-8787');
-    assert.equal(qr.length, 21);
-    assert.equal(qr[0]![0], true);
+    // The pairing code itself lives in `pair-qr.test.ts`, which encodes it and
+    // reads it back with a real decoder.
   });
 
   it('builds Phase 4 remote owner snapshot with separate repair/software money and canonical ETA e-Receipt v1.2 draft', () => {

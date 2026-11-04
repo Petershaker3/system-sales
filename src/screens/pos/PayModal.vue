@@ -17,11 +17,17 @@ import {
   type PayMethodId,
   shopLogo,
 } from '../../ui/appearance';
+import { chatOpenNote, openChatUrl } from '../../ui/external';
 import { dg, money, moneyInputValue, num, parseMoney, pcsWord } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
-import { changeDue } from './cart';
+import {
+  changeDue,
+  linesWithInvalidProductId,
+  stockShortfallText,
+  stockShortfalls,
+} from './cart';
 import WalletNumberChips from './WalletNumberChips.vue';
 import type { CartLine } from './cart';
 import {
@@ -59,6 +65,11 @@ const props = defineProps<{
   sellerName?: string;
   tradeInCreditMinor?: number;
   tradeInLabel?: string | null;
+  /**
+   * What the shelf holds per product, so a line the shop cannot fulfil is refused
+   * here instead of by the backend after the money changed hands.
+   */
+  stockOnHand?: Record<string, number>;
 }>();
 
 const emit = defineEmits<{
@@ -288,6 +299,13 @@ async function dispatchWhatsAppReceipt(
     warrantyDate,
   });
   const url = buildWhatsAppUrl(normalized, message);
+
+  // Open the chat **before** the first `await`. The receipt image is rendered and
+  // copied below, but a `window.open` that happens after those awaits is no longer
+  // "the click", and the browser blocks it — which is exactly the button that used
+  // to do nothing (`src/ui/external.ts`).
+  const opened = openChatUrl(url);
+
   const canvas = await renderReceiptCanvas(receipt, currentShopProfile());
   const { copied, dataUrl } = await copyReceiptCanvasToClipboard(canvas);
 
@@ -311,6 +329,7 @@ async function dispatchWhatsAppReceipt(
         url: string;
         imageDataUrl: string;
         copied: boolean;
+        opened: string;
       };
     }
   ).__lastWhatsAppSent = {
@@ -319,19 +338,14 @@ async function dispatchWhatsAppReceipt(
     url,
     imageDataUrl: dataUrl,
     copied,
+    opened,
   };
 
-  if (typeof navigator !== 'undefined' && navigator.webdriver !== true && url) {
-    try {
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch {
-      // Ignore popup blocker
-    }
-  }
-
   toast(
-    `اتبعت الإيصال على واتساب ${normalized} (صورة الإيصال + رسالة)`,
-    'ok'
+    opened === 'refused'
+      ? `الرقم ${normalized} اتكتب، بس الرابط مش رابط واتساب فما اتفتحش`
+      : `واتساب على ${normalized}: ${chatOpenNote(opened)}`,
+    opened === 'blocked' || opened === 'refused' ? 'info' : 'ok'
   );
 }
 
@@ -445,6 +459,20 @@ async function pay(): Promise<void> {
     error.value =
       'اكتب رقم واتساب صحيح (11 رقم يبدأ بـ 01) أو غيّر طريقة الإيصال لـ «بدون»';
     return;
+  }
+
+  // A line whose product id is not an identifier cannot be looked up; say so
+  // here rather than letting the backend answer «لا توجد عملية بيع».
+  if (linesWithInvalidProductId(props.lines).length > 0) {
+    error.value = describeError({ code: 'SALE_INVALID_PRODUCT_ID' });
+    return;
+  }
+  if (props.stockOnHand) {
+    const short = stockShortfalls(props.lines, (id) => props.stockOnHand?.[id] ?? null);
+    if (short.length > 0) {
+      error.value = stockShortfallText(short[0]!);
+      return;
+    }
   }
 
   busy.value = true;

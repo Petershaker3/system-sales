@@ -373,9 +373,23 @@ onMounted(async () => {
             </button>
           </span>
         </div>
-        <span v-if="cats.length === 0" class="muted"
-          >مفيش تصنيف «بالعدد». ضيف واحد من الإعدادات ← «التصنيفات في شاشة البيع».</span
+        <!--
+          An empty list has two causes and they need opposite answers: either the shop
+          really has no counted category, or the categories could not be read at all.
+          Saying «ضيف تصنيف» to a shop that has dozens sent the owner to add one more
+          (owner report, 2026-11-02), so the reason is printed when there is one.
+        -->
+        <span
+          v-if="cats.length === 0"
+          class="muted"
+          :data-cats-empty="error !== '' ? 'error' : 'none'"
         >
+          {{
+            error !== ''
+              ? `مش قادر أقرأ التصنيفات: ${error}`
+              : 'مفيش تصنيف «بالعدد». ضيف واحد من الإعدادات ← «التصنيفات في شاشة البيع».'
+          }}
+        </span>
       </div>
 
       <div class="field">

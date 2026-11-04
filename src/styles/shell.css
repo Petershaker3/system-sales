@@ -26,6 +26,15 @@
 }
 .nav-btn .lock-badge svg.i { width: 11px; height: 11px; }
 .rail .sp { flex: 1; }
+/* أسفل الشريط: أبواب البرنامج نفسه (الإعدادات والقفل) مفصولة عن أقسام المحل،
+   وأيقونة بلا اسم — الاسم في الـ tooltip وفي عنوان الشاشة لما تتفتح. */
+.rail-foot {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 100%; padding-top: 8px; margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+.nav-btn.nav-icon { width: 46px; height: 44px; padding: 0; justify-content: center; }
+.nav-btn.nav-icon svg.i { width: 24px; height: 24px; }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .topbar {
   height: 58px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; position: relative; z-index: 30;

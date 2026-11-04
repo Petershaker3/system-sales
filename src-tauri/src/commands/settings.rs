@@ -93,6 +93,7 @@ pub struct AppearanceDto {
     pub money_unit: String,
     pub images: String,
     pub imei_mode: String,
+    pub day_start: String,
     pub pay_methods: String,
     pub discount_limit_pct: String,
     pub shop_name: String,
@@ -115,6 +116,8 @@ pub struct AppearanceDto {
     pub backup_every_2h: String,
     pub backup_usb_auto: String,
     pub backup_verify: String,
+    /// Comma-separated rail order (`ui.nav_order`); empty means the built-in one.
+    pub nav_order: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -129,6 +132,7 @@ impl From<Appearance> for AppearanceDto {
             money_unit: a.money_unit,
             images: a.images,
             imei_mode: a.imei_mode,
+            day_start: a.day_start,
             pay_methods: a.pay_methods,
             discount_limit_pct: a.discount_limit_pct,
             shop_name: a.shop_name,
@@ -151,6 +155,7 @@ impl From<Appearance> for AppearanceDto {
             backup_every_2h: a.backup_every_2h,
             backup_usb_auto: a.backup_usb_auto,
             backup_verify: a.backup_verify,
+            nav_order: a.nav_order,
         }
     }
 }

@@ -9,6 +9,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 import type { Session } from '../../api/identity';
 import { type DamagedStockRow, listDamagedStock } from '../../api/sales';
+import { posCatalog } from '../../api/pos';
 import { shortagesOverview } from '../../api/shortages';
 import CatalogPanel from '../../components/CatalogPanel.vue';
 import StockPanel from '../../components/StockPanel.vue';
@@ -23,13 +24,25 @@ import ImeiCheckModal from './ImeiCheckModal.vue';
 import LabelsModal from './LabelsModal.vue';
 import StockCountModal from './StockCountModal.vue';
 import ShortagesPanel from './ShortagesPanel.vue';
-import type { RegisteredUsedPhone } from '../../api/brands';
+import { type RegisteredUsedPhone, listBrands, type BrandEntry } from '../../api/brands';
+import { listAllProductUnits, listReceipts, stockValue, type ReceiptRow, type StockValue } from '../../api/inventory';
+import {
+  buildCountSheet,
+  type CountScope,
+  countScopePieces,
+  countSheetPieces,
+  filterCountRows,
+  isDeviceProduct,
+  storeFigures,
+} from './count-sheet';
 
 defineProps<{
   session?: Session | null;
 }>();
 
-const activeTab = ref<'items' | 'shortages'>('items');
+const activeTab = ref<'items' | 'devices' | 'receive' | 'count' | 'shortages' | 'damaged'>(
+  'items'
+);
 const shortagesCount = ref(0);
 /** The kind chooser behind «صنف جديد»; the form it names opens next. */
 const kind = ref(false);
@@ -46,6 +59,49 @@ const labelsInitialUnitId = ref<string | null>(null);
 const reload = ref(0);
 const damagedItems = ref<readonly DamagedStockRow[]>([]);
 
+/**
+ * The phone shelf, counted from the sales catalogue: models, pieces, and how
+ * many models still have no sale price. The full shelf — IMEI, cost, company —
+ * is قسم «الهواتف»; this is المخزن's own reading of it (owner, 2026-11-02).
+ */
+const deviceProducts = ref<
+  readonly {
+    id: string;
+    name: string;
+    disposition: string;
+    deviceType?: 'touch' | 'keypad' | null;
+    brandId?: string | null;
+    onHand: number;
+    salePriceMinor: number | null;
+    tracking?: string | null;
+  }[]
+>([]);
+const devicePieces = ref(0);
+/** Companies, for their names on the count sheet. */
+const brands = ref<readonly BrandEntry[]>([]);
+/** Cost per device in stock — absent when the session may not see cost. */
+const unitCosts = ref<readonly { unitCostMinor?: number | null }[]>([]);
+/** The whole stock at cost, in one answer from Rust. */
+const stock = ref<StockValue | null>(null);
+/** The receiving log shown under «استلام توريد». */
+const receipts = ref<readonly ReceiptRow[]>([]);
+
+const deviceModels = computed(() => deviceProducts.value.filter(isDeviceProduct).length);
+const deviceNoPrice = computed(
+  () =>
+    deviceProducts.value.filter((p) => isDeviceProduct(p) && p.salePriceMinor === null).length
+);
+
+async function loadDevices(): Promise<void> {
+  try {
+    const catalog = await posCatalog();
+    deviceProducts.value = catalog.products;
+    devicePieces.value = (catalog.units ?? []).length;
+  } catch {
+    // A session without the sales read simply sees the counts empty.
+  }
+}
+
 const damagedTotalQty = computed(() =>
   damagedItems.value.reduce((sum, d) => sum + d.quantity, 0)
 );
@@ -60,6 +116,33 @@ const damagedTotalCostMinor = computed<number | null>(() => {
   }
   return hasCost ? sum : null;
 });
+
+const companyOf = (brandId: string | null): string => {
+  if (!brandId) return 'بدون شركة';
+  return brands.value.find((b) => b.id === brandId)?.name ?? 'بدون شركة';
+};
+
+/** The count sheet: phones by shelf (زراير / تانش) and everything counted by quantity. */
+const countSheet = computed(() =>
+  buildCountSheet(deviceProducts.value, companyOf)
+);
+const countScope = ref<CountScope>('all');
+const countRows = computed(() => filterCountRows(countSheet.value.rows, countScope.value));
+const countPieces = computed(() => countSheetPieces(countSheet.value));
+const scopePieces = computed(() => countScopePieces(countSheet.value, countScope.value));
+
+/** The four figures above the tabs: wholesale value, pieces, shortages, no price. */
+const figures = computed(() =>
+  storeFigures({ products: deviceProducts.value, units: unitCosts.value })
+);
+
+/** «قيمة المخزن بالجملة»: Rust's one answer, or the devices' unit costs if it is refused. */
+const stockValueMinor = computed<number | null>(() =>
+  stock.value ? stock.value.valueMinor : figures.value.deviceValueMinor
+);
+const stockPieces = computed(() =>
+  stock.value ? stock.value.quantity : figures.value.totalPieces
+);
 
 async function loadDamaged(): Promise<void> {
   try {
@@ -78,8 +161,47 @@ async function loadShortagesBadge(): Promise<void> {
   }
 }
 
+async function loadCosts(): Promise<void> {
+  try {
+    stock.value = await stockValue();
+  } catch {
+    // No cost in view: the devices' own unit costs (if any) still say something.
+    stock.value = null;
+  }
+  try {
+    const units = await listAllProductUnits();
+    unitCosts.value = units.map((u) => ({ unitCostMinor: u.unitCostMinor ?? null }));
+  } catch {
+    // A session that may not see cost still counts pieces; the value says «—».
+    unitCosts.value = [];
+  }
+}
+
+async function loadReceipts(): Promise<void> {
+  try {
+    receipts.value = await listReceipts(100);
+  } catch {
+    receipts.value = [];
+  }
+}
+
+async function loadBrandNames(): Promise<void> {
+  try {
+    brands.value = await listBrands();
+  } catch {
+    // No company names then; the sheet shows «بدون شركة» rather than failing.
+  }
+}
+
 async function loadStoreMeta(): Promise<void> {
-  await Promise.all([loadDamaged(), loadShortagesBadge()]);
+  await Promise.all([
+    loadDamaged(),
+    loadShortagesBadge(),
+    loadDevices(),
+    loadCosts(),
+    loadBrandNames(),
+    loadReceipts(),
+  ]);
 }
 
 onMounted(loadStoreMeta);
@@ -101,6 +223,8 @@ function registered(name: string, productId = ''): void {
   newPhone.value = false;
   newItem.value = false;
   justCreated.value = productId;
+  // A new item has no stock yet: send him straight to «الاستلام» with it selected.
+  if (productId !== '') activeTab.value = 'receive';
   reload.value += 1;
   toast(
     productId === ''
@@ -128,45 +252,32 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
 <template>
   <div class="page">
     <div class="page-h">
-      <h2>الأصناف والكميات</h2>
-      <span class="sub">سجّل الصنف بسعره، وبعدين استلم الكمية بسعر الشراء. التكلفة بتتحسب بالمتوسط المرجح.</span>
+      <h2>المخزن</h2>
+      <span class="sub">الكميات والتكلفة: التكلفة بالجملة (المتوسط المرجح) مش بسعر البيع.</span>
       <span class="sp"></span>
       <button type="button" class="btn primary" @click="kind = true"><Icon name="package-plus" /> صنف جديد</button>
-      <button
-        type="button"
-        class="btn"
-        data-open-used-phone
-        @click="
-          newUsedMode = 'catalog';
-          newUsed = true;
-        "
-      >
-        <Icon name="recycle" /> شراء مستعمل من عميل
-      </button>
-      <button
-        type="button"
-        class="btn"
-        data-open-stock-count
-        @click="showStockCount = true"
-      >
-        <Icon name="scan-line" /> جرد بالمسح
-      </button>
-      <button
-        type="button"
-        class="btn"
-        data-open-labels
-        @click="openLabelsModal()"
-      >
-        <Icon name="tag" /> طباعة ملصقات
-      </button>
-      <button
-        type="button"
-        class="btn ghost"
-        data-open-imei-check
-        @click="showImeiCheck = true"
-      >
-        <Icon name="search" /> فحص الـ IMEI
-      </button>
+    </div>
+
+    <!-- أهم رقم قبل أي حاجة تانية: قيمة الرف، القطع، النواقص، اللي من غير سعر -->
+    <div class="store-figs" data-store-figs>
+      <div class="store-fig">
+        <small>قيمة المخزن بالجملة</small>
+        <b class="num" data-store-fig-value>
+          {{ stockValueMinor === null ? '—' : money(stockValueMinor) }}
+        </b>
+      </div>
+      <div class="store-fig">
+        <small>القطع في المخزن</small>
+        <b class="num" data-store-fig-pieces>{{ num(stockPieces) }}</b>
+      </div>
+      <div class="store-fig" :class="{ 'store-fig-warn': shortagesCount > 0 }">
+        <small>النواقص</small>
+        <b class="num" data-store-fig-shortages>{{ num(shortagesCount) }}</b>
+      </div>
+      <div class="store-fig" :class="{ 'store-fig-warn': figures.noPriceModels > 0 }">
+        <small>موديلات بلا سعر بيع</small>
+        <b class="num" data-store-fig-noprice>{{ num(figures.noPriceModels) }}</b>
+      </div>
     </div>
 
     <div class="inv-seg" role="tablist" aria-label="تبويبات المخزن" data-store-tabs style="align-self: flex-start">
@@ -179,6 +290,55 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
         @click="activeTab = 'items'"
       >
         <Icon name="boxes" /> الأصناف
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'devices'"
+        :class="{ active: activeTab === 'devices' }"
+        data-store-tab="devices"
+        @click="activeTab = 'devices'"
+      >
+        <Icon name="smartphone" /> الأجهزة
+        <span v-if="deviceNoPrice > 0" class="inv-badge num" data-store-noprice-badge>
+          {{ num(deviceNoPrice) }}
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'receive'"
+        :class="{ active: activeTab === 'receive' }"
+        data-store-tab="receive"
+        @click="activeTab = 'receive'"
+      >
+        <Icon name="arrow-down-to-line" /> الاستلام
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'count'"
+        :class="{ active: activeTab === 'count' }"
+        data-store-tab="count"
+        @click="activeTab = 'count'"
+      >
+        <Icon name="scan-line" /> الجرد
+        <span v-if="figures.totalPieces > 0" class="inv-badge num" data-store-count-badge>
+          {{ num(figures.totalPieces) }}
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'damaged'"
+        :class="{ active: activeTab === 'damaged' }"
+        data-store-tab="damaged"
+        @click="activeTab = 'damaged'"
+      >
+        <Icon name="triangle-alert" /> التالف
+        <span v-if="damagedTotalQty > 0" class="inv-badge num" data-store-damaged-badge>
+          {{ num(damagedTotalQty) }}
+        </span>
       </button>
       <button
         type="button"
@@ -199,7 +359,205 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       </button>
     </div>
 
+    <!-- إجراءات ثانوية، بعد المحتوى الأساسي وقبل الشغل نفسه -->
+    <div class="store-actions" data-store-actions>
+      <button
+        type="button"
+        class="btn soft"
+        data-open-used-phone
+        @click="
+          newUsedMode = 'catalog';
+          newUsed = true;
+        "
+      >
+        <Icon name="recycle" /> شراء مستعمل من عميل
+      </button>
+      <button type="button" class="btn soft" data-open-stock-count @click="showStockCount = true">
+        <Icon name="scan-line" /> جرد بالمسح
+      </button>
+      <button type="button" class="btn ghost" data-open-labels @click="openLabelsModal()">
+        <Icon name="tag" /> طباعة ملصقات
+      </button>
+      <button type="button" class="btn ghost" data-open-imei-check @click="showImeiCheck = true">
+        <Icon name="search" /> فحص الـ IMEI
+      </button>
+    </div>
+
     <template v-if="activeTab === 'items'">
+      <section class="card legacy-panel">
+        <CatalogPanel
+          :key="`c${reload}`"
+          @print-label="openLabelsModal($event, null)"
+        />
+      </section>
+    </template>
+
+    <!-- الاستلام: الكمية وسعر الشراء، والتكلفة بالمتوسط المرجح -->
+    <template v-else-if="activeTab === 'receive'">
+      <section class="card legacy-panel">
+        <StockPanel
+          :key="`s${reload}`"
+          :select-product="justCreated"
+          @new-item="kind = true"
+          @received="
+            loadShortagesBadge();
+            loadReceipts();
+            loadCosts();
+          "
+        />
+      </section>
+
+      <!-- سجل التوريدات: اللي دخل المحل فعلاً، من مين، بكام -->
+      <section class="card" data-store-receipts>
+        <h3><Icon name="receipt-text" /> سجل التوريدات</h3>
+        <p class="sub">آخر {{ num(receipts.length) }} استلام، الأحدث الأول.</p>
+        <div v-if="receipts.length === 0" class="muted" data-receipts-empty>
+          لسه مفيش توريدات متسجلة.
+        </div>
+        <div v-else class="table-wrap">
+          <table class="t" data-receipts-table>
+            <thead>
+              <tr>
+                <th>الصنف</th>
+                <th class="ta-n">الكمية</th>
+                <th class="ta-n">سعر الشراء</th>
+                <th>المورد</th>
+                <th>التاريخ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in receipts" :key="r.id" :data-receipt-row="r.id">
+                <td><b><bdi dir="auto">{{ r.productName }}</bdi></b></td>
+                <td class="ta-n num">{{ num(r.quantity) }}</td>
+                <td class="ta-n num">{{ r.unitCostMinor === 0 ? '—' : money(r.unitCostMinor) }}</td>
+                <td><bdi dir="auto">{{ r.supplierName ?? '—' }}</bdi></td>
+                <td class="muted">
+                  {{ fmtDate(new Date(r.occurredAt)) }} · {{ fmtTime(new Date(r.occurredAt)) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <!-- الجرد: بالعدد، ومقسوم زراير وتانش زي ما الرف متقسم -->
+    <template v-else-if="activeTab === 'count'">
+      <section class="card" data-store-count>
+        <h3><Icon name="scan-line" /> الجرد بالعدد</h3>
+        <p class="sub">
+          عدّ الرف وقارن برقم السيستم. زراير وتانش منفصلين، والأصناف لوحدها.
+        </p>
+
+        <div class="count-figs">
+          <button
+            type="button"
+            class="count-fig"
+            :class="{ active: countScope === 'keypad' }"
+            data-count-scope="keypad"
+            @click="countScope = 'keypad'"
+          >
+            <small>زراير</small>
+            <b class="num">{{ num(countSheet.keypad.pieces) }}</b>
+            <span class="muted">{{ num(countSheet.keypad.models) }} موديل</span>
+          </button>
+          <button
+            type="button"
+            class="count-fig"
+            :class="{ active: countScope === 'touch' }"
+            data-count-scope="touch"
+            @click="countScope = 'touch'"
+          >
+            <small>تانش</small>
+            <b class="num">{{ num(countSheet.touch.pieces) }}</b>
+            <span class="muted">{{ num(countSheet.touch.models) }} موديل</span>
+          </button>
+          <button
+            type="button"
+            class="count-fig"
+            :class="{ active: countScope === 'all' }"
+            data-count-scope="all"
+            @click="countScope = 'all'"
+          >
+            <small>الكل</small>
+            <b class="num">{{ num(countPieces) }}</b>
+            <span class="muted">{{ num(countSheet.items.pieces) }} قطعة أصناف</span>
+          </button>
+        </div>
+
+        <p class="sub" data-count-scope-pieces>
+          {{ countScope === 'all' ? 'كل المخزن' : countScope === 'keypad' ? 'الزراير' : 'التانش' }}:
+          <b class="num">{{ num(scopePieces) }}</b> قطعة
+        </p>
+
+        <div v-if="countRows.length === 0" class="muted" data-count-empty>
+          مفيش موديلات في القسم ده.
+        </div>
+        <div v-else class="table-wrap">
+          <table class="t" data-count-table>
+            <thead>
+              <tr>
+                <th>الموديل</th>
+                <th>الشركة</th>
+                <th>النوع</th>
+                <th class="ta-n">القطع في السيستم</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in countRows" :key="r.productId" :data-count-row="r.productId">
+                <td><b><bdi dir="auto">{{ r.name }}</bdi></b></td>
+                <td><bdi dir="auto">{{ r.company }}</bdi></td>
+                <td>{{ r.kind === 'keypad' ? 'زراير' : r.kind === 'touch' ? 'تانش' : 'غير محدد' }}</td>
+                <td class="ta-n num"><b>{{ num(r.pieces) }}</b></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="note">
+          <Icon name="clipboard-list" />
+          <span>
+            العدّ والفرق والتسوية بالمسح في «جرد بالمسح» تحت — هو اللي بيثبت الفرق في المخزن.
+          </span>
+        </p>
+      </section>
+    </template>
+
+    <!-- الأجهزة: المخزن بيقرا رف الموبايلات بالأرقام، والتفاصيل في «الهواتف» -->
+    <template v-else-if="activeTab === 'devices'">
+      <section class="card" data-store-devices>
+        <h3><Icon name="smartphone" /> الأجهزة في المخزن</h3>
+        <p class="sub">
+          ملخص رف الموبايلات. كل جهاز لوحده بالـIMEI والتكلفة والشركة في قسم «الهواتف»،
+          والتسجيل من «صنف جديد ← موبايل» فوق.
+        </p>
+        <div class="device-figs">
+          <div>
+            <small>الموديلات</small>
+            <b class="num" data-store-device-models>{{ num(deviceModels) }}</b>
+          </div>
+          <div>
+            <small>القطع</small>
+            <b class="num" data-store-device-pieces>{{ num(devicePieces) }}</b>
+          </div>
+          <div>
+            <small>موديلات بلا سعر بيع</small>
+            <b class="num" :class="{ 'danger-t': deviceNoPrice > 0 }" data-store-device-noprice>
+              {{ num(deviceNoPrice) }}
+            </b>
+          </div>
+        </div>
+        <p v-if="deviceNoPrice > 0" class="note warn">
+          <Icon name="triangle-alert" />
+          <span>
+            الموديلات اللي من غير سعر بيع مش هتقدر تتباع في واجهة البيع لحد ما تحط سعرها.
+          </span>
+        </p>
+      </section>
+    </template>
+
+    <!-- التالف: تبويب لوحده بدل ما يزحم قايمة الأصناف -->
+    <template v-else-if="activeTab === 'damaged'">
     <section
       class="card"
       style="margin-bottom: 16px; padding: 16px"
@@ -297,19 +655,6 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       </div>
     </section>
 
-    <div class="legacy-grid">
-      <section class="card legacy-panel">
-        <CatalogPanel :key="`c${reload}`" @print-label="openLabelsModal($event, null)" />
-      </section>
-      <section class="card legacy-panel">
-        <StockPanel
-          :key="`s${reload}`"
-          :select-product="justCreated"
-          @new-item="kind = true"
-          @received="loadShortagesBadge"
-        />
-      </section>
-    </div>
     </template>
 
     <ShortagesPanel
@@ -351,5 +696,75 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
 <style scoped>
 .page-h .sp {
   flex: 1;
+}
+
+/* أهم رقم قبل المحتوى: قيمة الرف، القطع، النواقص، اللي من غير سعر */
+.store-figs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.store-fig {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface-2, var(--surface));
+}
+
+.store-fig small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.store-fig b {
+  font-size: 1.1rem;
+}
+
+.store-fig-warn b {
+  color: var(--danger, #c0392b);
+}
+
+/* إجراءات ثانوية: بعد التبويبات، مش فوقها */
+.store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.count-figs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.count-fig {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: start;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface-2, var(--surface));
+  color: inherit;
+  font: inherit;
+}
+
+.count-fig small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.count-fig b {
+  font-size: 1.25rem;
+}
+
+.count-fig.active {
+  border-color: var(--accent, #2563eb);
+  box-shadow: inset 0 0 0 1px var(--accent, #2563eb);
 }
 </style>
