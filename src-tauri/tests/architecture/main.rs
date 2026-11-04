@@ -4334,9 +4334,17 @@ fn reports_cover_every_section_and_rate_the_day_in_one_word() {
             "analytics.ts must contain `{required}`: the rating is a tested rule, not a screen's guess (`ADR-047`)"
         );
     }
+    // The default stays ADR-047: the day's net is the sections minus the day's
+    // expenses. The owner's own setting (`ui.expenses_deduct`) may move the
+    // expenses to the month instead, so the subtraction is what is asserted —
+    // not the shape of one line it used to live on.
     assert!(
-        ANALYTICS_TS.contains("const netMinor = grossMinor - input.expensesMinor;"),
+        ANALYTICS_TS.contains("grossMinor - input.expensesMinor"),
         "the day's net must be the sections minus the expenses (`ADR-047`)"
+    );
+    assert!(
+        ANALYTICS_TS.contains("expensesDeductMode === 'month'"),
+        "«تحتسب على الشهر» moves the deduction to the month, before it is subtracted (`ADR-047`)"
     );
     for required in [
         "data-reports-day-rating",

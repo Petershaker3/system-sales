@@ -116,7 +116,8 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
             min_alert_minor: 300_000,
             max_limit_minor: 9_000_000,
             daily_limit_minor: 6_000_000,
-            monthly_limit_minor: 0,
+            // A monthly ceiling for the number (`0034`), separate from the daily one.
+            monthly_limit_minor: 12_000_000,
             pay_method: Some("vf".to_owned()),
             company: None,
             sort: 1,
@@ -125,6 +126,22 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
     )
     .await
     .expect("update vf wallet");
+
+    // 2b. The monthly ceiling is stored on the wallet itself (`0034`), so the
+    // screen that draws the month meter reads it back with the wallet.
+    let after_update = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50)
+        .await
+        .expect("wallets overview after update");
+    let vf = after_update
+        .wallets
+        .iter()
+        .find(|w| w.wallet.id == "vf")
+        .expect("vf wallet");
+    assert_eq!(vf.wallet.daily_limit_minor, 6_000_000);
+    assert_eq!(
+        vf.wallet.monthly_limit_minor, 12_000_000,
+        "the monthly limit must round-trip through the repository"
+    );
 
     // 3. Open shift #1 with 1,000 EGP (100_000 minor).
     shift_service::open_shift(&pool, tokens.as_ref(), 100_000)
