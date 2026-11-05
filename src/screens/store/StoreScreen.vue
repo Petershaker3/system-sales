@@ -435,6 +435,10 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
           :key="`s${reload}-${justCreated}`"
           :select-product="justCreated"
           @new-item="kind = true"
+          @open-used="
+            newUsedMode = 'catalog';
+            newUsed = true;
+          "
           @received="
             loadShortagesBadge();
             loadReceipts();

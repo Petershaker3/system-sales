@@ -110,7 +110,8 @@ export interface NewUsedPhone {
   readonly accessories?: string | null;
   readonly intakeNote?: string | null;
   readonly costMinor: number;
-  readonly salePriceMinor: number;
+  /** `null` = no price yet; the owner sets it at the counter (`0035`). Never `0`. */
+  readonly salePriceMinor: number | null;
   readonly sellerName?: string | null;
   readonly sellerPhone?: string | null;
   readonly sellerNationalId?: string | null;
@@ -131,7 +132,7 @@ export interface RegisteredUsedPhone {
   readonly conditionGrade: ConditionGrade;
   readonly batteryHealthPct: number | null;
   readonly costMinor: number;
-  readonly salePriceMinor: number;
+  readonly salePriceMinor: number | null;
   readonly onHand: number;
 }
 

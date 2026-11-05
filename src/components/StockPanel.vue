@@ -845,6 +845,11 @@ void loadPickers;
       >
         <Icon name="arrow-down-to-line" /> بضاعة جديدة
       </button>
+      <!--
+        «موبايل مستعمل» is a door of its own but not a form of its own: a used phone
+        is one device with its own seller, condition and paper (`ADR-032`), and that
+        intake already exists. The door opens it rather than repeating it here.
+      -->
       <button type="button" role="tab" data-receive-door="used" @click="emit('open-used')">
         <Icon name="recycle" /> موبايل مستعمل
       </button>

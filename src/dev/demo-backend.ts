@@ -4349,8 +4349,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (sellerNatIdRaw && !/^\d{14}$/.test(sellerNatIdRaw)) fail('UNIT_NATIONAL_ID_INVALID');
 
     const costMinor = Math.max(0, numArg(args, 'costMinor'));
-    const salePriceMinor = numArg(args, 'salePriceMinor');
-    if (salePriceMinor <= 0) fail('PRODUCT_INVALID_PRICE');
+    // The expected sale price is optional (`0035`): `null` is «the owner decides at
+    // the counter», which is not the same as zero. A sent zero is still refused.
+    const salePriceMinor =
+      args?.['salePriceMinor'] === null || args?.['salePriceMinor'] === undefined
+        ? null
+        : numArg(args, 'salePriceMinor');
+    if (salePriceMinor !== null && salePriceMinor <= 0) fail('PRODUCT_INVALID_PRICE');
 
     const title = `${phoneName(b, model, storage)} مستعمل فئة ${grade}`;
     let prod = products.find(
@@ -4360,7 +4365,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
         x.name.toLowerCase() === title.toLowerCase()
     );
     if (prod) {
-      prod.salePriceMinor = salePriceMinor;
+      // A unit bought with no expected price must not wipe the price the model
+      // already carries — receiving never silently repricess what is on the shelf.
+      if (salePriceMinor !== null) prod.salePriceMinor = salePriceMinor;
       prod.tracking = 'serial_optional';
     } else {
       prod = {

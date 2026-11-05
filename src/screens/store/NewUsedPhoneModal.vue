@@ -376,9 +376,13 @@ async function submit(keepOpen: boolean): Promise<void> {
     return;
   }
 
-  const parsedSale = parseMoney(price.value);
-  if (parsedSale === null || parsedSale <= 0) {
-    error.value = 'اكتب سعر البيع المتوقع للجهاز.';
+  // The expected sale price is optional (`0035`): a used handset's price is a
+  // conversation with one customer, and the owner decides it at the counter. A
+  // *typed* price still has to be a price — an empty box is a choice, «abc» is not.
+  const rawSale = price.value.trim();
+  const parsedSale = rawSale === '' ? null : parseMoney(rawSale);
+  if (rawSale !== '' && (parsedSale === null || parsedSale <= 0)) {
+    error.value = 'السعر مش رقم صحيح — سيبه فاضي لو هيتحدد وقت البيع.';
     return;
   }
 
@@ -762,7 +766,7 @@ onMounted(load);
         />
       </label>
       <label class="field" for="nu-price">
-        <span class="lbl">هيتباع بكام <b>*</b></span>
+        <span class="lbl">هيتباع بكام <small class="optional-f">اختياري</small></span>
         <input
           id="nu-price"
           v-model="price"
@@ -770,7 +774,7 @@ onMounted(load);
           :class="{ mono: price !== '' }"
           :dir="price ? 'ltr' : 'rtl'"
           inputmode="decimal"
-          placeholder="0"
+          placeholder="يتحدد وقت البيع"
         />
       </label>
     </div>
@@ -863,6 +867,13 @@ onMounted(load);
 </template>
 
 <style scoped>
+/* A label that says «optional» so nobody thinks a blank box will be refused. */
+.optional-f {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-inline-start: 4px;
+  font-weight: 400;
+}
 .sp {
   flex: 1;
 }
