@@ -42,7 +42,7 @@ import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
 import { skipsPasswordReauth } from '../shell/open-mode';
 import { appearance } from '../ui/appearance';
-import { money, moneyUnitWord, num } from '../ui/format';
+import { money, moneyUnitWord, num, parseMoney } from '../ui/format';
 import CameraScanButton from '../ui/CameraScanButton.vue';
 import Icon from '../ui/Icon.vue';
 import type { ScanReading } from '../ui/scan';
@@ -333,13 +333,18 @@ function parseNonNegativeInteger(raw: string): number | null {
 /** اقرأ الفورم الحالي كسطر توريد، أو `null` مع رسالة لو فيه حاجة ناقصة. */
 function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
   const quantity = parseNonNegativeInteger(receiveQuantity.value);
-  const unitCost = parseNonNegativeInteger(receiveUnitCost.value);
+  // The cost box says «سعر الوحدة (ج.م)», so it is read the way every other money box
+  // in the app is read: `parseMoney` turns what the shopkeeper types in the shop's own
+  // unit into piastres. Reading it as a plain integer made «8000» mean 80 EGP — a
+  // hundredfold error on the one figure the whole costing chain starts from, and it
+  // only showed up on the receipt afterwards.
+  const unitCost = parseMoney(receiveUnitCost.value);
   if (quantity === null || quantity < 1) {
     error.value = 'الكمية يجب أن تكون عددًا صحيحًا أكبر من صفر.';
     return null;
   }
-  if (unitCost === null) {
-    error.value = 'سعر الوحدة يجب أن يكون عددًا صحيحًا غير سالب.';
+  if (unitCost === null || unitCost < 0) {
+    error.value = `سعر الوحدة لازم يكون رقم صحيح بال${moneyUnitWord()} (مثال: 40 أو 40.50).`;
     return null;
   }
   if (selectedIsSerial.value && receiveImeis.value.length > quantity) {
@@ -732,7 +737,7 @@ void loadPickers();
       </form>
     </div>
 
-    <p v-if="notice" class="notice">{{ notice }}</p>
+    <p v-if="notice" class="notice" data-stock-notice>{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <!-- Re-authentication for reading a cost. -->

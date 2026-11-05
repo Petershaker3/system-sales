@@ -81,3 +81,6 @@ releases/
 
 # The owner's own backups are data, not source. They stay on his machine.
 backup-*.msb1
+
+# The delivered backups are the owner's own data: they are handed to him, never committed.
+migration-delivery/*.msb1

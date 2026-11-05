@@ -71,6 +71,21 @@ interface DemoCategory {
 const now = () => Date.now();
 let seq = 0;
 const newId = (prefix: string) => `${prefix}-${(++seq).toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+/**
+ * A product id in the shape the app's own guard accepts (`UUID_PATTERN` in
+ * `screens/pos/cart.ts`): the till refuses to sell a line whose product id is not a
+ * UUID, because Rust parses it as one. Prefixed demo ids (`p-1-a3b2c`) sail through
+ * every other screen and then fail at «تم الدفع» with «امسحه من السلة وضيفه تاني» —
+ * which is true advice in the shop and a dead end in the demo.
+ */
+const newProductId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
 const fail = (code: string): never => {
   throw { code };
 };
@@ -231,7 +246,7 @@ const p = (
   barcode: string | null = null,
   disposition: DemoProduct['disposition'] = 'quantity'
 ): DemoProduct => ({
-  id: newId('p'),
+  id: newProductId(),
   name,
   disposition,
   barcode,
@@ -3408,7 +3423,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const price = args?.['salePriceMinor'];
     if (typeof price === 'number' && price < 0) fail('PRICE_NEGATIVE');
     const x: DemoProduct = {
-      id: newId('p'),
+      id: newProductId(),
       name,
       disposition: (str(args, 'disposition') || 'quantity') as DemoProduct['disposition'],
       barcode,
@@ -3513,7 +3528,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const row = resolved[order]!;
       const title = [baseName, v1, v2 ?? ''].filter((part) => part !== '').join(' ');
       const item: DemoProduct = {
-        id: newId('p'),
+        id: newProductId(),
         name: title,
         disposition: 'quantity',
         barcode: row.barcode,
@@ -3954,7 +3969,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       fail('PHONE_ALREADY_REGISTERED');
     const price = args?.['salePriceMinor'];
     const x: DemoProduct = {
-      id: newId('p'),
+      id: newProductId(),
       name: phoneName(b, model, storage),
       disposition: 'quantity',
       barcode: null,
@@ -4041,7 +4056,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       prod.tracking = 'serial_optional';
     } else {
       prod = {
-        id: newId('p'),
+        id: newProductId(),
         name: title,
         disposition: 'quantity',
         barcode: null,

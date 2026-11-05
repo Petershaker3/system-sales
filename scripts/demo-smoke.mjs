@@ -565,7 +565,13 @@ await shot('09-store');
 
 // --- «صنف جديد»: the kind chooser and a counted item (ADR-018 §3) ----------
 check('the store offers «صنف جديد», not a lone «موبايل جديد»', (await text('.page-h button')).includes('صنف جديد'));
+// The receive form is its own tab now, so the panel's «صنف جديد» is checked there.
+await page.waitForSelector('[data-store-tabs]');
+await clickText('[data-store-tab]', 'الاستلام');
+await page.waitForSelector('.stock-head', { timeout: 5000 });
 check('the receiving panel has its own «صنف جديد»', (await text('.stock-head')).includes('صنف جديد'));
+await page.click('[data-store-tab="items"]');
+await sleep(200);
 await clickText('.page-h button', 'صنف جديد');
 await page.waitForSelector('.ni-kinds');
 const kinds = await page.$$eval('.ni-kind .t b', (els) => els.map((e) => (e.textContent ?? '').trim()));
@@ -790,6 +796,9 @@ check(
 await clickText('.rail .nav-btn', 'البيع');
 await sleep(100);
 await clickText('.rail .nav-btn', 'المخزن');
+// «المخزن» opens on its tabs; the receive form is a tab of its own.
+await page.waitForSelector('[data-store-tabs]');
+await clickText('[data-store-tab]', 'الاستلام');
 await page.waitForSelector('.stock select');
 const pinkVariantId = await page.$eval('.stock select', (sel) => {
   const opt = [...sel.options].find((o) => (o.textContent ?? '').includes('جراب سيليكون ملون Galaxy A16 بينك'));
@@ -1012,6 +1021,9 @@ check(
 );
 
 // --- optional IMEI units & receiving (ADR-019, plan item 1.4) --------------
+// The receive form lives in its own tab; the tabs unmount what they do not show.
+await clickText('[data-store-tab]', 'الاستلام');
+await page.waitForSelector('#stock-product');
 await page.evaluate(() => {
   const sel = document.querySelector('#stock-product');
   if (!sel) return;
@@ -1059,8 +1071,9 @@ await page.$eval('#stock-qty', (el) => {
   el.value = '2';
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
+// The cost box reads the shop's own unit (EGP here): 8000 = eight thousand pounds.
 await page.$eval('#stock-cost', (el) => {
-  el.value = '800000';
+  el.value = '8000';
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 await page.click('.stock form button[type="submit"]');
@@ -1547,8 +1560,24 @@ await page.waitForSelector('.tile');
 await sleep(150);
 await clickText('.chips.cats .chip', 'الكل');
 await sleep(100);
+// The demo's stock moves as this run sells: take the Redmi when it is still on the
+// shelf, otherwise the first phone that is not sold out («خلصان» tiles do nothing —
+// that is the till refusing to sell what it has not got). Either way the line needs
+// a default warranty, which is what the next check is about.
+const linesBefore = await count('.line');
 await clickText('.tile', 'Redmi 14C 128GB');
-await sleep(100);
+await sleep(150);
+if ((await count('.line')) === linesBefore) {
+  for (const h of await page.$$('.tile')) {
+    const t = await h.evaluate((el) => el.textContent ?? '');
+    if (/\d+\s*(GB|TB)/.test(t) && !t.includes('خلصان')) {
+      await h.click();
+      break;
+    }
+  }
+  console.log('note a phone on the shelf was used instead of Redmi 14C');
+  await sleep(150);
+}
 await clickText('.tile', 'كابل تايب سي 1 متر');
 await sleep(100);
 check(
@@ -1896,7 +1925,10 @@ check(
 
 // Navigate to «المخزن» and verify «مخزون تالف» card shows the damaged returned item at its original line cost
 await clickText('.rail .nav-btn', 'المخزن');
-await page.waitForSelector('[data-damaged-stock-card]', { timeout: 3000 });
+// «التالف» is a tab of the store now, not a card on the front of it.
+await page.waitForSelector('[data-store-tabs]', { timeout: 5000 });
+await clickText('[data-store-tab]', 'التالف');
+await page.waitForSelector('[data-damaged-stock-card]', { timeout: 5000 });
 await sleep(250);
 check(
   'Store screen («المخزن») displays «مخزون تالف» card with the damaged returned item and its cost',
@@ -2330,9 +2362,9 @@ check(
 );
 await shot('52-store-shortages');
 
-// 7. Receiving stock in «الأصناف» auto-resolves the matching shortage («فلاشة 32 جيجا»)
-await page.click('[data-store-tab="items"]');
-await page.waitForSelector('#stock-product', { timeout: 3000 });
+// 7. Receiving stock in «الاستلام» auto-resolves the matching shortage («فلاشة 32 جيجا»)
+await page.click('[data-store-tab="receive"]');
+await page.waitForSelector('#stock-product', { timeout: 5000 });
 await page.evaluate(() => {
   const sel = document.querySelector('#stock-product');
   if (!sel) return;
@@ -2793,8 +2825,9 @@ check(
   await sleep(250);
 
   check(
-    'Owner opens «التقارير» on the «النهارده» tab with 5 KPI cards, 7-day bars, and separate repair/software revenue',
-    (await count('[data-reports-today-kpi]')) === 5 &&
+    'Owner opens «التقارير» on the «النهارده» tab with 6 KPI cards (net profit is its own), 7-day bars, and separate repair/software revenue',
+    (await count('[data-reports-today-kpi]')) === 6 &&
+      (await count('[data-reports-today-kpi="net-profit"]')) === 1 &&
       (await text('[data-reports-today-kpi="services"]')).includes('صيانة') &&
       (await text('[data-reports-today-kpi="services"]')).includes('سوفت') &&
       (await count('[data-reports-open-month]')) === 1
@@ -2867,8 +2900,8 @@ check(
   await sleep(250);
 
   check(
-    'Switching to «الشهر» displays monthly KPIs, evaluation verdict & notes, daily bars, 12-month trend, and separate repair/software buckets',
-    (await count('[data-reports-kpi]')) === 5 &&
+    'Switching to «الشهر» displays monthly KPIs (with net profit), evaluation verdict & notes, daily bars, 12-month trend, and separate repair/software buckets',
+    (await count('[data-reports-kpi]')) === 6 &&
       (await count('[data-reports-verdict]')) === 1 &&
       (await count('.ev-li')) >= 3 &&
       (await count('[data-reports-day-bar]')) >= 1 &&
