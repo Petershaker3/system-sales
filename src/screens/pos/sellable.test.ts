@@ -23,6 +23,15 @@ test('a phone counts its units, not its stock level', () => {
   assert.equal(posOnHand(phone, true, {}), 0);
 });
 
+test('pieces with no serial yet are still pieces on the shelf (`0035`)', () => {
+  // Three handsets received with no IMEIs: no units exist, and the shelf is not
+  // empty. Reading only the units said «خلصان» about a phone standing there.
+  const unregistered = { id: 'p3', onHand: 3 };
+  assert.equal(posOnHand(unregistered, true, {}), 3);
+  // And when some of them do carry a serial, the shelf is not counted twice.
+  assert.equal(posOnHand(unregistered, true, { p3: 1 }), 3);
+});
+
 test('a counted product reads its stock level', () => {
   const item = { id: 'p2', onHand: 7 };
   assert.equal(posOnHand(item, false, { p2: 2 }), 7);

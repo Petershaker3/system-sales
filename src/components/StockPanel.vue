@@ -41,6 +41,7 @@ import * as lifecycle from '../api/lifecycle';
 import * as posApi from '../api/pos';
 import type { PosProduct } from '../api/pos';
 import { shortagesOverview } from '../api/shortages';
+import { deliveryFormProblem, piecesProblem } from '../screens/store/receiving';
 import { imeiLuhn, normalizeImeiDigits } from '../screens/pos/imei';
 import { formatArrivedToast } from '../screens/store/shortages';
 import { withOwnerApproval } from '../shell/approval';
@@ -395,7 +396,9 @@ watch(selectedProductId, async () => {
   imeiDraft.value = '';
   receiveImeis.value = [];
   error.value = '';
-  notice.value = '';
+  // The notice survives a selection on purpose: receiving a brand-new product ends
+  // by selecting it, and «تم الاستلام» would be wiped by the very line that
+  // received it.
   if (selectedProductId.value === '') {
     position.value = null;
     units.value = [];
@@ -510,34 +513,46 @@ function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
   // hundredfold error on the one figure the whole costing chain starts from, and it
   // only showed up on the receipt afterwards.
   const unitCost = parseMoney(receiveUnitCost.value);
-  if (quantity === null || quantity < 1) {
-    error.value = 'الكمية يجب أن تكون عددًا صحيحًا أكبر من صفر.';
+
+  // Which new thing, if any, this line is describing — its own fields still have to
+  // make sense before the delivery can be checked as a whole.
+  const creating = source.value === 'new';
+  const newNameProblem = creating
+    ? newKind.value === 'phone'
+      ? newPhone.value.categoryId === ''
+        ? 'مفيش تصنيف للموبايلات. ضيف واحد من الإعدادات.'
+        : newPhone.value.brandId === ''
+          ? 'اختار الشركة.'
+          : newPhone.value.model.trim() === ''
+            ? 'اكتب الموديل.'
+            : ''
+      : newItem.value.name.trim() === ''
+        ? 'اكتب اسم الصنف.'
+        : ''
+    : '';
+
+  // The form's own rules live in `receiving.ts`, tested without a browser: the same
+  // ones `0035` enforces in Rust, said while the box is still on screen.
+  const paperworkProblem = deliveryFormProblem({
+    existingProduct: !creating,
+    hasProduct: selectedProductId.value !== '',
+    creating,
+    newNameProblem,
+    quantity: receiveQuantity.value,
+    unitCost: receiveUnitCost.value,
+    purchaseDate: receiptMode.value === 'supplier' ? receivePurchaseDate.value : '',
+    reference: receiptMode.value === 'supplier' ? receiveDocumentRef.value : '',
+    note: receiveNote.value,
+    imeiCount: receiveImeis.value.length,
+    imeiRequired: appearance.imeiMode === 'required',
+    serial: selectedIsSerial.value || creating,
+  });
+  if (paperworkProblem !== '') {
+    error.value = paperworkProblem;
     return null;
   }
-  if (unitCost === null || unitCost < 0) {
-    error.value = `سعر الوحدة لازم يكون رقم صحيح بال${moneyUnitWord()} (مثال: 40 أو 40.50).`;
-    return null;
-  }
-  if (selectedIsSerial.value && receiveImeis.value.length > quantity) {
-    error.value = 'عدد أرقام الـ IMEI أكبر من الكمية.';
-    return null;
-  }
-  if (
-    selectedIsSerial.value &&
-    appearance.imeiMode === 'required' &&
-    receiveImeis.value.length !== quantity
-  ) {
-    error.value = `وضع الـ IMEI إلزامي: سجّل ${quantity} رقم IMEI قبل الحفظ.`;
-    return null;
-  }
-  // A date typed wrong must not become «no date»: the shopkeeper would think the
-  // purchase day was recorded.
-  const typedDate = receivePurchaseDate.value.trim();
-  const purchaseDate = parseOptionalDate(typedDate);
-  if (typedDate !== '' && purchaseDate === null) {
-    error.value = 'تاريخ الشراء لازم يكون بصيغة سنة-شهر-يوم، مثال 2026-11-05.';
-    return null;
-  }
+  if (quantity === null || unitCost === null) return null;
+  const purchaseDate = parseOptionalDate(receivePurchaseDate.value.trim());
 
   const shared = {
     quantity,
@@ -557,18 +572,6 @@ function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
         : parseTypedPrice(newItem.value.price);
     if (newKind.value === 'phone') {
       const phone = newPhone.value;
-      if (phone.categoryId === '') {
-        error.value = 'مفيش تصنيف للموبايلات. ضيف واحد من الإعدادات.';
-        return null;
-      }
-      if (phone.brandId === '') {
-        error.value = 'اختار الشركة.';
-        return null;
-      }
-      if (phone.model.trim() === '') {
-        error.value = 'اكتب الموديل.';
-        return null;
-      }
       const storage = parseNonNegativeInteger(phone.storageGb);
       const ram = phone.ramGb.trim() === '' ? null : parseNonNegativeInteger(phone.ramGb);
       return {
@@ -585,10 +588,6 @@ function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
         },
       };
     }
-    if (newItem.value.name.trim() === '') {
-      error.value = 'اكتب اسم الصنف.';
-      return null;
-    }
     return {
       ...shared,
       productId: null,
@@ -600,10 +599,6 @@ function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
     };
   }
 
-  if (selectedProductId.value === '') {
-    error.value = 'اختار الصنف الأول.';
-    return null;
-  }
   return { ...shared, productId: selectedProductId.value };
 }
 
@@ -766,10 +761,12 @@ async function saveBatch(): Promise<void> {
 
 async function submitRemove(): Promise<void> {
   const quantity = parseNonNegativeInteger(removeQuantity.value);
-  if (quantity === null || quantity < 1) {
-    error.value = 'الكمية يجب أن تكون عددًا صحيحًا أكبر من صفر.';
+  const quantityWhy = piecesProblem(removeQuantity.value);
+  if (quantityWhy !== '') {
+    error.value = quantityWhy;
     return;
   }
+  if (quantity === null) return;
   if (removeReason.value.trim() === '') {
     error.value = 'اكتب سبب الخصم: تالف، ولا فقدان، ولا فرق جرد.';
     return;
@@ -1085,7 +1082,7 @@ void loadPickers;
       </form>
 
       <!-- Receive -->
-      <form class="form" @submit.prevent="submitReceive">
+      <form class="form" data-receive-form @submit.prevent="submitReceive">
         <div class="form-head">
           <h4 class="form-title">استلام بضاعة</h4>
           <div class="seg" role="group" aria-label="نوع الاستلام">

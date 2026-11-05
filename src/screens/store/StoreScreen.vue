@@ -210,7 +210,14 @@ async function loadStoreMeta(): Promise<void> {
   ]);
 }
 
-onMounted(loadStoreMeta);
+onMounted(() => {
+  // A product handed over by «الهواتف» before this screen existed: the event fired
+  // while the store was not mounted, so the mount is the delivery.
+  if (props.incomingProduct !== undefined && props.incomingProduct !== '') {
+    openReceive(props.incomingProduct);
+  }
+  void loadStoreMeta();
+});
 watch(reload, loadStoreMeta);
 
 // Another screen («الهواتف») may ask this one to receive a product it is showing.

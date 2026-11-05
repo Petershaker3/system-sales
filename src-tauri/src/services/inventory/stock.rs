@@ -848,7 +848,6 @@ pub async fn receive_with_paperwork(
 
     let (session, approval) = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
-    let actor = session.user_id();
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
     // Spent inside the receipt's transaction, so the approval and the receipt
@@ -857,7 +856,7 @@ pub async fn receive_with_paperwork(
 
     let outcome = receive_in_tx(
         &mut tx,
-        &actor,
+        &session,
         now,
         product_id,
         quantity,
@@ -968,7 +967,6 @@ pub async fn receive_document(
     };
     let (session, approval) = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
-    let actor = session.user_id();
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
     // One approval for the whole document, spent inside its transaction.
@@ -1031,7 +1029,7 @@ pub async fn receive_document(
 
         let outcome = receive_in_tx(
             &mut tx,
-            &actor,
+            &session,
             now,
             &product_id,
             line.quantity,
@@ -1267,7 +1265,9 @@ fn is_calendar_day(raw: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 async fn receive_in_tx(
     conn: &mut sqlx::SqliteConnection,
-    actor: &UserId,
+    // The session, not an actor id: the identity that writes a receipt is resolved
+    // once, by the service, and a helper that took an id could be called with any.
+    session: &Session,
     now: Timestamp,
     product_id: &str,
     quantity: i64,
@@ -1278,6 +1278,7 @@ async fn receive_in_tx(
     parsed_imeis: &[Imei],
     approved_by: Option<&UserId>,
 ) -> Result<StockOutcome, StockServiceError> {
+    let actor = session.user_id();
     // Every receipt belongs to a document, even a delivery of one line: that is
     // what lets the history read a batch back as one page (`0035`).
     let document_id = paperwork

@@ -16,14 +16,22 @@ export function isSellableInPos(p: { readonly disposition: string }): boolean {
 }
 
 /**
- * Pieces on the shelf: counted products read `stock_levels`, a phone reads its
- * own units — its `stock_levels` row stays at zero, and reading it would call
- * every phone «خلصان» on a shelf that is full.
+ * Pieces on the shelf.
+ *
+ * A phone is counted by its units — a migrated `serialized` model keeps its
+ * `stock_levels` row at zero and reading it would call a full shelf «خلصان».
+ *
+ * But a piece does not have to carry a serial (`0035`, «الـIMEI مش إجباري»): a
+ * delivery of three handsets with no numbers yet is three pieces on the shelf and
+ * zero units. Reading only the units called that shelf empty and refused the sale
+ * of a phone standing right there, so the answer is whichever is larger — the
+ * units registered, or the pieces the stock position says exist. Both count the
+ * same pieces when every one of them has a serial.
  */
 export function posOnHand(
   p: { readonly id: string; readonly onHand: number },
   isSerial: boolean,
   unitCounts: Readonly<Record<string, number>>
 ): number {
-  return isSerial ? (unitCounts[p.id] ?? 0) : p.onHand;
+  return isSerial ? Math.max(unitCounts[p.id] ?? 0, p.onHand) : p.onHand;
 }

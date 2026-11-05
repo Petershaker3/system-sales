@@ -328,7 +328,11 @@ pub async fn list_movements_for_sale(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind,
+                -- The delivery this line belongs to and the paper typed on it (`0035`).
+                -- `row_to_movement` reads all four, so a select that named columns and
+                -- left them out would fail on the missing column, not on a default.
+                document_id, document_ref, purchase_date, note
          FROM stock_movements
          WHERE sale_id = ?1
          ORDER BY occurred_at, id",
@@ -348,7 +352,11 @@ pub async fn list_movements_for_line(
     let rows = sqlx::query(
         "SELECT id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
                 occurred_at, actor_id, sale_id, sale_line_id,
-                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind
+                fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind,
+                -- The delivery this line belongs to and the paper typed on it (`0035`).
+                -- `row_to_movement` reads all four, so a select that named columns and
+                -- left them out would fail on the missing column, not on a default.
+                document_id, document_ref, purchase_date, note
          FROM stock_movements
          WHERE sale_line_id = ?1
          ORDER BY occurred_at, id",

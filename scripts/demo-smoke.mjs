@@ -810,10 +810,11 @@ await page.waitForSelector('.stock .overlay form.modal input[type=password]');
 await page.type('.stock .overlay form.modal input[type=password]', '1234');
 await page.keyboard.press('Enter');
 await page.waitForSelector('.stock .position');
-const receiveInputs = await page.$$('.stock .position form.form input');
-await receiveInputs[0].type('5');
-await receiveInputs[1].type('4500');
-await clickText('.stock .position form.form button', 'استلام');
+// The fields have their own ids, so a panel that gains a second form (the inline
+// «سجّل الرقم» for a piece without an IMEI, `0035`) cannot shift which box is typed in.
+await page.type('#stock-qty', '5');
+await page.type('#stock-cost', '4500');
+await page.click('[data-receive-form] button[type="submit"]');
 await sleep(200);
 check(
   'stock is received onto the individual variant product',
@@ -1076,7 +1077,7 @@ await page.$eval('#stock-cost', (el) => {
   el.value = '8000';
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
-await page.click('.stock form button[type="submit"]');
+await page.click('[data-receive-form] button[type="submit"]');
 await sleep(250);
 check(
   'receiving 2 phones with 1 registered IMEI updates on-hand to 2 and lists the registered IMEI in stock',
@@ -2381,10 +2382,9 @@ if ((await count('.stock .gate button')) > 0) {
   await page.keyboard.press('Enter');
   await page.waitForSelector('.stock .position', { timeout: 3000 });
 }
-const flashReceiveInputs = await page.$$('.stock .position form.form input');
-await flashReceiveInputs[0].type('10');
-await flashReceiveInputs[1].type('12000');
-await clickText('.stock .position form.form button', 'استلام');
+await page.type('#stock-qty', '10');
+await page.type('#stock-cost', '12000');
+await page.click('[data-receive-form] button[type="submit"]');
 await sleep(250);
 check(
   'Receiving stock for «فلاشة 32 جيجا» automatically removes it from shortages and updates the badge count',
