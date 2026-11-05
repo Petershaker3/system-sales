@@ -1,42 +1,81 @@
 <script setup lang="ts">
-// «مالوش سعر بيع»: the price the owner types here is saved to the product, and
-// the line goes into the invoice right after it.
+// «سعر البيع» — the price typed where the sale happens, and the one decision the
+// shopkeeper has to make with it (`0035`).
 //
-// Phones arrive from the old program with no sale price at all (the owner's own
-// instruction: «مفيش جهاز كاتبله سعر بيع»), and the sales screen refused them
-// with a toast pointing at «المخزن» — a dead end he could not walk
-// (2026-11-02). Typing the price where he stands is the shortest honest path:
-// the price is his, it is stored once per model, and the next sale of that model
-// needs no typing at all.
+// Phones arrive with no sale price at all (the owner's own rule: «سعر البيع
+// للهواتف مش موجود — بيتحدد وقت البيع»), and a used handset's price is a
+// conversation with one customer, not a property of the model. So when a price is
+// typed here the app asks which of two things it is:
+//
+//   - «احفظه سعر الموديل»   → the product's price becomes this, and every later
+//                             sale of the model starts here.
+//   - «الفاتورة دي بس»      → the line is charged this, and the model keeps
+//                             whatever price it had (possibly none).
+//
+// The answer is never guessed. Writing a price on a model is a price change for
+// every other unit of it, and a shopkeeper selling one device for 3,900 must not
+// silently reprice the identical device beside it.
 import { computed, ref } from 'vue';
 
 import { money, parseMoney } from '../../ui/format';
 import Modal from '../../ui/Modal.vue';
 
-const props = defineProps<{ name: string; sub?: string }>();
-const emit = defineEmits<{ close: []; save: [minor: number] }>();
+const props = defineProps<{
+  name: string;
+  sub?: string;
+  /** The model's current price, when it has one. `null` means «not priced yet». */
+  currentMinor?: number | null;
+  /**
+   * Whether this session may write a price onto the model at all. A seller who
+   * may not is still allowed to charge a price for this invoice — Rust decides
+   * that — so the button is shown and the refusal comes from the service.
+   */
+  canSaveDefault?: boolean;
+}>();
+const emit = defineEmits<{ close: []; saveDefault: [minor: number]; saveOnce: [minor: number] }>();
 
-const text = ref('');
+const text = ref(props.currentMinor !== null && props.currentMinor !== undefined
+  ? (props.currentMinor / 100).toFixed(2).replace(/\.00$/, '')
+  : '');
 const error = ref('');
 
 const minor = computed(() => parseMoney(text.value));
+void props.canSaveDefault;
 
-function save(): void {
+function guard(): number | null {
   const value = minor.value;
-  if (value === null) {
-    error.value = text.value.trim() === '' ? 'اكتب السعر الأول' : 'اكتب السعر بالجنيه والقروش، مثال: 8500';
-    return;
+  if (value === null || value <= 0) {
+    error.value =
+      text.value.trim() === '' ? 'اكتب السعر الأول' : 'اكتب السعر بالجنيه والقروش، مثال: 8500';
+    return null;
   }
-  emit('save', value);
+  error.value = '';
+  return value;
+}
+
+function saveDefault(): void {
+  const value = guard();
+  if (value !== null) emit('saveDefault', value);
+}
+
+function saveOnce(): void {
+  const value = guard();
+  if (value !== null) emit('saveOnce', value);
 }
 </script>
 
 <template>
   <Modal title="سعر البيع" :sub="props.sub ?? props.name" size="sm" @close="emit('close')">
-    <form class="stack" @submit.prevent="save" @keydown.enter.prevent="save">
+    <form class="stack" @submit.prevent="saveOnce">
       <p class="note">
-        «{{ props.name }}» لسه مكتوبلهوش سعر بيع. اكتبه هنا مرة واحدة، وهيتحفظ على الموديل
-        وتقدر تبيعه على طول.
+        <template v-if="props.currentMinor !== null && props.currentMinor !== undefined">
+          «{{ props.name }}» سعره الحالي <b class="num">{{ money(props.currentMinor) }}</b>.
+          لو هتبيعه بسعر تاني دلوقتي، اختار السعر ده بيبقى إيه.
+        </template>
+        <template v-else>
+          «{{ props.name }}» لسه مكتوبلهوش سعر بيع. اكتبه هنا، واختار: يتحفظ على الموديل
+          ولا للفاتورة دي بس.
+        </template>
       </p>
       <div class="field">
         <label for="price-in">سعر البيع بالجنيه</label>
@@ -50,11 +89,23 @@ function save(): void {
           data-autofocus
         />
       </div>
-      <small class="hint" v-if="minor !== null">هيتحفظ: {{ money(minor) }}</small>
+      <small class="hint" v-if="minor !== null && minor > 0">
+        هيتحسب على الفاتورة: {{ money(minor) }}
+      </small>
       <div class="err-msg">{{ error }}</div>
     </form>
     <template #foot>
-      <button type="button" class="btn primary" @click="save">احفظ السعر وكمّل البيع <kbd>Enter</kbd></button>
+      <button
+        type="button"
+        class="btn primary"
+        data-price-save-default
+        @click="saveDefault"
+      >
+        احفظه سعر الموديل وكمّل البيع
+      </button>
+      <button type="button" class="btn soft" data-price-once @click="saveOnce">
+        السعر للفاتورة دي بس
+      </button>
       <button type="button" class="btn ghost" @click="emit('close')">رجوع</button>
     </template>
   </Modal>

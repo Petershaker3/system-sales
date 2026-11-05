@@ -23,8 +23,20 @@ export interface CartLine {
   readonly lineId?: string;
   readonly productId: string;
   name: string;
-  /** The catalogue price when the line was added; refreshed by `reprice`. */
+  /**
+   * The price charged on this line.
+   *
+   * Taken from the catalogue when the line is added, and refreshed by `reprice`
+   * — unless `priceIsManual`, because a price the operator typed for this invoice
+   * is theirs and re-reading the catalogue must not quietly overwrite it (`0035`).
+   */
   unitPriceMinor: number;
+  /**
+   * True when `unitPriceMinor` was typed on this invoice rather than read off the
+   * model (`0035`). «السعر للفاتورة دي بس» sets it; «احفظه سعر الموديل» does not,
+   * because that path writes the price on the product and reloads the catalogue.
+   */
+  priceIsManual?: boolean;
   quantity: number;
   /** Line-level discount in piastres (`ADR-021`). */
   discountMinor?: number;
@@ -172,9 +184,13 @@ export function addProduct(
   state: CartState,
   product: SellableProduct,
   quantity = 1,
-  imei: string | null = null
+  imei: string | null = null,
+  priceOverride: number | null = null
 ): AddResult {
-  if (product.priceMinor === null) return { ok: false, reason: 'no-price', available: 0 };
+  // A price typed on this invoice stands in for a missing model price (`0035`);
+  // it does not replace the catalogue price of a model that has one.
+  const price = priceOverride !== null && priceOverride > 0 ? priceOverride : product.priceMinor;
+  if (price === null) return { ok: false, reason: 'no-price', available: 0 };
   const free = available(state, product);
   if (free <= 0) return { ok: false, reason: 'out-of-stock', available: 0 };
   if (quantity > free) return { ok: false, reason: 'limit', available: free };
@@ -195,7 +211,8 @@ export function addProduct(
         lineId: nextLineId(),
         productId: product.id,
         name: product.name,
-        unitPriceMinor: product.priceMinor,
+        unitPriceMinor: price,
+        priceIsManual: priceOverride !== null && priceOverride > 0,
         quantity: 1,
         serial: true,
         imei: k === 0 ? imei : null,
@@ -216,13 +233,39 @@ export function addProduct(
       lineId: nextLineId(),
       productId: product.id,
       name: product.name,
-      unitPriceMinor: product.priceMinor,
+      unitPriceMinor: price,
+      priceIsManual: priceOverride !== null && priceOverride > 0,
       quantity,
       warrantyMonths: defaultWarranty,
     });
     state.selected = inv.lines.length - 1;
   }
   return { ok: true };
+}
+
+/**
+ * Charge this line a different price, for this invoice only (`0035`).
+ *
+ * `minor === null` hands the line back to the model's price. A positive price
+ * marks the line manual, so `reprice` leaves it alone until the invoice is
+ * cleared — the catalogue changing underneath an open invoice is not a price the
+ * operator agreed to.
+ */
+export function setLinePrice(
+  state: CartState,
+  lineIndex: number,
+  minor: number | null
+): boolean {
+  const line = current(state).lines[lineIndex];
+  if (line === undefined) return false;
+  if (minor === null) {
+    delete line.priceIsManual;
+    return true;
+  }
+  if (!Number.isInteger(minor) || minor <= 0) return false;
+  line.unitPriceMinor = minor;
+  line.priceIsManual = true;
+  return true;
 }
 
 /** Set or clear warranty months (`0..60`) on a line in the active invoice (`ADR-023`). */
@@ -526,11 +569,20 @@ export function reprice(state: CartState, catalogue: readonly SellableProduct[])
   for (const inv of state.invoices) {
     inv.lines = inv.lines.filter((line) => {
       const product = byId.get(line.productId);
-      if (product === undefined || product.priceMinor === null) {
+      if (product === undefined) {
         dropped.push(line.name);
         return false;
       }
-      line.unitPriceMinor = product.priceMinor;
+      if (product.priceMinor === null && line.priceIsManual !== true) {
+        dropped.push(line.name);
+        return false;
+      }
+      // A manual price survives a catalogue reload: it was typed for this
+      // invoice, and «السعر للفاتورة دي بس» means the next reload is not its
+      // owner (`0035`).
+      if (line.priceIsManual !== true && product.priceMinor !== null) {
+        line.unitPriceMinor = product.priceMinor;
+      }
       line.name = product.name;
       return true;
     });

@@ -1,38 +1,42 @@
 <script setup lang="ts">
-// Stock and costing panel (SP-2, `ADR-013`, `ADR-015`, `ADR-019`).
+// «الاستلام» — one screen that answers one question: **إيه اللي وصل المحل؟**
+// (`0035`, 2026-11-05.)
 //
-// Two use cases, and the panel's job is to show what Rust computed rather
-// than to compute anything:
+// The shopkeeper does not think in «create a product, then receive stock». He
+// thinks «وصلت ٥ من الـA16 ده، المورد فلان، فاتورة ٤٤٢». So this panel does both
+// in one write, in one transaction: a brand-new model or accessory can be created
+// right here, and the pieces that came with it land on it.
 //
-//   - receive: add units at a known unit cost (from supplier or opening stock,
-//     with optional 15-digit Luhn-checked IMEIs for phones).
-//   - remove:  consume units and show what they cost. Routine.
+// # Three doors, never mixed
 //
-// Every product counted by quantity is costed by moving average (ADR-016 #7).
-// FIFO and switching the method per department were retired in plan item 1.3,
-// so there is nothing to choose here.
+// 1. **بضاعة جديدة** — a delivery: a new model/accessory, or more of an existing
+//    one. This is the only door that names a supplier, an invoice and a cost.
+// 2. **موبايل مستعمل** — one device with its own condition, cost and seller. It
+//    stays a unit (`ADR-032`), never a quantity.
+// 3. **تسويات** — what is on the shelf is wrong: damaged, lost, or a miscount.
+//    Not a purchase, so it takes a reason instead of a supplier.
 //
-// # Why reading a position needs a password
+// The three were mixed in «خصم كمية» sitting under «استلام بضاعة», which read as
+// if removing stock were a way of receiving it.
 //
-// `get_position` returns cost figures, so it sits behind `ViewCostAndProfit`,
-// which `role.rs` gates by role *and* assurance. Reading a price is not the same
-// permission as moving stock, and this panel does not pretend otherwise: the
-// first tap asks for the password, exactly as the settings panel does.
+// # What is preserved from the previous panel
 //
-// # Why the cost shown is the one Rust returned
-//
-// The panel renders `effectiveCostMinor`, never a locally divided average. That
-// figure is ceilinged by `domain/costing`; recomputing it in TypeScript would
-// produce a second, different rounding rule — the exact drift `ADR-013` exists
-// to prevent.
+// Receiving a delivery is `Routine` (`ADR-015`) and reading cost needs the manager
+// password (`ADR-013`), so the position stays behind «عرض المخزن». Opening stock
+// is `Sensitive` and spends one owner PIN — once for the whole document now,
+// instead of once per line.
 
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 import * as catalog from '../api/catalog';
 import type { Product } from '../api/catalog';
+import { listCategories } from '../api/categories';
+import type { CategoryEntry } from '../api/categories';
+import { listBrands } from '../api/brands';
+import type { BrandEntry } from '../api/brands';
 import { describeError } from '../api/errors';
 import * as inventory from '../api/inventory';
-import type { ProductUnit, StockPosition } from '../api/inventory';
+import type { ProductUnit, ReceiptRow, StockPosition } from '../api/inventory';
 import * as lifecycle from '../api/lifecycle';
 import * as posApi from '../api/pos';
 import type { PosProduct } from '../api/pos';
@@ -49,26 +53,68 @@ import type { ScanReading } from '../ui/scan';
 import { toast } from '../ui/toast';
 
 /**
- * A product to hand over to the receive form, by id (`StoreScreen` sets it the moment
- * an item or a phone is registered).
- *
- * The separation of «صنف جديد» from «استلام توريد» is a costing rule, not a filing
- * habit — every unit needs a cost and a receipt (`ADR-013`, `ADR-016` #30) — so the
- * two stay two writes. What the owner asked for is the walk between them: the panel
- * opens on the product that was just made, with the cursor in the quantity box, and the
- * hand-off is a selection, never a pre-filled amount. The quantity and the cost are
- * what the shopkeeper knows and Rust cannot.
+ * A product to hand over to the receive form, by id (`StoreScreen` sets it when
+ * the shop codes a phone, or when «+ مخزون» is pressed on a row).
  */
 const props = defineProps<{ selectProduct?: string }>();
 
-const emit = defineEmits<{ 'new-item': []; received: [productId: string] }>();
+const emit = defineEmits<{
+  'new-item': [];
+  received: [productId: string];
+  'open-used': [];
+}>();
+
+/** Which of the three doors is open (`0035`). */
+const door = ref<'delivery' | 'adjust'>('delivery');
 
 // --- product picker --------------------------------------------------------
 
 const products = ref<Product[]>([]);
 const posById = ref<Map<string, PosProduct>>(new Map());
-
+const search = ref('');
 const selectedProductId = ref('');
+
+/**
+ * «صنف موجود» or «صنف/موديل جديد» inside the delivery door.
+ *
+ * Both end in the same save: Rust creates the product and receives the pieces in
+ * one transaction, so a model can never be left registered with no delivery
+ * against it.
+ */
+const source = ref<'existing' | 'new'>('existing');
+const newKind = ref<'phone' | 'item'>('phone');
+
+const categories = ref<CategoryEntry[]>([]);
+const brands = ref<BrandEntry[]>([]);
+
+const phoneCategories = computed(() =>
+  categories.value.filter((category) => category.kind === 'phone' && !category.hidden)
+);
+const itemCategories = computed(() => {
+  const out: CategoryEntry[] = [];
+  for (const main of categories.value.filter((c) => c.parentId === null && c.kind === 'item')) {
+    const subs = categories.value.filter((c) => c.parentId === main.id);
+    out.push(...(subs.length > 0 ? subs : [main]));
+  }
+  return out;
+});
+
+const newPhone = ref({
+  categoryId: '',
+  brandId: '',
+  model: '',
+  deviceType: 'touch' as 'touch' | 'keypad',
+  storageGb: '128',
+  ramGb: '',
+  price: '',
+});
+const newItem = ref({ name: '', categoryId: '', price: '' });
+
+const brandChoices = computed(() =>
+  brands.value.filter((brand) => !brand.hidden && brand.deviceType !== 'both'
+    ? brand.deviceType === newPhone.value.deviceType
+    : !brand.hidden)
+);
 
 // --- movement forms --------------------------------------------------------
 
@@ -81,6 +127,12 @@ const receiveQuantity = ref('');
  */
 const receiveSupplier = ref('');
 const receiveUnitCost = ref('');
+/** The supplier's own invoice number, as printed on the paper that came with it. */
+const receiveDocumentRef = ref('');
+/** The day the goods were bought, `YYYY-MM-DD`. Empty means «today». */
+const receivePurchaseDate = ref('');
+/** One free line about this delivery. */
+const receiveNote = ref('');
 const imeiDraft = ref('');
 const receiveImeis = ref<string[]>([]);
 
@@ -90,17 +142,30 @@ const receiveImeis = ref<string[]>([]);
  * صاحب المحل بيستلم الشحنة كلها مرة واحدة (٥ أصناف مثلًا) وبيعمل التوريد بعد ما
  * يخلص، مش صنف صنف بحفظ منفصل. كل سطر بيقفل على اللي اتكتب وقت إضافته — الصنف
  * والكمية والتكلفة وأرقام الـIMEI — فالتعديل بعد كده في الفورم مش بيغيّر سطر
- * اتضاف.
+ * اتضاف. والحفظ بقى **ترانزاكشن واحدة**: يا الشحنة كلها يا مفيش حاجة (`0035`).
  */
 interface PendingReceipt {
   readonly key: number;
-  readonly productId: string;
+  readonly productId: string | null;
   readonly productName: string;
   readonly quantity: number;
   readonly unitCost: number;
   readonly supplier: string;
   readonly mode: 'supplier' | 'opening';
   readonly imeis: readonly string[];
+  readonly documentRef?: string;
+  readonly purchaseDate?: string;
+  readonly note?: string;
+  readonly newItem?: { name: string; categoryId: string | null; salePriceMinor: number | null };
+  readonly newPhone?: {
+    categoryId: string;
+    brandId: string;
+    model: string;
+    deviceType: 'touch' | 'keypad';
+    storageGb: number | null;
+    ramGb: number | null;
+    salePriceMinor: number | null;
+  };
 }
 
 const pendingReceipts = ref<PendingReceipt[]>([]);
@@ -118,9 +183,18 @@ function removePending(key: number): void {
   pendingReceipts.value = pendingReceipts.value.filter((line) => line.key !== key);
 }
 const removeQuantity = ref('');
+const removeReason = ref('');
 const error = ref('');
 const notice = ref('');
 const busy = ref(false);
+
+const filteredProducts = computed(() => {
+  const needle = search.value.trim().toLocaleLowerCase('ar');
+  if (needle === '') return products.value;
+  return products.value.filter((product) =>
+    product.name.toLocaleLowerCase('ar').includes(needle)
+  );
+});
 
 const selectedProduct = computed(
   () => products.value.find((product) => product.id === selectedProductId.value) ?? null
@@ -139,24 +213,43 @@ const selectedIsSerial = computed(() => {
   );
 });
 
+/** The pieces this form would add, or `null` when the box is not a number yet. */
+const typedQuantity = computed(() => parseNonNegativeInteger(receiveQuantity.value));
+
+/** «الحالي ٤ + الجديد ٣ = ٧» — the sentence the panel was missing (`0035`). */
+const expectedQuantity = computed<number | null>(() => {
+  const typed = typedQuantity.value;
+  if (typed === null || typed < 1) return null;
+  if (source.value === 'new') return typed;
+  if (position.value === null) return null;
+  return position.value.quantity + typed;
+});
+
+const typedCostMinor = computed(() => parseMoney(receiveUnitCost.value));
+
+const typedLineTotalMinor = computed<number | null>(() => {
+  const typed = typedQuantity.value;
+  const cost = typedCostMinor.value;
+  if (typed === null || typed < 1 || cost === null || cost < 0) return null;
+  return typed * cost;
+});
+
 /**
- * Land the product the shop just registered in the receive form, and put the cursor on
- * whatever the next real step is.
+ * Land the product a row handed over («+ مخزون») in the form, and put the cursor
+ * on whatever the next real step is.
  *
- * The cost of a product is a secret the panel reveals on purpose (`ADR-013`), so for a
- * shop with accounts the quantity box does not exist yet — the hand-off stops at «عرض
- * المخزن» with the field focused, and the password stays a thing the owner decides to
- * type rather than something the app asks for on a guess. An open shop (`ADR-039`) has
- * no password to prove, so the walk goes the whole way and lands in the quantity box.
- * Never pre-filled: the quantity and the unit cost are what only the shopkeeper knows.
+ * The cost of a product is a secret the panel reveals on purpose (`ADR-013`), so
+ * for a shop with accounts the quantity box does not exist yet — the hand-off
+ * stops at «عرض المخزن» with the field focused. An open shop (`ADR-039`) has no
+ * password to prove, so the walk goes the whole way into the quantity box. Never
+ * pre-filled: the quantity and the unit cost are what only the shopkeeper knows.
  */
 async function handTheNewProductOver(prods: catalog.Product[]): Promise<void> {
   const id = props.selectProduct;
   if (!id || !prods.some((p) => p.id === id)) return;
+  source.value = 'existing';
   selectedProductId.value = id;
   if (skipsPasswordReauth()) {
-    // A read the owner can retry from the button right there. It must not take the
-    // hand-off — or the panel's start-up — down with it.
     await loadPosition().catch(() => undefined);
   }
   await nextTick();
@@ -167,14 +260,27 @@ async function loadPickers(): Promise<void> {
   busy.value = true;
   let prods: catalog.Product[] = [];
   try {
-    const [list, cat] = await Promise.all([
+    const [list, cat, cats, brandList] = await Promise.all([
       catalog.listProducts('active'),
       posApi.posCatalog().catch(() => null),
+      listCategories().catch(() => [] as CategoryEntry[]),
+      listBrands().catch(() => [] as BrandEntry[]),
     ]);
     products.value = list;
     prods = list;
+    categories.value = cats;
+    brands.value = brandList;
     if (cat) {
       posById.value = new Map(cat.products.map((p) => [p.id, p]));
+    }
+    if (newPhone.value.categoryId === '') {
+      newPhone.value.categoryId = phoneCategories.value[0]?.id ?? '';
+    }
+    if (newPhone.value.brandId === '') {
+      newPhone.value.brandId = brands.value.find((b) => !b.hidden)?.id ?? '';
+    }
+    if (newItem.value.categoryId === '') {
+      newItem.value.categoryId = itemCategories.value[0]?.id ?? '';
     }
     error.value = '';
   } catch (err) {
@@ -205,9 +311,6 @@ async function withReauth(action: () => Promise<void>): Promise<void> {
   if (skipsPasswordReauth()) {
     // `ADR-039`: a shop that has not claimed an account has no password to prove,
     // and its session already stands at the assurance this modal exists to reach.
-    // Rust decides that; this only keeps the cost column from demanding a secret the
-    // shop has not got — and from refusing the read when the operator has nothing to
-    // type into it.
     await action();
     return;
   }
@@ -255,6 +358,7 @@ async function loadPosition(): Promise<void> {
   }
   position.value = await inventory.getPosition(selectedProductId.value);
   await loadUnits();
+  await loadHistory();
 }
 
 async function refreshPosition(): Promise<void> {
@@ -262,9 +366,25 @@ async function refreshPosition(): Promise<void> {
   try {
     position.value = await inventory.getPosition(selectedProductId.value);
     await loadUnits();
+    await loadHistory();
   } catch {
     // The panel still shows what it has; a stale position is better than a
     // cleared screen, and the next explicit load reports any real problem.
+  }
+}
+
+/** The last deliveries of the selected product — its own purchase history (`0035`). */
+const history = ref<readonly ReceiptRow[]>([]);
+
+async function loadHistory(): Promise<void> {
+  if (selectedProductId.value === '') {
+    history.value = [];
+    return;
+  }
+  try {
+    history.value = await inventory.listReceipts(20, selectedProductId.value);
+  } catch {
+    history.value = [];
   }
 }
 
@@ -273,8 +393,19 @@ watch(selectedProductId, async () => {
   receiveImeis.value = [];
   error.value = '';
   notice.value = '';
-  if (position.value !== null && selectedProductId.value !== '') {
+  if (selectedProductId.value === '') {
+    position.value = null;
+    units.value = [];
+    history.value = [];
+    return;
+  }
+  if (position.value !== null) {
     await refreshPosition();
+  } else {
+    // A delivery can be recorded without revealing cost: `receive_document` does
+    // not need the price of what is already on the shelf. The position is what
+    // shows the expected balance, so it is offered rather than forced.
+    await loadHistory();
   }
 });
 
@@ -322,12 +453,49 @@ function removeImeiFromBatch(idx: number): void {
   receiveImeis.value.splice(idx, 1);
 }
 
+/**
+ * Give one loose piece on the shelf its real IMEI (`0035`).
+ *
+ * The shop's rule is that an IMEI is never mandatory, so phones arrive as pieces.
+ * When the number turns up later this registers the identity without touching the
+ * balance: the piece was already counted and already cost what it cost.
+ */
+const unitImeiDraft = ref('');
+
+async function registerStockUnitImei(): Promise<void> {
+  const digits = normalizeImeiDigits(unitImeiDraft.value);
+  if (!/^\d{15}$/.test(digits) || !imeiLuhn(digits)) {
+    error.value = 'رقم الـ IMEI لازم يكون 15 رقم وصحح فحص Luhn.';
+    return;
+  }
+  busy.value = true;
+  notice.value = '';
+  try {
+    await inventory.registerStockUnit(selectedProductId.value, digits);
+    unitImeiDraft.value = '';
+    notice.value = 'اتسجّل الـ IMEI على جهاز من اللي في المخزن — الرصيد ما اتغيّرش.';
+    await loadUnits();
+    await refreshPosition();
+  } catch (err) {
+    error.value = describeError(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
 // --- receive / remove ------------------------------------------------------
 
 function parseNonNegativeInteger(raw: string): number | null {
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) return null;
   return Number(trimmed);
+}
+
+function parseOptionalDate(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === '') return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
 }
 
 /** اقرأ الفورم الحالي كسطر توريد، أو `null` مع رسالة لو فيه حاجة ناقصة. */
@@ -359,58 +527,152 @@ function readReceiptForm(): Omit<PendingReceipt, 'key' | 'productName'> | null {
     error.value = `وضع الـ IMEI إلزامي: سجّل ${quantity} رقم IMEI قبل الحفظ.`;
     return null;
   }
-  if (selectedProductId.value === '') {
-    error.value = 'اختار الصنف الأول.';
+  // A date typed wrong must not become «no date»: the shopkeeper would think the
+  // purchase day was recorded.
+  const typedDate = receivePurchaseDate.value.trim();
+  const purchaseDate = parseOptionalDate(typedDate);
+  if (typedDate !== '' && purchaseDate === null) {
+    error.value = 'تاريخ الشراء لازم يكون بصيغة سنة-شهر-يوم، مثال 2026-11-05.';
     return null;
   }
-  return {
-    productId: selectedProductId.value,
+
+  const shared = {
     quantity,
     unitCost,
     supplier: receiptMode.value === 'supplier' ? receiveSupplier.value.trim() : '',
     mode: receiptMode.value,
     imeis: selectedIsSerial.value ? [...receiveImeis.value] : [],
-  };
+    documentRef: receiptMode.value === 'supplier' ? receiveDocumentRef.value.trim() : '',
+    purchaseDate: receiptMode.value === 'supplier' ? purchaseDate ?? '' : '',
+    note: receiveNote.value.trim(),
+  } as const;
+
+  if (source.value === 'new') {
+    const priceMinor =
+      newKind.value === 'phone'
+        ? parseTypedPrice(newPhone.value.price)
+        : parseTypedPrice(newItem.value.price);
+    if (newKind.value === 'phone') {
+      const phone = newPhone.value;
+      if (phone.categoryId === '') {
+        error.value = 'مفيش تصنيف للموبايلات. ضيف واحد من الإعدادات.';
+        return null;
+      }
+      if (phone.brandId === '') {
+        error.value = 'اختار الشركة.';
+        return null;
+      }
+      if (phone.model.trim() === '') {
+        error.value = 'اكتب الموديل.';
+        return null;
+      }
+      const storage = parseNonNegativeInteger(phone.storageGb);
+      const ram = phone.ramGb.trim() === '' ? null : parseNonNegativeInteger(phone.ramGb);
+      return {
+        ...shared,
+        productId: null,
+        newPhone: {
+          categoryId: phone.categoryId,
+          brandId: phone.brandId,
+          model: phone.model.trim(),
+          deviceType: phone.deviceType,
+          storageGb: storage,
+          ramGb: ram,
+          salePriceMinor: priceMinor !== null && priceMinor > 0 ? priceMinor : null,
+        },
+      };
+    }
+    if (newItem.value.name.trim() === '') {
+      error.value = 'اكتب اسم الصنف.';
+      return null;
+    }
+    return {
+      ...shared,
+      productId: null,
+      newItem: {
+        name: newItem.value.name.trim(),
+        categoryId: newItem.value.categoryId === '' ? null : newItem.value.categoryId,
+        salePriceMinor: priceMinor !== null && priceMinor > 0 ? priceMinor : null,
+      },
+    };
+  }
+
+  if (selectedProductId.value === '') {
+    error.value = 'اختار الصنف الأول.';
+    return null;
+  }
+  return { ...shared, productId: selectedProductId.value };
 }
 
 /** امسح الفورم بعد ما السطر اتحفظ أو اتضاف: التوريد الجاي حاجة تانية. */
 function resetReceiptForm(): void {
   receiveQuantity.value = '';
   receiveUnitCost.value = '';
-  receiveSupplier.value = '';
   imeiDraft.value = '';
   receiveImeis.value = [];
   error.value = '';
 }
 
+function lineName(line: Omit<PendingReceipt, 'key' | 'productName'>): string {
+  if (line.newPhone) {
+    const brand = brands.value.find((b) => b.id === line.newPhone?.brandId);
+    const storage = line.newPhone.storageGb === null ? '' : ` ${line.newPhone.storageGb}GB`;
+    return `${brand?.name ?? ''} ${line.newPhone.model}${storage}`.trim();
+  }
+  if (line.newItem) return line.newItem.name;
+  return selectedProduct.value?.name ?? line.productId ?? '';
+}
+
+/** حوّل سطر الشحنة للشكل اللي Rust بياخده. */
+function toInput(line: PendingReceipt): inventory.ReceiveLineInput {
+  return {
+    productId: line.productId,
+    newItem: line.newItem
+      ? { name: line.newItem.name, categoryId: line.newItem.categoryId, salePriceMinor: line.newItem.salePriceMinor }
+      : null,
+    newPhone: line.newPhone ?? null,
+    quantity: line.quantity,
+    unitCostMinor: line.unitCost,
+    imeis: [...line.imeis],
+  };
+}
+
 /** استلم سطر واحد فعلاً. */
-async function receiveLine(line: Omit<PendingReceipt, 'key' | 'productName'>): Promise<boolean> {
+async function receiveLines(lines: readonly PendingReceipt[]): Promise<string[]> {
+  const first = lines[0];
+  if (first === undefined) return [];
+  const productIds = lines.map((line) => line.productId).filter((id): id is string => id !== null);
   const preShortages = await shortagesOverview()
-    .then((ov) => ov.items.filter((sh) => sh.productId === line.productId))
+    .then((ov) => ov.items.filter((sh) => sh.productId !== null && productIds.includes(sh.productId)))
     .catch(() => []);
-  let outcome;
-  if (line.mode === 'opening') {
+
+  const paperwork: inventory.ReceiptPaperwork = {
+    supplierName: first.supplier === '' ? null : first.supplier,
+    documentRef: first.documentRef === '' ? null : first.documentRef ?? null,
+    purchaseDate: first.purchaseDate === '' ? null : first.purchaseDate ?? null,
+    note: first.note === '' ? null : first.note ?? null,
+  };
+  const inputs = lines.map(toInput);
+
+  let saved: inventory.ReceivedDocument;
+  if (first.mode === 'opening') {
     const approved = await withOwnerApproval(
-      () => inventory.receiveOpeningStock(line.productId, line.quantity, line.unitCost, [...line.imeis]),
+      () => inventory.receiveDocument('opening', paperwork, inputs),
       'تسجيل بضاعة أول المدة'
     );
-    if (approved.status === 'cancelled') return false;
-    outcome = approved.value;
+    if (approved.status === 'cancelled') return [];
+    saved = approved.value;
   } else {
-    outcome = await inventory.receiveStock(
-      line.productId,
-      line.quantity,
-      line.unitCost,
-      line.supplier,
-      [...line.imeis]
-    );
+    saved = await inventory.receiveDocument('supplier', paperwork, inputs);
   }
+
   for (const sh of preShortages) {
     toast(formatArrivedToast(sh), 'ok');
   }
-  notice.value = `تم الاستلام. الرصيد الآن ${outcome.quantity}.`;
-  emit('received', line.productId);
-  return true;
+  const last = saved.lines[saved.lines.length - 1];
+  notice.value = `تم الاستلام. الرصيد الآن ${last?.quantity ?? saved.totalQuantity}.`;
+  for (const written of saved.lines) emit('received', written.productId);
+  return saved.lines.map((written) => written.productId);
 }
 
 async function submitReceive(): Promise<void> {
@@ -418,9 +680,25 @@ async function submitReceive(): Promise<void> {
   if (line === null) return;
   busy.value = true;
   notice.value = '';
+  const savedIds: string[] = [];
   try {
-    if (await receiveLine(line)) resetReceiptForm();
-    await refreshPosition();
+    const row: PendingReceipt = { key: pendingKey++, productName: lineName(line), ...line };
+    savedIds.push(...(await receiveLines([row])));
+    resetReceiptForm();
+    if (line.newPhone || line.newItem) {
+      // A brand-new product: the form goes back to «موجود» on what was just
+      // created, so the next delivery of the same model is one click.
+      await loadPickers();
+      const first = savedIds[0];
+      if (first !== undefined) {
+        source.value = 'existing';
+        selectedProductId.value = first;
+        position.value = null;
+        await loadPosition().catch(() => undefined);
+      }
+    } else {
+      await refreshPosition();
+    }
   } catch (err) {
     error.value = describeError(err);
   } finally {
@@ -431,44 +709,52 @@ async function submitReceive(): Promise<void> {
 /**
  * «أضف للتوريد»: صنف تاني في نفس الشحنة.
  *
- * من غير حفظ: السطر بيقف في القائمة تحت، و«احفظ التوريد» هو اللي بيكتبهم كلهم.
+ * من غير حفظ: السطر بيقف في القائمة تحت، و«احفظ التوريد» هو اللي بيكتبهم كلهم —
+ * في ترانزاكشن واحدة (`0035`).
  */
 function addToBatch(): void {
   const line = readReceiptForm();
   if (line === null) return;
-  const product = selectedProduct.value;
   pendingReceipts.value = [
     ...pendingReceipts.value,
     {
       key: pendingKey++,
-      productName: product?.name ?? line.productId,
+      productName: lineName(line),
       ...line,
     },
   ];
+  if (line.newPhone || line.newItem) {
+    // A new product cannot be added twice under one name; the cart keeps the
+    // whole description so the save creates it once.
+    newPhone.value.model = '';
+    newItem.value.name = '';
+  }
   resetReceiptForm();
   notice.value = 'اتضاف سطر للتوريد — كمّل باقي الأصناف أو احفظ.';
 }
 
-/** حفظ الشحنة كلها: كل سطر بيتسجل بحبته، وأي خطأ بيوقف ويقول سببه. */
+/**
+ * حفظ الشحنة كلها: ترانزاكشن واحدة (`0035`).
+ *
+ * قبل التغيير ده كان كل سطر بيتحفظ لوحده، فشحنة خمسة أصناف كانت بتقبل أربعة لو
+ * الخامس فشل. دلوقتي يا الشحنة كلها يا مفيش حاجة، ومفيش رسالة نجاح جزئي.
+ */
 async function saveBatch(): Promise<void> {
   if (pendingReceipts.value.length === 0 || busy.value) return;
   busy.value = true;
   notice.value = '';
-  const done: number[] = [];
+  const lines = [...pendingReceipts.value];
   try {
-    for (const line of pendingReceipts.value) {
-      const stored = await receiveLine(line);
-      if (!stored) break;
-      done.push(line.key);
-    }
-    pendingReceipts.value = pendingReceipts.value.filter((line) => !done.includes(line.key));
-    if (done.length > 0) {
-      notice.value = `اتحفظ توريد ${done.length} صنف.`;
-      await refreshPosition();
-    }
+    await receiveLines(lines);
+    pendingReceipts.value = [];
+    notice.value = `اتحفظ توريد ${num(lines.length)} صنف (${num(
+      lines.reduce((sum, line) => sum + line.quantity, 0)
+    )} قطعة) مرة واحدة.`;
+    await loadPickers();
+    await refreshPosition();
   } catch (err) {
-    // اللي اتحفظ قبل الخطأ بيتشال من القائمة، والباقي بيفضل عشان ما يتكررش.
-    pendingReceipts.value = pendingReceipts.value.filter((line) => !done.includes(line.key));
+    // Nothing was written: the whole document was refused, so the cart stays
+    // exactly as the shopkeeper built it (`0035`).
     error.value = describeError(err);
   } finally {
     busy.value = false;
@@ -481,13 +767,24 @@ async function submitRemove(): Promise<void> {
     error.value = 'الكمية يجب أن تكون عددًا صحيحًا أكبر من صفر.';
     return;
   }
+  if (removeReason.value.trim() === '') {
+    error.value = 'اكتب سبب الخصم: تالف، ولا فقدان، ولا فرق جرد.';
+    return;
+  }
 
   busy.value = true;
   notice.value = '';
   try {
-    const outcome = await inventory.removeStock(selectedProductId.value, quantity);
-    notice.value = `تم الخصم. تكلفة الكمية ${formatPiastres(outcome.costMinor)} والرصيد ${outcome.quantity}.`;
+    const outcome = await inventory.removeStock(
+      selectedProductId.value,
+      quantity,
+      removeReason.value.trim()
+    );
+    notice.value = `تم الخصم (${removeReason.value.trim()}). تكلفة الكمية ${formatPiastres(
+      outcome.costMinor
+    )} والرصيد ${outcome.quantity}.`;
     removeQuantity.value = '';
+    removeReason.value = '';
     error.value = '';
     await refreshPosition();
   } catch (err) {
@@ -509,65 +806,246 @@ function formatPiastres(minor: number | null): string {
   return money(whole * 100 + rest);
 }
 
-void loadPickers();
+/** A price box that is empty or unreadable: say «بدون سعر» rather than zero. */
+function parseTypedPrice(raw: string): number | null {
+  const trimmed = raw.trim();
+  return trimmed === '' ? null : parseMoney(trimmed);
+}
+
+function shortDate(day: string | null | undefined): string {
+  if (day === null || day === undefined || day === '') return '';
+  return day;
+}
+
+onMounted(() => {
+  void loadPickers();
+});
+void loadPickers;
 </script>
 
 <template>
   <section class="stock">
     <div class="stock-head">
-      <h2 class="stock-title">المخزن والتكلفة</h2>
+      <h2 class="stock-title">الاستلام والتسويات</h2>
       <span class="sp"></span>
       <button type="button" class="btn sm soft" @click="emit('new-item')">
         <Icon name="package-plus" /> صنف جديد
       </button>
     </div>
 
-    <!-- Product picker -->
-    <label class="field">
-      <span>المنتج</span>
-      <select id="stock-product" v-model="selectedProductId">
-        <option value="">— اختر منتجًا —</option>
-        <option v-for="product in products" :key="product.id" :value="product.id">
-          {{ product.name }}
-        </option>
-      </select>
-    </label>
-
-    <!-- The position, behind a password because it reveals cost -->
-    <div v-if="!position" class="gate">
-      <p class="hint">
-        عرض رصيد المنتج وتكلفته يتطلب تأكيد هوية المدير.
-      </p>
+    <!-- التلات أبواب -->
+    <div class="inv-seg door-seg" role="tablist" aria-label="نوع العملية" data-receive-doors>
       <button
-        id="stock-reveal"
         type="button"
-        :disabled="busy || selectedProductId === ''"
-        @click="withReauth(loadPosition)"
+        role="tab"
+        :aria-selected="door === 'delivery'"
+        :class="{ active: door === 'delivery' }"
+        data-receive-door="delivery"
+        @click="door = 'delivery'"
       >
-        عرض المخزن
+        <Icon name="arrow-down-to-line" /> بضاعة جديدة
+      </button>
+      <button type="button" role="tab" data-receive-door="used" @click="emit('open-used')">
+        <Icon name="recycle" /> موبايل مستعمل
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="door === 'adjust'"
+        :class="{ active: door === 'adjust' }"
+        data-receive-door="adjust"
+        @click="door = 'adjust'"
+      >
+        <Icon name="receipt-text" /> تسويات
       </button>
     </div>
 
-    <div v-else class="position">
-      <h3 class="position-title">{{ selectedProduct?.name ?? 'المخزن' }}</h3>
-      <dl class="facts">
-        <dt>الرصيد</dt>
-        <dd>{{ position.quantity }}</dd>
-        <dt>إجمالي التكلفة (متوسط مرجح)</dt>
-        <dd>{{ formatPiastres(position.effectiveCostMinor) }}</dd>
-        <template v-if="selectedIsSerial">
-          <dt>أجهزة بـ IMEI مسجّل</dt>
-          <dd>متسجّل {{ units.length }} من {{ position.quantity }}</dd>
-        </template>
-      </dl>
+    <!-- ===================== ١) بضاعة جديدة ===================== -->
+    <template v-if="door === 'delivery'">
+      <div class="inv-seg src-seg" role="tablist" aria-label="المصدر">
+        <button
+          type="button"
+          role="tab"
+          :class="{ active: source === 'existing' }"
+          data-receive-source="existing"
+          @click="source = 'existing'"
+        >
+          صنف موجود عندي
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :class="{ active: source === 'new' }"
+          data-receive-source="new"
+          @click="source = 'new'"
+        >
+          <Icon name="plus" /> صنف/موديل جديد
+        </button>
+      </div>
 
-      <div v-if="selectedIsSerial && units.length > 0" class="units-box">
-        <div class="units-head">أجهزة متسجّل ليها IMEI في المخزن ({{ units.length }})</div>
+      <!-- صنف موجود: بحث + اختيار -->
+      <template v-if="source === 'existing'">
+        <label class="field">
+          <span>دوّر على الصنف</span>
+          <input
+            v-model="search"
+            data-receive-search
+            autocomplete="off"
+            placeholder="اكتب اسم الصنف…"
+          />
+        </label>
+        <label class="field">
+          <span>المنتج</span>
+          <select id="stock-product" v-model="selectedProductId">
+            <option value="">— اختر منتجًا —</option>
+            <option v-for="product in filteredProducts" :key="product.id" :value="product.id">
+              {{ product.name }}
+            </option>
+          </select>
+        </label>
+      </template>
+
+      <!-- صنف/موديل جديد: يتعمل جوه نفس الاستلام -->
+      <template v-else>
+        <div class="inv-seg" role="tablist" aria-label="نوع الصنف الجديد">
+          <button
+            type="button"
+            role="tab"
+            :class="{ active: newKind === 'phone' }"
+            data-new-kind="phone"
+            @click="newKind = 'phone'"
+          >
+            موبايل
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :class="{ active: newKind === 'item' }"
+            data-new-kind="item"
+            @click="newKind = 'item'"
+          >
+            إكسسوار / صنف بالعدد
+          </button>
+        </div>
+
+        <template v-if="newKind === 'phone'">
+          <div class="grid2">
+            <label class="field">
+              <span>الشركة</span>
+              <select v-model="newPhone.brandId" data-new-phone-brand>
+                <option v-for="brand in brandChoices" :key="brand.id" :value="brand.id">
+                  {{ brand.name }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>الموديل</span>
+              <input v-model="newPhone.model" data-new-phone-model autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>النوع</span>
+              <select v-model="newPhone.deviceType" data-new-phone-type>
+                <option value="touch">تانش</option>
+                <option value="keypad">زراير</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>المساحة (GB)</span>
+              <input v-model="newPhone.storageGb" inputmode="numeric" data-new-phone-storage />
+            </label>
+            <label class="field">
+              <span>الرام (اختياري)</span>
+              <input v-model="newPhone.ramGb" inputmode="numeric" />
+            </label>
+            <label class="field">
+              <span>سعر البيع (اختياري)</span>
+              <input
+                v-model="newPhone.price"
+                inputmode="decimal"
+                data-new-phone-price
+                placeholder="سيبه فاضي وهيتحدد وقت البيع"
+              />
+            </label>
+          </div>
+        </template>
+        <template v-else>
+          <div class="grid2">
+            <label class="field">
+              <span>اسم الصنف</span>
+              <input v-model="newItem.name" data-new-item-name autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>التصنيف</span>
+              <select v-model="newItem.categoryId" data-new-item-category>
+                <option value="">بدون تصنيف</option>
+                <option v-for="category in itemCategories" :key="category.id" :value="category.id">
+                  {{ category.name }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>سعر البيع (اختياري)</span>
+              <input
+                v-model="newItem.price"
+                inputmode="decimal"
+                data-new-item-price
+                placeholder="سيبه فاضي وهيتحدد وقت البيع"
+              />
+            </label>
+          </div>
+        </template>
+      </template>
+
+      <!-- الحالي / المتوقع: يتأكد قبل الحفظ -->
+      <div v-if="source === 'existing'" class="pos-gate">
+        <div v-if="!position" class="gate">
+          <p class="hint">عرض رصيد المنتج وتكلفته يتطلب تأكيد هوية المدير.</p>
+          <button
+            id="stock-reveal"
+            type="button"
+            :disabled="busy || selectedProductId === ''"
+            @click="withReauth(loadPosition)"
+          >
+            عرض المخزن
+          </button>
+        </div>
+        <dl v-else class="facts">
+          <dt>الرصيد الحالي</dt>
+          <dd class="num" data-receive-current>{{ num(position.quantity) }}</dd>
+          <dt>إجمالي التكلفة (متوسط مرجح)</dt>
+          <dd>{{ formatPiastres(position.effectiveCostMinor) }}</dd>
+          <template v-if="selectedIsSerial">
+            <dt>أجهزة بـ IMEI مسجّل</dt>
+            <dd data-receive-tracked>
+              متسجّل {{ num(units.length) }} من {{ num(position.quantity) }}
+            </dd>
+          </template>
+          <template v-if="expectedQuantity !== null">
+            <dt>بعد الحفظ</dt>
+            <dd class="num pending" data-receive-expected>{{ num(expectedQuantity) }} قطعة</dd>
+          </template>
+        </dl>
+      </div>
+      <p v-else class="facts-preview" data-receive-new-preview>
+        <Icon name="plus" />
+        <span>
+          موديل جديد هيبدأ برصيد
+          <b class="num">{{ num(typedQuantity ?? 0) }}</b> قطعة بعد الحفظ
+        </span>
+      </p>
+
+      <!-- المنتج اللي في الرف: أجهزته بالـIMEI -->
+      <div v-if="source === 'existing' && selectedIsSerial && units.length > 0" class="units-box">
+        <div class="units-head">أجهزة متسجّل ليها IMEI في المخزن ({{ num(units.length) }})</div>
         <div class="units-chips">
           <span v-for="u in units" :key="u.id" class="unit-tag" :data-unit-imei="u.imei">
             <b class="mono" dir="ltr">{{ u.imei }}</b>
             <small v-if="u.conditionGrade" class="unit-sub">· فئة {{ u.conditionGrade }}</small>
-            <small v-if="u.batteryHealthPct !== null && u.batteryHealthPct !== undefined" class="unit-sub mono" dir="ltr">
+            <small
+              v-if="u.batteryHealthPct !== null && u.batteryHealthPct !== undefined"
+              class="unit-sub mono"
+              dir="ltr"
+            >
               · {{ u.batteryHealthPct }}%
             </small>
             <small v-if="u.color" class="unit-sub">· {{ u.color }}</small>
@@ -576,6 +1054,32 @@ void loadPickers();
           </span>
         </div>
       </div>
+
+      <!-- تسجيل IMEI لجهاز موجود بالفعل من غير رقم -->
+      <form
+        v-if="source === 'existing' && selectedIsSerial && position !== null && units.length < position.quantity"
+        class="form inline-form"
+        data-register-unit
+        @submit.prevent="registerStockUnitImei"
+      >
+        <h4 class="form-title">فيه جهاز في المخزن من غير IMEI؟ سجّله هنا</h4>
+        <div class="imei-entry-row">
+          <input
+            v-model="unitImeiDraft"
+            class="mono"
+            dir="ltr"
+            inputmode="numeric"
+            maxlength="17"
+            autocomplete="off"
+            data-register-unit-imei
+            placeholder="15 رقم…"
+          />
+          <button type="submit" class="btn sm soft" :disabled="busy" data-register-unit-save>
+            سجّل الرقم
+          </button>
+        </div>
+        <p class="hint">بياخد رقم من الأجهزة اللي في المخزن — الرصيد والتكلفة ما بيتغيّروش.</p>
+      </form>
 
       <!-- Receive -->
       <form class="form" @submit.prevent="submitReceive">
@@ -602,25 +1106,65 @@ void loadPickers();
             </button>
           </div>
         </div>
-        <label class="field">
-          <span>الكمية</span>
-          <input id="stock-qty" v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>سعر الوحدة ({{ moneyUnitWord() }})</span>
-          <input id="stock-cost" v-model="receiveUnitCost" inputmode="numeric" autocomplete="off" />
-        </label>
-        <label v-if="receiptMode === 'supplier'" class="field">
-          <span>المورد (اختياري)</span>
-          <input
-            v-model="receiveSupplier"
-            autocomplete="off"
-            maxlength="120"
-            placeholder="اسم من كتبته"
-          />
-        </label>
 
-        <div v-if="selectedIsSerial" class="imei-box">
+        <div class="grid2">
+          <label class="field">
+            <span>الكمية</span>
+            <input id="stock-qty" v-model="receiveQuantity" inputmode="numeric" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>سعر الوحدة ({{ moneyUnitWord() }})</span>
+            <input id="stock-cost" v-model="receiveUnitCost" inputmode="decimal" autocomplete="off" />
+          </label>
+        </div>
+
+        <template v-if="receiptMode === 'supplier'">
+          <div class="grid2">
+            <label class="field">
+              <span>المورد (اختياري)</span>
+              <input
+                v-model="receiveSupplier"
+                data-receive-supplier
+                autocomplete="off"
+                maxlength="120"
+                placeholder="اسم من كتبته"
+              />
+            </label>
+            <label class="field">
+              <span>رقم فاتورة المورد (اختياري)</span>
+              <input
+                v-model="receiveDocumentRef"
+                data-receive-ref
+                autocomplete="off"
+                maxlength="60"
+                placeholder="مثال: 442/2026"
+              />
+            </label>
+            <label class="field">
+              <span>تاريخ الشراء (اختياري)</span>
+              <input
+                v-model="receivePurchaseDate"
+                data-receive-date
+                autocomplete="off"
+                inputmode="numeric"
+                maxlength="10"
+                placeholder="2026-11-05"
+              />
+            </label>
+            <label class="field">
+              <span>ملاحظة (اختياري)</span>
+              <input
+                v-model="receiveNote"
+                data-receive-note
+                autocomplete="off"
+                maxlength="300"
+                placeholder="أي حاجة عن الشحنة دي"
+              />
+            </label>
+          </div>
+        </template>
+
+        <div v-if="source === 'existing' && selectedIsSerial" class="imei-box">
           <div class="imei-box-head">
             <span>
               أرقام الـ IMEI ({{ appearance.imeiMode === 'required' ? 'إلزامي' : 'اختياري' }}) —
@@ -662,13 +1206,28 @@ void loadPickers();
               </button>
             </span>
           </div>
+          <p class="hint">
+            تسجيل الرقم اختياري — سيب الخانة فاضية وجهاز واحد بس هو اللي بياخد الرقم.
+          </p>
         </div>
 
         <p v-if="receiptMode === 'supplier'" class="hint">
-          المورد اسم تكتبه أنت على التوريد نفسه. سيبه فاضي لو مش عارف.
+          المورد ورقم الفاتورة والتاريخ حاجات بتكتبها أنت على التوريد نفسه. سيبه فاضي لو مش عارف.
         </p>
         <p v-else class="hint">
-          بضاعة أول المدة بتدخل المخزن من غير اسم مورد ومش بتتحسب في مشتريات الموردين.
+          بضاعة أول المدة بتدخل المخزن من غير مورد ومن غير فاتورة ومش بتتحسب في مشتريات الموردين.
+        </p>
+
+        <!-- المتوقع قبل الحفظ -->
+        <p v-if="typedLineTotalMinor !== null" class="expected" data-receive-total>
+          <template v-if="source === 'existing' && position !== null">
+            الرصيد {{ num(position.quantity) }} + المستلم {{ num(typedQuantity ?? 0) }} =
+            <b class="num">{{ num(expectedQuantity ?? 0) }}</b> قطعة
+          </template>
+          <template v-else>
+            {{ num(typedQuantity ?? 0) }} قطعة جديدة
+          </template>
+          · إجمالي التكلفة {{ money(typedLineTotalMinor) }}
         </p>
 
         <!-- شحنة واحدة فيها أكتر من صنف: أضف سطر ورا سطر، وبعدين احفظ مرة واحدة -->
@@ -686,7 +1245,7 @@ void loadPickers();
         </div>
       </form>
 
-      <!-- سلة التوريد: السطور اللي هتتحفظ مع بعض -->
+      <!-- سلة التوريد: السطور اللي هتتحفظ مع بعض، مرة واحدة -->
       <section v-if="pendingReceipts.length > 0" class="batch" data-stock-batch>
         <div class="batch-head">
           <b>توريد {{ num(pendingReceipts.length) }} صنف</b>
@@ -699,6 +1258,8 @@ void loadPickers();
             <span class="batch-name"><bdi dir="auto">{{ line.productName }}</bdi></span>
             <span class="muted num">{{ num(line.quantity) }} × {{ money(line.unitCost) }}</span>
             <span v-if="line.supplier" class="muted">· {{ line.supplier }}</span>
+            <span v-if="line.documentRef" class="muted">· فاتورة {{ line.documentRef }}</span>
+            <span v-if="line.newPhone || line.newItem" class="tag ok">جديد</span>
             <span v-if="line.mode === 'opening'" class="tag warn">أول المدة</span>
             <span class="sp"></span>
             <button
@@ -721,21 +1282,100 @@ void loadPickers();
         >
           <Icon name="check" /> احفظ التوريد ({{ num(pendingReceipts.length) }})
         </button>
+        <p class="hint">الحفظ مرة واحدة: يا الشحنة كلها بتتسجل يا مفيش حاجة.</p>
       </section>
 
-      <!-- Remove -->
-      <form class="form" @submit.prevent="submitRemove">
-        <h4 class="form-title">خصم كمية</h4>
-        <label class="field">
-          <span>الكمية</span>
-          <input v-model="removeQuantity" inputmode="numeric" autocomplete="off" />
-        </label>
-        <button type="submit" :disabled="busy">خصم</button>
+      <!-- سجل توريدات الصنف ده: جالي إمتى، من مين، بكام -->
+      <section
+        v-if="source === 'existing' && history.length > 0"
+        class="history"
+        data-receive-history
+      >
+        <h4 class="form-title">آخر توريدات الصنف ده</h4>
+        <div class="table-wrap">
+          <table class="t">
+            <thead>
+              <tr>
+                <th>التاريخ</th>
+                <th class="ta-n">الكمية</th>
+                <th class="ta-n">سعر الوحدة</th>
+                <th>المورد</th>
+                <th>الفاتورة</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in history" :key="row.id" :data-receive-history-row="row.id">
+                <td class="muted">
+                  {{ shortDate(row.purchaseDate) || new Date(row.occurredAt).toLocaleDateString('ar-EG') }}
+                </td>
+                <td class="ta-n num">{{ num(row.quantity) }}</td>
+                <td class="ta-n num">{{ money(row.unitCostMinor) }}</td>
+                <td><bdi dir="auto">{{ row.supplierName ?? '—' }}</bdi></td>
+                <td><bdi dir="auto">{{ row.documentRef ?? '—' }}</bdi></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-for="row in history" :key="`n-${row.id}`" v-show="row.note" class="hint">
+          ملاحظة {{ shortDate(row.purchaseDate) }}: {{ row.note }}
+        </p>
+      </section>
+    </template>
+
+    <!-- ===================== ٣) تسويات ===================== -->
+    <template v-else>
+      <p class="hint adjust-note">
+        التسوية مش شراء: هي تصحيح لما على الرف — تالف، ولا فقدان، ولا فرق جرد. بتتسجل بحركة
+        <b>adjustment</b> مش بحركة استلام، والسبب بيتحفظ في سجل التدقيق.
+      </p>
+      <label class="field">
+        <span>المنتج</span>
+        <select id="stock-product-adjust" v-model="selectedProductId" data-adjust-product>
+          <option value="">— اختر منتجًا —</option>
+          <option v-for="product in filteredProducts" :key="product.id" :value="product.id">
+            {{ product.name }}
+          </option>
+        </select>
+      </label>
+      <div v-if="!position" class="gate">
+        <button
+          id="stock-reveal-adjust"
+          type="button"
+          :disabled="busy || selectedProductId === ''"
+          @click="withReauth(loadPosition)"
+        >
+          عرض المخزن
+        </button>
+      </div>
+      <p v-else class="facts-preview">
+        <Icon name="boxes" />
+        <span>الرصيد الحالي <b class="num">{{ num(position.quantity) }}</b> قطعة</span>
+      </p>
+
+      <form class="form" data-adjust-form @submit.prevent="submitRemove">
+        <h4 class="form-title">خصم كمية بسبب</h4>
+        <div class="grid2">
+          <label class="field">
+            <span>الكمية</span>
+            <input v-model="removeQuantity" inputmode="numeric" autocomplete="off" data-adjust-qty />
+          </label>
+          <label class="field">
+            <span>السبب (إجباري)</span>
+            <input
+              v-model="removeReason"
+              autocomplete="off"
+              maxlength="300"
+              data-adjust-reason
+              placeholder="تالف / فقدان / فرق جرد"
+            />
+          </label>
+        </div>
+        <button type="submit" :disabled="busy" data-adjust-submit>خصم</button>
         <p class="hint">
           يُرفض الخصم كاملًا إذا لم يتوفر رصيد كافٍ؛ لا يحدث خصم جزئي.
         </p>
       </form>
-    </div>
+    </template>
 
     <p v-if="notice" class="notice" data-stock-notice>{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -764,6 +1404,16 @@ void loadPickers();
 .batch-name { font-weight: 600; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .batch-list .sp { flex: 1; }
 
+.door-seg { margin: 0 0 12px; align-self: flex-start; flex-wrap: wrap; }
+.src-seg { margin: 0 0 10px; align-self: flex-start; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; }
+.facts-preview { display: flex; align-items: center; gap: 8px; margin: 10px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface-2); font-size: .88rem; }
+.pending { color: var(--ok, #070); font-weight: 700; }
+.expected { margin: 8px 0; font-size: .9rem; font-weight: 600; }
+.adjust-note { margin: 0 0 10px; }
+.history { margin-top: 14px; }
+.inline-form { border-style: dashed; }
+
 /* Minimal, matching CatalogPanel. */
 .stock {
   margin-top: 1.5rem;
@@ -785,13 +1435,6 @@ void loadPickers();
 }
 .gate {
   margin-bottom: 1rem;
-}
-.position {
-  margin: 1rem 0;
-}
-.position-title {
-  font-size: 1rem;
-  margin: 0 0 0.5rem;
 }
 .facts {
   display: grid;
@@ -849,7 +1492,7 @@ void loadPickers();
 }
 .form-title {
   font-size: 0.95rem;
-  margin: 0;
+  margin: 0 0 0.5rem;
 }
 .imei-box {
   margin: 0.75rem 0;

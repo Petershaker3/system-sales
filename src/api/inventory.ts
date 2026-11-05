@@ -165,8 +165,32 @@ export async function reconcileStockCount(
  * Refused whole when there is not enough on hand (`COST_INSUFFICIENT_STOCK`) —
  * never partially applied.
  */
-export async function removeStock(productId: string, quantity: number): Promise<StockOutcome> {
-  return invoke<StockOutcome>('remove_stock', { productId, quantity });
+export async function removeStock(
+  productId: string,
+  quantity: number,
+  reason = ''
+): Promise<StockOutcome> {
+  return invoke<StockOutcome>('remove_stock', { productId, quantity, reason });
+}
+
+/**
+ * Register the IMEI of ONE piece already in stock (`0035`).
+ *
+ * The owner's rule is that an IMEI is never mandatory, so a phone can be received
+ * as loose pieces. When the number turns up later, this gives one of those pieces
+ * its identity without changing the balance or the cost: the piece was already
+ * counted.
+ */
+export async function registerStockUnit(
+  productId: string,
+  imei: string,
+  color?: string | null
+): Promise<ProductUnit> {
+  return invoke<ProductUnit>('register_stock_unit', {
+    productId,
+    imei,
+    color: color ?? null,
+  });
 }
 
 /**
@@ -205,9 +229,111 @@ export interface ReceiptRow {
   /** The label the operator typed when it came in, if he typed one. */
   readonly supplierName: string | null;
   readonly occurredAt: number;
+  /** `supplier` for a purchase, `opening` for stock already on the shelf. */
+  readonly receiptKind?: 'supplier' | 'opening' | null;
+  /** The delivery this line belongs to: several lines share one (`0035`). */
+  readonly documentId?: string | null;
+  /** The supplier's own invoice/reference number, as typed (`0035`). */
+  readonly documentRef?: string | null;
+  /** The day the goods were bought, `YYYY-MM-DD`, when the operator said (`0035`). */
+  readonly purchaseDate?: string | null;
+  /** The note typed on the delivery (`0035`). */
+  readonly note?: string | null;
 }
 
-/** The receiving log, newest first. */
-export async function listReceipts(limit = 100): Promise<ReceiptRow[]> {
-  return invoke<ReceiptRow[]>('list_receipts', { limit });
+/**
+ * The receiving log, newest first.
+ *
+ * `productId` narrows it to one product's purchase history — the question a
+ * shopkeeper asks at the shelf: «الصنف ده جالي إمتى ومن مين وبكام».
+ */
+export async function listReceipts(limit = 100, productId?: string): Promise<ReceiptRow[]> {
+  return invoke<ReceiptRow[]>('list_receipts', { limit, productId: productId ?? null });
+}
+
+/** A new counted product created by the delivery itself (`0035`). */
+export interface NewItemLine {
+  readonly name: string;
+  readonly categoryId?: string | null;
+  /** `null` means «no price yet» — never `0`. */
+  readonly salePriceMinor?: number | null;
+}
+
+/** A new phone model created by the delivery itself (`0035`). */
+export interface NewPhoneLine {
+  readonly categoryId: string;
+  readonly brandId: string;
+  readonly model: string;
+  readonly deviceType: 'touch' | 'keypad';
+  readonly storageGb?: number | null;
+  readonly ramGb?: number | null;
+  readonly salePriceMinor?: number | null;
+}
+
+/**
+ * One line of a delivery: an existing product, or the new one it is receiving for
+ * the first time. Exactly one of `productId` / `newItem` / `newPhone`.
+ */
+export interface ReceiveLineInput {
+  readonly productId?: string | null;
+  readonly newItem?: NewItemLine | null;
+  readonly newPhone?: NewPhoneLine | null;
+  readonly quantity: number;
+  readonly unitCostMinor: number;
+  readonly imeis?: readonly string[];
+}
+
+/** The paperwork typed on one delivery (`0035`). All of it is optional. */
+export interface ReceiptPaperwork {
+  readonly supplierName?: string | null;
+  /** The supplier's own invoice/reference number. */
+  readonly documentRef?: string | null;
+  /** The day the goods were bought, `YYYY-MM-DD`. */
+  readonly purchaseDate?: string | null;
+  readonly note?: string | null;
+}
+
+/** One saved line: where it landed, and the balance afterwards. */
+export interface ReceivedLine {
+  readonly productId: string;
+  readonly quantity: number;
+}
+
+/** What one saved delivery wrote back. */
+export interface ReceivedDocument {
+  readonly documentId: string;
+  readonly totalQuantity: number;
+  readonly lines: readonly ReceivedLine[];
+}
+
+/**
+ * Save a whole delivery in ONE transaction (`0035`).
+ *
+ * Every line commits or none does. A line may name an existing product or
+ * describe a new one, which is how «موديل جديد + أول كمية» stops being two
+ * screens and two writes.
+ *
+ * `opening` spends one owner PIN for the whole document; the caller collects it
+ * first, exactly as `receiveOpeningStock` does.
+ */
+export async function receiveDocument(
+  receiptKind: 'supplier' | 'opening',
+  paperwork: ReceiptPaperwork,
+  lines: readonly ReceiveLineInput[]
+): Promise<ReceivedDocument> {
+  return invoke<ReceivedDocument>('receive_document', {
+    receiptKind,
+    supplierName: paperwork.supplierName ?? null,
+    documentRef: paperwork.documentRef ?? null,
+    purchaseDate: paperwork.purchaseDate ?? null,
+    note: paperwork.note ?? null,
+    lines: lines.map((line) => ({
+      productId: line.productId ?? null,
+      newItem: line.newItem ?? null,
+      newPhone: line.newPhone ?? null,
+      quantity: line.quantity,
+      unitCostMinor: line.unitCostMinor,
+      imeis: line.imeis ?? [],
+    })),
+  });
 }

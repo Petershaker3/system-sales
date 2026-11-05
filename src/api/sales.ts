@@ -43,6 +43,15 @@ export interface SaleLine {
   readonly warrantyEnd?: string;
   readonly imei?: string | null;
   readonly discountMinor?: number;
+  /**
+   * A price typed for THIS invoice only (`0035`).
+   *
+   * Absent means «the model's price». When present, Rust charges it, snapshots it
+   * on the line, and leaves the model's own price alone — which is what «السعر
+   * للفاتورة دي بس» means to the shopkeeper. Rust refuses it without
+   * `ManageCatalog`, the same authority that may change a model's price.
+   */
+  readonly unitPriceMinor?: number | null;
 }
 
 /**
@@ -111,6 +120,7 @@ export async function recordSale(
       warrantyEnd: line.warrantyEnd ?? null,
       imei: line.imei ?? null,
       discountMinor: line.discountMinor ?? 0,
+      unitPriceMinor: line.unitPriceMinor ?? null,
     })),
     confirmedTotalMinor: confirmedTotalMinor ?? null,
     payments:

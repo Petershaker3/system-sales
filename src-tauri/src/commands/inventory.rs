@@ -501,9 +501,12 @@ pub async fn receive_document(
     )
     .await?;
 
+    // Read the count before the id moves out of `saved`: the document id is a
+    // `String` and `total_quantity()` borrows the whole value.
+    let total_quantity = saved.total_quantity();
     Ok(ReceivedDocumentDto {
         document_id: saved.document_id,
-        total_quantity: saved.total_quantity(),
+        total_quantity,
         lines: saved
             .lines
             .into_iter()

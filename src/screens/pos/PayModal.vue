@@ -510,6 +510,10 @@ async function pay(): Promise<void> {
               quantity: line.quantity,
               imei: line.imei ?? null,
               discountMinor: line.discountMinor ?? 0,
+              // A price typed for this invoice only (`0035`). `null` here means
+              // «use the model's price», so Rust is never told a price the
+              // operator did not type.
+              unitPriceMinor: line.priceIsManual === true ? line.unitPriceMinor : null,
               ...warrantyDatesForMonths(months, saleTimestamp),
             };
           }),

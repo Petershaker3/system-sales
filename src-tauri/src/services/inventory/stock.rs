@@ -1372,7 +1372,7 @@ async fn receive_in_tx(
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
 
-    for imei in &parsed_imeis {
+    for imei in parsed_imeis {
         unit_repo::insert_unit(
             &mut conn,
             &UnitRecord {

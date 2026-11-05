@@ -107,6 +107,13 @@ const imeiTarget = ref<
   | { readonly mode: 'line'; readonly lineIndex: number; readonly product: PosProduct }
 >(null);
 const priceTarget = ref<PosProduct | null>(null);
+/**
+ * Which line the price modal was opened from, when it was opened on an existing
+ * line rather than on a product the operator is trying to add (`0035`). Both
+ * answers land on that line: the model price path re-adds, the «this invoice»
+ * path rewrites the line in place.
+ */
+const linePriceTarget = ref<{ product: PosProduct; lineIndex: number } | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
 
 const linesBox = ref<HTMLElement | null>(null);
@@ -439,6 +446,26 @@ function pick(p: PosProduct, quantity = 1, imei: string | null = null): void {
   focusSearch();
 }
 
+/**
+ * Change the price of ONE line on this invoice (`0035`).
+ *
+ * The same modal as «مالوش سعر», with the model's current price already in the
+ * box: saving it on the model changes the model, and «للفاتورة دي بس» changes
+ * only this line.
+ */
+function openLinePrice(at: number): void {
+  const line = invoice.value.lines[at];
+  if (line === undefined) return;
+  const p = byId.value.get(line.productId);
+  if (p === undefined) {
+    refuse('الصنف ده مش في الكتالوج دلوقتي');
+    return;
+  }
+  state.selected = at;
+  linePriceTarget.value = { product: p, lineIndex: at };
+  priceTarget.value = p;
+}
+
 function openLineImei(at: number): void {
   state.selected = at;
   const line = invoice.value.lines[at];
@@ -475,14 +502,37 @@ function closeImeiModal(): void {
 }
 
 /**
- * Save the typed price on the product, then carry on with the very sale the
- * owner was trying to make. The catalogue is re-read so the line, the invoice
- * total and Rust's own re-read inside `record_sale` all agree on one number.
+ * «احفظه سعر الموديل»: write the typed price on the product, then carry on with
+ * the very sale the owner was trying to make (`0035`).
+ *
+ * The catalogue is re-read so the line, the invoice total and Rust's own re-read
+ * inside `record_sale` all agree on one number.
  */
-async function savePrice(minor: number): Promise<void> {
+async function savePriceAsDefault(minor: number): Promise<void> {
   const target = priceTarget.value;
+  const onLine = linePriceTarget.value;
   priceTarget.value = null;
+  linePriceTarget.value = null;
   if (target === null) return;
+  if (onLine !== null) {
+    // The model keeps this price from now on, and this line follows it — the
+    // line was never charged anything else.
+    try {
+      await catalogApi.updateProduct(target.id, { salePriceMinor: minor });
+      await load();
+      const fresh = byId.value.get(target.id);
+      const line = invoice.value.lines[onLine.lineIndex];
+      if (fresh !== undefined && line !== undefined) {
+        cart.setLinePrice(state, onLine.lineIndex, null);
+        line.unitPriceMinor = fresh.salePriceMinor ?? minor;
+      }
+      toast(`سعر «${target.name}» بقى ${money(minor)}`, 'ok');
+    } catch (err) {
+      toast(describeError(err), 'err');
+    }
+    focusSearch();
+    return;
+  }
   try {
     await catalogApi.updateProduct(target.id, { salePriceMinor: minor });
     await load();
@@ -499,8 +549,51 @@ async function savePrice(minor: number): Promise<void> {
   pick(fresh);
 }
 
+/**
+ * «السعر للفاتورة دي بس»: charge this invoice the typed price and write nothing
+ * on the product (`0035`).
+ *
+ * The line is marked manual, so `reprice` leaves it alone if the catalogue
+ * reloads, and Rust records the figure as the line's own snapshot. The next sale
+ * asks again — that is what «once» means.
+ */
+function savePriceOnce(minor: number): void {
+  const target = priceTarget.value;
+  const onLine = linePriceTarget.value;
+  priceTarget.value = null;
+  linePriceTarget.value = null;
+  if (target === null) return;
+  if (onLine !== null) {
+    // Re-pricing a line that is already on the invoice must not add a second
+    // one: the piece the customer is buying is the piece already there.
+    if (!cart.setLinePrice(state, onLine.lineIndex, minor)) {
+      refuse('السعر لازم يكون أكبر من صفر');
+      return;
+    }
+    toast(`سعر السطر بقى ${money(minor)} — للفاتورة دي بس`, 'ok');
+    focusSearch();
+    return;
+  }
+  const free = freeOf(target);
+  if (free <= 0) {
+    refuse(`«${target.name}» خلصان من المخزن`);
+    return;
+  }
+  const result = cart.addProduct(state, asSellable(target), 1, null, minor);
+  if (!result.ok) {
+    if (result.reason === 'imei-taken') refuse('الـ IMEI ده محطوط بالفعل في فاتورة مفتوحة');
+    else if (result.reason === 'out-of-stock') refuse(`«${target.name}» خلصان من المخزن`);
+    else refuse(`المتاح من «${target.name}» ${num(result.available)} بس`);
+    return;
+  }
+  toast(`«${target.name}» في الفاتورة بـ${money(minor)} — للمرة دي بس`, 'ok');
+  void scrollToSelected();
+  focusSearch();
+}
+
 function closePriceModal(): void {
   priceTarget.value = null;
+  linePriceTarget.value = null;
   void nextTick(focusSearch);
 }
 
@@ -715,6 +808,7 @@ async function payExactCash(): Promise<void> {
               quantity: line.quantity,
               imei: line.imei ?? null,
               discountMinor: line.discountMinor ?? 0,
+              unitPriceMinor: line.priceIsManual === true ? line.unitPriceMinor : null,
               ...warrantyDatesForMonths(months, saleTimestamp),
             };
           }),
@@ -1331,7 +1425,26 @@ const KEYS: readonly [string, string][] = [
           >
             <div class="lm">
               <div class="ln"><bdi dir="rtl">{{ line.name }}</bdi></div>
-              <div v-if="line.serial || cart.lineDiscountMinor(line) > 0 || (line.warrantyMonths ?? 0) > 0" class="ls">
+              <div
+                v-if="
+                  line.serial ||
+                  line.priceIsManual === true ||
+                  cart.lineDiscountMinor(line) > 0 ||
+                  (line.warrantyMonths ?? 0) > 0
+                "
+                class="ls"
+              >
+                <button
+                  v-if="line.priceIsManual === true"
+                  type="button"
+                  class="line-price-btn"
+                  :data-line-price="at"
+                  title="السعر ده للفاتورة دي بس — اضغط لتغييره"
+                  @click.stop="openLinePrice(at)"
+                >
+                  <Icon name="tag" />
+                  سعر الفاتورة
+                </button>
                 <button
                   v-if="line.serial"
                   type="button"
@@ -1583,8 +1696,10 @@ const KEYS: readonly [string, string][] = [
     <PriceModal
       v-if="priceTarget !== null"
       :name="priceTarget.name"
+      :current-minor="priceTarget.salePriceMinor"
       @close="closePriceModal"
-      @save="savePrice"
+      @save-default="savePriceAsDefault"
+      @save-once="savePriceOnce"
     />
     <ImeiPickerModal
       v-if="imeiTarget !== null"
