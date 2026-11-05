@@ -3734,6 +3734,132 @@ check(
 await page.click('[data-settings-tab="all"]');
 await sleep(150);
 
+// --- التوريد مستند واحد، والاستلام شاشة واحدة (`0035`, ADR-055) -------------
+//
+// The owner's own sequence: a carton arrives with a phone model nobody has
+// registered yet and an accessory nobody has registered yet, from one supplier
+// with one invoice. Both must be created and received as ONE delivery, and the
+// register must afterwards say who, which paper and which day.
+await clickText('.rail .nav-btn', 'المخزن');
+await page.waitForSelector('[data-store-tab]');
+await clickText('[data-store-tab]', 'الاستلام');
+await page.waitForSelector('[data-receive-doors]');
+await sleep(200);
+check(
+  'receiving offers three doors — بضاعة جديدة، موبايل مستعمل، تسويات — and a purchase is never an adjustment',
+  (await count('[data-receive-door="delivery"]')) === 1 &&
+    (await count('[data-receive-door="used"]')) === 1 &&
+    (await count('[data-receive-door="adjust"]')) === 1
+);
+
+const novaModel = `Nova ${Math.floor(Math.random() * 9000 + 1000)}`;
+await page.$eval('[data-receive-source="new"]', (el) => el.click());
+await sleep(200);
+await page.$eval('[data-new-phone-brand]', (el) => {
+  const opt = [...el.options].find((o) => (o.textContent ?? '').includes('سامسونج'));
+  if (opt) {
+    el.value = opt.value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+});
+await fill('[data-new-phone-model]', novaModel);
+await fill('[data-new-phone-storage]', '256');
+await page.$eval('[data-new-phone-price]', (el) => {
+  el.value = '';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.$eval('[data-receive-supplier]', (el) => {
+  el.value = 'مورد الأجهزة';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await page.$eval('[data-receive-ref]', (el) => {
+  el.value = 'INV-9001';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+});
+await fill('[data-receive-date]', '2026-11-01');
+await fill('#stock-qty', '2');
+await fill('#stock-cost', '7000');
+await sleep(150);
+check(
+  'the delivery form previews what the shelf becomes before anything is saved',
+  (await text('[data-receive-new-preview]')).includes('2')
+);
+await page.$eval('[data-stock-add-to-batch]', (el) => el.click());
+await sleep(250);
+
+await page.$eval('[data-new-kind="item"]', (el) => el.click());
+await sleep(150);
+await fill('[data-new-item-name]', 'جراب نانو');
+await fill('#stock-qty', '5');
+await fill('#stock-cost', '60');
+await sleep(120);
+await page.$eval('[data-stock-add-to-batch]', (el) => el.click());
+await sleep(250);
+check(
+  'two brand-new products (a model and an accessory) ride in one delivery, unsaved',
+  (await count('[data-stock-batch-line]')) === 2
+);
+await page.$eval('[data-stock-save-batch]', (el) => el.click());
+await sleep(800);
+check(
+  'saving the delivery writes every line in one go',
+  (await count('[data-stock-batch-line]')) === 0 &&
+    (await text('[data-stock-notice]')).includes('اتحفظ توريد'),
+  await text('[data-stock-notice]')
+);
+check(
+  'the register afterwards names the supplier, the invoice number and the purchase day',
+  (await text('[data-store-receipts]')).includes('مورد الأجهزة') &&
+    (await text('[data-store-receipts]')).includes('INV-9001') &&
+    (await text('[data-store-receipts]')).includes('2026-11-01')
+);
+
+// A model and an accessory can both be registered with NO selling price: the price
+// is decided at the counter, not at the loading bay.
+await clickText('[data-store-tab]', 'الأصناف');
+await sleep(400);
+check(
+  'a phone model received without a selling price is registered, not refused',
+  (await text('.catalog')).includes(novaModel)
+);
+
+// «+ مخزون» on the row: the shelf hands the product to the delivery form.
+await page.$eval('[data-receive-product]', (el) => el.click());
+await sleep(600);
+check(
+  '«+ مخزون» on a catalogue row opens the delivery form on that very product',
+  (await count('[data-receive-doors]')) === 1 &&
+    (await page.$eval('#stock-product', (el) => el.value)) !== ''
+);
+
+// ... and so does a phone row on the handsets shelf.
+await clickText('.rail .nav-btn', 'الهواتف');
+await page.waitForSelector('[data-phones-screen]');
+await sleep(300);
+const phoneRows = await count('[data-phone-receive]');
+if (phoneRows > 0) {
+  await page.$eval('[data-phone-receive]', (el) => el.click());
+  await sleep(600);
+}
+check(
+  '«+ مخزون» on a phone row lands on the delivery form too, with a model chosen',
+  phoneRows === 0 || (await page.$eval('#stock-product', (el) => el.value).catch(() => '')) !== '',
+  `rows=${phoneRows}`
+);
+
+// An adjustment is not a purchase: it needs a reason, and it says so where the
+// shopkeeper is looking rather than after the write.
+await page.$eval('[data-receive-door="adjust"]', (el) => el.click());
+await sleep(200);
+await fill('[data-adjust-qty]', '1');
+await page.$eval('[data-adjust-submit]', (el) => el.click());
+await sleep(250);
+check(
+  'an adjustment with no reason is refused',
+  (await text('.stock .error')).includes('سبب'),
+  await text('.stock .error')
+);
+
 check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 

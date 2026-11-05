@@ -1313,7 +1313,7 @@ async fn receive_in_tx(
         }
     }
 
-    collapse_legacy_in_tx(&mut *conn, actor, product_id, now).await?;
+    collapse_legacy_in_tx(&mut *conn, &actor, product_id, now).await?;
     let position = load_position(&mut *conn, product_id).await?;
 
     let current = average_position(product_id, position.as_ref())?;
@@ -1325,7 +1325,7 @@ async fn receive_in_tx(
             quantity: updated.on_hand,
             total_cost_minor: Some(updated.total_cost_minor),
         },
-        actor,
+        &actor,
         now.as_millis(),
     )
     .await
@@ -1404,7 +1404,7 @@ async fn receive_in_tx(
 
     audit::append(
         conn,
-        *actor,
+        actor,
         audit::event::STOCK_RECEIVED,
         now,
         Some(format!(
