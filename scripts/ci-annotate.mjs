@@ -89,7 +89,7 @@ for (const [bin, tests] of perBinary) {
 // the review actually added, so every claimed name is visible in the check run.
 const reviewModules = process.env.CI_TEST_REVIEW_MODULES
   ? new RegExp(process.env.CI_TEST_REVIEW_MODULES)
-  : /^(untracked_imei|one_time_price|receiving_supplier|returns|receipt_reversal)::/;
+  : /^(untracked_imei|one_time_price|receiving_supplier|returns|receipt_reversal)::|^(the_till_buttons_and_the_expense_reasons|the_till_hides_only_buttons|kept_expense_reasons|every_key_that_needs_its_own_parser)/;
 const reviewed = [];
 for (const line of lines) {
   const m = line.match(/^test (\S+) \.\.\. (ok|FAILED|ignored)\s*$/);
