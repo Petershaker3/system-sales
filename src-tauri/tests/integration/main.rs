@@ -843,6 +843,16 @@ mod companion;
 // account is claimed afterwards from الإعدادات.
 mod open_mode;
 
+// `0035` §6.1: a selling price typed for one invoice, and the model's price as
+// the default — one-off pricing never writes the model, and a later price edit
+// never reprices an invoice already recorded.
+mod one_time_price;
+
+// `0035`: untracked pieces becoming tracked ones. Registering an IMEI relabels a
+// piece already on the shelf — it never receives another one — and the file also
+// covers selling, cancelling and returning phones that never had a serial.
+mod untracked_imei;
+
 
 
 

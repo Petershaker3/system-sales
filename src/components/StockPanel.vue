@@ -226,6 +226,17 @@ const expectedQuantity = computed<number | null>(() => {
   return position.value.quantity + typed;
 });
 
+/**
+ * Pieces on the shelf that carry no serial yet — the pool an IMEI registration
+ * is taken from. `tracked + untracked` is the balance, always (`ADR-019`,
+ * `0035`), so the two numbers are shown together instead of leaving the
+ * operator to subtract them.
+ */
+const untrackedCount = computed<number>(() => {
+  if (position.value === null) return 0;
+  return Math.max(0, position.value.quantity - units.value.length);
+});
+
 const typedCostMinor = computed(() => parseMoney(receiveUnitCost.value));
 
 const typedLineTotalMinor = computed<number | null>(() => {
@@ -1024,6 +1035,11 @@ void loadPickers;
             <dd data-receive-tracked>
               متسجّل {{ num(units.length) }} من {{ num(position.quantity) }}
             </dd>
+            <dt>أجهزة من غير IMEI</dt>
+            <dd data-receive-untracked>
+              {{ num(untrackedCount) }} قطعة — تسجيل رقم لوحدة منها بينقلها للي فوق،
+              والرصيد الكلي ما بيتغيّرش.
+            </dd>
           </template>
           <template v-if="expectedQuantity !== null">
             <dt>بعد الحفظ</dt>
@@ -1126,14 +1142,24 @@ void loadPickers;
         <template v-if="receiptMode === 'supplier'">
           <div class="grid2">
             <label class="field">
-              <span>المورد (اختياري)</span>
+              <!-- ⚠️ three different people appear in this module and they must
+                   never be confused: the supplier who sold the goods, the
+                   employee recording this receipt (the session, shown in the
+                   audit trail), and the customer who sold the shop a used phone
+                   (a separate form, «موبايل مستعمل»). This field is the first
+                   one only. -->
+              <span>المورد / التاجر (اختياري)</span>
               <input
                 v-model="receiveSupplier"
                 data-receive-supplier
                 autocomplete="off"
                 maxlength="120"
-                placeholder="اسم من كتبته"
+                placeholder="مين اللي باع البضاعة دي للمحل"
               />
+              <small class="field-hint">
+                اللي جبت منه الشحنة — مش الموظف اللي بيسجّل (ده بيتسجّل لوحده)، ومش
+                العميل اللي باع موبايل مستعمل (ده في «موبايل مستعمل»).
+              </small>
             </label>
             <label class="field">
               <span>رقم فاتورة المورد (اختياري)</span>
@@ -1549,5 +1575,14 @@ void loadPickers;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
   flex-wrap: wrap;
+}
+/* A quiet line under a field that has to explain itself (who the supplier is
+   not). It never grows into a paragraph: one sentence, muted. */
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 </style>

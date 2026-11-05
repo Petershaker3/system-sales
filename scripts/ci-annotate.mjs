@@ -50,6 +50,28 @@ if (results.length) {
   out.push(note('notice', `${label}: ${head}`, clip(body, 6000)));
 }
 
+// 1c. Named results for the tests that state a money or stock invariant.
+//
+// An aggregate count says the suite passed; it does not say the claim under
+// review was exercised. The names are printed per test by cargo, so they are
+// turned into their own annotation: that is the evidence a reviewer can quote
+// (and the reason `--quiet` must never be added to the cargo step).
+const focus = process.env.CI_TEST_FOCUS
+  ? new RegExp(process.env.CI_TEST_FOCUS)
+  : /(untracked|register_stock|imei|reversal|receipt|price|cost|return|stock)/i;
+const named = [];
+for (const line of lines) {
+  const m = line.match(/^test (\S+) \.\.\. (ok|FAILED|ignored)\s*$/);
+  if (m) named.push({ name: m[1], status: m[2] });
+}
+const focused = named.filter((t) => focus.test(t.name));
+if (focused.length) {
+  const body = focused
+    .map((t) => `${t.status === 'ok' ? 'ok  ' : t.status === 'FAILED' ? 'FAIL' : 'skip'} ${t.name}`)
+    .join('\n');
+  out.push(note('notice', `${label}: ${focused.length} named invariant tests`, clip(body, 12000)));
+}
+
 // 1b. node --test (frontend unit tests): "# pass N" / "# fail N".
 const nodePass = text.match(/^# pass (\d+)$/m);
 const nodeFail = text.match(/^# fail (\d+)$/m);

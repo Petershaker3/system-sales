@@ -1127,9 +1127,19 @@ pub async fn register_stock_unit(
         seller_national_id: None,
         intake_note: None,
     };
+    // Two operators can register the same number at the same moment: the check
+    // above is a read, and the write is where the race is lost. The table's
+    // UNIQUE constraint is the real guarantee, so a violation is reported as the
+    // duplicate it is rather than as a storage failure.
     unit_repo::insert_unit(&mut tx, &record)
         .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
+        .map_err(|error| {
+            if crate::data::repositories::identity::user::is_unique_violation(&error) {
+                StockServiceError::Unit(UnitError::ImeiAlreadyRegistered)
+            } else {
+                StockServiceError::Identity(DomainError::StorageUnavailable)
+            }
+        })?;
 
     audit::append(
         &mut tx,
