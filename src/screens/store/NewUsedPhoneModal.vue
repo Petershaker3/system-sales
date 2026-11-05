@@ -46,7 +46,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    mode?: 'catalog' | 'opening' | 'tradein';
+    mode?: 'catalog' | 'opening' | 'tradein' | 'exchange';
     canBack?: boolean;
   }>(),
   {
@@ -82,12 +82,20 @@ const selectedAcc = ref<Record<string, boolean>>({
 const intakeNote = ref('');
 const cost = ref('');
 const price = ref('');
-const sellerOpen = ref(props.mode === 'tradein');
+/**
+ * الاستبدال بقى بيتفتح من «الهواتف» (2026-11-05)، فالفاتورة اللي بيتخصم منها
+ * الرصيد لسه ما اتعملتش. سلوك الاستلام واحد في الحالتين — بائع، وصرف من الدرج —
+ * اللي بيختلف هو الكلام اللي بيشرح للكاشير الرصيد رايح فين.
+ */
+const isExchangeFlow = computed(
+  () => props.mode === 'tradein' || props.mode === 'exchange'
+);
+const sellerOpen = ref(isExchangeFlow.value);
 const sellerName = ref('');
 const sellerPhone = ref('');
 const sellerNationalId = ref('');
 const isOpeningStock = ref(props.mode === 'opening');
-const payoutFromDrawer = ref(props.mode === 'tradein');
+const payoutFromDrawer = ref(isExchangeFlow.value);
 const warrantyUsedMonths = ref(1);
 
 const addingBrand = ref(false);
@@ -101,6 +109,7 @@ const error = ref<string | null>(null);
 
 const modalTitle = computed(() => {
   if (props.mode === 'tradein') return 'استبدال موبايل مستعمل (شراء + بيع في فاتورة واحدة)';
+  if (props.mode === 'exchange') return 'استبدال موبايل مستعمل (استلام الجهاز وخصم قيمته من البيعة)';
   if (isOpeningStock.value) return 'تسجيل موبايل مستعمل (رصيد يوم البداية)';
   return 'موبايل مستعمل / شراء من عميل';
 });
@@ -108,6 +117,9 @@ const modalTitle = computed(() => {
 const modalSub = computed(() => {
   if (props.mode === 'tradein') {
     return 'الجهاز القديم يدخل المخزن كمستعمل بقيمته المتفق عليها وتتخصم تلقائياً من الفاتورة';
+  }
+  if (props.mode === 'exchange') {
+    return 'الجهاز القديم يدخل رف المستعمل بقيمته المتفق عليها، والقيمة بتتخصم من فاتورة البيع اللي جاية';
   }
   if (isOpeningStock.value) {
     return 'أجهزة مستعملة موجودة على الرف يوم بداية تشغيل البرنامج (بـ PIN صاحب المحل)';
@@ -455,8 +467,9 @@ onMounted(load);
   <Modal :title="modalTitle" :sub="modalSub" size="wide" @close="emit('close')">
     <div v-if="error" class="err" role="alert">{{ error }}</div>
 
-    <!-- Opening stock / drawer payout mode bar (when not inside POS trade-in) -->
-    <div v-if="mode !== 'tradein'" class="used-mode-bar">
+    <!-- Opening stock / drawer payout mode bar (not inside an exchange: there the
+         seller and the drawer payout are part of the deal, not a checkbox) -->
+    <div v-if="!isExchangeFlow" class="used-mode-bar">
       <label class="switch-field" data-used-opening-toggle>
         <span class="switch">
           <input v-model="isOpeningStock" type="checkbox" />
@@ -509,7 +522,7 @@ onMounted(load);
           <bdi dir="auto">{{ b.name }}</bdi>
         </button>
         <button
-          v-if="!addingBrand && mode !== 'tradein'"
+          v-if="!addingBrand && !isExchangeFlow"
           type="button"
           class="chip add"
           @click="openNewBrand"
@@ -751,7 +764,7 @@ onMounted(load);
     <div class="row2">
       <label class="field" for="nu-cost">
         <span class="lbl">
-          {{ mode === 'tradein' ? 'قيمة الاستبدال المتفق عليها (تتخصم من الفاتورة)' : 'اشتريته بكام' }}
+          {{ isExchangeFlow ? 'قيمة الاستبدال المتفق عليها (تتخصم من الفاتورة)' : 'اشتريته بكام' }}
           <b v-if="!isOpeningStock">*</b>
           <span v-else class="muted">(اختياري لرصيد البداية — 0 لو مش معروف)</span>
         </span>
@@ -860,7 +873,13 @@ onMounted(load);
         @click="submit(false)"
       >
         <Icon name="check" />
-        {{ mode === 'tradein' ? 'سجّل وخصم من الفاتورة' : 'سجّل الجهاز المستعمل' }}
+        {{
+          mode === 'tradein'
+            ? 'سجّل وخصم من الفاتورة'
+            : mode === 'exchange'
+              ? 'سجّل واستلم الجهاز'
+              : 'سجّل الجهاز المستعمل'
+        }}
       </button>
     </template>
   </Modal>

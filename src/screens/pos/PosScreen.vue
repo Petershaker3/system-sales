@@ -14,7 +14,6 @@
 // again.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 
-import type { RegisteredUsedPhone } from '../../api/brands';
 import { type Customer, listCustomers } from '../../api/customer';
 import { describeError } from '../../api/errors';
 import type { Session } from '../../api/identity';
@@ -36,7 +35,6 @@ import type { ScanReading } from '../../ui/scan';
 import Modal from '../../ui/Modal.vue';
 import { beep, toast } from '../../ui/toast';
 import ImeiCheckModal from '../store/ImeiCheckModal.vue';
-import NewUsedPhoneModal from '../store/NewUsedPhoneModal.vue';
 import { defaultMinQty, suggestedQty } from '../store/shortages';
 import * as cart from './cart';
 import type { SellableProduct } from './cart';
@@ -53,6 +51,7 @@ import QtyModal from './QtyModal.vue';
 import ReturnModal from './ReturnModal.vue';
 import { buildIndex, looksLikeCode, search } from './search';
 import { isSellableInPos, posOnHand } from './sellable';
+import { holdPendingTradeIn, takePendingTradeIn } from './pendingTradeIn';
 import ServicesModal from './ServicesModal.vue';
 import VariantPickerModal from './VariantPickerModal.vue';
 import { collapseFamilies, familyPriceSummary, type PosTileEntry } from './variants';
@@ -87,7 +86,6 @@ const discountInitialScope = ref<'invoice' | 'line'>('invoice');
 const exactCashBusy = ref(false);
 const customerPickerOpen = ref(false);
 const showImeiCheck = ref(false);
-const showTradeInModal = ref(false);
 const tradeInByInvoiceId = ref<
   Record<
     string,
@@ -840,23 +838,20 @@ const netAfterTradeInMinor = computed(() =>
   Math.max(0, totals.value.totalMinor - (activeTradeIn.value?.creditMinor ?? 0))
 );
 
-async function onTradeInSaved(registered: RegisteredUsedPhone): Promise<void> {
-  showTradeInModal.value = false;
-  tradeInByInvoiceId.value[invoice.value.id] = {
-    unitId: registered.unitId,
-    productName: registered.product.name,
-    imei: registered.imei,
-    conditionGrade: registered.conditionGrade,
-    creditMinor: registered.costMinor,
-  };
-  emit('shift-changed');
-  await load();
+/**
+ * «استبدال مستعمل» بيتفتح من «الهواتف» (`2026-11-05`)، والجهاز بيتسجّل هناك.
+ * الشاشة دي بتلاقي «رصيد استبدال مستني» وتحطه على الفاتورة اللي في إيد الكاشير،
+ * فالخصم ما اتغيّرش — بس بابه بقى من مكان واحد.
+ */
+function adoptPendingTradeIn(): void {
+  const pending = takePendingTradeIn();
+  if (pending === null) return;
+  tradeInByInvoiceId.value[invoice.value.id] = pending;
   toast(
-    `اتسجّل «${registered.product.name}» في المخزن واتخصم ${money(registered.costMinor)} من الفاتورة`,
+    `استبدال «${pending.productName}» مستني على الفاتورة دي — ${money(pending.creditMinor)} تتخصم من الإجمالي`,
     'ok',
-    4500
+    5000
   );
-  void nextTick(focusSearch);
 }
 
 function removeTradeIn(): void {
@@ -909,7 +904,6 @@ function onKey(event: KeyboardEvent): void {
     modal.value !== null ||
     customerPickerOpen.value ||
     showImeiCheck.value ||
-    showTradeInModal.value ||
     openFamily.value !== null ||
     imeiTarget.value !== null ||
     document.querySelector('.overlay') !== null
@@ -1044,6 +1038,7 @@ async function addProductToShortages(p: PosProduct): Promise<void> {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKey);
+  adoptPendingTradeIn();
   await load();
   try {
     const mobileScans = await consumeCompanionScans('pos');
@@ -1073,7 +1068,14 @@ onMounted(async () => {
   }
   focusSearch();
 });
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey);
+  // رصيد الاستبدال بيتولد في «الهواتف» قبل الفاتورة. لو الكاشير ساب البيع قبل ما
+  // يخلّص، السلة بتتمسح — والرصيد ما ينفعش يروح معاها، لأن الجهاز بقى في المخزن
+  // والفلوس خرجت من الدرج. فبيرجع يستنى على أول فاتورة جاية.
+  const waiting = activeTradeIn.value;
+  if (waiting !== null) holdPendingTradeIn(waiting);
+});
 
 const KEYS: readonly [string, string][] = [
   ['Enter', 'إضافة ثم دفع'],
@@ -1212,16 +1214,6 @@ const KEYS: readonly [string, string][] = [
         @click="modal = 'services'"
       >
         <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
-      </button>
-      <!-- استبدال جهاز مستعمل: الرصيد بيتخصم من إجمالي الفاتورة دي، فمكانه هنا
-           بالضرورة — شاشة تانية ما تعرفش السلة اللي واقفة. -->
-      <button
-        type="button"
-        class="btn ghost"
-        data-pos-tradein
-        @click="showTradeInModal = true"
-      >
-        <Icon name="recycle" /><span>استبدال مستعمل</span>
       </button>
       <!-- المرتجع الرسمي مكانه «المبيعات» (على الفاتورة نفسها)، لكن الاستبدال
            بيتم مع السلة اللي في إيد الكاشير، فالباب ده بيفضل مفتوح هنا كمان. -->
@@ -1614,12 +1606,6 @@ const KEYS: readonly [string, string][] = [
       @paid="onPaid"
       @price-changed="onPriceChanged"
       @open-customer-picker="openCustomerPicker"
-    />
-    <NewUsedPhoneModal
-      v-if="showTradeInModal"
-      mode="tradein"
-      @close="showTradeInModal = false"
-      @saved="onTradeInSaved"
     />
     <ImeiCheckModal
       v-if="showImeiCheck"

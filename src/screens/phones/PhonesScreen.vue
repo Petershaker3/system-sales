@@ -24,8 +24,10 @@ import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosCatalog, type PosProduct } from '../../api/pos';
 import { money, num, pcsText } from '../../ui/format';
 import ImeiCheckModal from '../store/ImeiCheckModal.vue';
-import ServicesModal from '../pos/ServicesModal.vue';
-import QuickRepairModal from '../pos/QuickRepairModal.vue';
+import NewUsedPhoneModal from '../store/NewUsedPhoneModal.vue';
+import type { RegisteredUsedPhone } from '../../api/brands';
+import { toast } from '../../ui/toast';
+import { holdPendingTradeIn, pendingTradeIn } from '../pos/pendingTradeIn';
 import { imeiLabel, isPlaceholderImei } from '../pos/imei';
 import ImeiEditModal from './ImeiEditModal.vue';
 import Icon from '../../ui/Icon.vue';
@@ -45,15 +47,20 @@ import {
 } from './phones';
 
 /**
- * خدمات الهواتف: أربع عمليات بتخص الجهاز نفسه، في قسم الهواتف نفسه
- * (طلب صاحب المحل، 2026-11-02) — وبنفس الترتيب اللي طلبه:
- * خدمات ← صيانة وسوفت وير ← فحص الآيمي ← المرتجع.
+ * زراير الهواتف (طلب صاحب المحل، 2026-11-05):
  *
- * الاستبدال والمرتجع بقوا هنا بدل ما يبقوا زراير منفصلة في شاشة البيع.
+ * «خدمات» و«صيانة وسوفت وير» بقوا في قسم البيع — الجهاز اللي بيتصلح واقف على
+ * الكاشير، والتذكرة بتتفتح من غير ما تسيب الفاتورة. اللي فضل هنا حاجتين بتخص
+ * الجهاز نفسه: **فحص الآيمي**، و**استبدال مستعمل**.
+ *
+ * الاستبدال هنا لأن الجهاز المستعمل بيستقر على رف «مستعمل» في الشاشة دي، لكن
+ * قيمته بتتخصم من فاتورة البيع. فالشاشة بتستلم الجهاز وتسيب «رصيد استبدال
+ * مستني» (`pendingTradeIn`)، وبعدها بتودّي الكاشير على البيع عشان يكمّل البيعة
+ * والرصيد نازل منها — نفس السطر `#pos-tradein-row` اللي كان بيظهرلما الزرار كان
+ * هناك.
  */
-const servicesOpen = ref(false);
-const repairOpen = ref(false);
 const imeiCheckOpen = ref(false);
+const tradeInOpen = ref(false);
 
 const loadState = ref<'loading' | 'ready' | 'error'>('loading');
 const loadError = ref('');
@@ -232,6 +239,30 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
 }
 
 /**
+ * الاستبدال اتسجّل: الجهاز بقى على الرف، وقيمته بقت «رصيد مستني» على فاتورة
+ * البيع. الشاشة بتقرا الأرفف من جديد وبتودّي الكاشير على البيع يكمل البيعة —
+ * من غير ما يكتب حاجة تاني عن الجهاز القديم.
+ */
+function onTradeInSaved(registered: RegisteredUsedPhone): void {
+  tradeInOpen.value = false;
+  holdPendingTradeIn({
+    unitId: registered.unitId,
+    productName: registered.product.name,
+    imei: registered.imei,
+    conditionGrade: registered.conditionGrade,
+    creditMinor: registered.costMinor,
+  });
+  const price = money(registered.costMinor);
+  toast(
+    `اتسجّل «${registered.product.name}» في المستعمل بـ ${price} — الرصيد مستني على فاتورة البيع`,
+    'ok',
+    4500
+  );
+  void load();
+  window.dispatchEvent(new CustomEvent('mshop:open-pos'));
+}
+
+/**
  * «+ مخزون» on a model: the delivery form is in «المخزن», and this row is the one
  * place that knows which model is short. The store opens on it (`0035`).
  */
@@ -247,19 +278,33 @@ function receiveMore(productId: string): void {
       <span class="sub">الجديد لوحده، والمستعمل لوحده — كل جهاز بIMEIه وتكلفته وسعره</span>
     </div>
 
-    <!-- خدمات الهواتف — بالترتيب اللي طلبه صاحب المحل -->
+    <!-- اللي بيخص الجهاز نفسه هنا: استلام المستعمل، وفحص الآيمي -->
     <div class="phone-actions" data-phone-actions>
-      <button type="button" class="btn sm" data-phone-act="services" @click="servicesOpen = true">
-        <Icon name="smartphone" /> خدمات
-      </button>
-      <button type="button" class="btn sm" data-phone-act="repair" @click="repairOpen = true">
-        <Icon name="wrench" /> صيانة وسوفت وير
+      <button
+        type="button"
+        class="btn sm primary"
+        data-phone-act="tradein"
+        title="استلام جهاز مستعمل من عميل وقيمته تتخصم من فاتورة البيع"
+        @click="tradeInOpen = true"
+      >
+        <Icon name="recycle" /> استبدال مستعمل
       </button>
       <button type="button" class="btn sm" data-phone-act="imei" @click="imeiCheckOpen = true">
         <Icon name="search" /> فحص الآيمي (IMEI Check)
       </button>
-
     </div>
+
+    <!-- A credit that is already waiting for an invoice: the cashier must see it
+         before taking a second handset in, because the waiting one is only kept
+         until the next invoice picks it up. -->
+    <p v-if="pendingTradeIn !== null" class="tradein-waiting" data-phone-tradein-waiting>
+      <Icon name="info" />
+      <span>
+        رصيد استبدال {{ money(pendingTradeIn.creditMinor) }} —
+        <bdi dir="rtl">{{ pendingTradeIn.productName }}</bdi>
+        مستني على فاتورة البيع.
+      </span>
+    </p>
 
     <!-- the split, before the first scroll: how much is new, how much is used.
          (`.split` is taken by the inventory bar, so this block has its own name.) -->
@@ -601,9 +646,13 @@ function receiveMore(productId: string): void {
       @saved="onImeiSaved"
     />
 
-    <!-- خدمات الهواتف: النوافذ اللي بيفتحها الشريط فوق -->
-    <ServicesModal v-if="servicesOpen" @close="servicesOpen = false" />
-    <QuickRepairModal v-if="repairOpen" @close="repairOpen = false" @created="load()" />
+    <!-- النوافذ اللي بيفتحها الشريط فوق -->
+    <NewUsedPhoneModal
+      v-if="tradeInOpen"
+      mode="exchange"
+      @close="tradeInOpen = false"
+      @saved="onTradeInSaved"
+    />
     <ImeiCheckModal v-if="imeiCheckOpen" @close="imeiCheckOpen = false" />
     <!-- the phone rules, and where they live ------------------------------- -->
     <section class="setup">
@@ -892,6 +941,19 @@ function receiveMore(productId: string): void {
   gap: 8px;
   flex-wrap: wrap;
   margin: 2px 0 10px;
+}
+/* The waiting exchange credit: one quiet line, not a banner — it is a fact about
+   the next invoice, not an alarm. */
+.tradein-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm, 8px);
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
 }
 .filter-line {
   display: flex;

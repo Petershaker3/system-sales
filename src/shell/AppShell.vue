@@ -157,6 +157,16 @@ function onOpenReceiveRequest(event: Event): void {
   receiveNonce.value += 1;
 }
 
+/**
+ * «الهواتف» بتستلم جهاز استبدال وبتودّي الكاشير على البيع يكمل البيعة (`2026-11-05`).
+ *
+ * الرصيد نفسه مش في الحدث: هو محفوظ في `pendingTradeIn` و«البيع» بتاخده أول ما
+ * تفتح. الحدث مجرد «روح على الشاشة دي».
+ */
+function onOpenPosRequest(): void {
+  screen.value = 'pos';
+}
+
 async function onOpenSettingsRequest(event: Event): Promise<void> {
   const detail = (event as CustomEvent<{ tab?: string }>).detail;
   screen.value = 'settings';
@@ -310,6 +320,7 @@ onMounted(() => {
   window.addEventListener('mshop:open-guide', onOpenGuideRequest);
   window.addEventListener('mshop:open-settings', onOpenSettingsRequest);
   window.addEventListener('mshop:open-receive', onOpenReceiveRequest);
+  window.addEventListener('mshop:open-pos', onOpenPosRequest);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
@@ -318,6 +329,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('mshop:open-guide', onOpenGuideRequest);
   window.removeEventListener('mshop:open-settings', onOpenSettingsRequest);
   window.removeEventListener('mshop:open-receive', onOpenReceiveRequest);
+  window.removeEventListener('mshop:open-pos', onOpenPosRequest);
 });
 
 

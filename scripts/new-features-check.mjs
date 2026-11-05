@@ -106,6 +106,7 @@ check('owner lands on the till', (await text('.topbar h1')) === 'البيع');
 
 // --- 1) the quick repair ticket from the till ------------------------------
 check('the till offers «إضافة صيانة / سوفت وير»', (await count('[data-pos-quick-repair]')) === 1);
+check('the till offers «خدمات» too (both stayed here, 2026-11-05)', (await count('[data-open-services]')) === 1);
 await page.click('[data-pos-quick-repair]');
 await page.waitForSelector('[data-quick-repair]', { timeout: 5000 });
 check('the quick ticket opens without leaving the invoice', (await count('[data-quick-repair]')) === 1);
@@ -174,15 +175,16 @@ if (invoices > 0) {
   await sleep(500);
 }
 
-// --- 4) the phones services strip ------------------------------------------
+// --- 4) the phones strip: exchange + IMEI check only ------------------------
 await openScreen('الهواتف');
 await sleep(900);
-check('phones has the services strip', (await count('[data-phone-actions]')) === 1);
+check('phones has the phone strip', (await count('[data-phone-actions]')) === 1);
 check(
-  'the strip is خدمات · صيانة · فحص آيمي (no return door here)',
-  (await count('[data-phone-act="services"]')) === 1 &&
-    (await count('[data-phone-act="repair"]')) === 1 &&
+  'the strip is استبدال مستعمل · فحص آيمي — services and repair moved to the till',
+  (await count('[data-phone-act="tradein"]')) === 1 &&
     (await count('[data-phone-act="imei"]')) === 1 &&
+    (await count('[data-phone-act="services"]')) === 0 &&
+    (await count('[data-phone-act="repair"]')) === 0 &&
     (await count('[data-phone-act="returns"]')) === 0
 );
 await shot('05-phones');

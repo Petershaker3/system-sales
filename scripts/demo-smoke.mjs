@@ -2657,19 +2657,26 @@ check(
     (await text('.page')).includes('Samsung Galaxy A34 128GB مستعمل فئة B')
   );
 
-  // Switch to POS and perform a Trade-in («استبدال مستعمل: شراء + بيع في فاتورة واحدة»)
-  await clickText('.rail .nav-btn', 'البيع');
-  await page.waitForSelector('[data-pos-tradein]', { timeout: 3000 });
-  await clickText('.chips.cats .chip', 'الكل');
-  await sleep(150);
-  await clickText('.tile', 'Samsung Galaxy A54 128GB مستعمل فئة A');
-  await sleep(200);
-  if ((await count('#imei-in')) > 0) {
-    await page.click('.imei-row');
-    await sleep(150);
-  }
-  await page.click('[data-pos-tradein]');
+  // «استبدال مستعمل» بقى من «الهواتف» (2026-11-05): الجهاز بيتسلّم هناك،
+  // والرصيد بيستنى على فاتورة البيع. الصيانة والخدمات بقوا في البيع.
+  await clickText('.rail .nav-btn', 'الهواتف');
+  await page.waitForSelector('[data-phone-act="tradein"]', { timeout: 3000 });
+  check(
+    'the phones strip carries the exchange door and the IMEI check, and no services/repair there any more',
+    (await count('[data-phone-act="tradein"]')) === 1 &&
+      (await count('[data-phone-act="imei"]')) === 1 &&
+      (await count('[data-phone-act="services"]')) === 0 &&
+      (await count('[data-phone-act="repair"]')) === 0
+  );
+  await shot('56-phones-strip');
+  await page.click('[data-phone-act="tradein"]');
   await page.waitForSelector('#nu-model', { timeout: 3000 });
+  check(
+    'the exchange form opens with the seller and the drawer payout already set (no opening-stock switch)',
+    (await count('[data-used-opening-toggle]')) === 0 &&
+      (await count('[data-used-drawer-toggle]')) === 0 &&
+      (await count('#nu-seller-name')) === 1
+  );
   await page.click('[data-grade="B"]');
   await page.type('#nu-model', 'Galaxy A24');
   await page.type('#nu-imei', '864219042345679');
@@ -2679,12 +2686,42 @@ check(
   await page.type('#nu-seller-phone', '01122334455');
   await page.click('[data-nu-submit]');
   await page.waitForSelector('#nu-model', { hidden: true, timeout: 3000 });
-  await sleep(250);
+  await sleep(400);
   check(
-    'POS trade-in («استبدال مستعمل») registers the customer device into stock and deducts 4,500 EGP from the active invoice',
-    (await count('[data-pos-tradein-row]')) === 1 &&
+    'the exchange registers the customer device into the used shelf and hands the credit to the till',
+    (await count('.pos-wrap')) === 1 &&
+      (await count('[data-pos-tradein-row]')) === 1 &&
       (await text('[data-pos-tradein-row]')).includes('Samsung Galaxy A24 128GB مستعمل فئة B') &&
-      (await text('.totals .grand')).includes('7,000')
+      (await text('[data-pos-tradein-row]')).includes('4,500')
+  );
+  // The credit is not lost when the cashier walks away: «الهواتف» says it is
+  // waiting, and «البيع» picks it up again on the next invoice.
+  await clickText('.rail .nav-btn', 'الهواتف');
+  await page.waitForSelector('[data-phone-tradein-waiting]', { timeout: 3000 });
+  check(
+    'the phones shelf says an exchange credit is waiting on the till (4,500, the device name)',
+    (await text('[data-phone-tradein-waiting]')).includes('4,500') &&
+      (await text('[data-phone-tradein-waiting]')).includes('Samsung Galaxy A24 128GB مستعمل فئة B')
+  );
+  await clickText('.rail .nav-btn', 'البيع');
+  await page.waitForSelector('[data-pos-tradein-row]', { timeout: 3000 });
+  check(
+    'coming back to the till picks the waiting credit up again instead of dropping it',
+    (await text('[data-pos-tradein-row]')).includes('4,500')
+  );
+
+  await clickText('.chips.cats .chip', 'الكل');
+  await sleep(150);
+  await clickText('.tile', 'Samsung Galaxy A54 128GB مستعمل فئة A');
+  await sleep(200);
+  if ((await count('#imei-in')) > 0) {
+    await page.click('.imei-row');
+    await sleep(150);
+  }
+  await sleep(200);
+  check(
+    'the waiting exchange credit is deducted from the invoice the cashier builds next (11,500 − 4,500)',
+    (await text('.totals .grand')).includes('7,000')
   );
   await shot('56-pos-tradein');
   await page.click('#pos-exact-cash-btn');
@@ -2693,6 +2730,13 @@ check(
     'Completing the trade-in sale clears the invoice and removes the sold used phone from available POS tiles',
     (await count('.line')) === 0 && (await count('[data-pos-tradein-row]')) === 0
   );
+
+  // الخدمات والصيانة في البيع (مش في الهواتف)
+  check(
+    'services and quick repair sit in the till, not on the phones shelf',
+    (await count('[data-open-services]')) === 1 && (await count('[data-pos-quick-repair]')) === 1
+  );
+
 
   // --- Phase 2 Item 2.3: Labels & Internal Shop Barcodes (ADR-033) -----------
   await clickText('.rail .nav-btn', 'المخزن');
