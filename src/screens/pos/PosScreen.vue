@@ -1199,14 +1199,8 @@ const KEYS: readonly [string, string][] = [
           </div>
         </div>
       </div>
-      <button
-        type="button"
-        class="btn ghost"
-        data-pos-check-imei
-        @click="showImeiCheck = true"
-      >
-        <Icon name="search" /><span>فحص IMEI</span>
-      </button>
+      <!-- «خدمات» و«صيانة وسوفت وير» مكانهم هنا (طلب صاحب المحل، ٢٠٢٦-١١-٠٥):
+           الجهاز بيتصلح وهو واقف على الكاشير، فالتذكرة بتتكتب والفاتورة مفتوحة. -->
       <button
         type="button"
         class="btn ghost"
@@ -1214,6 +1208,14 @@ const KEYS: readonly [string, string][] = [
         @click="modal = 'services'"
       >
         <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+      </button>
+      <button
+        type="button"
+        class="btn ghost"
+        data-pos-check-imei
+        @click="showImeiCheck = true"
+      >
+        <Icon name="search" /><span>فحص IMEI</span>
       </button>
       <!-- المرتجع الرسمي مكانه «المبيعات» (على الفاتورة نفسها)، لكن الاستبدال
            بيتم مع السلة اللي في إيد الكاشير، فالباب ده بيفضل مفتوح هنا كمان. -->
