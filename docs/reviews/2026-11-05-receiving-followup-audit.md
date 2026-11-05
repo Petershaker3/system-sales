@@ -167,7 +167,7 @@ kind TEXT NOT NULL CHECK (kind IN ('receipt', 'adjustment', 'sale', 'sale_revers
 
 | البوابة | السجل | النتيجة |
 |---|---|---|
-| CI `42063671587` | Frontend (typecheck + build) | ✅ و**269** اختبار وحدة |
+| CI `42065680575` | Frontend (typecheck + build) | ✅ و**269** اختبار وحدة |
 | نفس التشغيل | Rust (cargo test، Linux) | ✅ **762** فحص، 0 فاشل — 57 lib / 107 معمارية / **405** تكامل / 193 وحدة (كان 745 قبل المراجعة دي؛ **+17** فحص جديد) |
 | `scripts/receiving-followup-check.mjs` | متصفح حقيقي على التطبيق والديمو | ✅ **13/13** (`/tmp/receiving-shots`) |
 | `scripts/demo-smoke.mjs` | متصفح حقيقي، كل الشاشات | ✅ **320/320** (`/tmp/demo-followup`) |
@@ -206,3 +206,26 @@ kind TEXT NOT NULL CHECK (kind IN ('receipt', 'adjustment', 'sale', 'sale_revers
    اتقاعد مش موجود في المحل. الحالة متحققة ومغطاة بفحص.
 3. **تسجيل IMEI مش بياخد موافقة مالك** (زي الاستلام العادي): هو تصحيح وصف لقطعة موجودة، مش
    حركة مخزون. لو المالك عايزه حساس، ده قرار منفصل.
+
+---
+
+## ٨. الدليل النهائي
+
+| البند | القيمة |
+|---|---|
+| الفرع | `arena/d6e5ae21-system-sales` |
+| الكوميت اللي عليه البوابة الخضراء دي | `29b4431` — https://github.com/Petershaker3/system-sales/commit/29b4431e648ba37087f0cba33ac284096f31337b |
+| تشغيل CI | https://github.com/Petershaker3/system-sales/actions/runs/42065680575 — **completed / success** |
+| الوظايف | `Frontend (typecheck, build)` ✅ · `Rust (cargo test, Linux)` ✅ · `Android` ⏭️ skipped · `Windows` ⏭️ skipped · `Publish` ⏭️ skipped |
+| شجرة العمل | نضيفة (`git status --porcelain` فاضية) — كل التغييرات مدفوعة |
+| الفحوص المسمّاة | إعلانات (annotations) على وظيفة Rust: **32** في `src/lib.rs`، **107** في `tests/architecture`، **405** في `tests/integration`، **193** في `tests/unit` — الأسماء كاملة جوّه الجلسة نفسها |
+
+الكوميتات اللي بعد `04b4f38`:
+
+- `29b4431` — سجل البناء وأسماء الفحوص وتقرير الحالة لكل بند (توثيق + تقسيم إعلان الفحوص لكل ملف فحص).
+- أي التزام توثيقي بعده ما بيغيّرش السلوك: نفس المجموعة بتتفحص بنفس الأمر، والنتيجة المطلوبة هي
+  تشغيل CI الأخير على الفرع (الرابط فوق لوظيفة محتوى الكود).
+
+**اللي لسه مش متحقّق (وما بيتقالش عليه Verified):** تشغيل فعلي على ويندوز وأندرويد — الوظيفتين
+بتفضل `skipped` في كل تشغيل. الحسابات والمخزون متحققين على SQLite حقيقي في CI، وعلى المتصفح
+بموديل الديمو، ومش على جهاز المالك.
