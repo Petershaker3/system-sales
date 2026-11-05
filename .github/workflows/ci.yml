@@ -255,6 +255,11 @@ jobs:
                   gh release delete-asset v1.0.0-latest "$stale" -y
                 done || true
             gh release upload v1.0.0-latest dist-release/* --clobber
+            # `git tag -f` above moves the tag to this commit, and GitHub answers a
+            # moved tag by detaching the release from it — the release silently turns
+            # into a draft that nobody but the owner can see. Publishing it again is
+            # what keeps the download page up after a rebuild.
+            gh release edit v1.0.0-latest --draft=false
           else
             gh release create v1.0.0-latest dist-release/* \
               --title "Mobile Shop System v${VERSION} (Windows .exe + Android .apk)" \
