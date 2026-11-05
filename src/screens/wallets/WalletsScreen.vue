@@ -899,8 +899,14 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Quick Services Modal (F9) -->
+    <!--
+      «سحب» is the default here (owner, 2026-11-05): the customer standing at the
+      counter is far more often handing over cash for a transfer than asking for
+      one, and the screen was opening on «إيداع» every time.
+    -->
     <ServicesModal
       v-if="servicesOpen"
+      initial-wallet-type="withdraw"
       :initial-wallet-id="
         selectedWalletId !== 'all' ? selectedWalletId : null
       "

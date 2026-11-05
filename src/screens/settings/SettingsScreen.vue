@@ -36,6 +36,7 @@ import ImeiModeCard from './ImeiModeCard.vue';
 import MoneyUnitCard from './MoneyUnitCard.vue';
 import OwnerAccountCard from './OwnerAccountCard.vue';
 import PaymentMethodsCard from './PaymentMethodsCard.vue';
+import PosButtonsCard from './PosButtonsCard.vue';
 import ProductImagesCard from './ProductImagesCard.vue';
 import ReceiptSettingsCard from './ReceiptSettingsCard.vue';
 import RailSettingsCard from './RailSettingsCard.vue';
@@ -100,6 +101,7 @@ async function onResetSettings(): Promise<void> {
     backupEvery2h: DEFAULT_APPEARANCE.backupEvery2h,
     backupUsbAuto: DEFAULT_APPEARANCE.backupUsbAuto,
     backupVerify: DEFAULT_APPEARANCE.backupVerify,
+    posHiddenButtons: DEFAULT_APPEARANCE.posHiddenButtons,
   };
   try {
     await setAppearance(catalogDefaults);
@@ -194,6 +196,7 @@ async function onResetSettings(): Promise<void> {
         <!-- 3. الأصناف والبيع -->
         <div v-show="showSection('catalog')" class="s-sec" data-settings-panel="catalog">
           <ImeiModeCard />
+          <PosButtonsCard />
           <DayStartCard />
           <ExpensesDeductCard />
           <ProductImagesCard />

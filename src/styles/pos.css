@@ -172,9 +172,28 @@ html[data-look="box"] .tile:hover { border-color: var(--ink-line); }
 
 /* زر «إضافة صيانة / سوفت وير» جنب مربع البحث (2026-11-02): بنفس ارتفاع البحث
    عشان يقعد في نفس السطر، وما يضايقش البحث على الشاشات الضيقة. */
-.quick-repair-btn { height: 60px; padding: 0 14px; border-radius: var(--r-m); flex: none; }
-.quick-repair-btn span { white-space: nowrap; }
+/* The row of quick actions beside the search box (owner, 2026-11-05).
+   Five buttons of one kind, so they are one height, one weight and one radius —
+   the camera included: the icon-only camera button that used to sit flush with the
+   box read as part of the field, and the taller «صيانة / سوفت وير» beside it read
+   as a different kind of control. */
+.quick-row { display: flex; align-items: stretch; gap: 8px; flex: none; }
+.quick-row .quick-btn,
+.quick-row .camera-scan > .btn {
+  height: 60px; padding: 0 14px; border-radius: var(--r-m); flex: none;
+  gap: 8px; font-size: .95rem; font-weight: 600; white-space: nowrap;
+}
+/* The camera component draws a <span> wrapper around its button; in this row the
+   wrapper must not add a box of its own. */
+.quick-row .camera-scan { flex: none; }
+.quick-row .quick-btn svg.i { width: 20px; height: 20px; flex: none; }
+.quick-row .camera-btn span { white-space: nowrap; }
+@media (max-width: 1200px) {
+  .quick-row .quick-btn,
+  .quick-row .camera-scan > .btn { height: 44px; padding: 0 10px; font-size: .85rem; }
+}
 @media (max-width: 900px) {
-  .quick-repair-btn { height: 44px; }
-  .quick-repair-btn span { display: none; }
+  .quick-row .quick-btn,
+  .quick-row .camera-scan > .btn { height: 44px; padding: 0 10px; }
+  .quick-row .quick-btn span { display: none; }
 }

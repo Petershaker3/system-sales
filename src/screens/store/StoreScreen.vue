@@ -15,6 +15,7 @@ import CatalogPanel from '../../components/CatalogPanel.vue';
 import StockPanel from '../../components/StockPanel.vue';
 import { fmtDate, fmtTime, money, num } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
+import Modal from '../../ui/Modal.vue';
 import { toast } from '../../ui/toast';
 import NewItemKindModal from './NewItemKindModal.vue';
 import NewItemModal from './NewItemModal.vue';
@@ -92,6 +93,23 @@ const stock = ref<StockValue | null>(null);
 /** The receiving log shown under «استلام توريد». */
 const receipts = ref<readonly ReceiptRow[]>([]);
 
+/** The shelf as a list: every mobile model with its pieces and its sale price. */
+const deviceRows = computed(() =>
+  deviceProducts.value
+    .filter(isDeviceProduct)
+    .slice()
+    .sort((a, b) => b.onHand - a.onHand)
+);
+/**
+ * «من غير سعر بس» is a filter, not a second screen: 58 unpriced models are the
+ * one thing this tab is for, and scrolling to find them is not a way to work.
+ */
+const deviceFilter = ref<'all' | 'no-price'>('all');
+const shownDeviceRows = computed(() =>
+  deviceFilter.value === 'no-price'
+    ? deviceRows.value.filter((row) => row.salePriceMinor === null)
+    : deviceRows.value
+);
 const deviceModels = computed(() => deviceProducts.value.filter(isDeviceProduct).length);
 const deviceNoPrice = computed(
   () =>
@@ -243,6 +261,20 @@ function pick(kindPicked: 'phone' | 'used' | 'item'): void {
 const justCreated = ref('');
 
 /**
+ * The receiving window (`2026-11-05`).
+ *
+ * «+ مخزون» on a row used to *navigate* to the «الاستلام» tab: the screen
+ * changed under the shopkeeper, the product he pressed sat in a form somewhere
+ * down the page, and coming back lost his place. Adding stock is one small task
+ * — how many, at what cost, from whom — so it opens over the screen and closes
+ * when the delivery is saved, with a toast saying it landed.
+ *
+ * Empty string = closed. The value is the product the window opens on.
+ */
+const receiveFor = ref<string>('');
+const receiveOpen = computed(() => receiveFor.value !== '');
+
+/**
  * Open the delivery form on a product the shopkeeper pressed «+ مخزون» on.
  *
  * The tab changes and the panel is re-keyed on the id, because a panel already open
@@ -251,14 +283,32 @@ const justCreated = ref('');
  */
 function openReceive(productId: string): void {
   justCreated.value = productId;
-  activeTab.value = 'receive';
+  receiveFor.value = productId;
+}
+
+/** The window closed without a delivery (Esc, the dim background, the close box). */
+function closeReceive(): void {
+  receiveFor.value = '';
+}
+
+/**
+ * A delivery was written. The window says so and goes away, and the shelves
+ * behind it are read again: the balance, the shortage badge and the value the
+ * shopkeeper came here for all changed in that one write.
+ */
+function onReceived(productId: string): void {
+  receiveFor.value = '';
+  reload.value += 1;
+  toast(`اتضاف المخزون${productId === '' ? '' : ' على الصنف ده'} — الرصيد اتحدّث`, 'ok', 4000);
 }
 
 function registered(name: string, productId = ''): void {
   newPhone.value = false;
   newItem.value = false;
   justCreated.value = productId;
-  // A new item has no stock yet: send him straight to «الاستلام» with it selected.
+  // A brand-new item goes to the «الاستلام» tab, not to the window: registering
+  // and receiving a new model is one long task, and the tab keeps the delivery
+  // log open underneath it. The window is for «خد مخزون للصنف ده» on a row.
   if (productId !== '') activeTab.value = 'receive';
   reload.value += 1;
   toast(
@@ -332,9 +382,10 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
         :aria-selected="activeTab === 'devices'"
         :class="{ active: activeTab === 'devices' }"
         data-store-tab="devices"
+        title="الموبايلات اللي عندك: كل موديل وكام قطعة وسعره"
         @click="activeTab = 'devices'"
       >
-        <Icon name="smartphone" /> الأجهزة
+        <Icon name="smartphone" /> رف الموبايلات
         <span v-if="deviceNoPrice > 0" class="inv-badge num" data-store-noprice-badge>
           {{ num(deviceNoPrice) }}
         </span>
@@ -582,13 +633,19 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       </section>
     </template>
 
-    <!-- الأجهزة: المخزن بيقرا رف الموبايلات بالأرقام، والتفاصيل في «الهواتف» -->
+    <!--
+      «رف الموبايلات» (كان اسمه «الأجهزة»، 2026-11-05).
+      التبويب كان بيقول «ملخص» وما بيورّي حاجة، فصاحب المحل ما عرفش هو بتاع إيه.
+      بقى قايمة حقيقية: كل موديل موبايل عنده كام قطعة وسعره كام، واللي من غير سعر
+      بيتفلتر بضغطة واحدة عشان يتسعّر. الأجهزة نفسها بالـIMEI مكانها «الهواتف».
+    -->
     <template v-else-if="activeTab === 'devices'">
       <section class="card" data-store-devices>
-        <h3><Icon name="smartphone" /> الأجهزة في المخزن</h3>
+        <h3><Icon name="smartphone" /> رف الموبايلات</h3>
         <p class="sub">
-          ملخص رف الموبايلات. كل جهاز لوحده بالـIMEI والتكلفة والشركة في قسم «الهواتف»،
-          والتسجيل من «صنف جديد ← موبايل» فوق.
+          الموبايلات اللي عندك دلوقتي: كل موديل، عنده كام قطعة، وسعره كام. الجهاز الواحد
+          برقمه (IMEI) وتكلفته مكانه قسم <b>«الهواتف»</b>، والموديل الجديد بيتسجّل من
+          <b>«صنف جديد ← موبايل»</b>.
         </p>
         <div class="device-figs">
           <div>
@@ -606,12 +663,82 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
             </b>
           </div>
         </div>
+
         <p v-if="deviceNoPrice > 0" class="note warn">
           <Icon name="triangle-alert" />
           <span>
-            الموديلات اللي من غير سعر بيع مش هتقدر تتباع في واجهة البيع لحد ما تحط سعرها.
+            الموديلات اللي من غير سعر بيع مش هتقدر تتباع في واجهة البيع لحد ما تحط سعرها —
+            اضغط «من غير سعر بس» تحت وحدّدها من «تعديل».
           </span>
         </p>
+
+        <div class="pills" style="margin: 12px 0" data-store-device-filter>
+          <button
+            type="button"
+            class="pill"
+            :class="{ active: deviceFilter === 'all' }"
+            data-store-device-filter-all
+            @click="deviceFilter = 'all'"
+          >
+            كل الموديلات
+            <b class="num">{{ num(deviceRows.length) }}</b>
+          </button>
+          <button
+            type="button"
+            class="pill"
+            :class="{ active: deviceFilter === 'no-price' }"
+            data-store-device-filter-noprice
+            @click="deviceFilter = 'no-price'"
+          >
+            من غير سعر بس
+            <b class="num">{{ num(deviceNoPrice) }}</b>
+          </button>
+        </div>
+
+        <div v-if="shownDeviceRows.length === 0" class="muted" data-store-devices-empty>
+          {{
+            deviceFilter === 'no-price'
+              ? 'كل موديلات الموبايل عندها سعر بيع — تمام.'
+              : 'لسه مفيش موديلات موبايل في المخزن.'
+          }}
+        </div>
+        <div v-else class="table-wrap">
+          <table class="t" data-store-devices-table>
+            <thead>
+              <tr>
+                <th>الموديل</th>
+                <th>الشركة</th>
+                <th class="ta-n">القطع</th>
+                <th class="ta-n">سعر البيع</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in shownDeviceRows" :key="row.id" :data-store-device-row="row.id">
+                <td><b><bdi dir="auto">{{ row.name }}</bdi></b></td>
+                <td>{{ companyOf(row.brandId ?? null) }}</td>
+                <td class="ta-n num"><b>{{ num(row.onHand) }}</b></td>
+                <td class="ta-n num">
+                  <span v-if="row.salePriceMinor === null" class="danger-t" data-device-no-price>
+                    بدون سعر
+                  </span>
+                  <span v-else>{{ money(row.salePriceMinor) }}</span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn sm soft"
+                    :data-store-device-receive="row.id"
+                    title="استلام كمية جديدة من الموديل ده"
+                    @click="openReceive(row.id)"
+                  >
+                    <Icon name="plus" /> مخزون
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </template>
 
@@ -722,6 +849,37 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       @changed="shortagesCount = $event"
       @receive="openReceive"
     />
+
+    <!--
+      نافذة إضافة المخزون (2026-11-05): الكمية وسعر الشراء والورق في نافذة فوق
+      الشاشة، وبتقفل لوحدها لما الاستلام يتم — بدل ما الشاشة كلها تتغيّر وتضيّع
+      مكان اللي بيسجّل.
+    -->
+    <Modal
+      v-if="receiveOpen"
+      size="wide"
+      title="إضافة مخزون"
+      sub="الكمية وسعر الشراء والورق — الحفظ مرة واحدة"
+      @close="closeReceive"
+    >
+      <div data-store-receive-modal>
+        <StockPanel
+          :key="`m${reload}-${justCreated}`"
+          embedded
+          :select-product="justCreated"
+          @new-item="
+            closeReceive();
+            kind = true;
+          "
+          @open-used="
+            closeReceive();
+            newUsedMode = 'catalog';
+            newUsed = true;
+          "
+          @received="onReceived"
+        />
+      </div>
+    </Modal>
 
     <NewItemKindModal v-if="kind" @close="kind = false" @pick="pick" />
     <NewPhoneModal v-if="newPhone" @close="newPhone = false" @created="registered" />

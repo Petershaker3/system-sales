@@ -59,10 +59,17 @@ pub enum AppearanceKey {
     /// about a layout, stored with the rest of the look because it is the same
     /// kind of choice — and because `src/` holds no `localStorage`.
     NavOrder,
+    /// Which of the till's quick actions are hidden (`ui.pos_hidden_buttons`).
+    /// Empty means «show them all»: a button added by a later build appears on
+    /// its own, and a shop that never touched the row is not frozen against it.
+    PosHiddenButtons,
+    /// The expense reasons the shop keeps at hand (`ui.expense_reasons`), so a
+    /// repeated payment is one tap instead of typing «إيجار المحل» again.
+    ExpenseReasons,
 }
 
 impl AppearanceKey {
-    pub const ALL: [AppearanceKey; 34] = [
+    pub const ALL: [AppearanceKey; 36] = [
         AppearanceKey::Look,
         AppearanceKey::Theme,
         AppearanceKey::Accent,
@@ -97,6 +104,8 @@ impl AppearanceKey {
         AppearanceKey::BackupUsbAuto,
         AppearanceKey::BackupVerify,
         AppearanceKey::NavOrder,
+        AppearanceKey::PosHiddenButtons,
+        AppearanceKey::ExpenseReasons,
     ];
 
     /// The stored key.
@@ -137,6 +146,8 @@ impl AppearanceKey {
             AppearanceKey::BackupUsbAuto => "ui.backup_usb_auto",
             AppearanceKey::BackupVerify => "ui.backup_verify",
             AppearanceKey::NavOrder => "ui.nav_order",
+            AppearanceKey::PosHiddenButtons => "ui.pos_hidden_buttons",
+            AppearanceKey::ExpenseReasons => "ui.expense_reasons",
         }
     }
 
@@ -186,6 +197,8 @@ impl AppearanceKey {
                 | AppearanceKey::BackupUsbAuto
                 | AppearanceKey::BackupVerify
                 | AppearanceKey::NavOrder
+                | AppearanceKey::PosHiddenButtons
+                | AppearanceKey::ExpenseReasons
         )
     }
 }
@@ -260,6 +273,91 @@ pub fn parse_nav_order(raw: &str) -> Option<String> {
         return None;
     }
     Some(seen.join(","))
+}
+
+/// The till's quick actions, in the order they sit beside the search box.
+///
+/// `camera` reads a barcode or an IMEI into the search box, `repair` opens a
+/// maintenance/software ticket without leaving the invoice, and `imei` opens the
+/// IMEI check. They are three buttons of one row, so one setting hides any of
+/// them (`ui.pos_hidden_buttons`).
+pub const POS_QUICK_BUTTONS: [&str; 3] = ["camera", "repair", "imei"];
+
+/// Default: nothing hidden — the row this build ships.
+pub const DEFAULT_POS_HIDDEN_BUTTONS: &str = "";
+
+/// How many reasons the shop may keep in its one-tap list.
+pub const MAX_EXPENSE_REASONS: usize = 12;
+
+/// The longest reason the shop may keep.
+pub const MAX_EXPENSE_REASON_CHARS: usize = 40;
+
+/// Default: none kept — the chips come from the shop's own history.
+pub const DEFAULT_EXPENSE_REASONS: &str = "";
+
+/// Validate and canonicalize the hidden-quick-action list.
+///
+/// Every token must be one of [`POS_QUICK_BUTTONS`] and none may repeat; an
+/// empty string is a real answer («hide nothing»), because that is the state a
+/// shop is in until it says otherwise. A key that hid nothing before a later
+/// build added a fourth button still shows that button — the list names what to
+/// hide, never what to keep.
+pub fn parse_pos_hidden_buttons(raw: &str) -> Option<String> {
+    let mut seen: Vec<&str> = Vec::new();
+    for part in raw.split(',') {
+        let token = part.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let canonical = POS_QUICK_BUTTONS
+            .iter()
+            .copied()
+            .find(|candidate| candidate.eq_ignore_ascii_case(token))?;
+        if seen.contains(&canonical) {
+            return None;
+        }
+        seen.push(canonical);
+    }
+    let ordered: Vec<&str> = POS_QUICK_BUTTONS
+        .iter()
+        .copied()
+        .filter(|button| seen.contains(button))
+        .collect();
+    Some(ordered.join(","))
+}
+
+/// Validate and canonicalize the kept expense reasons.
+///
+/// A reason is what the shop writes on the receipt line («إيجار المحل»): one
+/// line, trimmed, at most [`MAX_EXPENSE_REASON_CHARS`] characters, no commas
+/// (the separator) and no control characters. The list is ordered as the shop
+/// typed it, capped at [`MAX_EXPENSE_REASONS`], and duplicates are refused: a
+/// list with the same reason twice is a list that was not meant.
+pub fn parse_expense_reasons(raw: &str) -> Option<String> {
+    if raw.trim().is_empty() {
+        return Some(String::new());
+    }
+    let mut out: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let token = part.trim();
+        if token.is_empty() {
+            return None;
+        }
+        if token.chars().count() > MAX_EXPENSE_REASON_CHARS {
+            return None;
+        }
+        if token.chars().any(|c| c.is_control()) {
+            return None;
+        }
+        if out.iter().any(|kept| kept == token) {
+            return None;
+        }
+        out.push(token.to_owned());
+    }
+    if out.len() > MAX_EXPENSE_REASONS {
+        return None;
+    }
+    Some(out.join(","))
 }
 
 /// Default seller discount limit percentage without owner PIN approval (`ADR-021`, `PLAN.md` §4).
@@ -426,6 +524,10 @@ pub struct Appearance {
     pub backup_usb_auto: String,
     pub backup_verify: String,
     pub nav_order: String,
+    /// `ui.pos_hidden_buttons`: the quick actions the till hides, comma separated.
+    pub pos_hidden_buttons: String,
+    /// `ui.expense_reasons`: the reasons the shop keeps for one-tap expenses.
+    pub expense_reasons: String,
 }
 
 impl Default for Appearance {
@@ -477,6 +579,11 @@ impl Default for Appearance {
             // rail is not forced through a stored copy of today's layout, so a
             // later section still appears where its author put it.
             nav_order: String::new(),
+            // Empty: the till shows every quick action this build ships.
+            pos_hidden_buttons: DEFAULT_POS_HIDDEN_BUTTONS.to_owned(),
+            // Empty: the chips come from the shop's own past expenses until the
+            // owner keeps a reason on purpose.
+            expense_reasons: DEFAULT_EXPENSE_REASONS.to_owned(),
         }
     }
 }
@@ -513,6 +620,26 @@ impl Appearance {
                     }
                 })?;
                 self.nav_order = canonical;
+                return Ok(());
+            }
+            AppearanceKey::PosHiddenButtons => {
+                let canonical = parse_pos_hidden_buttons(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "hidden quick actions must be known button ids without duplicates",
+                    }
+                })?;
+                self.pos_hidden_buttons = canonical;
+                return Ok(());
+            }
+            AppearanceKey::ExpenseReasons => {
+                let canonical = parse_expense_reasons(value).ok_or_else(|| {
+                    SettingsError::MalformedValue {
+                        key: parsed.as_str().to_owned(),
+                        reason: "expense reasons must be one-line labels, at most 40 characters, without duplicates",
+                    }
+                })?;
+                self.expense_reasons = canonical;
                 return Ok(());
             }
             AppearanceKey::DiscountLimitPct => {
@@ -657,7 +784,9 @@ impl Appearance {
             | AppearanceKey::ServiceFeePct
             | AppearanceKey::ServiceFeeMin
             | AppearanceKey::BillFee
-            | AppearanceKey::NavOrder => unreachable!(),
+            | AppearanceKey::NavOrder
+            | AppearanceKey::PosHiddenButtons
+            | AppearanceKey::ExpenseReasons => unreachable!(),
         };
         if !allowed {
             return Err(SettingsError::MalformedValue {
@@ -700,7 +829,9 @@ impl Appearance {
             | AppearanceKey::ServiceFeePct
             | AppearanceKey::ServiceFeeMin
             | AppearanceKey::BillFee
-            | AppearanceKey::NavOrder => unreachable!(),
+            | AppearanceKey::NavOrder
+            | AppearanceKey::PosHiddenButtons
+            | AppearanceKey::ExpenseReasons => unreachable!(),
         }
         Ok(())
     }
@@ -835,6 +966,73 @@ mod tests {
             );
         }
         assert_eq!(a.nav_order, "store,pos,sales", "a refusal changes nothing");
+    }
+
+    #[test]
+    fn the_till_hides_only_buttons_it_knows_and_hides_nothing_by_default() {
+        let mut a = Appearance::default();
+        assert_eq!(a.pos_hidden_buttons, "", "the row ships complete");
+        // Canonical order, not the order the screen happened to send: the stored
+        // value is comparable, so «did the owner change it?» is a string compare.
+        assert!(a.set("ui.pos_hidden_buttons", "imei, camera").is_ok());
+        assert_eq!(a.pos_hidden_buttons, "camera,imei");
+        // Hiding everything is a real answer — a counter that only sells.
+        assert!(a.set("ui.pos_hidden_buttons", "camera,repair,imei").is_ok());
+        assert_eq!(a.pos_hidden_buttons, "camera,repair,imei");
+        // A made-up button, or the same one twice, is refused and changes nothing.
+        for bad in ["printer", "camera,camera", "camera,']"] {
+            assert_eq!(
+                a.set("ui.pos_hidden_buttons", bad).map_err(|e| e.code()),
+                Err("SETTING_VALUE_INVALID"),
+                "{bad}"
+            );
+        }
+        assert_eq!(a.pos_hidden_buttons, "camera,repair,imei");
+        assert!(a.set("ui.pos_hidden_buttons", "").is_ok(), "showing everything again");
+        assert_eq!(a.pos_hidden_buttons, "");
+        assert_eq!(
+            AppearanceKey::parse("ui.pos_hidden_buttons"),
+            Some(AppearanceKey::PosHiddenButtons)
+        );
+    }
+
+    #[test]
+    fn kept_expense_reasons_are_one_line_labels_without_duplicates() {
+        let mut a = Appearance::default();
+        assert_eq!(a.expense_reasons, "", "history is the list until the owner keeps one");
+        assert!(a.set("ui.expense_reasons", "إيجار المحل, نت, مرتبات").is_ok());
+        assert_eq!(a.expense_reasons, "إيجار المحل,نت,مرتبات");
+        // An empty token inside the list, a repeat, or something too long: refused.
+        // (Whitespace alone is not refused — it is how the list is cleared.)
+        let too_long = "ا".repeat(MAX_EXPENSE_REASON_CHARS + 1);
+        for bad in ["إيجار,,نت", "نت,نت", too_long.as_str()] {
+            assert_eq!(
+                a.set("ui.expense_reasons", bad).map_err(|e| e.code()),
+                Err("SETTING_VALUE_INVALID"),
+                "{bad}"
+            );
+        }
+        // Clearing the list is allowed: it goes back to reading history.
+        assert!(a.set("ui.expense_reasons", "").is_ok());
+        assert_eq!(a.expense_reasons, "");
+        assert_eq!(
+            AppearanceKey::parse("ui.expense_reasons"),
+            Some(AppearanceKey::ExpenseReasons)
+        );
+    }
+
+    #[test]
+    fn every_key_that_needs_its_own_parser_is_out_of_the_literal_whitelist() {
+        // The list-shaped choices are validated by their own parsers; if one
+        // slipped into the literal whitelist `set` would reject every real value.
+        // Empty is a real value for both new keys («hide nothing», «keep nothing»),
+        // while the rail order has no empty state — its own test says so.
+        for key in ["ui.pos_hidden_buttons", "ui.expense_reasons"] {
+            let parsed = AppearanceKey::parse(key).expect(key);
+            assert!(parsed.is_catalog_choice(), "{key} is the owner's choice");
+            let mut fresh = Appearance::default();
+            assert!(fresh.set(key, "").is_ok(), "{key} accepts empty");
+        }
     }
 
     #[test]

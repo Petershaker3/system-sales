@@ -357,6 +357,10 @@ const appearance = {
   backupEvery2h: 'on',
   backupUsbAuto: 'on',
   backupVerify: 'on',
+  // Empty: the till shows every quick action, and the expense chips come from
+  // the shop's own history (the two settings added on 2026-11-05).
+  posHiddenButtons: '',
+  expenseReasons: '',
 };
 let shopLogoDataUrl: string | null = null;
 interface DemoUnit {
@@ -2442,6 +2446,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
       'ui.backup_every_2h': 'backupEvery2h',
       'ui.backup_usb_auto': 'backupUsbAuto',
       'ui.backup_verify': 'backupVerify',
+      'ui.pos_hidden_buttons': 'posHiddenButtons',
+      'ui.expense_reasons': 'expenseReasons',
     };
     const key = keyMap[rawKey] ?? fail('SETTING_UNKNOWN_KEY');
     if (key === 'theme') requireUser();
@@ -2469,7 +2475,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
       key === 'backupOnShift' ||
       key === 'backupEvery2h' ||
       key === 'backupUsbAuto' ||
-      key === 'backupVerify'
+      key === 'backupVerify' ||
+      key === 'posHiddenButtons' ||
+      key === 'expenseReasons'
     )
       requireManager(false);
     else requireManager(true);

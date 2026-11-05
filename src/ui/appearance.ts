@@ -12,6 +12,8 @@ import type { AppearanceKey } from '../api/appearance';
 import * as imagesApi from '../api/images';
 import { accentTokens, DEFAULT_ACCENT, parseCssColor, rgbOf, WHITE } from './color.ts';
 import type { Grounds, Rgb } from './color.ts';
+import { keptReasons } from '../screens/expenses/expenses.ts';
+import { hiddenButtonList } from '../screens/pos/quick-actions.ts';
 import { setBusinessDayStartHour, setExpensesDeductMode } from '../screens/sales/analytics.ts';
 import { setDigits, setMoneyUnit } from './format.ts';
 import type { Digits, MoneyUnit } from './format.ts';
@@ -239,6 +241,13 @@ export interface Appearance {
    * section added later. Read it through `parseNavOrder` / `orderSections`.
    */
   navOrder: string;
+  /**
+   * Quick actions the till hides, comma separated (`ui.pos_hidden_buttons`).
+   * Empty means «show them all»: a button a later build adds appears on its own.
+   */
+  posHiddenButtons: string;
+  /** Expense reasons the shop keeps for one tap (`ui.expense_reasons`). */
+  expenseReasons: string;
 }
 
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
@@ -276,6 +285,8 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   backupUsbAuto: DEFAULT_BACKUP_USB_AUTO,
   backupVerify: DEFAULT_BACKUP_VERIFY,
   navOrder: '',
+  posHiddenButtons: '',
+  expenseReasons: '',
 };
 
 /** Ready-made shop colours; «لون تاني» accepts any colour and stays readable. */
@@ -322,6 +333,19 @@ function normalizeNavOrder(raw: unknown): string {
     seen.push(token);
   }
   return seen.join(',');
+}
+
+/**
+ * The till's quick actions (`ui.pos_hidden_buttons`) and the expense reasons the
+ * shop keeps (`ui.expense_reasons`) are cleaned by the same pure helpers their
+ * screens use, so the stored value and the drawn screen cannot disagree.
+ */
+function normalizePosHiddenButtons(raw: unknown): string {
+  return hiddenButtonList(typeof raw === 'string' ? raw : '');
+}
+
+function normalizeExpenseReasons(raw: unknown): string {
+  return keptReasons(typeof raw === 'string' ? raw : '');
 }
 
 /** Anything read back from the backend → a valid appearance (unknown values fall back). */
@@ -406,6 +430,8 @@ export function normalizeAppearance(raw: unknown): Appearance {
       DEFAULT_BACKUP_VERIFY
     ),
     navOrder: normalizeNavOrder(r['navOrder']),
+    posHiddenButtons: normalizePosHiddenButtons(r['posHiddenButtons']),
+    expenseReasons: normalizeExpenseReasons(r['expenseReasons']),
   };
 }
 
@@ -533,6 +559,8 @@ const KEYS: Record<keyof Appearance, AppearanceKey> = {
   backupUsbAuto: 'ui.backup_usb_auto',
   backupVerify: 'ui.backup_verify',
   navOrder: 'ui.nav_order',
+  posHiddenButtons: 'ui.pos_hidden_buttons',
+  expenseReasons: 'ui.expense_reasons',
 };
 
 export type ServiceFeeMode = ServiceFeeModeChoice;

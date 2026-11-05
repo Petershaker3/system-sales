@@ -4218,6 +4218,75 @@ fn the_rail_order_names_only_sections_both_halves_know() {
     );
 }
 
+const API_APPEARANCE_TS: &str = include_str!("../../../src/api/appearance.ts");
+const UI_APPEARANCE_TS: &str = include_str!("../../../src/ui/appearance.ts");
+const QUICK_ACTIONS_TS: &str = include_str!("../../../src/screens/pos/quick-actions.ts");
+const EXPENSES_SCREEN_VUE: &str = include_str!("../../../src/screens/expenses/ExpensesScreen.vue");
+const POS_BUTTONS_CARD_VUE: &str =
+    include_str!("../../../src/screens/settings/PosButtonsCard.vue");
+
+/// `ui.pos_hidden_buttons` and `ui.expense_reasons` (owner, 2026-11-05): two new
+/// choices, both halves agreeing on the key and on what an empty value means.
+///
+/// A key stored by one half and unknown to the other is the failure this guards:
+/// the screen would offer a switch that the database refuses, or a stored value
+/// that no screen reads. An empty value has to keep meaning «this build's own
+/// list» in both, or a shop that never touched the setting loses buttons.
+#[test]
+fn the_till_buttons_and_the_expense_reasons_are_one_setting_on_both_halves() {
+    for (key, field) in [
+        ("ui.pos_hidden_buttons", "posHiddenButtons"),
+        ("ui.expense_reasons", "expenseReasons"),
+    ] {
+        assert!(
+            SETTINGS_APPEARANCE_RS.contains(&format!("\"{key}\"")),
+            "Rust must store {key}"
+        );
+        assert!(
+            API_APPEARANCE_TS.contains(&format!("'{key}'")),
+            "the command's key union must know {key}"
+        );
+        assert!(
+            UI_APPEARANCE_TS.contains(&format!("'{key}'")),
+            "the appearance store must write {key}"
+        );
+        assert!(
+            UI_APPEARANCE_TS.contains(&format!("{field}: '{key}'")),
+            "the field {field} must map to {key}"
+        );
+    }
+    assert!(
+        SETTINGS_APPEARANCE_RS.contains(r#"AppearanceKey::PosHiddenButtons => "ui.pos_hidden_buttons""#)
+            && SETTINGS_APPEARANCE_RS
+                .contains(r#"AppearanceKey::ExpenseReasons => "ui.expense_reasons""#),
+        "both keys keep their own name in the enum"
+    );
+    // Hiding is what is stored, so a button a later build adds is shown by default.
+    assert!(
+        QUICK_ACTIONS_TS.contains("export function isQuickActionShown")
+            && QUICK_ACTIONS_TS.contains("a button this build does not have cannot be hidden on it"),
+        "the till reads the hidden list and states what an unknown id means"
+    );
+    assert!(
+        POS_SCREEN_VUE.contains("isQuickActionShown(appearance.posHiddenButtons"),
+        "the till's row must be drawn from the stored list, not from a local flag"
+    );
+    assert!(
+        POS_BUTTONS_CARD_VUE.contains("data-pos-button-hide")
+            && POS_BUTTONS_CARD_VUE.contains("data-pos-button-show"),
+        "Settings must be where the buttons are hidden and shown"
+    );
+    assert!(
+        SETTINGS_SCREEN_VUE.contains("PosButtonsCard"),
+        "the card lives in Settings → الأصناف والبيع"
+    );
+    assert!(
+        EXPENSES_SCREEN_VUE.contains("keepTypedReason")
+            && EXPENSES_SCREEN_VUE.contains("data-expenses-keep-reason"),
+        "«إضافة» beside the expense reason must store the label, not redraw it"
+    );
+}
+
 /// `ADR-045`: a walk-in repair is written with the device and the fault.
 #[test]
 fn repair_and_software_accept_a_ticket_without_a_customer_name_or_phone() {

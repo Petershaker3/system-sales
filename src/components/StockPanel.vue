@@ -57,7 +57,17 @@ import { toast } from '../ui/toast';
  * A product to hand over to the receive form, by id (`StoreScreen` sets it when
  * the shop codes a phone, or when «+ مخزون» is pressed on a row).
  */
-const props = defineProps<{ selectProduct?: string }>();
+const props = defineProps<{
+  /** A product to open the form on, by id. */
+  selectProduct?: string;
+  /**
+   * Drawn inside a window (`StoreScreen`'s «إضافة مخزون») rather than as a tab.
+   *
+   * The window brings its own title and its own close box, so the panel drops its
+   * header here: two headings stacked in one small window read as two screens.
+   */
+  embedded?: boolean;
+}>();
 
 const emit = defineEmits<{
   'new-item': [];
@@ -836,7 +846,7 @@ void loadPickers;
 
 <template>
   <section class="stock">
-    <div class="stock-head">
+    <div v-if="!props.embedded" class="stock-head">
       <h2 class="stock-title">الاستلام والتسويات</h2>
       <span class="sp"></span>
       <button type="button" class="btn sm soft" @click="emit('new-item')">
@@ -861,7 +871,14 @@ void loadPickers;
         is one device with its own seller, condition and paper (`ADR-032`), and that
         intake already exists. The door opens it rather than repeating it here.
       -->
-      <button type="button" role="tab" data-receive-door="used" @click="emit('open-used')">
+      <button
+        type="button"
+        role="tab"
+        class="door-action"
+        data-receive-door="used"
+        title="بيفتح استلام المستعمل — جهاز جهاز ببائعه وحالته"
+        @click="emit('open-used')"
+      >
         <Icon name="recycle" /> موبايل مستعمل
       </button>
       <button
@@ -882,15 +899,17 @@ void loadPickers;
         <button
           type="button"
           role="tab"
+          :aria-selected="source === 'existing'"
           :class="{ active: source === 'existing' }"
           data-receive-source="existing"
           @click="source = 'existing'"
         >
-          صنف موجود عندي
+          <Icon name="boxes" /> صنف موجود عندي
         </button>
         <button
           type="button"
           role="tab"
+          :aria-selected="source === 'new'"
           :class="{ active: source === 'new' }"
           data-receive-source="new"
           @click="source = 'new'"
@@ -1435,8 +1454,17 @@ void loadPickers;
 .batch-name { font-weight: 600; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .batch-list .sp { flex: 1; }
 
+/* The two segmented rows of the receiving panel: the three doors, then the
+   source inside «بضاعة جديدة». Same height, same padding and same active fill —
+   they used to differ because one row carried icons and the other did not. */
 .door-seg { margin: 0 0 12px; align-self: flex-start; flex-wrap: wrap; }
-.src-seg { margin: 0 0 10px; align-self: flex-start; }
+.door-seg button,
+.src-seg button { min-height: 36px; font-size: .92rem; }
+.src-seg { margin: 0 0 10px; align-self: flex-start; flex-wrap: wrap; }
+/* «موبايل مستعمل» opens another form instead of selecting this one, so it is
+   drawn as a door of the same size with a dashed edge: same row, different verb. */
+.door-seg .door-action { border: 1px dashed var(--border-strong); }
+.door-seg .door-action:hover { background: var(--accent-weak); color: var(--accent-text); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 12px; }
 .facts-preview { display: flex; align-items: center; gap: 8px; margin: 10px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface-2); font-size: .88rem; }
 .pending { color: var(--ok, #070); font-weight: 700; }

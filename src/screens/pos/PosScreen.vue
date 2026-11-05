@@ -49,6 +49,7 @@ import PriceModal from './PriceModal.vue';
 import QuickRepairModal from './QuickRepairModal.vue';
 import QtyModal from './QtyModal.vue';
 import ReturnModal from './ReturnModal.vue';
+import { isQuickActionShown, type PosQuickAction } from './quick-actions';
 import { buildIndex, looksLikeCode, search } from './search';
 import { isSellableInPos, posOnHand } from './sellable';
 import { holdPendingTradeIn, takePendingTradeIn } from './pendingTradeIn';
@@ -113,6 +114,15 @@ const priceTarget = ref<PosProduct | null>(null);
  */
 const linePriceTarget = ref<{ product: PosProduct; lineIndex: number } | null>(null);
 const searchInput = ref<HTMLInputElement | null>(null);
+
+/**
+ * The till's quick actions beside the search box — camera, «إضافة صيانة / سوفت
+ * وير», «فحص IMEI» — minus the ones the owner hid in Settings
+ * (`ui.pos_hidden_buttons`, 2026-11-05). One list, one row: hiding one draws the
+ * rest, and a value that names a button this build does not have hides nothing.
+ */
+const showQuickAction = (id: PosQuickAction): boolean =>
+  isQuickActionShown(appearance.posHiddenButtons, id);
 
 const linesBox = ref<HTMLElement | null>(null);
 
@@ -1111,21 +1121,6 @@ const KEYS: readonly [string, string][] = [
           />
           <kbd>/</kbd>
         </label>
-        <!-- The camera sits beside the box rather than inside its <label>: a
-             control inside a label changes the caret geometry of an RTL input,
-             and a barcode box that reverses what is typed is worse than no
-             camera at all. -->
-        <CameraScanButton :compact="true" data-pos-scan @scan="onScan" />
-        <!-- صيانة/سوفت وير الجهاز اللي واقف على الكاشير: تذكرة سريعة هنا نفسها -->
-        <button
-          type="button"
-          class="btn sm soft quick-repair-btn"
-          data-pos-quick-repair
-          title="سجّل جهاز صيانة أو سوفت وير من غير ما تسيب الفاتورة"
-          @click="quickRepair = true"
-        >
-          <Icon name="wrench" /><span>إضافة صيانة / سوفت وير</span>
-        </button>
         <div v-if="query.trim() !== ''" class="results">
           <div v-if="results.length === 0 && unitMatches.length === 0" class="no-res">
             <div>
@@ -1199,34 +1194,72 @@ const KEYS: readonly [string, string][] = [
           </div>
         </div>
       </div>
-      <!-- «خدمات» و«صيانة وسوفت وير» مكانهم هنا (طلب صاحب المحل، ٢٠٢٦-١١-٠٥):
-           الجهاز بيتصلح وهو واقف على الكاشير، فالتذكرة بتتكتب والفاتورة مفتوحة. -->
-      <button
-        type="button"
-        class="btn ghost"
-        data-open-services
-        @click="modal = 'services'"
-      >
-        <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
-      </button>
-      <button
-        type="button"
-        class="btn ghost"
-        data-pos-check-imei
-        @click="showImeiCheck = true"
-      >
-        <Icon name="search" /><span>فحص IMEI</span>
-      </button>
-      <!-- المرتجع الرسمي مكانه «المبيعات» (على الفاتورة نفسها)، لكن الاستبدال
-           بيتم مع السلة اللي في إيد الكاشير، فالباب ده بيفضل مفتوح هنا كمان. -->
-      <button
-        type="button"
-        class="btn ghost"
-        data-open-returns
-        @click="modal = 'returns'"
-      >
-        <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
-      </button>
+      <!--
+        One row of equal buttons beside the search box (owner, 2026-11-05): the
+        camera, «إضافة صيانة / سوفت وير», «فحص IMEI», «خدمات» and «مرتجع /
+        استبدال». They answer the same kind of question — something to read, start
+        or undo while the invoice is open — so they share one height, one weight
+        and one icon language, and the camera and the IMEI check share one icon.
+
+        The camera sits beside the box rather than inside its <label>: a control
+        inside a label changes the caret geometry of an RTL input, and a barcode
+        box that reverses what is typed is worse than no camera at all.
+
+        The first three can be hidden in Settings → الأصناف والبيع
+        (`ui.pos_hidden_buttons`); «خدمات» and «مرتجع / استبدال» are doors of the
+        invoice itself and stay.
+      -->
+      <div class="quick-row" data-pos-quick-row>
+        <CameraScanButton
+          v-if="showQuickAction('camera')"
+          label="كاميرا"
+          icon="scan-barcode"
+          variant="soft"
+          class="quick-btn"
+          data-pos-scan
+          @scan="onScan"
+        />
+        <button
+          v-if="showQuickAction('repair')"
+          type="button"
+          class="btn sm soft quick-btn"
+          data-pos-quick-repair
+          title="سجّل جهاز صيانة أو سوفت وير من غير ما تسيب الفاتورة"
+          @click="quickRepair = true"
+        >
+          <Icon name="wrench" /><span>إضافة صيانة / سوفت وير</span>
+        </button>
+        <button
+          v-if="showQuickAction('imei')"
+          type="button"
+          class="btn sm soft quick-btn"
+          data-pos-check-imei
+          title="افحص رقم جهاز قبل ما تشتريه أو تبيعه"
+          @click="showImeiCheck = true"
+        >
+          <Icon name="scan-barcode" /><span>فحص IMEI</span>
+        </button>
+        <!-- «خدمات» و«صيانة وسوفت وير» مكانهم هنا (طلب صاحب المحل، ٢٠٢٦-١١-٠٥):
+             الجهاز بيتصلح وهو واقف على الكاشير، فالتذكرة بتتكتب والفاتورة مفتوحة. -->
+        <button
+          type="button"
+          class="btn sm soft quick-btn"
+          data-open-services
+          @click="modal = 'services'"
+        >
+          <Icon name="smartphone" /><span>خدمات</span><kbd>F9</kbd>
+        </button>
+        <!-- المرتجع الرسمي مكانه «المبيعات» (على الفاتورة نفسها)، لكن الاستبدال
+             بيتم مع السلة اللي في إيد الكاشير، فالباب ده بيفضل مفتوح هنا كمان. -->
+        <button
+          type="button"
+          class="btn sm soft quick-btn"
+          data-open-returns
+          @click="modal = 'returns'"
+        >
+          <Icon name="undo-2" /><span>مرتجع / استبدال</span><kbd>F10</kbd>
+        </button>
+      </div>
     </div>
 
     <div class="pos">

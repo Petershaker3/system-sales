@@ -3867,13 +3867,22 @@ check(
   (await text('.catalog')).includes(novaModel)
 );
 
-// «+ مخزون» on the row: the shelf hands the product to the delivery form.
+// «+ مخزون» on the row: the shelf hands the product to the delivery form — in a
+// window now (2026-11-05), so the shopkeeper adds stock without losing his place.
 await page.$eval('[data-receive-product]', (el) => el.click());
 await sleep(600);
 check(
-  '«+ مخزون» on a catalogue row opens the delivery form on that very product',
-  (await count('[data-receive-doors]')) === 1 &&
+  '«+ مخزون» on a catalogue row opens the receiving window on that very product',
+  (await count('[data-store-receive-modal]')) === 1 &&
+    (await count('[data-receive-doors]')) === 1 &&
     (await page.$eval('#stock-product', (el) => el.value)) !== ''
+);
+// The window is a window: Esc closes it and the shelf is where it was.
+await page.keyboard.press('Escape');
+await sleep(300);
+check(
+  'the receiving window closes on Esc and leaves the shelf in place',
+  (await count('[data-store-receive-modal]')) === 0 && (await count('[data-store-devices]')) === 0
 );
 
 // ... and so does a phone row on the handsets shelf.
@@ -3881,15 +3890,26 @@ await clickText('.rail .nav-btn', 'الهواتف');
 await page.waitForSelector('[data-phones-screen]');
 await sleep(300);
 const phoneRows = await count('[data-phone-receive]');
+let phoneLanded = phoneRows === 0;
 if (phoneRows > 0) {
   await page.$eval('[data-phone-receive]', (el) => el.click());
-  await sleep(600);
+  await sleep(700);
+  // The check is read while the window is open — that is where the form is —
+  // and the window is closed afterwards so the next step can reach the tab.
+  phoneLanded = (await page.$eval('#stock-product', (el) => el.value).catch(() => '')) !== '';
+  if ((await count('[data-store-receive-modal]')) > 0) {
+    await page.keyboard.press('Escape');
+    await sleep(300);
+  }
 }
 check(
   '«+ مخزون» on a phone row lands on the delivery form too, with a model chosen',
-  phoneRows === 0 || (await page.$eval('#stock-product', (el) => el.value).catch(() => '')) !== '',
+  phoneLanded,
   `rows=${phoneRows}`
 );
+// The adjustment door lives in the tab, which is one click away.
+await page.click('[data-store-tab="receive"]');
+await sleep(400);
 
 // An adjustment is not a purchase: it needs a reason, and it says so where the
 // shopkeeper is looking rather than after the write.

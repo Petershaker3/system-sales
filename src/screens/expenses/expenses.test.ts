@@ -11,7 +11,13 @@ import {
   effectivePaidFrom,
   expensePeriodBounds,
   EXPENSE_PERIODS,
+  forgetReason,
+  keepReason,
+  keptReasons,
+  MAX_KEPT_REASONS,
+  MAX_REASON_CHARS,
   paidFromLabel,
+  reasonChoices,
   suggestedCategories,
   topCategory,
 } from './expenses.ts';
@@ -113,4 +119,48 @@ test('the top category is the biggest spend, and nothing when nothing was spent'
   );
   assert.equal(topCategory([]), null);
   assert.equal(topCategory([{ category: 'صفر', totalMinor: 0 }]), null, 'zero is not a spend');
+});
+
+// --- the reasons the shop keeps for one-tap expenses -------------------------
+
+test('kept reasons are trimmed, one line each, no repeats', () => {
+  assert.equal(keptReasons(''), '');
+  assert.equal(keptReasons(' إيجار المحل , نت ,نت ,  '), 'إيجار المحل,نت');
+  assert.equal(
+    keptReasons('إيجار\nالمحل'),
+    'إيجار المحل',
+    'a newline in a saved reason would break the one-line field'
+  );
+});
+
+test('keeping a reason refuses a blank, a repeat, a comma, and a long line', () => {
+  assert.equal(keepReason('', '  '), null, 'nothing typed is nothing kept');
+  assert.equal(keepReason('نت', 'نت'), null, 'the same chip twice is one chip');
+  assert.equal(keepReason('', 'إيجار, نت'), null, 'the comma is the separator');
+  assert.equal(keepReason('', 'ا'.repeat(MAX_REASON_CHARS + 1)), null);
+  assert.equal(keepReason('', 'إيجار المحل'), 'إيجار المحل');
+  assert.equal(keepReason('نت', 'إيجار المحل'), 'نت,إيجار المحل');
+});
+
+test('a kept reason can be dropped again, and the list never grows past twelve', () => {
+  assert.equal(forgetReason('نت,إيجار', 'نت'), 'إيجار');
+  assert.equal(forgetReason('', 'نت'), '');
+  let list = '';
+  for (let i = 0; i < MAX_KEPT_REASONS; i += 1) {
+    const next = keepReason(list, `بند ${i}`);
+    assert.notEqual(next, null);
+    list = next as string;
+  }
+  assert.equal(list.split(',').length, MAX_KEPT_REASONS);
+  assert.equal(keepReason(list, 'بند زيادة'), null, 'the thirteenth is refused, not truncated');
+});
+
+test('the chips show what the shop kept first, then what it wrote before', () => {
+  assert.deepEqual(reasonChoices('', ['إيجار المحل', 'نت']), ['إيجار المحل', 'نت']);
+  assert.deepEqual(
+    reasonChoices('نت', ['إيجار المحل', 'نت', 'بوفيه']),
+    ['نت', 'إيجار المحل', 'بوفيه'],
+    'a kept reason leads and is never repeated from history'
+  );
+  assert.deepEqual(reasonChoices('', []), []);
 });

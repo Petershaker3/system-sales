@@ -147,3 +147,82 @@ export function topCategory(
   }
   return best;
 }
+
+/**
+ * The reasons the shop keeps at hand for one-tap expenses (`ui.expense_reasons`).
+ *
+ * The owner asked for «إضافة» inside the reason box: the shop pays the same rent
+ * and the same internet bill every month, and typing the reason again on a phone
+ * keyboard at the counter is the slowest part of recording it. What is kept is a
+ * short list of **labels** — the money is still the money, and nothing here
+ * touches what gets stored for an expense.
+ *
+ * The list is what the shop kept on purpose; the chips on screen also read the
+ * shop's own past expenses, so a fresh shop that keeps nothing still gets its
+ * history without a setting.
+ */
+export const MAX_KEPT_REASONS = 12;
+export const MAX_REASON_CHARS = 40;
+
+/** A stored list, cleaned: trimmed, one line each, no repeats, capped. */
+export function keptReasons(raw: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const value = part.replace(/[\r\n\t]+/g, ' ').trim();
+    if (value === '' || value.length > MAX_REASON_CHARS) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+    if (out.length === MAX_KEPT_REASONS) break;
+  }
+  return out.join(',');
+}
+
+/**
+ * Keep one reason, or refuse it (`null`).
+ *
+ * Refused: nothing typed (a blank chip is a chip that does nothing), something
+ * longer than a receipt line, a comma (the separator), and a reason already kept
+ * — the second copy would be a second chip with the same label.
+ */
+export function keepReason(raw: string, reason: string): string | null {
+  const value = reason.replace(/[\r\n\t]+/g, ' ').trim();
+  if (value === '' || value.length > MAX_REASON_CHARS || value.includes(',')) return null;
+  const current = keptReasons(raw);
+  const list = current === '' ? [] : current.split(',');
+  if (list.includes(value)) return null;
+  if (list.length >= MAX_KEPT_REASONS) return null;
+  return [...list, value].join(',');
+}
+
+/** Drop one kept reason (the shop stopped paying it). */
+export function forgetReason(raw: string, reason: string): string {
+  const value = reason.trim();
+  const current = keptReasons(raw);
+  if (current === '') return '';
+  return current
+    .split(',')
+    .filter((kept) => kept !== value)
+    .join(',');
+}
+
+/**
+ * The chips to offer above the field: what the shop kept first, then the reasons
+ * it has actually written before — one list, no repeats, capped.
+ */
+export function reasonChoices(
+  kept: string,
+  history: readonly string[]
+): readonly string[] {
+  const current = keptReasons(kept);
+  const out: string[] = current === '' ? [] : current.split(',');
+  for (const raw of history) {
+    const value = raw.replace(/[\r\n\t]+/g, ' ').trim();
+    if (value === '' || value.length > MAX_REASON_CHARS || value.includes(',')) continue;
+    if (out.includes(value)) continue;
+    out.push(value);
+    if (out.length >= MAX_KEPT_REASONS) break;
+  }
+  return out;
+}

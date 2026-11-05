@@ -11,6 +11,7 @@
 import { nextTick, onUnmounted, ref } from 'vue';
 
 import Icon from './Icon.vue';
+import type { IconName } from './icons.ts';
 import { toast } from './toast';
 import {
   cameraFailureNote,
@@ -29,9 +30,27 @@ const props = withDefaults(
     readonly compact?: boolean;
     /** A hint under the camera, e.g. «الـ IMEI 15 رقم». */
     readonly hint?: string;
+    /**
+     * The icon. The till's row passes `scan-barcode` so the camera and «فحص
+     * الـIMEI» read as the same act; every other field keeps the camera.
+     */
+    readonly icon?: IconName;
+    /** The button's weight. The till's row is one row of equal buttons. */
+    readonly variant?: 'primary' | 'soft' | 'ghost' | 'plain';
   }>(),
-  { label: 'امسح', compact: false, hint: '' }
+  { label: 'امسح', compact: false, hint: '', icon: 'camera', variant: 'primary' }
 );
+
+/**
+ * The classes the button carries: a dense field keeps the small ghost button it
+ * has always been, and a row of actions asks for its own weight so the camera is
+ * not the only filled button in a row of five.
+ */
+const buttonClass = (): (string | true)[] => {
+  if (props.compact) return ['btn', 'sm', 'ghost', 'camera-btn'];
+  if (props.variant === 'plain') return ['btn', 'camera-btn'];
+  return ['btn', props.variant, 'camera-btn'];
+};
 
 const emit = defineEmits<{
   /** One reading. The caller decides which field it belongs in. */
@@ -134,13 +153,12 @@ onUnmounted(stop);
   <span class="camera-scan" :class="{ compact: props.compact }">
     <button
       type="button"
-      class="btn"
-      :class="[{ primary: !props.compact }, props.compact ? 'sm ghost' : '']"
+      :class="buttonClass()"
       :title="props.label"
       data-camera-scan
       @click="toggle"
     >
-      <Icon name="camera" />
+      <Icon :name="props.icon" />
       <span v-if="!props.compact">{{ scanning ? 'وقّف' : props.label }}</span>
     </button>
 

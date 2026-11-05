@@ -45,6 +45,10 @@ export interface AppearanceDto {
   readonly backupVerify?: string;
   /** Comma-separated rail order (`ui.nav_order`); empty means the built-in one. */
   readonly navOrder?: string;
+  /** Quick actions the till hides (`ui.pos_hidden_buttons`); empty means none. */
+  readonly posHiddenButtons?: string;
+  /** Expense reasons kept for one tap (`ui.expense_reasons`). */
+  readonly expenseReasons?: string;
 }
 
 export type AppearanceKey =
@@ -81,7 +85,9 @@ export type AppearanceKey =
   | 'ui.backup_every_2h'
   | 'ui.backup_usb_auto'
   | 'ui.backup_verify'
-  | 'ui.nav_order';
+  | 'ui.nav_order'
+  | 'ui.pos_hidden_buttons'
+  | 'ui.expense_reasons';
 
 export function readAppearance(): Promise<AppearanceDto> {
   return invoke<AppearanceDto>('read_appearance');

@@ -119,6 +119,11 @@ pub struct AppearanceDto {
     pub backup_verify: String,
     /// Comma-separated rail order (`ui.nav_order`); empty means the built-in one.
     pub nav_order: String,
+    /// Comma-separated quick actions the till hides (`ui.pos_hidden_buttons`);
+    /// empty means «show them all».
+    pub pos_hidden_buttons: String,
+    /// Comma-separated expense reasons kept for one-tap entry (`ui.expense_reasons`).
+    pub expense_reasons: String,
 }
 
 impl From<Appearance> for AppearanceDto {
@@ -158,6 +163,8 @@ impl From<Appearance> for AppearanceDto {
             backup_usb_auto: a.backup_usb_auto,
             backup_verify: a.backup_verify,
             nav_order: a.nav_order,
+            pos_hidden_buttons: a.pos_hidden_buttons,
+            expense_reasons: a.expense_reasons,
         }
     }
 }

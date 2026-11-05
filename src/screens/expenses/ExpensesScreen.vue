@@ -21,6 +21,7 @@ import {
   type PaidFrom,
 } from '../../api/expenses';
 import type { Session } from '../../api/identity';
+import { appearance, setAppearance } from '../../ui/appearance';
 import { dg, money, parseMoney } from '../../ui/format';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
@@ -30,7 +31,12 @@ import {
   effectivePaidFrom,
   expensePeriodBounds,
   EXPENSE_PERIODS,
+  forgetReason,
+  keepReason,
+  keptReasons,
+  MAX_REASON_CHARS,
   paidFromLabel,
+  reasonChoices,
   suggestedCategories,
   topCategory,
   type ExpensePeriodKey,
@@ -64,8 +70,21 @@ const totals = computed(() => ({
 }));
 const byCategory = computed(() => overview.value?.byCategory ?? []);
 const best = computed(() => topCategory(byCategory.value));
+/**
+ * The chips above the reason field: what the shop kept on purpose (the «إضافة»
+ * beside the box), then the reasons it has written before. A reason already typed
+ * here is offered first thing, so the second payment of the month is one tap.
+ */
+const kept = computed(() => keptReasons(appearance.expenseReasons));
 const chips = computed(() =>
-  suggestedCategories(overview.value?.knownCategories ?? []).slice(0, 12)
+  reasonChoices(
+    kept.value,
+    suggestedCategories(overview.value?.knownCategories ?? [])
+  )
+);
+const typedIsKept = computed(() => kept.value.split(',').includes(category.value.trim()));
+const canKeepTyped = computed(
+  () => category.value.trim() !== '' && !typedIsKept.value
 );
 const paidFrom = computed<PaidFrom>(() =>
   effectivePaidFrom(openShiftId.value, chosenPaidFrom.value)
@@ -98,6 +117,45 @@ async function selectPeriod(next: ExpensePeriodKey): Promise<void> {
 
 function pickCategory(value: string): void {
   category.value = value;
+}
+
+/**
+ * Keep the typed reason for next time («إضافة» beside the field).
+ *
+ * It writes the shop's own list of labels — nothing about an expense that was
+ * already recorded. Refused reasons (blank, too long, already kept) say why
+ * instead of failing silently.
+ */
+async function keepTypedReason(): Promise<void> {
+  const value = category.value.trim();
+  const next = keepReason(kept.value, value);
+  if (next === null) {
+    toast(
+      value === ''
+        ? 'اكتب اسم البند الأول وبعدين دوس «إضافة»'
+        : typedIsKept.value
+          ? `«${value}» متضاف عندك بالفعل`
+          : `اسم البند لازم يكون أقصر من ${MAX_REASON_CHARS} حرف ومن غير فاصلة`,
+      value === '' || typedIsKept.value ? 'info' : 'err'
+    );
+    return;
+  }
+  try {
+    await setAppearance({ expenseReasons: next });
+    toast(`«${value}» بقى في القايمة — هتلاقيه زرار جاهز المرة الجاية`, 'ok');
+  } catch (error) {
+    toast(describeError(error), 'err');
+  }
+}
+
+/** Drop a kept reason from the quick list (the shop stopped paying it). */
+async function forgetKeptReason(value: string): Promise<void> {
+  try {
+    await setAppearance({ expenseReasons: forgetReason(kept.value, value) });
+    toast(`«${value}» اتشال من القايمة السريعة — المصاريف المسجلة زي ما هي`, 'info');
+  } catch (error) {
+    toast(describeError(error), 'err');
+  }
 }
 
 async function submitExpense(): Promise<void> {
@@ -203,26 +261,61 @@ onMounted(() => {
 
         <label class="field">
           <span>البند</span>
-          <input
-            v-model="category"
-            type="text"
-            maxlength="80"
-            placeholder="مثال: إيجار المحل"
-            data-expenses-category
-          />
+          <div class="reason-field">
+            <input
+              v-model="category"
+              type="text"
+              :maxlength="MAX_REASON_CHARS"
+              placeholder="مثال: إيجار المحل"
+              list="expense-reason-options"
+              data-expenses-category
+            />
+            <!-- «إضافة»: المصاريف المتكررة تتكتب مرة وتتسجل بعدها بضغطة -->
+            <button
+              type="button"
+              class="btn sm soft keep-reason-btn"
+              :disabled="!canKeepTyped"
+              :title="
+                typedIsKept
+                  ? 'البند ده متضاف عندك بالفعل'
+                  : 'ضيف البند ده للقايمة السريعة اللي تحت'
+              "
+              data-expenses-keep-reason
+              @click="keepTypedReason"
+            >
+              <Icon name="plus" /><span>إضافة</span>
+            </button>
+          </div>
         </label>
-        <div class="row" style="gap: 6px; flex-wrap: wrap; margin: 8px 0 12px">
-          <button
+        <datalist id="expense-reason-options">
+          <option v-for="chip in chips" :key="chip" :value="chip" />
+        </datalist>
+        <div v-if="chips.length > 0" class="row" style="gap: 6px; flex-wrap: wrap; margin: 8px 0 12px">
+          <span
             v-for="chip in chips"
             :key="chip"
-            type="button"
-            class="chip"
-            :class="{ active: category === chip }"
-            :data-expenses-chip="chip"
-            @click="pickCategory(chip)"
+            class="chip reason-chip"
+            :class="{ active: category === chip, kept: kept.split(',').includes(chip) }"
           >
-            {{ chip }}
-          </button>
+            <button
+              type="button"
+              class="reason-pick"
+              :data-expenses-chip="chip"
+              @click="pickCategory(chip)"
+            >
+              {{ chip }}
+            </button>
+            <button
+              v-if="kept.split(',').includes(chip)"
+              type="button"
+              class="reason-forget"
+              :data-expenses-forget="chip"
+              title="شيله من القايمة السريعة (المصاريف المسجلة زي ما هي)"
+              @click="forgetKeptReason(chip)"
+            >
+              <Icon name="x" />
+            </button>
+          </span>
         </div>
 
         <label class="field">
@@ -387,6 +480,61 @@ onMounted(() => {
   height: 100%;
   border-radius: 3px;
   background: var(--accent-fill);
+}
+
+/* The reason box and the «إضافة» beside it: one field, one shortcut. The button
+   is inside the field's row so «اكتب البند» and «خليه جاهز» read as one act. */
+.reason-field {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.reason-field input {
+  flex: 1;
+  min-width: 0;
+}
+.keep-reason-btn {
+  flex: none;
+  height: auto;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
+/* A chip that can be picked and — when the shop kept it — dropped again. */
+.reason-chip {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.reason-chip .reason-pick {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.reason-chip.kept .reason-pick {
+  padding-inline-end: 4px;
+}
+.reason-chip .reason-forget {
+  border: 0;
+  border-inline-start: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.reason-chip .reason-forget:hover {
+  opacity: 1;
+}
+.reason-chip .reason-forget svg.i {
+  width: 13px;
+  height: 13px;
 }
 
 @media (max-width: 900px) {
