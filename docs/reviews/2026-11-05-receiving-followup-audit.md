@@ -163,6 +163,41 @@ kind TEXT NOT NULL CHECK (kind IN ('receipt', 'adjustment', 'sale', 'sale_revers
 
 ---
 
+## ٦.١ سجل البناء والاختبار (اللي بيتقال عليه «Verified»)
+
+| البوابة | السجل | النتيجة |
+|---|---|---|
+| CI `42063671587` | Frontend (typecheck + build) | ✅ و**269** اختبار وحدة |
+| نفس التشغيل | Rust (cargo test، Linux) | ✅ **762** فحص، 0 فاشل — 57 lib / 107 معمارية / **405** تكامل / 193 وحدة (كان 745 قبل المراجعة دي؛ **+17** فحص جديد) |
+| `scripts/receiving-followup-check.mjs` | متصفح حقيقي على التطبيق والديمو | ✅ **13/13** (`/tmp/receiving-shots`) |
+| `scripts/demo-smoke.mjs` | متصفح حقيقي، كل الشاشات | ✅ **320/320** (`/tmp/demo-followup`) |
+| `scripts/new-features-check.mjs` | متصفح حقيقي | ✅ **36/36** (`/tmp/new-shots3`) |
+| Windows / Android | — | ⏭️ `skipped` — **Unverified** |
+
+الفحوص الجديدة بالاسم (Rust، `tests/integration/`):
+
+`untracked_imei.rs` — `registering_an_imei_turns_untracked_pieces_into_tracked_without_moving_stock`،
+`registering_every_untracked_piece_leaves_no_room_for_another`، `a_duplicate_imei_is_refused_and_writes_no_unit`،
+`an_imei_on_another_product_cannot_be_borrowed`، `an_imei_cannot_be_registered_for_a_product_that_counted_nothing`،
+`a_counted_product_refuses_serial_numbers`، `two_operators_registering_the_same_imei_at_once_get_one_unit`،
+`selling_without_imei_consumes_untracked_pieces_before_any_tracked_one`،
+`five_untracked_phones_sold_two_then_cancelled_are_five_again`،
+`a_partial_return_of_an_untracked_sale_adds_back_only_what_came_back`،
+`an_imei_typed_at_the_counter_labels_an_untracked_piece_on_the_same_receipt`،
+`tracked_untracked_and_damaged_reconcile_with_the_ledger_at_every_step`.
+
+`one_time_price.rs` — `a_price_typed_for_one_invoice_applies_to_that_invoice_and_no_other`،
+`changing_the_model_price_never_rewrites_an_invoice_already_recorded`،
+`a_product_with_no_price_is_refused_until_somebody_decides`،
+`a_sale_confirmed_at_a_different_total_is_refused_rather_than_repriced`،
+`a_plain_sale_line_input_still_takes_the_model_price`.
+
+الفحوص اللي كانت موجودة واتعتمد عليها: `a_receipt_records_the_supplier_the_operator_typed`،
+`a_receipt_without_a_supplier_stores_null_not_an_empty_string`،
+`the_supplier_list_is_derived_from_history_rather_than_stored_twice` (من `receiving_supplier.rs`).
+
+---
+
 ## ٧. الحدود المعروفة بعد المراجعة دي
 
 1. **إلغاء مستند التوريد:** مش منفّذ (البند ٣) — العائق عقد السجل، مش الحساب.

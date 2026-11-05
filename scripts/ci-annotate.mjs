@@ -56,20 +56,29 @@ if (results.length) {
 // review was exercised. The names are printed per test by cargo, so they are
 // turned into their own annotation: that is the evidence a reviewer can quote
 // (and the reason `--quiet` must never be added to the cargo step).
+//
+// One annotation per test binary rather than one for all of them: a single list
+// would be clipped long before the integration tests — the ones that carry the
+// invariants — ever appear.
 const focus = process.env.CI_TEST_FOCUS
   ? new RegExp(process.env.CI_TEST_FOCUS)
-  : /(untracked|register_stock|imei|reversal|receipt|price|cost|return|stock)/i;
-const named = [];
+  : /(untracked|register_stock|one_time_price|receipt|supplier|price|cost|return|stock|imei|reversal)/i;
+const perBinary = new Map();
+let binary = '(unknown)';
 for (const line of lines) {
+  const run = line.match(/Running (?:unittests )?(\S+)/);
+  if (run) binary = run[1];
   const m = line.match(/^test (\S+) \.\.\. (ok|FAILED|ignored)\s*$/);
-  if (m) named.push({ name: m[1], status: m[2] });
+  if (!m) continue;
+  if (!focus.test(m[1])) continue;
+  if (!perBinary.has(binary)) perBinary.set(binary, []);
+  perBinary.get(binary).push({ name: m[1], status: m[2] });
 }
-const focused = named.filter((t) => focus.test(t.name));
-if (focused.length) {
-  const body = focused
+for (const [bin, tests] of perBinary) {
+  const body = tests
     .map((t) => `${t.status === 'ok' ? 'ok  ' : t.status === 'FAILED' ? 'FAIL' : 'skip'} ${t.name}`)
     .join('\n');
-  out.push(note('notice', `${label}: ${focused.length} named invariant tests`, clip(body, 12000)));
+  out.push(note('notice', `${label}: ${tests.length} invariant tests in ${bin}`, clip(body, 11000)));
 }
 
 // 1b. node --test (frontend unit tests): "# pass N" / "# fail N".
