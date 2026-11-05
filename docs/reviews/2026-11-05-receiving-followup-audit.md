@@ -53,7 +53,7 @@
 | `a_counted_product_refuses_serial_numbers` | منتج بالعدد (كابل) بيرفض الأرقام |
 | `two_operators_registering_the_same_imei_at_once_get_one_unit` | تسجيلين في نفس اللحظة: واحد بينجح، والتاني `IMEI_ALREADY_REGISTERED` (قيد `UNIQUE` هو الحكم)، والرصيد ما اتغيّرش |
 
-**تحسين في الكود اتعمل مع المراجعة:** لو التسجيلين اتلاقوا في نفس اللحظة كان الخسران بياkhد
+**تحسين في الكود اتعمل مع المراجعة:** لو التسجيلين اتلاقوا في نفس اللحظة كان الخسران بياخد
 `STORAGE_UNAVAILABLE`؛ دلوقتي الخطأ بيترجم لـ`IMEI_ALREADY_REGISTERED` (الترجمة من قيد
 `UNIQUE` نفسه، والفحص المسبق بيفضل للمسار العادي).
 
