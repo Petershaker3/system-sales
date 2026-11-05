@@ -81,6 +81,26 @@ for (const [bin, tests] of perBinary) {
   out.push(note('notice', `${label}: ${tests.length} invariant tests in ${bin}`, clip(body, 11000)));
 }
 
+// 1d. The named set the current review is arguing about, in one short list.
+//
+// The per-binary annotations are clipped at ~11 kB, and the integration binary
+// alone carries 405 tests: the ones added for a review are alphabetically late
+// (`untracked_imei`, …) and fall off the end. This pass keeps only the modules
+// the review actually added, so every claimed name is visible in the check run.
+const reviewModules = process.env.CI_TEST_REVIEW_MODULES
+  ? new RegExp(process.env.CI_TEST_REVIEW_MODULES)
+  : /^(untracked_imei|one_time_price|receiving_supplier|returns|receipt_reversal)::/;
+const reviewed = [];
+for (const line of lines) {
+  const m = line.match(/^test (\S+) \.\.\. (ok|FAILED|ignored)\s*$/);
+  if (!m || !reviewModules.test(m[1])) continue;
+  reviewed.push({ name: m[1], status: m[2] });
+}
+if (reviewed.length) {
+  const marks = reviewed.map((t) => `${t.status === 'ok' ? 'ok  ' : t.status === 'FAILED' ? 'FAIL' : 'skip'} ${t.name}`);
+  out.push(note('notice', `${label}: ${reviewed.length} review-named tests`, clip(marks.join('\n'), 11000)));
+}
+
 // 1b. node --test (frontend unit tests): "# pass N" / "# fail N".
 const nodePass = text.match(/^# pass (\d+)$/m);
 const nodeFail = text.match(/^# fail (\d+)$/m);
