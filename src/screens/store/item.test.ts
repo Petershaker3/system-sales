@@ -134,8 +134,11 @@ test('the first missing thing is the one named, in the mockup’s order', () => 
     itemProblem(cats, { ...complete, barcode: 'abc' }),
     'الباركود أرقام بس (من 6 لـ 14 رقم)'
   );
-  assert.equal(itemProblem(cats, { ...complete, priceMinor: null }), 'اكتب سعر البيع');
-  assert.equal(itemProblem(cats, { ...complete, priceMinor: 0 }), 'اكتب سعر البيع');
+  // The price is optional at registration (`0035`): an item can be created now and
+  // priced at the till. What is refused is a *typed* price that is not a price.
+  assert.equal(itemProblem(cats, { ...complete, priceMinor: null }), '');
+  assert.equal(itemProblem(cats, { ...complete, priceMinor: 0, priceRaw: '0' }), 'السعر مش رقم صحيح');
+  assert.equal(itemProblem(cats, { ...complete, priceMinor: null, priceRaw: 'abc' }), 'السعر مش رقم صحيح');
   assert.equal(itemProblem(cats, complete), '');
 });
 

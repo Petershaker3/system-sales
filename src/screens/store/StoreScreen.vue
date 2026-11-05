@@ -36,8 +36,14 @@ import {
   storeFigures,
 } from './count-sheet';
 
-defineProps<{
+const props = defineProps<{
   session?: Session | null;
+  /**
+   * A product another screen asked to receive (`mshop:open-receive`), and a nonce so
+   * pressing «+ مخزون» twice on the same product still lands on the form.
+   */
+  incomingProduct?: string;
+  incomingNonce?: number;
 }>();
 
 const activeTab = ref<'items' | 'devices' | 'receive' | 'count' | 'shortages' | 'damaged'>(
@@ -207,6 +213,16 @@ async function loadStoreMeta(): Promise<void> {
 onMounted(loadStoreMeta);
 watch(reload, loadStoreMeta);
 
+// Another screen («الهواتف») may ask this one to receive a product it is showing.
+watch(
+  () => props.incomingNonce,
+  () => {
+    if (props.incomingProduct !== undefined && props.incomingProduct !== '') {
+      openReceive(props.incomingProduct);
+    }
+  }
+);
+
 function pick(kindPicked: 'phone' | 'used' | 'item'): void {
   kind.value = false;
   if (kindPicked === 'phone') newPhone.value = true;
@@ -218,6 +234,18 @@ function pick(kindPicked: 'phone' | 'used' | 'item'): void {
 
 /** The product «استلام توريد» should open on, set the moment one is registered. */
 const justCreated = ref('');
+
+/**
+ * Open the delivery form on a product the shopkeeper pressed «+ مخزون» on.
+ *
+ * The tab changes and the panel is re-keyed on the id, because a panel already open
+ * on another product must not keep showing that one: the whole point of the press is
+ * «this product, here».
+ */
+function openReceive(productId: string): void {
+  justCreated.value = productId;
+  activeTab.value = 'receive';
+}
 
 function registered(name: string, productId = ''): void {
   newPhone.value = false;
@@ -388,6 +416,7 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
         <CatalogPanel
           :key="`c${reload}`"
           @print-label="openLabelsModal($event, null)"
+          @receive="openReceive"
         />
       </section>
     </template>
@@ -396,7 +425,7 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
     <template v-else-if="activeTab === 'receive'">
       <section class="card legacy-panel">
         <StockPanel
-          :key="`s${reload}`"
+          :key="`s${reload}-${justCreated}`"
           :select-product="justCreated"
           @new-item="kind = true"
           @received="
@@ -422,17 +451,36 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
                 <th class="ta-n">الكمية</th>
                 <th class="ta-n">سعر الشراء</th>
                 <th>المورد</th>
-                <th>التاريخ</th>
+                <th>فاتورة المورد</th>
+                <th>تاريخ الشراء</th>
               </tr>
             </thead>
             <tbody>
+              <!--
+                A receipt row answers the four questions the owner asks about a
+                delivery: what came, how many, for how much each, and from whom with
+                which paper (`0035`). The invoice number and the purchase day are the
+                supplier's, not ours — «تاريخ الشراء» is when it was bought, and the
+                register's own day is the day it was entered.
+              -->
               <tr v-for="r in receipts" :key="r.id" :data-receipt-row="r.id">
-                <td><b><bdi dir="auto">{{ r.productName }}</bdi></b></td>
+                <td>
+                  <b><bdi dir="auto">{{ r.productName }}</bdi></b>
+                  <small v-if="r.receiptKind === 'opening'" class="tag warn">أول المدة</small>
+                  <small v-if="r.note" class="muted note-line"><bdi dir="auto">{{ r.note }}</bdi></small>
+                </td>
                 <td class="ta-n num">{{ num(r.quantity) }}</td>
                 <td class="ta-n num">{{ r.unitCostMinor === 0 ? '—' : money(r.unitCostMinor) }}</td>
                 <td><bdi dir="auto">{{ r.supplierName ?? '—' }}</bdi></td>
+                <td>
+                  <bdi dir="ltr" class="mono">{{ r.documentRef ?? '—' }}</bdi>
+                </td>
                 <td class="muted">
-                  {{ fmtDate(new Date(r.occurredAt)) }} · {{ fmtTime(new Date(r.occurredAt)) }}
+                  <template v-if="r.purchaseDate">{{ r.purchaseDate }}</template>
+                  <template v-else>—</template>
+                  <small class="entered">
+                    اتسجل {{ fmtDate(new Date(r.occurredAt)) }}
+                  </small>
                 </td>
               </tr>
             </tbody>
@@ -661,6 +709,7 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       v-else
       :session="session ?? null"
       @changed="shortagesCount = $event"
+      @receive="openReceive"
     />
 
     <NewItemKindModal v-if="kind" @close="kind = false" @pick="pick" />
@@ -696,6 +745,14 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
 <style scoped>
 .page-h .sp {
   flex: 1;
+}
+
+/* The register's receipt rows: the note sits under the product, and the day the row
+   was entered sits under the purchase day, quieter than it. */
+.note-line,
+.entered {
+  display: block;
+  font-size: 0.76rem;
 }
 
 /* أهم رقم قبل المحتوى: قيمة الرف، القطع، النواقص، اللي من غير سعر */

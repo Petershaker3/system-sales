@@ -230,6 +230,14 @@ function scrollToShelf(kind: 'new' | 'used'): void {
 function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
   window.dispatchEvent(new CustomEvent('mshop:open-settings', { detail: { tab: id } }));
 }
+
+/**
+ * «+ مخزون» on a model: the delivery form is in «المخزن», and this row is the one
+ * place that knows which model is short. The store opens on it (`0035`).
+ */
+function receiveMore(productId: string): void {
+  window.dispatchEvent(new CustomEvent('mshop:open-receive', { detail: { productId } }));
+}
 </script>
 
 <template>
@@ -439,6 +447,7 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
             <th class="ta-n">سعر البيع</th>
             <th v-if="countMode === 'money'" class="ta-n">قيمة البيع المتوقعة</th>
             <th class="ta-n">في الرف</th>
+            <th class="ta-n">استلام</th>
           </tr>
         </thead>
         <tbody>
@@ -449,7 +458,7 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
               class="company-head"
               :data-phone-company="card.brand || 'بدون شركة'"
             >
-              <td :colspan="countMode === 'number' ? 6 : 7">
+              <td :colspan="countMode === 'number' ? 7 : 8">
                 <Icon name="building-2" />
                 <b>{{ card.brand || 'بدون شركة' }}</b>
                 <span class="muted">{{ num(shelf.cards.filter((c) => c.brand === card.brand).length) }} موديل</span>
@@ -488,6 +497,17 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
                     ? '—'
                     : `${num(daysInStock(card.handsets[0]!.createdAt, now))} يوم`
                 }}
+              </td>
+              <td class="ta-n">
+                <button
+                  type="button"
+                  class="btn ghost sm"
+                  :data-phone-receive="card.productId"
+                  title="استلام كمية جديدة من الموديل ده"
+                  @click="receiveMore(card.productId)"
+                >
+                  <Icon name="plus" :size="12" /> مخزون
+                </button>
               </td>
             </tr>
 
@@ -528,10 +548,12 @@ function openSettingsTab(id: 'catalog' | 'receipt' | 'look'): void {
                 {{ handset.salePriceMinor === null ? '—' : money(handset.salePriceMinor) }}
               </td>
               <td class="ta-n num">{{ num(daysInStock(handset.createdAt, now)) }} يوم</td>
+              <!-- a handset is not a delivery: only the model above it can be topped up -->
+              <td></td>
             </tr>
 
             <tr v-if="card.unregistered > 0" :key="`${card.productId}-gap`" class="gap-row">
-              <td colspan="8">
+              <td colspan="9">
                 <Icon name="triangle-alert" />
                 {{ pcsText(card.unregistered) }} من الموديل ده
                 في المخزن بالعدد من غير IMEI — لسه متسجلوش

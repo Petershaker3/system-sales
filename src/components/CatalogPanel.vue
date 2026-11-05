@@ -39,6 +39,14 @@ import { asIconName } from '../screens/pos/icons';
 
 const emit = defineEmits<{
   'print-label': [productId: string];
+  /**
+   * «+ مخزون»: receive more of THIS product.
+   *
+   * Every other path to a delivery started at the delivery form and then asked the
+   * shopkeeper to find the product again in a list of hundreds. The row knows the
+   * product, so it hands it over and the delivery form opens on it (`0035`).
+   */
+  receive: [productId: string];
 }>();
 
 const error = ref<string>('');
@@ -555,6 +563,16 @@ onMounted(() => {
             @click="emit('print-label', product.id)"
           >
             ملصق
+          </button>
+          <button
+            v-if="product.status === 'active'"
+            type="button"
+            class="btn sm soft"
+            :data-receive-product="product.id"
+            title="استلام كمية جديدة من الصنف ده"
+            @click="emit('receive', product.id)"
+          >
+            <Icon name="plus" :size="12" /> مخزون
           </button>
           <button
             type="button"

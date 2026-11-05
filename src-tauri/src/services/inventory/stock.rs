@@ -1318,7 +1318,7 @@ async fn receive_in_tx(
     let current = average_position(product_id, position.as_ref())?;
     let updated = current.receive(quantity, unit_cost_minor)?;
     repo::upsert_position(
-        &mut conn,
+        conn,
         &repo::StockPosition {
             product_id: product_id.to_owned(),
             quantity: updated.on_hand,
@@ -1342,7 +1342,7 @@ async fn receive_in_tx(
         .ok_or(CostError::Overflow)?;
     let movement_id = uuid::Uuid::now_v7().to_string();
     sales_repo::insert_movement(
-        &mut conn,
+        conn,
         &MovementRecord {
             id: movement_id.clone(),
             product_id: product_id.to_owned(),
@@ -1374,7 +1374,7 @@ async fn receive_in_tx(
 
     for imei in parsed_imeis {
         unit_repo::insert_unit(
-            &mut conn,
+            conn,
             &UnitRecord {
                 id: uuid::Uuid::now_v7().to_string(),
                 product_id: product_id.to_owned(),
@@ -1402,7 +1402,7 @@ async fn receive_in_tx(
     }
 
     audit::append(
-        &mut conn,
+        conn,
         *actor,
         audit::event::STOCK_RECEIVED,
         now,
@@ -1428,7 +1428,7 @@ async fn receive_in_tx(
 
     // Plan item 1.15 (`ADR-030`): receiving stock for a product automatically
     // resolves any active shortage for that product inside the same transaction.
-    shortage_repo::resolve_shortages_for_product(&mut conn, product_id, now.as_millis())
+    shortage_repo::resolve_shortages_for_product(conn, product_id, now.as_millis())
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     Ok(outcome)

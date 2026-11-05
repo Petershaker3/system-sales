@@ -74,6 +74,13 @@ export interface ItemDraft {
   readonly barcode: string;
   /** `null` = the field is empty or unreadable. */
   readonly priceMinor: number | null;
+  /**
+   * What was typed in the price box, verbatim. The price is optional (`0035`), so
+   * `priceMinor === null` is the normal «حدده وقت البيع» — but only when the box is
+   * actually empty. A box with «abc» in it is a typo, and turning a typo into «no
+   * price» would silently register an item the till cannot price.
+   */
+  readonly priceRaw?: string;
 }
 
 export function itemProblem(categories: readonly CategoryEntry[], draft: ItemDraft): string {
@@ -82,7 +89,11 @@ export function itemProblem(categories: readonly CategoryEntry[], draft: ItemDra
   if (draft.name.trim() === '') return 'اكتب اسم الصنف';
   const barcode = barcodeProblem(draft.barcode);
   if (barcode !== '') return barcode;
-  if (draft.priceMinor === null || draft.priceMinor <= 0) return 'اكتب سعر البيع';
+  // A price is not required at registration (`0035`): an item can be created now and
+  // priced at the counter. Only a price that was *typed* has to be a real one.
+  if (draft.priceRaw !== undefined && draft.priceRaw.trim() !== '') {
+    if (draft.priceMinor === null || draft.priceMinor <= 0) return 'السعر مش رقم صحيح';
+  }
   return '';
 }
 

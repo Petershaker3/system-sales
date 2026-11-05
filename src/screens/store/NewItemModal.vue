@@ -302,6 +302,7 @@ async function save(): Promise<void> {
     name: name.value,
     barcode: barcode.value,
     priceMinor: priceMinor.value,
+    priceRaw: price.value,
   });
   if (why !== '') {
     error.value = why;
@@ -598,9 +599,23 @@ onMounted(async () => {
       </template>
 
       <div class="field price-field">
-        <label for="ni-price">{{ variantsOn ? 'سعر البيع الافتراضي' : 'سعر البيع' }}</label>
-        <input id="ni-price" v-model="price" class="num" dir="ltr" inputmode="numeric" autocomplete="off" />
+        <label for="ni-price">
+          {{ variantsOn ? 'سعر البيع الافتراضي' : 'سعر البيع' }}
+          <small class="optional">اختياري</small>
+        </label>
+        <input
+          id="ni-price"
+          v-model="price"
+          class="num"
+          dir="ltr"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="سيبه فاضي وحدده وقت البيع"
+        />
         <span v-if="priceMinor !== null" class="hint">{{ money(priceMinor) }}</span>
+        <span v-else-if="price.trim() === ''" class="hint">
+          من غير سعر: الصنف بيتسجل، والكاشير بيحدد السعر وقت البيع.
+        </span>
       </div>
 
       <div v-if="name.trim() !== '' && chosen !== null" class="ni-name">
@@ -626,6 +641,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* «اختياري» beside a label: quiet enough not to compete with the label, loud
+   enough that nobody thinks a blank box will be refused. */
+.optional {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-inline-start: 4px;
+}
 .sp {
   flex: 1;
 }

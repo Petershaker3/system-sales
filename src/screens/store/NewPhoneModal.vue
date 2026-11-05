@@ -96,8 +96,12 @@ function missing(): string {
   if (brand.value === null) return 'اختار الشركة';
   if (model.value.trim() === '') return 'اكتب الموديل';
   if (device.value === 'touch' && storageGb.value === null) return 'اختار المساحة';
-  const minor = parseMoney(price.value);
-  if (minor === null || minor <= 0) return 'اكتب سعر البيع';
+  // The price is optional (`0035`): a phone can be registered when it arrives and
+  // priced at the counter. Only a price actually typed has to be a real number.
+  if (price.value.trim() !== '') {
+    const minor = parseMoney(price.value);
+    if (minor === null || minor <= 0) return 'السعر مش رقم صحيح';
+  }
   return '';
 }
 
@@ -248,9 +252,20 @@ onMounted(async () => {
       </template>
 
       <div class="field price-field">
-        <label for="np-price">سعر البيع</label>
-        <input id="np-price" v-model="price" class="num" dir="ltr" inputmode="numeric" autocomplete="off" />
+        <label for="np-price">سعر البيع <small class="optional">اختياري</small></label>
+        <input
+          id="np-price"
+          v-model="price"
+          class="num"
+          dir="ltr"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="سيبه فاضي وحدده وقت البيع"
+        />
         <span v-if="parseMoney(price) !== null" class="hint">{{ money(parseMoney(price) ?? 0) }}</span>
+        <span v-else-if="price.trim() === ''" class="hint">
+          الموديل بيتسجل من غير سعر، والكاشير بيحدده وقت البيع.
+        </span>
       </div>
 
       <div v-if="title !== ''" class="ni-name">
@@ -273,6 +288,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* «اختياري» beside a label: quiet enough not to compete with the label, loud
+   enough that nobody thinks a blank box will be refused. */
+.optional {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-inline-start: 4px;
+}
 .sp {
   flex: 1;
 }

@@ -139,6 +139,24 @@ function onOpenGuideRequest(): void {
  * A screen asks for one settings tab (the phones screen's setup cards, which would
  * otherwise have to duplicate the settings UI to change one number).
  */
+/**
+ * A screen asks for a delivery of a product it is looking at (`0035`).
+ *
+ * «الهواتف» knows the model the owner wants more of; the delivery form is in
+ * «المخزن». Rather than teach the shelf to receive, the shelf hands the product over
+ * and the store opens on it.
+ */
+const receiveProduct = ref('');
+const receiveNonce = ref(0);
+function onOpenReceiveRequest(event: Event): void {
+  const detail = (event as CustomEvent<{ productId?: string }>).detail;
+  const productId = detail?.productId ?? '';
+  if (productId === '') return;
+  screen.value = 'store';
+  receiveProduct.value = productId;
+  receiveNonce.value += 1;
+}
+
 async function onOpenSettingsRequest(event: Event): Promise<void> {
   const detail = (event as CustomEvent<{ tab?: string }>).detail;
   screen.value = 'settings';
@@ -291,6 +309,7 @@ onMounted(() => {
   window.addEventListener('keydown', onSwitchKey, true);
   window.addEventListener('mshop:open-guide', onOpenGuideRequest);
   window.addEventListener('mshop:open-settings', onOpenSettingsRequest);
+  window.addEventListener('mshop:open-receive', onOpenReceiveRequest);
 });
 onBeforeUnmount(() => {
   window.clearInterval(tick);
@@ -298,6 +317,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSwitchKey, true);
   window.removeEventListener('mshop:open-guide', onOpenGuideRequest);
   window.removeEventListener('mshop:open-settings', onOpenSettingsRequest);
+  window.removeEventListener('mshop:open-receive', onOpenReceiveRequest);
 });
 
 
@@ -573,7 +593,12 @@ async function restartNow(): Promise<void> {
           :session="session"
           @changed="refreshShiftState"
         />
-        <StoreScreen v-else-if="screen === 'store'" :session="session" />
+        <StoreScreen
+          v-else-if="screen === 'store'"
+          :session="session"
+          :incoming-product="receiveProduct"
+          :incoming-nonce="receiveNonce"
+        />
         <PhonesScreen v-else-if="screen === 'phones'" />
         <ReportsScreen
           v-else-if="screen === 'reports'"

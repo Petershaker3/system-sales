@@ -376,6 +376,9 @@ async function refreshPosition(): Promise<void> {
 /** The last deliveries of the selected product — its own purchase history (`0035`). */
 const history = ref<readonly ReceiptRow[]>([]);
 
+/** The rows that carry the operator's own words, so no empty «ملاحظة :» is printed. */
+const historyWithNote = computed(() => history.value.filter((row) => (row.note ?? '') !== ''));
+
 async function loadHistory(): Promise<void> {
   if (selectedProductId.value === '') {
     history.value = [];
@@ -1009,7 +1012,7 @@ void loadPickers;
             عرض المخزن
           </button>
         </div>
-        <dl v-else class="facts">
+        <dl v-else class="facts position">
           <dt>الرصيد الحالي</dt>
           <dd class="num" data-receive-current>{{ num(position.quantity) }}</dd>
           <dt>إجمالي التكلفة (متوسط مرجح)</dt>
@@ -1316,7 +1319,7 @@ void loadPickers;
             </tbody>
           </table>
         </div>
-        <p v-for="row in history" :key="`n-${row.id}`" v-show="row.note" class="hint">
+        <p v-for="row in historyWithNote" :key="`n-${row.id}`" class="hint">
           ملاحظة {{ shortDate(row.purchaseDate) }}: {{ row.note }}
         </p>
       </section>

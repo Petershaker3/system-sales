@@ -378,6 +378,57 @@ interface DemoUnit {
 }
 const productUnits: DemoUnit[] = [];
 
+/**
+ * The delivery ledger (`0035`): one row per received line, the way
+ * `stock_movements` holds it in the real program.
+ *
+ * The demo used to keep nothing — `list_receipts` answered `[]` — so «سجل
+ * التوريدات» and a product's own purchase history were the two screens every shop
+ * has and the demo never showed. A row carries what the paper carries: supplier,
+ * invoice reference, purchase day, note, and the document it belongs to.
+ */
+interface DemoReceipt {
+  id: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitCostMinor: number;
+  totalCostMinor: number;
+  supplierName: string | null;
+  receiptKind: 'supplier' | 'opening';
+  documentId: string;
+  documentRef: string | null;
+  purchaseDate: string | null;
+  note: string | null;
+  occurredAt: number;
+  actorId: string;
+}
+const stockReceipts: DemoReceipt[] = [];
+
+// Seeded stock arrived at some point: an opening receipt per product already on the
+// shelf, dated before «today», so the register opens on real history instead of an
+// empty state that makes the section look broken.
+for (const seeded of products) {
+  if (seeded.onHand <= 0) continue;
+  const unitCost = Math.floor(seeded.totalCostMinor / seeded.onHand);
+  stockReceipts.push({
+    id: newId('r'),
+    productId: seeded.id,
+    productName: seeded.name,
+    quantity: seeded.onHand,
+    unitCostMinor: unitCost,
+    totalCostMinor: seeded.totalCostMinor,
+    supplierName: null,
+    receiptKind: 'opening',
+    documentId: newId('doc'),
+    documentRef: null,
+    purchaseDate: null,
+    note: 'رصيد أول المدة',
+    occurredAt: now() - 20 * 24 * 60 * 60 * 1000,
+    actorId: 'u-peter',
+  });
+}
+
 // The demo shelf has handsets of both kinds, because the «الهواتف» section shows
 // two shelves and a demo with an empty used shelf proves nothing. Costs are what
 // the shop paid, so the section's shelf value and its average are real numbers.
@@ -1796,6 +1847,16 @@ const parsePaidFrom = (raw: string): 'drawer' | 'outside' => {
 };
 const findProduct = (id: string) => products.find((x) => x.id === id) ?? fail('NO_PRODUCT_WITH_THIS_ID');
 
+/** `YYYY-MM-DD`, and a day that exists — «2026-02-31» must not pass (`0035`). */
+function demoCalendarDay(raw: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const year = Number(raw.slice(0, 4));
+  const month = Number(raw.slice(5, 7));
+  const day = Number(raw.slice(8, 10));
+  if (year < 1900 || year > 2999 || month < 1 || month > 12) return false;
+  return day >= 1 && day <= new Date(year, month, 0).getDate();
+}
+
 function today(): string {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -2152,6 +2213,65 @@ function buildDemoShortagesOverview() {
 // sales they are matched against.
 demoNameHistoricalWallets();
 
+/**
+ * The receiving arithmetic, shared by both doors that add stock: the delivery
+ * document and the quick receive the mobile companion uses.
+ *
+ * It moves the balance, writes the units it was given serials for, and closes any
+ * shortage the shop was waiting on. Recording *what* was received — supplier,
+ * invoice, purchase day — stays with the caller, because that is the difference
+ * between a purchase and a top-up with no paper.
+ */
+function applyReceiveStock(
+  x: DemoProduct,
+  quantity: number,
+  unitCost: number,
+  rawImeis: string[],
+): { productId: string; quantity: number; costMinor: number } {
+  const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
+  if (rawImeis.length > 0 && tracking === 'none') fail('IMEI_PRODUCT_NOT_SERIAL_TRACKED');
+  if (rawImeis.length > quantity) fail('IMEI_COUNT_EXCEEDS_QUANTITY');
+  if (
+    tracking !== 'none' &&
+    (tracking === 'serial_required' || appearance.imeiMode === 'required') &&
+    rawImeis.length !== quantity
+  ) {
+    fail('IMEI_REQUIRED_FOR_ALL_UNITS');
+  }
+  const seen = new Set<string>();
+  const cleanImeis: string[] = [];
+  for (const raw of rawImeis) {
+    const digits = demoNormalizeImei(raw);
+    if (!/^\d{15}$/.test(digits)) fail('IMEI_LENGTH_INVALID');
+    if (!demoLuhn(digits)) fail('IMEI_CHECK_DIGIT_INVALID');
+    if (seen.has(digits)) fail('IMEI_DUPLICATE_IN_BATCH');
+    if (productUnits.some((u) => u.imei === digits || u.imei2 === digits)) fail('IMEI_ALREADY_REGISTERED');
+    seen.add(digits);
+    cleanImeis.push(digits);
+  }
+  const receivedAt = now();
+  for (const digits of cleanImeis) {
+    productUnits.push({
+      id: newId('u'),
+      productId: x.id,
+      imei: digits,
+      imei2: null,
+      color: null,
+      unitCostMinor: unitCost,
+      status: 'in_stock',
+      createdAt: receivedAt,
+    });
+  }
+  x.onHand += quantity;
+  x.totalCostMinor += quantity * unitCost;
+  for (const sh of demoShortages) {
+    if (sh.productId === x.id && sh.resolvedAt === null) {
+      sh.resolvedAt = receivedAt;
+    }
+  }
+  return { productId: x.id, quantity: x.onHand, costMinor: 0 };
+}
+
 const handlers: Record<string, (args: Args) => unknown> = {
   // identity
   // Three accounts exist in the demo data, so the shop is never open in the sense
@@ -2476,6 +2596,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
             discountMinor?: number | null;
             warrantyStart?: string | null;
             warrantyEnd?: string | null;
+            /**
+             * A price typed on this line alone (`0035`). `null` or absent means «the
+             * model's price» — the only case that can be refused for having no price.
+             */
+            unitPriceMinor?: number | null;
           }[]
         | undefined) ?? [];
     if (lines.length === 0) fail('SALE_EMPTY');
@@ -2485,7 +2610,17 @@ const handlers: Record<string, (args: Args) => unknown> = {
       const x = findProduct(line.productId);
       if (x.status !== 'active') fail('SALE_PRODUCT_ARCHIVED');
       if (x.disposition !== 'quantity') fail('SALE_DISPOSITION_NOT_SUPPORTED');
-      if (x.salePriceMinor === null) fail('SALE_PRICE_NOT_SET');
+      // The price the line is sold at: the one typed for it now, or the model's own.
+      // A model with no price can still be sold at a price the operator typed —
+      // that is the whole point of «هذه البيعة بس» (`0035`).
+      const typedPrice = line.unitPriceMinor;
+      const priceForLine =
+        typeof typedPrice === 'number'
+          ? Number.isInteger(typedPrice) && typedPrice >= 0
+            ? typedPrice
+            : fail('PRICE_NEGATIVE')
+          : x.salePriceMinor;
+      if (priceForLine === null) fail('SALE_PRICE_NOT_SET');
       if (!(line.quantity > 0)) fail('SALE_INVALID_QUANTITY');
       if (line.quantity > x.onHand) fail('COST_INSUFFICIENT_STOCK');
       const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
@@ -2498,7 +2633,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
         if (line.quantity !== 1) fail('SALE_INVALID_QUANTITY');
         if (!demoLuhn(rawImei)) fail('IMEI_CHECK_DIGIT_INVALID');
       }
-      const lineGross = (x.salePriceMinor ?? 0) * line.quantity;
+      const lineGross = (priceForLine ?? 0) * line.quantity;
       const lineDisc = typeof line.discountMinor === 'number' ? line.discountMinor : 0;
       if (!Number.isInteger(lineDisc) || lineDisc < 0 || lineDisc > lineGross) {
         fail('SALE_DISCOUNT_INVALID');
@@ -2506,6 +2641,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       grossSubtotal += lineGross;
       linesNetSubtotal += lineGross - lineDisc;
     }
+    // A price typed for one sale is a price change in everything but name, so it takes
+    // the same authority that may change a model's price (`ADR-013`) — and it writes
+    // nothing on the product: the sold line keeps the figure it was sold at.
+    if (lines.some((line) => typeof line.unitPriceMinor === 'number')) requireManager();
     const invoiceDisc =
       typeof args?.['invoiceDiscountMinor'] === 'number'
         ? (args['invoiceDiscountMinor'] as number)
@@ -2649,7 +2788,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
           lineCostTotal = removed;
         }
       }
-      const unitPrice = x.salePriceMinor ?? 0;
+      const unitPrice =
+        typeof line.unitPriceMinor === 'number' ? line.unitPriceMinor : (x.salePriceMinor ?? 0);
       const lineDisc = typeof line.discountMinor === 'number' ? line.discountMinor : 0;
       const lineTotal = unitPrice * line.quantity - lineDisc;
       const unitCostSnap = Math.floor((lineCostTotal + line.quantity / 2) / line.quantity);
@@ -3660,10 +3800,23 @@ const handlers: Record<string, (args: Args) => unknown> = {
     }
     return { valueMinor, quantity, products: count };
   },
-  // The demo backend keeps no movement log; the real one reads `stock_movements`.
-  list_receipts: () => {
+  /**
+   * The deliveries the shop recorded, newest first.
+   *
+   * `productId` narrows it to one product's own purchase history — «الصنف ده جالي
+   * إمتى ومن مين وبكام» — while an empty one is the shop's register over all of them.
+   * Same rows, two questions.
+   */
+  list_receipts: (args) => {
     requireManager();
-    return [];
+    const productId = str(args, 'productId').trim();
+    const requested = numArg(args, 'limit');
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.trunc(requested), 500) : 100;
+    return [...stockReceipts]
+      .filter((row) => productId === '' || row.productId === productId)
+      .sort((a, b) => b.occurredAt - a.occurredAt)
+      .slice(0, limit)
+      .map((row) => ({ ...row }));
   },
   get_position: (args) => {
     requireManager(true);
@@ -3676,54 +3829,204 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const quantity = numArg(args, 'quantity');
     const unitCost = numArg(args, 'unitCostMinor');
     const rawImeis = Array.isArray(args?.['imeis']) ? (args['imeis'] as string[]) : [];
-    const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
-    if (rawImeis.length > 0 && tracking === 'none') fail('IMEI_PRODUCT_NOT_SERIAL_TRACKED');
-    if (rawImeis.length > quantity) fail('IMEI_COUNT_EXCEEDS_QUANTITY');
-    if (
-      tracking !== 'none' &&
-      (tracking === 'serial_required' || appearance.imeiMode === 'required') &&
-      rawImeis.length !== quantity
-    ) {
-      fail('IMEI_REQUIRED_FOR_ALL_UNITS');
+    const outcome = applyReceiveStock(x, quantity, unitCost, rawImeis);
+    // The record is written even when no paper came with the goods: a line that moved
+    // the balance and left no row behind is a purchase nobody can find again.
+    stockReceipts.push({
+      id: newId('r'),
+      productId: x.id,
+      productName: x.name,
+      quantity,
+      unitCostMinor: unitCost,
+      totalCostMinor: quantity * unitCost,
+      supplierName: str(args, 'supplierName').trim() || null,
+      receiptKind: str(args, 'receiptKind') === 'opening' ? 'opening' : 'supplier',
+      documentId: newId('doc'),
+      documentRef: str(args, 'documentRef').trim() || null,
+      purchaseDate: str(args, 'purchaseDate').trim() || null,
+      note: str(args, 'note').trim() || null,
+      occurredAt: now(),
+      actorId: requireUser().id,
+    });
+    return outcome;
+  },
+
+  /**
+   * Save a whole delivery in one go (`0035`).
+   *
+   * Every id is checked, every IMEI is parsed and every new product is validated
+   * *before* anything is written, and the write runs on a snapshot that is put back
+   * if anything throws — the mirror of the single transaction the real
+   * `receive_document` opens. A carton of five items cannot land as three, not even
+   * in the demo.
+   */
+  receive_document: (args) => {
+    requireManager();
+    const kind = str(args, 'receiptKind') === 'opening' ? 'opening' : 'supplier';
+    if (kind === 'opening' && !ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
+
+    const supplierName = str(args, 'supplierName').trim();
+    const documentRef = typeof args?.['documentRef'] === 'string' ? (args['documentRef'] as string).trim() : '';
+    const purchaseDate = typeof args?.['purchaseDate'] === 'string' ? (args['purchaseDate'] as string).trim() : '';
+    const note = typeof args?.['note'] === 'string' ? (args['note'] as string).trim() : '';
+    if (documentRef.length > 60) fail('RECEIPT_REFERENCE_INVALID');
+    if (note.length > 300) fail('RECEIPT_NOTE_INVALID');
+    if (purchaseDate !== '' && !demoCalendarDay(purchaseDate)) fail('RECEIPT_DATE_INVALID');
+    // Opening stock is not a purchase: there is no supplier, no invoice and no
+    // purchase day to claim (`0035`).
+    if (kind === 'opening' && (supplierName !== '' || documentRef !== '' || purchaseDate !== '')) {
+      fail('RECEIPT_OPENING_HAS_SUPPLIER');
     }
-    const seen = new Set<string>();
-    const cleanImeis: string[] = [];
-    for (const raw of rawImeis) {
-      const digits = demoNormalizeImei(raw);
-      if (!/^\d{15}$/.test(digits)) fail('IMEI_LENGTH_INVALID');
-      if (!demoLuhn(digits)) fail('IMEI_CHECK_DIGIT_INVALID');
-      if (seen.has(digits)) fail('IMEI_DUPLICATE_IN_BATCH');
-      if (productUnits.some((u) => u.imei === digits || u.imei2 === digits)) fail('IMEI_ALREADY_REGISTERED');
-      seen.add(digits);
-      cleanImeis.push(digits);
-    }
-    for (const digits of cleanImeis) {
-      productUnits.push({
-        id: newId('u'),
-        productId: x.id,
-        imei: digits,
-        imei2: null,
-        color: null,
-        unitCostMinor: unitCost,
-        status: 'in_stock',
-        createdAt: now(),
-      });
-    }
-    x.onHand += quantity;
-    x.totalCostMinor += quantity * unitCost;
-    const resolvedAt = now();
-    for (const sh of demoShortages) {
-      if (sh.productId === x.id && sh.resolvedAt === null) {
-        sh.resolvedAt = resolvedAt;
+
+    const lines = Array.isArray(args?.['lines'])
+      ? (args['lines'] as {
+          productId?: string | null;
+          newItem?: { name: string; categoryId?: string | null; salePriceMinor?: number | null } | null;
+          newPhone?: {
+            categoryId: string;
+            brandId: string;
+            model: string;
+            deviceType: string;
+            storageGb?: number | null;
+            ramGb?: number | null;
+            salePriceMinor?: number | null;
+          } | null;
+          quantity: number;
+          unitCostMinor: number;
+          imeis?: string[] | null;
+        }[])
+      : [];
+    if (lines.length === 0) fail('RECEIPT_EMPTY');
+
+    // Everything that can be refused is refused here, before the snapshot is taken.
+    for (const line of lines) {
+      if (!Number.isInteger(line.quantity) || line.quantity < 1) fail('RECEIPT_QUANTITY_INVALID');
+      if (!Number.isInteger(line.unitCostMinor) || line.unitCostMinor < 0) fail('COST_NEGATIVE_TOTAL');
+      const hasProduct = typeof line.productId === 'string' && line.productId !== '';
+      const hasItem = line.newItem !== null && line.newItem !== undefined;
+      const hasPhone = line.newPhone !== null && line.newPhone !== undefined;
+      if (Number(hasProduct) + Number(hasItem) + Number(hasPhone) !== 1) fail('RECEIPT_LINE_EMPTY');
+      if (hasProduct) findProduct(line.productId as string);
+      if (hasItem && (line.newItem?.name ?? '').trim() === '') fail('PRODUCT_NAME_REQUIRED');
+      if (hasPhone) {
+        const phone = line.newPhone!;
+        const category = categories.find((c) => c.id === phone.categoryId) ?? fail('PRODUCT_CATEGORY_NOT_FOUND');
+        if (category.kind !== 'phone') fail('PHONE_CATEGORY_NOT_PHONE');
+        const brand = findBrand(phone.brandId);
+        if (!(brand.deviceType === 'both' || brand.deviceType === phone.deviceType)) fail('PHONE_BRAND_TYPE_MISMATCH');
+        if (phone.model.trim() === '') fail('PHONE_MODEL_REQUIRED');
       }
     }
-    return { productId: x.id, quantity: x.onHand, costMinor: 0 };
+
+    const actor = requireUser();
+    const snapshot = {
+      products: products.map((each) => ({ ...each })),
+      units: productUnits.map((each) => ({ ...each })),
+      receipts: stockReceipts.map((each) => ({ ...each })),
+    };
+    const documentId = newId('doc');
+    const occurredAt = now();
+    const written: { productId: string; quantity: number }[] = [];
+    try {
+      for (const line of lines) {
+        let productId: string;
+        if (line.newItem !== null && line.newItem !== undefined) {
+          const created = handlers['create_product']!({
+            name: line.newItem.name,
+            disposition: 'quantity',
+            categoryId: line.newItem.categoryId ?? null,
+            salePriceMinor: line.newItem.salePriceMinor ?? null,
+          }) as { id: string };
+          productId = created.id;
+        } else if (line.newPhone !== null && line.newPhone !== undefined) {
+          const created = handlers['create_phone']!({
+            categoryId: line.newPhone.categoryId,
+            brandId: line.newPhone.brandId,
+            model: line.newPhone.model,
+            deviceType: line.newPhone.deviceType,
+            storageGb: line.newPhone.storageGb ?? null,
+            ramGb: line.newPhone.ramGb ?? null,
+            salePriceMinor: line.newPhone.salePriceMinor ?? null,
+          }) as { product: { id: string } };
+          productId = created.product.id;
+        } else {
+          productId = line.productId as string;
+        }
+        const outcome = applyReceiveStock(
+          findProduct(productId),
+          line.quantity,
+          line.unitCostMinor,
+          line.imeis ?? [],
+        );
+        stockReceipts.push({
+          id: newId('r'),
+          productId,
+          productName: findProduct(productId).name,
+          quantity: line.quantity,
+          unitCostMinor: line.unitCostMinor,
+          totalCostMinor: line.quantity * line.unitCostMinor,
+          supplierName: supplierName === '' ? null : supplierName,
+          receiptKind: kind,
+          documentId,
+          documentRef: documentRef === '' ? null : documentRef,
+          purchaseDate: purchaseDate === '' ? null : purchaseDate,
+          note: note === '' ? null : note,
+          occurredAt,
+          actorId: actor.id,
+        });
+        written.push({ productId, quantity: outcome.quantity });
+      }
+    } catch (err) {
+      // Nothing was written: put the shelf back exactly as it was.
+      products.splice(0, products.length, ...snapshot.products);
+      productUnits.splice(0, productUnits.length, ...snapshot.units);
+      stockReceipts.splice(0, stockReceipts.length, ...snapshot.receipts);
+      throw err;
+    }
+    if (kind === 'opening') approvedOnce = false;
+    return {
+      documentId,
+      totalQuantity: written.reduce((sum, row) => sum + row.quantity, 0),
+      lines: written,
+    };
+  },
+  /**
+   * Give one loose piece on the shelf its IMEI (`0035`).
+   *
+   * The balance does not move: the piece was already counted and already cost what it
+   * cost, so this registers a unit at the product's current average and touches
+   * nothing else. That is how «الـIMEI مش إجباري» stays workable — the number can
+   * arrive after the phone does.
+   */
+  register_stock_unit: (args) => {
+    requireManager();
+    const x = findProduct(str(args, 'productId'));
+    const tracking = x.tracking ?? (x.brandId !== null ? 'serial_optional' : 'none');
+    if (tracking === 'none') fail('IMEI_PRODUCT_NOT_SERIAL_TRACKED');
+    const digits = demoNormalizeImei(str(args, 'imei'));
+    if (!/^\d{15}$/.test(digits)) fail('IMEI_LENGTH_INVALID');
+    if (!demoLuhn(digits)) fail('IMEI_CHECK_DIGIT_INVALID');
+    if (productUnits.some((u) => u.imei === digits || u.imei2 === digits)) fail('IMEI_ALREADY_REGISTERED');
+    const inStock = productUnits.filter((u) => u.productId === x.id && u.status === 'in_stock');
+    if (inStock.length >= x.onHand) fail('RECEIPT_NO_UNTRACKED_PIECES');
+    const unit = {
+      id: newId('u'),
+      productId: x.id,
+      imei: digits,
+      imei2: null as string | null,
+      color: str(args, 'color').trim() || null,
+      unitCostMinor: x.onHand > 0 ? Math.floor(x.totalCostMinor / x.onHand) : 0,
+      status: 'in_stock' as const,
+      createdAt: now(),
+    };
+    productUnits.push(unit);
+    return { ...unit };
   },
   receive_opening_stock: (args) => {
     requireManager();
     if (!ownerApprovalHolds()) fail('OWNER_APPROVAL_REQUIRED');
     approvedOnce = false;
-    return handlers['receive_stock']!(args);
+    return handlers['receive_stock']!({ ...args, receiptKind: 'opening' });
   },
   list_product_units: (args) => {
     requireUser();
@@ -3866,6 +4169,11 @@ const handlers: Record<string, (args: Args) => unknown> = {
     requireManager();
     const x = findProduct(str(args, 'productId'));
     const quantity = numArg(args, 'quantity');
+    // Anything but a purchase can lower the balance, so a removal needs a reason
+    // (`0035`): «تالف» and «فقدان» and «فرق جرد» are three different stories about
+    // the same missing piece, and the reason is the only evidence there is.
+    const reason = str(args, 'reason').trim();
+    if (reason.length > 300) fail('RECEIPT_NOTE_INVALID');
     if (quantity > x.onHand) fail('COST_INSUFFICIENT_STOCK');
     const removed = Math.ceil((x.totalCostMinor * quantity) / Math.max(1, x.onHand));
     x.onHand -= quantity;

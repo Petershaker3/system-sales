@@ -36,6 +36,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   changed: [activeCount: number];
+  /**
+   * «استلم» from the shortage list: the row already knows which product is missing,
+   * so it opens the delivery form on it. The list used to tell the shopkeeper what
+   * was missing and leave him to find the product again (`0035`).
+   */
+  receive: [productId: string];
 }>();
 
 const items = ref<readonly ShortageEntry[]>([]);
@@ -567,6 +573,16 @@ async function onDelete(item: ShortageEntry): Promise<void> {
             <span class="tag" :class="s.onHand === 0 ? 'err' : 'warn'">
               {{ s.onHand === 0 ? 'خلصان' : `باقي ${num(s.onHand)}` }}
             </span>
+            <button
+              type="button"
+              class="btn sm soft"
+              :data-sh-receive="s.productId"
+              :disabled="busy"
+              title="استلام كمية من الصنف ده"
+              @click="emit('receive', s.productId)"
+            >
+              <Icon name="arrow-down-to-line" /> استلم
+            </button>
             <button
               type="button"
               class="btn sm"
