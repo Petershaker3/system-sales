@@ -4221,7 +4221,6 @@ fn the_rail_order_names_only_sections_both_halves_know() {
 const API_APPEARANCE_TS: &str = include_str!("../../../src/api/appearance.ts");
 const UI_APPEARANCE_TS: &str = include_str!("../../../src/ui/appearance.ts");
 const QUICK_ACTIONS_TS: &str = include_str!("../../../src/screens/pos/quick-actions.ts");
-const EXPENSES_SCREEN_VUE: &str = include_str!("../../../src/screens/expenses/ExpensesScreen.vue");
 const POS_BUTTONS_CARD_VUE: &str =
     include_str!("../../../src/screens/settings/PosButtonsCard.vue");
 
