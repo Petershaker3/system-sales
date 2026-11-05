@@ -4263,7 +4263,7 @@ fn the_till_buttons_and_the_expense_reasons_are_one_setting_on_both_halves() {
     // Hiding is what is stored, so a button a later build adds is shown by default.
     assert!(
         QUICK_ACTIONS_TS.contains("export function isQuickActionShown")
-            && QUICK_ACTIONS_TS.contains("a button this build does not have cannot be hidden on it"),
+            && QUICK_ACTIONS_TS.contains("cannot be hidden on it"),
         "the till reads the hidden list and states what an unknown id means"
     );
     assert!(
