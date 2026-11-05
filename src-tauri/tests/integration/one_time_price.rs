@@ -26,8 +26,9 @@ use mobile_shop_system_lib::services::catalog::CatalogContext;
 use mobile_shop_system_lib::services::identity::secure_store::InMemoryTokenStore;
 use mobile_shop_system_lib::services::identity::{auth, bootstrap, session};
 use mobile_shop_system_lib::services::inventory::stock as inventory;
+use mobile_shop_system_lib::domain::sales::SaleError;
 use mobile_shop_system_lib::services::sales::{
-    self as sales_service, SaleError, SaleLineInput, SaleLineWithUnitInput, SaleServiceError,
+    self as sales_service, SaleLineInput, SaleLineWithUnitInput, SaleServiceError,
 };
 use sqlx::SqlitePool;
 
