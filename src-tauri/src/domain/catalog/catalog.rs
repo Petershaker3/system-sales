@@ -363,6 +363,10 @@ pub enum CatalogError {
     /// The category named for a product does not exist or is archived
     /// (ADR-018 §1).
     CategoryNotFound,
+    /// A phone was described with a device type the shop does not know
+    /// (`touch` or `keypad` only). Raised by the receiving document, which takes
+    /// the type as text from the screen (`0035`).
+    InvalidDeviceType,
     /// Every internal shop code has been used (`ADR-018` §3, `PLAN` §6).
     ///
     /// Practically unreachable — the range holds a hundred billion codes — but
@@ -385,6 +389,7 @@ impl CatalogError {
             CatalogError::ProductArchived => "PRODUCT_IS_ARCHIVED",
             CatalogError::PermissionDenied => "PERMISSION_DENIED",
             CatalogError::CategoryNotFound => "PRODUCT_CATEGORY_NOT_FOUND",
+            CatalogError::InvalidDeviceType => "PRODUCT_DEVICE_TYPE_INVALID",
             CatalogError::ShopCodeExhausted => "SHOP_CODE_EXHAUSTED",
         }
     }
@@ -403,6 +408,7 @@ impl fmt::Display for CatalogError {
             CatalogError::ProductArchived => write!(f, "product is archived"),
             CatalogError::PermissionDenied => write!(f, "permission denied"),
             CatalogError::CategoryNotFound => write!(f, "no live category with this id"),
+            CatalogError::InvalidDeviceType => write!(f, "unknown device type"),
             CatalogError::ShopCodeExhausted => write!(f, "every internal shop code is in use"),
         }
     }

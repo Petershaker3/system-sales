@@ -70,16 +70,34 @@ pub async fn create_phone(
     input: NewPhone,
 ) -> Result<RegisteredPhone, BrandServiceError> {
     let session = authorize(pool, tokens).await?;
-    let now = Timestamp::now().as_millis();
+    let now = Timestamp::now();
+    let mut tx = pool.begin().await.map_err(storage)?;
+    let registered = create_phone_in_tx(&mut tx, &session, now, input).await?;
+    tx.commit().await.map_err(storage)?;
+    Ok(registered)
+}
+
+/// Register a phone inside a transaction the caller owns (`0035`).
+///
+/// The same checks and the same rows `create_phone` writes — company, type,
+/// storage, the duplicate-model guard, the built title — but on a connection the
+/// caller will commit. The receiving document uses it so a brand-new model and
+/// the pieces that arrived with it are one commit.
+pub async fn create_phone_in_tx(
+    tx: &mut sqlx::SqliteConnection,
+    session: &crate::domain::identity::Session,
+    now: Timestamp,
+    input: NewPhone,
+) -> Result<RegisteredPhone, BrandServiceError> {
+    let now = now.as_millis();
     let actor = session.user_id();
     let sale_price = match input.sale_price_minor {
         Some(minor) => Some(SalePrice::new_minor(minor)?),
         None => None,
     };
+    let tx = &mut *tx;
 
-    let mut tx = pool.begin().await.map_err(storage)?;
-
-    let category = category_repo::find_by_id(&mut tx, input.category)
+    let category = category_repo::find_by_id(tx, input.category)
         .await
         .map_err(storage)?
         .filter(|category| category.is_editable())
@@ -88,7 +106,7 @@ pub async fn create_phone(
         return Err(BrandError::CategoryNotPhone.into());
     }
 
-    let brand = brand_repo::find_by_id(&mut tx, input.brand)
+    let brand = brand_repo::find_by_id(tx, input.brand)
         .await
         .map_err(storage)?
         .ok_or(BrandError::NotFound)?;
@@ -103,7 +121,7 @@ pub async fn create_phone(
         input.storage_gb,
         input.ram_gb,
     )?;
-    if brand_repo::find_phone(&mut tx, &details)
+    if brand_repo::find_phone(tx, &details)
         .await
         .map_err(storage)?
         .is_some()
@@ -132,13 +150,12 @@ pub async fn create_phone(
         created_at: now,
         updated_at: now,
     };
-    product_repo::insert(&mut tx, &product)
+    product_repo::insert(tx, &product)
         .await
         .map_err(storage)?;
-    brand_repo::set_phone_details(&mut tx, product.id, &details)
+    brand_repo::set_phone_details(tx, product.id, &details)
         .await
         .map_err(storage)?;
-    tx.commit().await.map_err(storage)?;
     Ok(RegisteredPhone { product, details })
 }
 
@@ -159,7 +176,9 @@ pub struct NewUsedPhone {
     pub accessories: Option<String>,
     pub intake_note: Option<String>,
     pub cost_minor: i64,
-    pub sale_price_minor: i64,
+    /// `None` leaves the sale price unset: phones are priced at the sale when the
+    /// shop does not want to commit in advance (owner, 2026-11-02).
+    pub sale_price_minor: Option<i64>,
     pub seller_name: Option<String>,
     pub seller_phone: Option<String>,
     pub seller_national_id: Option<String>,
@@ -178,7 +197,8 @@ pub struct RegisteredUsedPhone {
     pub condition_grade: String,
     pub battery_health_pct: Option<i64>,
     pub cost_minor: i64,
-    pub sale_price_minor: i64,
+    /// `None` when nobody set a price, which is not the same as free.
+    pub sale_price_minor: Option<i64>,
     pub on_hand: i64,
 }
 
@@ -248,7 +268,12 @@ pub async fn create_used_phone(
     if input.cost_minor < 0 {
         return Err(CostError::NegativeTotal.into());
     }
-    let sale_price = SalePrice::new_minor(input.sale_price_minor)?;
+    // Optional, and `None` stays `None`: the schema distinguishes «no price yet»
+    // from a genuine zero, and so must this path.
+    let sale_price = match input.sale_price_minor {
+        Some(minor) => Some(SalePrice::new_minor(minor)?),
+        None => None,
+    };
 
     let mut tx = pool.begin().await.map_err(storage)?;
     let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
@@ -338,7 +363,7 @@ pub async fn create_used_phone(
             name: ProductName::new(&title)?,
             disposition: Disposition::Quantity,
             barcode: None,
-            sale_price: Some(sale_price),
+            sale_price,
             department: Some(category.id),
             default_cost: None,
             vat_rate_bp: None,
@@ -407,6 +432,12 @@ pub async fn create_used_phone(
                 seller_name.clone()
             },
             receipt_kind: Some(receipt_kind.as_str().to_owned()),
+            // One used handset is one delivery, and its paperwork is the intake
+            // form itself (seller, seller's phone, its own note).
+            document_id: None,
+            document_ref: None,
+            purchase_date: None,
+            note: None,
         },
     )
     .await

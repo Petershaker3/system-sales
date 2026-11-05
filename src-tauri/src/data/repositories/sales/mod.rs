@@ -81,6 +81,16 @@ pub struct MovementRecord {
     pub supplier_name: Option<String>,
     /// `"supplier"` or `"opening"` on a receipt (`ADR-019`); NULL otherwise.
     pub receipt_kind: Option<String>,
+    /// The delivery this receipt belongs to (`0035`). Several movements written
+    /// by one «احفظ التوريد» share it, so the batch reads back as one page.
+    pub document_id: Option<String>,
+    /// The supplier's own invoice/reference number, as typed (`0035`).
+    pub document_ref: Option<String>,
+    /// The day the goods were bought, `YYYY-MM-DD` (`0035`). NULL means the
+    /// ledger only knows when they were received.
+    pub purchase_date: Option<String>,
+    /// One free line about the delivery (`0035`).
+    pub note: Option<String>,
 }
 
 /// One payment row on a sale document (`ADR-020` §2).
@@ -162,8 +172,10 @@ pub async fn insert_movement(
         "INSERT INTO stock_movements
              (id, product_id, kind, quantity_delta, unit_cost_minor, cost_delta_minor,
               occurred_at, actor_id, sale_id, sale_line_id,
-              fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              fifo_layer_id, fifo_received_at, reverses_movement_id, supplier_name, receipt_kind,
+              document_id, document_ref, purchase_date, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                 ?16, ?17, ?18, ?19)",
     )
     .bind(&movement.id)
     .bind(&movement.product_id)
@@ -180,6 +192,10 @@ pub async fn insert_movement(
     .bind(movement.reverses_movement_id.as_deref())
     .bind(movement.supplier_name.as_deref())
     .bind(movement.receipt_kind.as_deref())
+    .bind(movement.document_id.as_deref())
+    .bind(movement.document_ref.as_deref())
+    .bind(movement.purchase_date.as_deref())
+    .bind(movement.note.as_deref())
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -437,6 +453,10 @@ fn row_to_movement(row: sqlx::sqlite::SqliteRow) -> MovementRecord {
         reverses_movement_id: row.get("reverses_movement_id"),
         supplier_name: row.get("supplier_name"),
         receipt_kind: row.get("receipt_kind"),
+        document_id: row.get("document_id"),
+        document_ref: row.get("document_ref"),
+        purchase_date: row.get("purchase_date"),
+        note: row.get("note"),
     }
 }
 

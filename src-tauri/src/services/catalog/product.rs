@@ -142,6 +142,49 @@ pub async fn create(
     }
 }
 
+/// Create a product inside a transaction the caller owns (`0035`).
+///
+/// The receiving document uses this so «موديل جديد + أول كمية» is one commit:
+/// the product row and its receipt either both exist afterwards or neither does.
+/// It is the same insertion `create` performs — the caller supplies the session,
+/// so `ManageCatalog` is still required and the attribution is still a fact.
+pub async fn create_in_tx(
+    conn: &mut SqliteConnection,
+    session: &Session,
+    input: NewProduct,
+) -> Result<Product, CatalogError> {
+    authorize(session)?;
+
+    let name = ProductName::new(&input.name)?;
+    let barcode = build_barcode(&input.barcode)?;
+    let sale_price = build_price(&input.sale_price_minor)?;
+    let now = Timestamp::now().as_millis();
+    let actor = session.user_id();
+    let department = live_category(conn, input.category).await?;
+    let product = Product {
+        id: ProductId::generate(),
+        name,
+        disposition: input.disposition,
+        barcode,
+        sale_price,
+        department,
+        default_cost: None,
+        vat_rate_bp: None,
+        status: ProductStatus::Active,
+        created_by: actor,
+        updated_by: actor,
+        created_at: now,
+        updated_at: now,
+    };
+    match repo::insert(conn, &product).await {
+        Ok(()) => Ok(product),
+        Err(sqlx::Error::Database(ref e)) if is_unique_violation(&e.to_string()) => {
+            Err(CatalogError::BarcodeAlreadyExists)
+        }
+        Err(_) => Err(CatalogError::NoProductWithThisId),
+    }
+}
+
 /// SQLite reports a UNIQUE constraint failure with this code.
 fn is_unique_violation(message: &str) -> bool {
     message.contains("UNIQUE constraint failed") || message.contains("constraint failed: UNIQUE")

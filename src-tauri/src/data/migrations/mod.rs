@@ -173,3 +173,9 @@ pub const EXPENSES_OUTSIDE_THE_DRAWER: &str =
 /// account can say how much of this month's allowance is already used. Purely
 /// additive: every existing wallet starts at 0, meaning «no limit».
 pub const WALLET_MONTHLY_LIMIT: &str = include_str!("0034_wallet_monthly_limit.sql");
+
+/// `0035`: a delivery is a document — `document_id`, `document_ref`,
+/// `purchase_date` and `note` on a receipt's movement, so «توريد ٣ أصناف» can be
+/// read back as one page with the supplier's invoice number on it. Purely
+/// additive; a receipt written before it carried no paperwork.
+pub const RECEIVING_DOCUMENT: &str = include_str!("0035_receiving_document.sql");

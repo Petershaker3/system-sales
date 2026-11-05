@@ -25,6 +25,7 @@ use tauri::State;
 use crate::domain::identity::Sensitivity;
 use crate::domain::supplier::SupplierName;
 use crate::domain::unit::ReceiptKind;
+use crate::services::inventory::stock::{DocumentLine, NewCountedProduct, NewPhoneProduct, ReceiptPaperwork};
 use crate::services::identity::IdentityContext;
 use crate::services::inventory::imei as imei_use_cases;
 use crate::services::inventory::stock::{self as use_cases, StockServiceError};
@@ -98,6 +99,16 @@ pub struct ReceiptRowDto {
     pub unit_cost_minor: i64,
     pub supplier_name: Option<String>,
     pub occurred_at: i64,
+    /// `'supplier'` or `'opening'` (`ADR-019`).
+    pub receipt_kind: Option<String>,
+    /// The delivery this line belongs to; several lines share one (`0035`).
+    pub document_id: Option<String>,
+    /// The supplier's own invoice/reference number, as typed (`0035`).
+    pub document_ref: Option<String>,
+    /// The day the goods were bought, `YYYY-MM-DD` (`0035`).
+    pub purchase_date: Option<String>,
+    /// The note typed on the delivery (`0035`).
+    pub note: Option<String>,
 }
 
 /// What one movement changed.
@@ -235,8 +246,16 @@ pub async fn remove_stock(
     ctx: Ctx<'_>,
     product_id: String,
     quantity: i64,
+    reason: Option<String>,
 ) -> Result<StockOutcomeDto, InventoryCommandError> {
-    let outcome = use_cases::remove(&ctx.pool, ctx.tokens.as_ref(), &product_id, quantity).await?;
+    let outcome = use_cases::remove_with_reason(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &product_id,
+        quantity,
+        reason.as_deref(),
+    )
+    .await?;
 
     Ok(StockOutcomeDto {
         product_id,
@@ -363,13 +382,190 @@ pub async fn stock_value(ctx: Ctx<'_>) -> Result<StockValueDto, InventoryCommand
     })
 }
 
+/// One line of a delivery, as the receiving screen sends it (`0035`).
+///
+/// A line names an existing product (`productId`) OR describes the new one it is
+/// receiving for the first time. Both are the same transaction on the Rust side,
+/// which is the whole point: the shopkeeper thinks «وصلت ٥ من الموديل ده», not
+/// «أنشئ منتج ثم استلم».
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveLineInputDto {
+    pub product_id: Option<String>,
+    pub new_item: Option<NewItemInputDto>,
+    pub new_phone: Option<NewPhoneInputDto>,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub imeis: Option<Vec<String>>,
+}
+
+/// A counted product (accessory or part) created by the delivery itself.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewItemInputDto {
+    pub name: String,
+    pub category_id: Option<String>,
+    /// `None` means «no price yet», which is not the same as zero.
+    pub sale_price_minor: Option<i64>,
+}
+
+/// A phone model created by the delivery itself.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPhoneInputDto {
+    pub category_id: String,
+    pub brand_id: String,
+    pub model: String,
+    pub device_type: String,
+    pub storage_gb: Option<i64>,
+    pub ram_gb: Option<i64>,
+    pub sale_price_minor: Option<i64>,
+}
+
+/// What a saved delivery wrote back.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceivedDocumentDto {
+    pub document_id: String,
+    pub total_quantity: i64,
+    pub lines: Vec<ReceivedLineDto>,
+}
+
+/// One saved line: which product it landed on, and the balance afterwards.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceivedLineDto {
+    pub product_id: String,
+    pub quantity: i64,
+}
+
+/// Save a whole delivery in ONE transaction (`0035`).
+///
+/// `receiptKind` is `supplier` (a purchase, `Routine`) or `opening` (stock already
+/// on the shelf, `Sensitive` — one owner PIN for the whole document). Every line
+/// commits or none does, so a carton of five items cannot land as three.
+///
+/// The supplier invoice reference, the purchase day and the note are the
+/// operator's own labels on the paper that came with the goods. All optional.
+#[tauri::command]
+pub async fn receive_document(
+    ctx: Ctx<'_>,
+    receipt_kind: String,
+    supplier_name: Option<String>,
+    document_ref: Option<String>,
+    purchase_date: Option<String>,
+    note: Option<String>,
+    lines: Vec<ReceiveLineInputDto>,
+) -> Result<ReceivedDocumentDto, InventoryCommandError> {
+    let kind = ReceiptKind::parse(&receipt_kind)
+        .map_err(|error| InventoryCommandError { code: error.code() })?;
+    let supplier = SupplierName::parse_optional(supplier_name.as_deref().unwrap_or(""))
+        .map_err(|error| InventoryCommandError { code: error.code() })?;
+    let paperwork = ReceiptPaperwork {
+        document_id: None,
+        document_ref,
+        purchase_date,
+        note,
+    };
+    let mapped: Vec<DocumentLine> = lines
+        .into_iter()
+        .map(|line| DocumentLine {
+            product_id: line.product_id,
+            new_item: line.new_item.map(|item| NewCountedProduct {
+                name: item.name,
+                category_id: item.category_id,
+                sale_price_minor: item.sale_price_minor,
+            }),
+            new_phone: line.new_phone.map(|phone| NewPhoneProduct {
+                category_id: phone.category_id,
+                brand_id: phone.brand_id,
+                model: phone.model,
+                device_type: phone.device_type,
+                storage_gb: phone.storage_gb,
+                ram_gb: phone.ram_gb,
+                sale_price_minor: phone.sale_price_minor,
+            }),
+            quantity: line.quantity,
+            unit_cost_minor: line.unit_cost_minor,
+            imeis: line.imeis.unwrap_or_default(),
+        })
+        .collect();
+
+    let saved = use_cases::receive_document(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        kind,
+        supplier,
+        &paperwork,
+        &mapped,
+    )
+    .await?;
+
+    Ok(ReceivedDocumentDto {
+        document_id: saved.document_id,
+        total_quantity: saved.total_quantity(),
+        lines: saved
+            .lines
+            .into_iter()
+            .map(|(product_id, outcome)| ReceivedLineDto {
+                product_id,
+                quantity: outcome.quantity,
+            })
+            .collect(),
+    })
+}
+
+/// Give a piece already in stock its real IMEI (`0035`).
+///
+/// Changes no balance and no cost: the piece was counted, only its identity is
+/// new. Refused when every piece on the shelf already carries a serial.
+#[tauri::command]
+pub async fn register_stock_unit(
+    ctx: Ctx<'_>,
+    product_id: String,
+    imei: String,
+    color: Option<String>,
+) -> Result<ProductUnitDto, InventoryCommandError> {
+    let unit = use_cases::register_stock_unit(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &product_id,
+        &imei,
+        color.as_deref(),
+    )
+    .await?;
+    Ok(ProductUnitDto {
+        id: unit.id,
+        product_id: unit.product_id,
+        imei: unit.imei,
+        imei2: unit.imei2,
+        color: unit.color,
+        unit_cost_minor: unit.unit_cost_minor,
+        condition_grade: unit.condition_grade,
+        battery_health_pct: unit.battery_health_pct,
+        accessories: unit.accessories,
+        intake_note: unit.intake_note,
+        seller_name: unit.seller_name,
+        seller_phone: unit.seller_phone,
+        seller_national_id: unit.seller_national_id,
+        created_at: unit.created_at,
+    })
+}
+
 /// The receiving log, newest first — what came in, from whom, and at what cost.
 #[tauri::command]
 pub async fn list_receipts(
     ctx: Ctx<'_>,
     limit: Option<i64>,
+    product_id: Option<String>,
 ) -> Result<Vec<ReceiptRowDto>, InventoryCommandError> {
-    let rows = use_cases::list_receipts(&ctx.pool, ctx.tokens.as_ref(), limit.unwrap_or(100)).await?;
+    let rows = use_cases::list_receipts(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        limit.unwrap_or(100),
+        product_id.as_deref(),
+    )
+    .await?;
     Ok(rows
         .into_iter()
         .map(|r| ReceiptRowDto {
@@ -380,6 +576,11 @@ pub async fn list_receipts(
             unit_cost_minor: r.unit_cost_minor,
             supplier_name: r.supplier_name,
             occurred_at: r.occurred_at,
+            receipt_kind: r.receipt_kind,
+            document_id: r.document_id,
+            document_ref: r.document_ref,
+            purchase_date: r.purchase_date,
+            note: r.note,
         })
         .collect())
 }

@@ -243,7 +243,9 @@ pub struct RegisteredUsedPhoneDto {
     pub condition_grade: String,
     pub battery_health_pct: Option<i64>,
     pub cost_minor: i64,
-    pub sale_price_minor: i64,
+    /// `None` when nobody set a price: the model is registered unpriced and the
+    /// sale asks for a price (`0035`).
+    pub sale_price_minor: Option<i64>,
     pub on_hand: i64,
 }
 
@@ -266,7 +268,7 @@ pub async fn create_used_phone(
     accessories: Option<String>,
     intake_note: Option<String>,
     cost_minor: i64,
-    sale_price_minor: i64,
+    sale_price_minor: Option<i64>,
     seller_name: Option<String>,
     seller_phone: Option<String>,
     seller_national_id: Option<String>,

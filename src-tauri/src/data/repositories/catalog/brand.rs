@@ -201,10 +201,15 @@ pub async fn find_used_phone_by_name(
 }
 
 /// Update `sale_price_minor` on a product row inside a transaction.
+/// Set (or clear) the sale price of a product.
+///
+/// `None` writes `NULL`, which is «not priced yet» — the state a used handset
+/// arrives in when the shop does not want to commit to a price before the sale
+/// (`0035`). It is never written as `0`: free and unknown are different facts.
 pub async fn update_product_sale_price_minor(
     conn: &mut SqliteConnection,
     product_id: &str,
-    sale_price_minor: i64,
+    sale_price_minor: Option<i64>,
     updated_by: &str,
     updated_at: i64,
 ) -> Result<(), sqlx::Error> {

@@ -50,15 +50,21 @@ use crate::data::repositories::inventory::unit::{self as unit_repo, UnitRecord};
 use crate::data::repositories::sales::{self as sales_repo, MovementRecord};
 use crate::data::repositories::settings::app_settings as settings_repo;
 use crate::data::repositories::shortage as shortage_repo;
+use crate::domain::catalog::{BrandId, CatalogError, DeviceType, Disposition};
 use crate::domain::costing::fifo::{FifoLayer, FifoPosition};
 use crate::domain::costing::moving_average::AveragePosition;
 use crate::domain::costing::CostError;
 use crate::domain::identity::{
     DomainError, OwnerApproval, Permission, Sensitivity, Session, Timestamp, UserId,
 };
-use crate::domain::organisation::{CostMethod, DepartmentError};
+use crate::domain::organisation::{CostMethod, DepartmentError, DepartmentId};
 use crate::domain::supplier::SupplierName;
-use crate::domain::unit::{Imei, ReceiptKind, UnitError};
+use crate::domain::unit::{
+    validate_optional_bounded, Imei, ReceiptKind, UnitError, UNIT_COLOR_MAX_CHARS,
+};
+use crate::services::catalog::brands::BrandServiceError;
+use crate::services::catalog::phone::{self as phone_use_cases, NewPhone};
+use crate::services::catalog::product as catalog_product;
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::approval as approval_service;
 use crate::services::identity::session as identity_session;
@@ -90,6 +96,22 @@ pub enum StockError {
     },
     /// A costing refusal from the arithmetic itself.
     Cost(CostError),
+    /// A delivery document arrived with no lines (`0035`).
+    ReceiptEmpty,
+    /// A delivery line names neither an existing product nor a new one, or names
+    /// both (`0035`).
+    ReceiptLineEmpty,
+    /// A line asked for zero or a negative number of pieces (`0035`).
+    ReceiptQuantityInvalid,
+    /// The supplier's invoice reference is blank or longer than the column allows.
+    ReceiptReferenceInvalid,
+    /// The purchase day is not a real `YYYY-MM-DD` calendar day.
+    ReceiptDateInvalid,
+    /// The delivery note is blank or longer than the column allows.
+    ReceiptNoteInvalid,
+    /// Every piece on the shelf already carries a serial number, so registering
+    /// one more would claim a device the shop does not have (`0035`).
+    NoUntrackedPieces,
 }
 
 impl StockError {
@@ -98,6 +120,13 @@ impl StockError {
             Self::ProductNotFound => "STOCK_PRODUCT_NOT_FOUND",
             Self::CostAuthorityConflict { .. } => "STOCK_COST_AUTHORITY_CONFLICT",
             Self::Cost(error) => error.code(),
+            Self::ReceiptEmpty => "RECEIPT_EMPTY",
+            Self::ReceiptLineEmpty => "RECEIPT_LINE_EMPTY",
+            Self::ReceiptQuantityInvalid => "RECEIPT_QUANTITY_INVALID",
+            Self::ReceiptReferenceInvalid => "RECEIPT_REFERENCE_INVALID",
+            Self::ReceiptDateInvalid => "RECEIPT_DATE_INVALID",
+            Self::ReceiptNoteInvalid => "RECEIPT_NOTE_INVALID",
+            Self::NoUntrackedPieces => "RECEIPT_NO_UNTRACKED_PIECES",
         }
     }
 }
@@ -113,6 +142,17 @@ impl fmt::Display for StockError {
                 "product {product_id} stores a stock position that contradicts itself"
             ),
             Self::Cost(error) => write!(f, "{error}"),
+            Self::ReceiptEmpty => write!(f, "a delivery document needs at least one line"),
+            Self::ReceiptLineEmpty => {
+                write!(f, "a delivery line names neither an existing product nor a new one")
+            }
+            Self::ReceiptQuantityInvalid => write!(f, "a delivery line must hold at least 1 piece"),
+            Self::ReceiptReferenceInvalid => write!(f, "the supplier reference is not valid"),
+            Self::ReceiptDateInvalid => write!(f, "the purchase day is not a calendar day"),
+            Self::ReceiptNoteInvalid => write!(f, "the delivery note is not valid"),
+            Self::NoUntrackedPieces => {
+                write!(f, "every piece on hand already carries a serial number")
+            }
         }
     }
 }
@@ -136,6 +176,11 @@ pub enum StockServiceError {
     Stock(StockError),
     Department(DepartmentError),
     Unit(UnitError),
+    /// A product the receiving document had to create was refused by the
+    /// catalogue (`0035`), so the whole delivery is refused with it.
+    Catalog(CatalogError),
+    /// The same for a phone model: its company, type or duplicate check failed.
+    Brand(BrandServiceError),
 }
 
 impl From<DomainError> for StockServiceError {
@@ -168,6 +213,18 @@ impl From<UnitError> for StockServiceError {
     }
 }
 
+impl From<CatalogError> for StockServiceError {
+    fn from(error: CatalogError) -> Self {
+        Self::Catalog(error)
+    }
+}
+
+impl From<BrandServiceError> for StockServiceError {
+    fn from(error: BrandServiceError) -> Self {
+        Self::Brand(error)
+    }
+}
+
 impl StockServiceError {
     /// Delegates to whichever domain enum produced it, so no code is invented at
     /// this layer and the drift guard keeps covering every table.
@@ -177,6 +234,8 @@ impl StockServiceError {
             Self::Stock(error) => error.code(),
             Self::Department(error) => error.code(),
             Self::Unit(error) => error.code(),
+            Self::Catalog(error) => error.code(),
+            Self::Brand(error) => error.code(),
         }
     }
 }
@@ -188,6 +247,8 @@ impl fmt::Display for StockServiceError {
             Self::Stock(error) => write!(f, "{error}"),
             Self::Department(error) => write!(f, "{error}"),
             Self::Unit(error) => write!(f, "{error}"),
+            Self::Catalog(error) => write!(f, "{error}"),
+            Self::Brand(error) => write!(f, "{error}"),
         }
     }
 }
@@ -710,15 +771,29 @@ pub async fn receive(
     .await
 }
 
+/// Read a category id that arrived as text.
+///
+/// The receiving document takes ids from the WebView, so they are parsed here
+/// rather than trusted: a bad id is «no such category», which is what the
+/// operator would see if the category had been archived under them.
+fn parse_department(raw: &str) -> Result<DepartmentId, CatalogError> {
+    uuid::Uuid::parse_str(raw)
+        .map(DepartmentId::from_uuid)
+        .map_err(|_| CatalogError::CategoryNotFound)
+}
+
+/// Read a company id that arrived as text.
+fn parse_brand(raw: &str) -> Result<BrandId, BrandServiceError> {
+    uuid::Uuid::parse_str(raw)
+        .map(BrandId::from_uuid)
+        .map_err(|_| crate::domain::catalog::BrandError::NotFound.into())
+}
+
 /// Receive stock with optional IMEI units and an explicit receipt kind (`ADR-019`).
 ///
-/// - `ReceiptKind::Supplier` is a normal purchase (`Sensitivity::Routine`), and
-///   may carry an optional supplier name.
-/// - `ReceiptKind::Opening` is first-time stock already on the shelf (`ADR-016` #30,
-///   `Sensitivity::Sensitive`), spends one owner PIN approval inside the
-///   transaction, and refuses any supplier name (`UnitError::OpeningReceiptHasSupplier`).
-/// - Each IMEI in `imeis` is validated (15 digits + Luhn + unique in batch and
-///   in the shop) and recorded in `units` with its actual `unit_cost_minor`.
+/// The signature every existing caller uses: a receipt with no paperwork. It is
+/// the same transaction as [`receive_with_paperwork`], which is where the work
+/// happens now that a delivery can carry a supplier invoice and a note.
 #[allow(clippy::too_many_arguments)]
 pub async fn receive_with_units(
     pool: &SqlitePool,
@@ -731,26 +806,490 @@ pub async fn receive_with_units(
     supplier: Option<SupplierName>,
     imeis: &[String],
 ) -> Result<StockOutcome, StockServiceError> {
+    receive_with_paperwork(
+        pool,
+        tokens,
+        product_id,
+        quantity,
+        unit_cost_minor,
+        receipt_kind,
+        sensitivity,
+        supplier,
+        &ReceiptPaperwork::default(),
+        imeis,
+    )
+    .await
+}
+
+/// Receive stock with the paperwork of a delivery (`0035`).
+///
+/// The same arithmetic as `receive_with_units`, plus the supplier invoice
+/// reference, the purchase day and the note. A receipt is still one transaction:
+/// the paperwork commits with the stock or not at all.
+#[allow(clippy::too_many_arguments)]
+pub async fn receive_with_paperwork(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    product_id: &str,
+    quantity: i64,
+    unit_cost_minor: i64,
+    receipt_kind: ReceiptKind,
+    sensitivity: Sensitivity,
+    supplier: Option<SupplierName>,
+    paperwork: &ReceiptPaperwork,
+    imeis: &[String],
+) -> Result<StockOutcome, StockServiceError> {
     if receipt_kind == ReceiptKind::Opening && supplier.is_some() {
         return Err(UnitError::OpeningReceiptHasSupplier.into());
     }
+    paperwork.validate(receipt_kind)?;
     let parsed_imeis = Imei::parse_batch(imeis)?;
+    let paperwork = paperwork.trimmed();
 
     let (session, approval) = authorize(pool, tokens, sensitivity).await?;
     let now = Timestamp::now();
     let actor = session.user_id();
 
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
-    // Spent here, inside the receipt's transaction, so the approval and the
-    // receipt commit together or not at all. `None` for a routine receipt.
+    // Spent inside the receipt's transaction, so the approval and the receipt
+    // commit together or not at all. `None` for a routine receipt.
     let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
 
-    ensure_product(&mut *tx, product_id).await?;
-    let tracking = unit_repo::product_tracking(&mut *tx, product_id)
+    let outcome = receive_in_tx(
+        &mut tx,
+        &actor,
+        now,
+        product_id,
+        quantity,
+        unit_cost_minor,
+        receipt_kind,
+        supplier.as_ref(),
+        &paperwork,
+        &parsed_imeis,
+        approved_by.as_ref(),
+    )
+    .await?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(outcome)
+}
+
+/// One line of a delivery document (`0035`).
+///
+/// A line is EITHER an existing product (`product_id`) OR a new one described
+/// inline (`new_item` / `new_phone`). The new-product variant exists because the
+/// shopkeeper registering «Samsung A16 256GB — وصلت ٥» is doing one thing, and
+/// splitting it into «create the model» then «receive the pieces» is how a
+/// product can be left behind with no stock after a failed second step.
+pub struct DocumentLine {
+    pub product_id: Option<String>,
+    pub new_item: Option<NewCountedProduct>,
+    pub new_phone: Option<NewPhoneProduct>,
+    pub quantity: i64,
+    pub unit_cost_minor: i64,
+    pub imeis: Vec<String>,
+}
+
+/// A counted product (accessory or part) created by the receiving document.
+pub struct NewCountedProduct {
+    pub name: String,
+    pub category_id: Option<String>,
+    pub sale_price_minor: Option<i64>,
+}
+
+/// A phone model created by the receiving document.
+pub struct NewPhoneProduct {
+    pub category_id: String,
+    pub brand_id: String,
+    pub model: String,
+    pub device_type: String,
+    pub storage_gb: Option<i64>,
+    pub ram_gb: Option<i64>,
+    pub sale_price_minor: Option<i64>,
+}
+
+/// What one saved delivery wrote.
+#[derive(Debug, Clone)]
+pub struct ReceivedDocument {
+    pub document_id: String,
+    pub lines: Vec<(String, StockOutcome)>,
+}
+
+impl ReceivedDocument {
+    /// Pieces on the whole delivery, in the shop's own word for it.
+    pub fn total_quantity(&self) -> i64 {
+        self.lines.iter().map(|(_, outcome)| outcome.quantity).sum()
+    }
+}
+
+/// Receive a whole delivery as ONE transaction (`0035`).
+///
+/// All lines commit or none do: a carton of five items is one page of paper, and
+/// a program that saves four of them has told the shopkeeper something untrue
+/// about their own delivery. A line may name an existing product or describe a
+/// brand-new one; in the second case the product, its details, its stock, its
+/// receipt and its IMEI units are all written inside this same transaction.
+#[allow(clippy::too_many_arguments)]
+pub async fn receive_document(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    receipt_kind: ReceiptKind,
+    supplier: Option<SupplierName>,
+    paperwork: &ReceiptPaperwork,
+    lines: &[DocumentLine],
+) -> Result<ReceivedDocument, StockServiceError> {
+    if lines.is_empty() {
+        return Err(StockError::ReceiptEmpty.into());
+    }
+    if receipt_kind == ReceiptKind::Opening && supplier.is_some() {
+        return Err(UnitError::OpeningReceiptHasSupplier.into());
+    }
+    paperwork.validate(receipt_kind)?;
+    let paperwork = paperwork.trimmed();
+
+    // Every IMEI in the whole document is parsed before the transaction opens, so
+    // a typo in line five costs nothing.
+    let mut parsed_by_line: Vec<Vec<Imei>> = Vec::with_capacity(lines.len());
+    for line in lines {
+        if line.quantity < 1 {
+            return Err(StockError::ReceiptQuantityInvalid.into());
+        }
+        if line.unit_cost_minor < 0 {
+            return Err(CostError::NegativeTotal.into());
+        }
+        parsed_by_line.push(Imei::parse_batch(&line.imeis)?);
+    }
+
+    let sensitivity = match receipt_kind {
+        ReceiptKind::Opening => Sensitivity::Sensitive,
+        ReceiptKind::Supplier => Sensitivity::Routine,
+    };
+    let (session, approval) = authorize(pool, tokens, sensitivity).await?;
+    let now = Timestamp::now();
+    let actor = session.user_id();
+
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    // One approval for the whole document, spent inside its transaction.
+    let approved_by = approval_service::consume_in_tx(&mut tx, &session, approval).await?;
+
+    let document_id = paperwork
+        .document_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    let mut paperwork = paperwork;
+    paperwork.document_id = Some(document_id.clone());
+
+    let mut written: Vec<(String, StockOutcome)> = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        let product_id = match (&line.new_item, &line.new_phone) {
+            (Some(item), None) => {
+                let product = catalog_product::create_in_tx(
+                    &mut tx,
+                    &session,
+                    catalog_product::NewProduct {
+                        name: item.name.clone(),
+                        disposition: Disposition::Quantity,
+                        barcode: None,
+                        sale_price_minor: item.sale_price_minor,
+                        category: item
+                            .category_id
+                            .as_deref()
+                            .map(parse_department)
+                            .transpose()?,
+                    },
+                )
+                .await?;
+                product.id.as_str()
+            }
+            (None, Some(phone)) => {
+                let product = phone_use_cases::create_phone_in_tx(
+                    &mut tx,
+                    &session,
+                    now,
+                    phone_use_cases::NewPhone {
+                        category: parse_department(&phone.category_id)?,
+                        brand: parse_brand(&phone.brand_id)?,
+                        model: phone.model.clone(),
+                        device_type: DeviceType::parse(&phone.device_type)
+                            .ok_or(CatalogError::InvalidDeviceType)?,
+                        storage_gb: phone.storage_gb,
+                        ram_gb: phone.ram_gb,
+                        sale_price_minor: phone.sale_price_minor,
+                    },
+                )
+                .await?;
+                product.product.id.as_str()
+            }
+            (None, None) => match line.product_id.as_deref() {
+                Some(id) => id.to_owned(),
+                None => return Err(StockError::ReceiptLineEmpty.into()),
+            },
+            (Some(_), Some(_)) => return Err(StockError::ReceiptLineEmpty.into()),
+        };
+
+        let outcome = receive_in_tx(
+            &mut tx,
+            &actor,
+            now,
+            &product_id,
+            line.quantity,
+            line.unit_cost_minor,
+            receipt_kind,
+            supplier.as_ref(),
+            &paperwork,
+            &parsed_by_line[index],
+            approved_by.as_ref(),
+        )
+        .await?;
+        written.push((product_id, outcome));
+    }
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(ReceivedDocument {
+        document_id,
+        lines: written,
+    })
+}
+
+/// Give one piece already on the shelf its real IMEI (`0035`).
+///
+/// A quantity product can hold pieces nobody wrote a serial for — the owner's
+/// choice is «الـIMEI مش إجباري». This registers one of those pieces as a unit at
+/// the product's current moving average, and changes neither the balance nor the
+/// total cost: the piece was already counted, only its identity is new.
+pub async fn register_stock_unit(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    product_id: &str,
+    imei: &str,
+    color: Option<&str>,
+) -> Result<UnitRecord, StockServiceError> {
+    let (session, _) = authorize(pool, tokens, Sensitivity::Routine).await?;
+    let now = Timestamp::now();
+    let actor = session.user_id();
+    let imei = Imei::parse(imei)?;
+    let color = validate_optional_bounded(color, UNIT_COLOR_MAX_CHARS)?;
+
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    ensure_product(&mut tx, product_id).await?;
+    let tracking = unit_repo::product_tracking(&mut tx, product_id)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(StockError::ProductNotFound)?;
-    let appearance = settings_repo::load_appearance(&mut *tx)
+    if !tracking.allows_imei() {
+        return Err(UnitError::ProductNotSerialTracked.into());
+    }
+    if unit_repo::find_by_imei(&mut tx, imei.as_str())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .is_some()
+    {
+        return Err(UnitError::ImeiAlreadyRegistered.into());
+    }
+
+    let position = load_position(&mut tx, product_id).await?;
+    let current = average_position(product_id, position.as_ref())?;
+    let registered = unit_repo::list_in_stock_for_product(&mut tx, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .len() as i64;
+    if registered >= current.on_hand {
+        // Every piece on the shelf already has a serial: a new one would claim a
+        // device the shop does not have.
+        return Err(StockError::NoUntrackedPieces.into());
+    }
+    let unit_cost = if current.on_hand > 0 {
+        current.total_cost_minor / current.on_hand
+    } else {
+        0
+    };
+
+    let record = UnitRecord {
+        id: uuid::Uuid::now_v7().to_string(),
+        product_id: product_id.to_owned(),
+        imei: imei.as_str().to_owned(),
+        imei2: None,
+        color,
+        unit_cost_minor: unit_cost,
+        status: "in_stock".to_owned(),
+        received_movement_id: None,
+        sale_line_id: None,
+        retired_reason: None,
+        created_by: actor.as_str().to_owned(),
+        created_at: now.as_millis(),
+        condition_grade: None,
+        battery_health_pct: None,
+        accessories: None,
+        seller_name: None,
+        seller_phone: None,
+        seller_national_id: None,
+        intake_note: None,
+    };
+    unit_repo::insert_unit(&mut tx, &record)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    audit::append(
+        &mut tx,
+        actor,
+        audit::event::STOCK_RECEIVED,
+        now,
+        Some(format!(
+            r#"{{"product":"{}","registered_imei":true,"unit_cost_minor":{}}}"#,
+            product_id, unit_cost
+        )),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(record)
+}
+
+/// The longest supplier reference the column holds (`0035`).
+pub const RECEIPT_REFERENCE_MAX_CHARS: usize = 60;
+
+/// The longest delivery note the column holds (`0035`).
+pub const RECEIPT_NOTE_MAX_CHARS: usize = 300;
+
+/// The paperwork that belongs to one delivery (`0035`).
+///
+/// Every field is optional and every field is a label the operator typed on the
+/// paper that came with the goods. `None` is «not written down», which is a
+/// different fact from an empty string — the columns say so too.
+#[derive(Debug, Clone, Default)]
+pub struct ReceiptPaperwork {
+    /// Groups the lines of one delivery. Assigned by `receive_document`, which is
+    /// the only writer of a multi-line receipt; a one-line receipt from
+    /// `receive_with_paperwork` gets its own id when the caller supplies none.
+    pub document_id: Option<String>,
+    /// The supplier's own invoice/reference number.
+    pub document_ref: Option<String>,
+    /// The day the goods were bought, `YYYY-MM-DD`.
+    pub purchase_date: Option<String>,
+    /// One free line about the delivery.
+    pub note: Option<String>,
+}
+
+impl ReceiptPaperwork {
+    /// Refuse paperwork the ledger cannot honestly hold.
+    ///
+    /// The bounds mirror the columns in `0035`; the date is checked as a real
+    /// calendar day rather than just a shape, because «2026-02-31» would pass a
+    /// regex and lie. Opening stock is not a purchase, so it may carry a note
+    /// («الرف اللي ورا») and nothing else.
+    pub fn validate(&self, receipt_kind: ReceiptKind) -> Result<(), StockServiceError> {
+        let reference = self.document_ref.as_deref().map(str::trim).unwrap_or("");
+        if self.document_ref.is_some()
+            && (reference.is_empty() || reference.chars().count() > RECEIPT_REFERENCE_MAX_CHARS)
+        {
+            return Err(StockError::ReceiptReferenceInvalid.into());
+        }
+        let note = self.note.as_deref().map(str::trim).unwrap_or("");
+        if self.note.is_some() && (note.is_empty() || note.chars().count() > RECEIPT_NOTE_MAX_CHARS)
+        {
+            return Err(StockError::ReceiptNoteInvalid.into());
+        }
+        if let Some(date) = self.purchase_date.as_deref() {
+            if !is_calendar_day(date) {
+                return Err(StockError::ReceiptDateInvalid.into());
+            }
+        }
+        if receipt_kind == ReceiptKind::Opening
+            && (self.document_ref.is_some() || self.purchase_date.is_some())
+        {
+            return Err(UnitError::OpeningReceiptHasSupplier.into());
+        }
+        Ok(())
+    }
+
+    fn trimmed(&self) -> ReceiptPaperwork {
+        ReceiptPaperwork {
+            document_id: self.document_id.clone(),
+            document_ref: self
+                .document_ref
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_owned),
+            purchase_date: self.purchase_date.clone(),
+            note: self.note.as_deref().map(str::trim).map(str::to_owned),
+        }
+    }
+}
+
+/// `YYYY-MM-DD`, and a day that exists.
+fn is_calendar_day(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let digits = |from: usize, to: usize| -> Option<i64> {
+        let slice = raw.get(from..to)?;
+        if !slice.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        slice.parse::<i64>().ok()
+    };
+    let (Some(year), Some(month), Some(day)) = (digits(0, 4), digits(5, 7), digits(8, 10)) else {
+        return false;
+    };
+    if !(1900..=2999).contains(&year) || !(1..=12).contains(&month) {
+        return false;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let last = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+    };
+    (1..=last).contains(&day)
+}
+
+/// The receiving arithmetic, inside a transaction the caller owns.
+///
+/// This is what `receive_with_units`, `receive_document` and the inline-creation
+/// path all call: one product, one quantity, one unit cost, one receipt row, its
+/// IMEI units, its audit row and the shortages it resolves. Nothing here begins
+/// or commits a transaction, so a delivery of five lines commits as one page or
+/// not at all.
+#[allow(clippy::too_many_arguments)]
+async fn receive_in_tx(
+    conn: &mut sqlx::SqliteConnection,
+    actor: &UserId,
+    now: Timestamp,
+    product_id: &str,
+    quantity: i64,
+    unit_cost_minor: i64,
+    receipt_kind: ReceiptKind,
+    supplier: Option<&SupplierName>,
+    paperwork: &ReceiptPaperwork,
+    parsed_imeis: &[Imei],
+    approved_by: Option<&UserId>,
+) -> Result<StockOutcome, StockServiceError> {
+    // Every receipt belongs to a document, even a delivery of one line: that is
+    // what lets the history read a batch back as one page (`0035`).
+    let document_id = paperwork
+        .document_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    ensure_product(&mut *conn, product_id).await?;
+    let tracking = unit_repo::product_tracking(&mut *conn, product_id)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(StockError::ProductNotFound)?;
+    let appearance = settings_repo::load_appearance(&mut *conn)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -763,8 +1302,8 @@ pub async fn receive_with_units(
     if tracking.requires_imei(&appearance.imei_mode) && (parsed_imeis.len() as i64) != quantity {
         return Err(UnitError::ImeiRequiredForAllUnits.into());
     }
-    for imei in &parsed_imeis {
-        if unit_repo::find_by_imei(&mut *tx, imei.as_str())
+    for imei in parsed_imeis {
+        if unit_repo::find_by_imei(&mut *conn, imei.as_str())
             .await
             .map_err(|_| DomainError::StorageUnavailable)?
             .is_some()
@@ -773,19 +1312,19 @@ pub async fn receive_with_units(
         }
     }
 
-    collapse_legacy_in_tx(&mut *tx, &actor, product_id, now).await?;
-    let position = load_position(&mut *tx, product_id).await?;
+    collapse_legacy_in_tx(&mut *conn, actor, product_id, now).await?;
+    let position = load_position(&mut *conn, product_id).await?;
 
     let current = average_position(product_id, position.as_ref())?;
     let updated = current.receive(quantity, unit_cost_minor)?;
     repo::upsert_position(
-        &mut tx,
+        &mut conn,
         &repo::StockPosition {
             product_id: product_id.to_owned(),
             quantity: updated.on_hand,
             total_cost_minor: Some(updated.total_cost_minor),
         },
-        &actor,
+        actor,
         now.as_millis(),
     )
     .await
@@ -803,7 +1342,7 @@ pub async fn receive_with_units(
         .ok_or(CostError::Overflow)?;
     let movement_id = uuid::Uuid::now_v7().to_string();
     sales_repo::insert_movement(
-        &mut tx,
+        &mut conn,
         &MovementRecord {
             id: movement_id.clone(),
             product_id: product_id.to_owned(),
@@ -820,8 +1359,14 @@ pub async fn receive_with_units(
             reverses_movement_id: None,
             // The one movement that is a purchase, so the one that may name a
             // supplier (D1). Trimmed once here; the column stores it verbatim.
-            supplier_name: supplier.as_ref().map(|name| name.as_str().to_owned()),
+            supplier_name: supplier.map(|name| name.as_str().to_owned()),
             receipt_kind: Some(receipt_kind.as_str().to_owned()),
+            // The delivery this line belongs to, and the paperwork typed on it
+            // (`0035`). Every line of one «احفظ التوريد» shares the document id.
+            document_id: Some(document_id),
+            document_ref: paperwork.document_ref.clone(),
+            purchase_date: paperwork.purchase_date.clone(),
+            note: paperwork.note.clone(),
         },
     )
     .await
@@ -829,7 +1374,7 @@ pub async fn receive_with_units(
 
     for imei in &parsed_imeis {
         unit_repo::insert_unit(
-            &mut tx,
+            &mut conn,
             &UnitRecord {
                 id: uuid::Uuid::now_v7().to_string(),
                 product_id: product_id.to_owned(),
@@ -857,8 +1402,8 @@ pub async fn receive_with_units(
     }
 
     audit::append(
-        &mut tx,
-        actor,
+        &mut conn,
+        *actor,
         audit::event::STOCK_RECEIVED,
         now,
         Some(format!(
@@ -870,7 +1415,7 @@ pub async fn receive_with_units(
             outcome.quantity,
             // `null` rather than `""`, so the audit row distinguishes "nobody
             // named a supplier" from an empty label.
-            supplier.as_ref().map_or("null".to_owned(), |name| {
+            supplier.map_or("null".to_owned(), |name| {
                 format!("\"{}\"", name.as_str().replace('"', "\\\""))
             }),
             // Only a sensitive receipt carries an approver, so a routine
@@ -883,15 +1428,12 @@ pub async fn receive_with_units(
 
     // Plan item 1.15 (`ADR-030`): receiving stock for a product automatically
     // resolves any active shortage for that product inside the same transaction.
-    shortage_repo::resolve_shortages_for_product(&mut tx, product_id, now.as_millis())
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-
-    tx.commit()
+    shortage_repo::resolve_shortages_for_product(&mut conn, product_id, now.as_millis())
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     Ok(outcome)
 }
+
 
 /// Remove stock: consume units and report what they cost at the average.
 ///
@@ -904,6 +1446,29 @@ pub async fn remove(
     product_id: &str,
     quantity: i64,
 ) -> Result<StockOutcome, StockServiceError> {
+    remove_with_reason(pool, tokens, product_id, quantity, None).await
+}
+
+/// Take stock out and write **why** (`0035`).
+///
+/// A removal is not a sale and not a delivery: it is the shop saying «الناقص ده
+/// تالف» or «الجهاز ضاع» or «العدّ غلط». Without the reason those three read the
+/// same in the ledger a month later, so the reason is required here and recorded
+/// twice — in the audit row and as the retired unit's own reason.
+#[allow(clippy::too_many_arguments)]
+pub async fn remove_with_reason(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    product_id: &str,
+    quantity: i64,
+    reason: Option<&str>,
+) -> Result<StockOutcome, StockServiceError> {
+    let reason = reason.map(str::trim).filter(|text| !text.is_empty());
+    if let Some(text) = reason {
+        if text.chars().count() > RECEIPT_NOTE_MAX_CHARS {
+            return Err(StockError::ReceiptNoteInvalid.into());
+        }
+    }
     let (session, _) = authorize(pool, tokens, Sensitivity::Routine).await?;
     let now = Timestamp::now();
     let actor = session.user_id();
@@ -911,8 +1476,11 @@ pub async fn remove(
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
 
     let removal = remove_in_tx(&mut tx, &actor, product_id, quantity, now).await?;
+    // The operator's own words when they gave any; otherwise the ledger's old
+    // name for a manual removal, so a piece never retires without a reason.
+    let unit_reason = reason.unwrap_or("manual_stock_removal");
     for uid in &removal.retired_unit_ids {
-        unit_repo::mark_retired_manual(&mut tx, uid, "manual_stock_removal")
+        unit_repo::mark_retired_manual(&mut tx, uid, unit_reason)
             .await
             .map_err(|_| DomainError::StorageUnavailable)?;
     }
@@ -940,6 +1508,10 @@ pub async fn remove(
                 // no supplier. The table refuses one here, and rightly so.
                 supplier_name: None,
                 receipt_kind: None,
+                document_id: None,
+                document_ref: None,
+                purchase_date: None,
+                note: None,
             },
         )
         .await
@@ -952,8 +1524,15 @@ pub async fn remove(
         audit::event::STOCK_REMOVED,
         now,
         Some(format!(
-            r#"{{"product":"{}","quantity":{},"cost_minor":{},"method":"{}","on_hand":{}}}"#,
-            product_id, quantity, removal.cost_removed_minor, removal.method, removal.remaining_quantity
+            r#"{{"product":"{}","quantity":{},"cost_minor":{},"method":"{}","on_hand":{},"reason":{}}}"#,
+            product_id,
+            quantity,
+            removal.cost_removed_minor,
+            removal.method,
+            removal.remaining_quantity,
+            // `null` rather than `""`: «no reason given» and «an empty reason»
+            // must not be the same row.
+            reason.map_or("null".to_owned(), |text| format!("\"{}\"", text.replace('"', "\\\"")))
         )),
     )
     .await
@@ -1181,6 +1760,16 @@ pub struct ReceiptRow {
     pub unit_cost_minor: i64,
     pub supplier_name: Option<String>,
     pub occurred_at: i64,
+    /// `'supplier'` for a purchase, `'opening'` for stock already on the shelf.
+    pub receipt_kind: Option<String>,
+    /// The delivery this line belongs to — several lines share one (`0035`).
+    pub document_id: Option<String>,
+    /// The supplier's invoice/reference number, as typed (`0035`).
+    pub document_ref: Option<String>,
+    /// The day the goods were bought, `YYYY-MM-DD` (`0035`).
+    pub purchase_date: Option<String>,
+    /// The note typed on the delivery (`0035`).
+    pub note: Option<String>,
 }
 
 /// The receiving log, newest first — the deliveries, not the sales (`2026-11-02`).
@@ -1191,6 +1780,7 @@ pub async fn list_receipts(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
     limit: i64,
+    product_id: Option<&str>,
 ) -> Result<Vec<ReceiptRow>, StockServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::ManageInventory)?;
@@ -1198,7 +1788,7 @@ pub async fn list_receipts(
     let limit = limit.clamp(1, 500);
 
     let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
-    let rows = repo::list_receipts(&mut conn, limit)
+    let rows = repo::list_receipts(&mut conn, limit, product_id)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -1212,6 +1802,11 @@ pub async fn list_receipts(
             unit_cost_minor: r.unit_cost_minor,
             supplier_name: r.supplier_name,
             occurred_at: r.occurred_at,
+            receipt_kind: r.receipt_kind,
+            document_id: r.document_id,
+            document_ref: r.document_ref,
+            purchase_date: r.purchase_date,
+            note: r.note,
         })
         .collect();
     if !can_view_cost {
@@ -1407,6 +2002,10 @@ pub async fn reconcile_stock_count(
                     reverses_movement_id: None,
                     supplier_name: None,
                     receipt_kind: None,
+                    document_id: None,
+                    document_ref: None,
+                    purchase_date: None,
+                    note: None,
                 },
             )
             .await
@@ -1478,6 +2077,10 @@ pub async fn reconcile_stock_count(
                     reverses_movement_id: None,
                     supplier_name: None,
                     receipt_kind: None,
+                    document_id: None,
+                    document_ref: None,
+                    purchase_date: None,
+                    note: None,
                 },
             )
             .await

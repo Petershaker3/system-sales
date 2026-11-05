@@ -164,6 +164,16 @@ pub struct ReceiptRecord {
     pub unit_cost_minor: i64,
     pub supplier_name: Option<String>,
     pub occurred_at: i64,
+    /// `'supplier'` or `'opening'` (`ADR-019`).
+    pub receipt_kind: Option<String>,
+    /// The delivery this line belongs to (`0035`).
+    pub document_id: Option<String>,
+    /// The supplier's own invoice/reference number (`0035`).
+    pub document_ref: Option<String>,
+    /// The day the goods were bought, `YYYY-MM-DD` (`0035`).
+    pub purchase_date: Option<String>,
+    /// The note typed on the delivery (`0035`).
+    pub note: Option<String>,
 }
 
 /// The receipts recorded in `stock_movements`, newest first.
@@ -173,17 +183,24 @@ pub struct ReceiptRecord {
 pub async fn list_receipts(
     conn: &mut SqliteConnection,
     limit: i64,
+    product_id: Option<&str>,
 ) -> Result<Vec<ReceiptRecord>, sqlx::Error> {
+    // One query with a nullable filter rather than two: `?2 IS NULL` reads as
+    // «every product», and the caller that wants one product's purchase history
+    // gets the same shape back (`0035`).
     let rows = sqlx::query(
         "SELECT m.id, m.product_id, p.name AS product_name, m.quantity_delta,
-                m.unit_cost_minor, m.supplier_name, m.occurred_at
+                m.unit_cost_minor, m.supplier_name, m.occurred_at, m.receipt_kind,
+                m.document_id, m.document_ref, m.purchase_date, m.note
            FROM stock_movements m
            JOIN products p ON p.id = m.product_id
           WHERE m.kind = 'receipt'
+            AND (?2 IS NULL OR m.product_id = ?2)
           ORDER BY m.occurred_at DESC, m.id DESC
           LIMIT ?1",
     )
     .bind(limit)
+    .bind(product_id)
     .fetch_all(&mut *conn)
     .await?;
 
@@ -197,6 +214,11 @@ pub async fn list_receipts(
             unit_cost_minor: row.get("unit_cost_minor"),
             supplier_name: row.get("supplier_name"),
             occurred_at: row.get("occurred_at"),
+            receipt_kind: row.get("receipt_kind"),
+            document_id: row.get("document_id"),
+            document_ref: row.get("document_ref"),
+            purchase_date: row.get("purchase_date"),
+            note: row.get("note"),
         })
         .collect())
 }

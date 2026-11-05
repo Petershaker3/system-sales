@@ -52,6 +52,11 @@ pub struct SaleLineInputDto {
     pub imei: Option<String>,
     #[serde(default)]
     pub discount_minor: Option<i64>,
+    /// A price typed for this invoice only (`0035`). Absent means «the model's
+    /// price», which is the ordinary case; `Some` is the answer to «السعر للفاتورة
+    /// دي بس».
+    #[serde(default)]
+    pub unit_price_minor: Option<i64>,
 }
 
 impl SaleLineInputDto {
@@ -73,6 +78,11 @@ impl SaleLineInputDto {
             },
             self.discount_minor.unwrap_or(0),
         ))
+    }
+
+    /// The price this line was typed for, if the operator typed one (`0035`).
+    fn typed_price_minor(&self) -> Option<i64> {
+        self.unit_price_minor
     }
 }
 
@@ -171,14 +181,17 @@ pub async fn record_sale(
 ) -> Result<serde_json::Value, SalesCommandError> {
     let mut mapped_lines = Vec::with_capacity(lines.len());
     let mut line_discounts_minor = Vec::with_capacity(lines.len());
+    let mut line_price_overrides_minor = Vec::with_capacity(lines.len());
     for dto in lines {
+        let typed = dto.typed_price_minor();
         let (input, discount_minor) = dto.into_input_and_discount()?;
         mapped_lines.push(input);
         line_discounts_minor.push(discount_minor);
+        line_price_overrides_minor.push(typed);
     }
     let mapped_payments: Option<Vec<SalePaymentInput>> =
         payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
-    let outcome = use_cases::record_sale_with_discounts(
+    let outcome = use_cases::record_sale_with_line_prices(
         &ctx.pool,
         ctx.tokens.as_ref(),
         &mapped_lines,
@@ -187,6 +200,7 @@ pub async fn record_sale(
         customer_id.as_deref(),
         invoice_discount_minor.unwrap_or(0),
         &line_discounts_minor,
+        &line_price_overrides_minor,
     )
     .await?;
     // Authorize cost visibility from the session, not from caller role alone.

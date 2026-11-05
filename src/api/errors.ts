@@ -119,6 +119,15 @@ export const ErrorCode = {
   IMEI_SECONDARY_MATCHES_PRIMARY: 'IMEI_SECONDARY_MATCHES_PRIMARY',
   RECEIPT_OPENING_HAS_SUPPLIER: 'RECEIPT_OPENING_HAS_SUPPLIER',
   RECEIPT_KIND_INVALID: 'RECEIPT_KIND_INVALID',
+  // التوريد كمستند واحد (0035)
+  RECEIPT_EMPTY: 'RECEIPT_EMPTY',
+  RECEIPT_LINE_EMPTY: 'RECEIPT_LINE_EMPTY',
+  RECEIPT_QUANTITY_INVALID: 'RECEIPT_QUANTITY_INVALID',
+  RECEIPT_REFERENCE_INVALID: 'RECEIPT_REFERENCE_INVALID',
+  RECEIPT_DATE_INVALID: 'RECEIPT_DATE_INVALID',
+  RECEIPT_NOTE_INVALID: 'RECEIPT_NOTE_INVALID',
+  RECEIPT_NO_UNTRACKED_PIECES: 'RECEIPT_NO_UNTRACKED_PIECES',
+  PRODUCT_DEVICE_TYPE_INVALID: 'PRODUCT_DEVICE_TYPE_INVALID',
   UNIT_COLOR_TOO_LONG: 'UNIT_COLOR_TOO_LONG',
   UNIT_GRADE_INVALID: 'UNIT_GRADE_INVALID',
   UNIT_BATTERY_HEALTH_INVALID: 'UNIT_BATTERY_HEALTH_INVALID',
@@ -428,6 +437,22 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.IMEI_NO_UNREGISTERED_STOCK]: 'كل الأجهزة المتاحة من الموبايل ده متسجّل ليها IMEI بالفعل — اختار واحد من القائمة.',
   [ErrorCode.RECEIPT_OPENING_HAS_SUPPLIER]: 'رصيد أول المدة بضاعة موجودة عندك ومينفعش يتحط ليها اسم مورد.',
   [ErrorCode.RECEIPT_KIND_INVALID]: 'نوع الاستلام غير معروف.',
+  [ErrorCode.RECEIPT_EMPTY]:
+    'التوريد لازم يكون فيه صنف واحد على الأقل.',
+  [ErrorCode.RECEIPT_LINE_EMPTY]:
+    'سطر في التوريد مش متحدد: اختار صنف موجود أو اكتب صنف جديد — مش الاتنين ولا ولا واحد.',
+  [ErrorCode.RECEIPT_QUANTITY_INVALID]:
+    'الكمية في التوريد لازم تكون قطعة واحدة على الأقل.',
+  [ErrorCode.RECEIPT_REFERENCE_INVALID]:
+    'رقم فاتورة المورد لازم يكون من 1 لـ 60 حرف.',
+  [ErrorCode.RECEIPT_DATE_INVALID]:
+    'تاريخ الشراء لازم يكون يوم حقيقي بصيغة سنة-شهر-يوم.',
+  [ErrorCode.RECEIPT_NOTE_INVALID]:
+    'ملاحظة التوريد لازم تكون من 1 لـ 300 حرف.',
+  [ErrorCode.RECEIPT_NO_UNTRACKED_PIECES]:
+    'كل القطع اللي في المخزن مسجّل ليها IMEI بالفعل — مفيش جهاز من غير رقم تسجله.',
+  [ErrorCode.PRODUCT_DEVICE_TYPE_INVALID]:
+    'نوع الجهاز لازم يكون «زراير» أو «تانش».',
   [ErrorCode.UNIT_COLOR_TOO_LONG]: 'اسم اللون طويل زيادة عن اللزوم.',
 
 

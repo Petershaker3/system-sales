@@ -24,7 +24,7 @@ use crate::data::repositories::sales::{
     MovementRecord, SaleLineRecord, SalePaymentRecord, SaleRecord,
 };
 use crate::data::repositories::settings::app_settings as settings_repo;
-use crate::domain::catalog::{CatalogError, Disposition, ProductId, ProductStatus};
+use crate::domain::catalog::{CatalogError, Disposition, ProductId, ProductStatus, SalePrice};
 use crate::domain::costing::CostError;
 use crate::domain::customer::{CustomerError, CustomerLedgerEntry, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
@@ -279,6 +279,42 @@ pub async fn record_sale_with_discounts(
     invoice_discount_minor: i64,
     line_discounts_minor: &[i64],
 ) -> Result<SaleOutcome, SaleServiceError> {
+    record_sale_with_line_prices(
+        pool,
+        tokens,
+        lines,
+        confirmed_total_minor,
+        payments,
+        customer_id,
+        invoice_discount_minor,
+        line_discounts_minor,
+        &[],
+    )
+    .await
+}
+
+/// The same sale, with an optional price typed for that one invoice (`0035`).
+///
+/// `line_price_overrides_minor` runs parallel to `lines`: `None` means «use the
+/// model's price», `Some(minor)` means «this piece goes for this much, now».
+///
+/// An override is a **price change** in everything but name, so it is gated on
+/// `Permission::ManageCatalog` — the same authority that may change the model's
+/// own price. It writes nothing on the product: `sale_lines` already stores the
+/// price charged as an immutable snapshot, so a one-time price is historical from
+/// the moment it is recorded, and the next sale asks again.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_sale_with_line_prices(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    lines: &[SaleLineWithUnitInput],
+    confirmed_total_minor: Option<i64>,
+    payments: Option<&[SalePaymentInput]>,
+    customer_id: Option<&str>,
+    invoice_discount_minor: i64,
+    line_discounts_minor: &[i64],
+    line_price_overrides_minor: &[Option<i64>],
+) -> Result<SaleOutcome, SaleServiceError> {
     if lines.is_empty() {
         return Err(SaleError::Empty.into());
     }
@@ -402,8 +438,17 @@ pub async fn record_sale_with_discounts(
             .map_err(|_| DomainError::StorageUnavailable)?
             .ok_or(CatalogError::NoProductWithThisId)?;
 
-        let price = product.sale_price.ok_or(SaleError::PriceNotSet)?;
-        let unit_price_minor = price.as_minor();
+        // A price typed on this invoice wins for this invoice only. It is still
+        // a `SalePrice` — the same non-negative, bounded integer the product
+        // holds — so the arithmetic below cannot tell the two apart, which is
+        // exactly right: the money is the money.
+        let unit_price_minor = match line_price_overrides_minor.get(line_idx).copied().flatten() {
+            Some(typed) => {
+                session.authorize(Permission::ManageCatalog)?;
+                SalePrice::new_minor(typed)?.as_minor()
+            }
+            None => product.sale_price.ok_or(SaleError::PriceNotSet)?.as_minor(),
+        };
         let gross_line_minor = unit_price_minor
             .checked_mul(line.quantity)
             .ok_or(CostError::Overflow)?;
@@ -679,6 +724,10 @@ pub async fn record_sale_with_discounts(
                     // A sale is not a purchase and names no supplier (D1).
                     supplier_name: None,
                     receipt_kind: None,
+                    document_id: None,
+                    document_ref: None,
+                    purchase_date: None,
+                    note: None,
                 },
             )
             .await
@@ -1067,6 +1116,10 @@ async fn write_reversal_movement(
             // Undoing a sale is not a purchase, so it names no supplier (D1).
             supplier_name: None,
             receipt_kind: None,
+            document_id: None,
+            document_ref: None,
+            purchase_date: None,
+            note: None,
         },
     )
     .await
@@ -1658,6 +1711,10 @@ async fn execute_return_core_in_tx(
                         reverses_movement_id: None,
                         supplier_name: None,
                         receipt_kind: None,
+                        document_id: None,
+                        document_ref: None,
+                        purchase_date: None,
+                        note: None,
                     },
                 )
                 .await
@@ -2284,6 +2341,10 @@ pub async fn record_sale_exchange(
                     reverses_movement_id: None,
                     supplier_name: None,
                     receipt_kind: None,
+                    document_id: None,
+                    document_ref: None,
+                    purchase_date: None,
+                    note: None,
                 },
             )
             .await

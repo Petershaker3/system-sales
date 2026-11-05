@@ -111,6 +111,8 @@ pub fn run() {
             commands::settings::read_appearance,
             commands::settings::update_appearance,
             commands::inventory::receive_stock,
+            commands::inventory::receive_document,
+            commands::inventory::register_stock_unit,
             commands::inventory::receive_opening_stock,
             commands::inventory::list_product_units,
             commands::inventory::list_all_product_units,
