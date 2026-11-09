@@ -973,7 +973,8 @@ pub async fn find_sale_by_id_or_reference(
     }
     let row = sqlx::query(
         "SELECT id, reference, occurred_at, sold_by, kind, reverses_sale_id,
-                total_minor, cost_total_minor, discount_minor, approved_by
+                total_minor, cost_total_minor, discount_minor, approved_by,
+                surcharge_minor
          FROM sales
          WHERE kind = 'sale'
            AND (id = ?1 OR lower(reference) = lower(?1) OR reference LIKE '%' || ?1)
