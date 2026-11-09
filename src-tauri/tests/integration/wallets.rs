@@ -698,6 +698,8 @@ async fn every_money_flow_names_the_number_that_took_it() {
             due_label: None,
             estimated_price_minor: 90_000,
             parts_cost_minor: None,
+            part_name: None,
+            part_supplier: None,
             deposit_minor: 0,
             pay_method: Some("vf".to_owned()),
             pay_wallet_id: Some(second.id.as_str().to_owned()),

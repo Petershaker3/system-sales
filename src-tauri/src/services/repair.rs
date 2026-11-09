@@ -19,7 +19,8 @@ use crate::domain::repair::{
     validate_money_minor, validate_optional_text, validate_warranty_days, RepairError, RepairId,
     RepairPayMethod, RepairServiceKind, RepairStatus, RepairTicket, RepairsOverview,
     MAX_REPAIR_ACCESSORIES_CHARS, MAX_REPAIR_DUE_CHARS, MAX_REPAIR_IMEI_CHARS,
-    MAX_REPAIR_LOCK_CHARS, MAX_REPAIR_NOTE_CHARS, MAX_REPAIR_TECHNICIAN_CHARS,
+    MAX_REPAIR_LOCK_CHARS, MAX_REPAIR_NOTE_CHARS, MAX_REPAIR_PART_CHARS,
+    MAX_REPAIR_TECHNICIAN_CHARS,
 };
 use crate::services::identity::secure_store::SecureTokenStore;
 use crate::services::identity::approval as approval_service;
@@ -72,6 +73,9 @@ pub struct CreateRepairInput {
     pub due_label: Option<String>,
     pub estimated_price_minor: i64,
     pub parts_cost_minor: Option<i64>,
+    /// The part fitted and who it came from — paper, not stock (`0036`).
+    pub part_name: Option<String>,
+    pub part_supplier: Option<String>,
     pub deposit_minor: i64,
     pub pay_method: Option<String>,
     /// The shop wallet that took the deposit — or the settlement, when the ticket is delivered at
@@ -90,6 +94,9 @@ pub struct UpdateRepairStatusInput {
     pub technician_name: Option<String>,
     pub estimated_price_minor: Option<i64>,
     pub parts_cost_minor: Option<i64>,
+    /// `Some("")` clears the field; `None` leaves it as it was (`0036`).
+    pub part_name: Option<String>,
+    pub part_supplier: Option<String>,
     pub note: Option<String>,
 }
 
@@ -161,6 +168,9 @@ pub async fn create_repair(
         validate_default_text(input.due_label.as_deref(), "بكره", MAX_REPAIR_DUE_CHARS)?;
     let estimated_price_minor = validate_money_minor(input.estimated_price_minor)?;
     let parts_cost_minor = validate_money_minor(input.parts_cost_minor.unwrap_or(0))?;
+    let part_name = validate_default_text(input.part_name.as_deref(), "", MAX_REPAIR_PART_CHARS)?;
+    let part_supplier =
+        validate_default_text(input.part_supplier.as_deref(), "", MAX_REPAIR_PART_CHARS)?;
     let deposit_minor = validate_money_minor(input.deposit_minor)?;
     let pay_method = RepairPayMethod::parse(input.pay_method.as_deref().unwrap_or("cash"))?;
     let technician_name =
@@ -227,6 +237,8 @@ pub async fn create_repair(
             estimated_price_minor,
             final_price_minor,
             parts_cost_minor,
+            part_name: &part_name,
+            part_supplier: &part_supplier,
             deposit_minor: effective_deposit,
             pay_method,
             technician_name: technician_name.as_deref(),
@@ -289,6 +301,14 @@ pub async fn update_repair_status(
         Some(v) => Some(validate_money_minor(v)?),
         None => None,
     };
+    let part_name = match input.part_name.as_deref() {
+        Some(raw) => Some(validate_default_text(Some(raw), "", MAX_REPAIR_PART_CHARS)?),
+        None => None,
+    };
+    let part_supplier = match input.part_supplier.as_deref() {
+        Some(raw) => Some(validate_default_text(Some(raw), "", MAX_REPAIR_PART_CHARS)?),
+        None => None,
+    };
     let note = match input.note.as_deref() {
         Some(raw) => Some(validate_default_text(Some(raw), "", MAX_REPAIR_NOTE_CHARS)?),
         None => None,
@@ -318,6 +338,8 @@ pub async fn update_repair_status(
         technician_name.as_deref(),
         estimated_price_minor,
         parts_cost_minor,
+        part_name.as_deref(),
+        part_supplier.as_deref(),
         note.as_deref(),
     )
     .await

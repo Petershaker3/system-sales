@@ -82,6 +82,8 @@ pub enum SaleError {
     CreditRequiresCustomer,
     /// A line or invoice discount is negative or exceeds the gross amount (`ADR-021`).
     DiscountInvalid,
+    /// A surcharge is negative, or larger than one invoice may carry (`0037`).
+    SurchargeInvalid,
     /// A return request carries no return lines (`ADR-026`).
     ReturnEmpty,
     /// A return request names a `sale_line_id` that does not belong to the sale (`ADR-026`).
@@ -126,6 +128,7 @@ impl SaleError {
             SaleError::InstallmentProviderRequired => "SALE_INSTALLMENT_PROVIDER_REQUIRED",
             SaleError::CreditRequiresCustomer => "SALE_CREDIT_REQUIRES_CUSTOMER",
             SaleError::DiscountInvalid => "SALE_DISCOUNT_INVALID",
+            SaleError::SurchargeInvalid => "SALE_SURCHARGE_INVALID",
             SaleError::ReturnEmpty => "SALE_RETURN_EMPTY",
             SaleError::ReturnLineNotFound => "SALE_RETURN_LINE_NOT_FOUND",
             SaleError::ReturnQuantityExceedsRemaining => "SALE_RETURN_QUANTITY_EXCEEDS_REMAINING",
@@ -202,6 +205,10 @@ impl fmt::Display for SaleError {
             SaleError::CreditRequiresCustomer => {
                 write!(f, "credit sale requires a linked customer")
             }
+            SaleError::SurchargeInvalid => write!(
+                f,
+                "a surcharge must be non-negative and no more than one invoice carries"
+            ),
             SaleError::DiscountInvalid => {
                 write!(f, "discount must be non-negative and not exceed the subtotal")
             }
@@ -250,6 +257,21 @@ pub fn validate_invoice_discount(
     lines_net_subtotal_minor
         .checked_sub(invoice_discount_minor)
         .ok_or(SaleError::DiscountInvalid)
+}
+
+/// The largest surcharge one invoice may carry: 1,000,000 EGP.
+///
+/// A ceiling, not a business rule about delivery fees: it is the same order as
+/// the most expensive item the shop sells, and it exists so a mistyped digit is
+/// refused instead of turning a 500-pound sale into a 5-million-pound one.
+pub const MAX_SURCHARGE_MINOR: i64 = 100_000_000;
+
+/// Validate the amount added above the lines' net total (`0037`).
+pub fn validate_surcharge(surcharge_minor: i64) -> Result<i64, SaleError> {
+    if surcharge_minor < 0 || surcharge_minor > MAX_SURCHARGE_MINOR {
+        return Err(SaleError::SurchargeInvalid);
+    }
+    Ok(surcharge_minor)
 }
 
 /// Whether the total discount (`sum(line_discounts) + invoice_discount`) exceeds
@@ -669,8 +691,16 @@ pub fn compute_partial_line_return(
 }
 
 /// Compute `(refund_minor, prorated_invoice_discount_minor)` for a return batch (`ADR-026` §3).
+///
+/// `orig_surcharge_minor` is the money added above the lines' net total (`0037`).
+/// It is not a discount, so it is removed before the invoice discount is read:
+/// without that, an invoice carrying both a discount and a surcharge would look
+/// less discounted than it was, and a partial return would refund the customer
+/// the difference. A full return still refunds the whole `orig_sale_total_minor`,
+/// surcharge included — the shop collected it and is giving the sale back.
 pub fn compute_return_refund_minor(
     orig_sale_total_minor: i64,
+    orig_surcharge_minor: i64,
     orig_lines_net_subtotal_minor: i64,
     already_returned_lines_net_minor: i64,
     already_refunded_total_minor: i64,
@@ -679,8 +709,11 @@ pub fn compute_return_refund_minor(
     let remaining_lines_net = orig_lines_net_subtotal_minor
         .saturating_sub(already_returned_lines_net_minor)
         .max(0);
+    let lines_net_of_total = orig_sale_total_minor
+        .saturating_sub(orig_surcharge_minor)
+        .max(0);
     let orig_invoice_discount = orig_lines_net_subtotal_minor
-        .saturating_sub(orig_sale_total_minor)
+        .saturating_sub(lines_net_of_total)
         .max(0);
 
     if this_return_lines_net_minor >= remaining_lines_net {

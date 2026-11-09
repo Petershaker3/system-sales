@@ -47,9 +47,11 @@ import {
   monthReport,
   monthStart,
   nMonthsLabel,
+  parseIsoDay,
   pct,
   rateDay,
   rateMonthVerdict,
+  sameDay,
   sameMonth,
   todayReport,
   type EvaluationNote,
@@ -71,7 +73,20 @@ const emit = defineEmits<{
 
 const activeTab = ref<'today' | 'month'>('today');
 const selectedMonth = ref<Date>(monthStart(new Date()));
+/** The real «now»: the month tab and every «حتى النهارده» bound read this. */
 const nowDate = ref<Date>(new Date());
+/**
+ * The day the «يوم» tab reports on (owner, 2026-11-09: «أقدر أختار يوم معين»).
+ *
+ * A different ref from `nowDate` on purpose: the month report is bounded by
+ * today, and moving it back to read last Tuesday's day would silently turn
+ * «الشهر» into «الشهر ده لحد الثلاثاء اللي فات». The day report and its own
+ * three loads (wallets, repairs, expenses) follow this one; everything that
+ * means «now» keeps following the other.
+ */
+const dayDate = ref<Date>(new Date());
+const isDayToday = computed(() => sameDay(dayDate.value, new Date()));
+const dayIso = computed(() => isoDay(dayDate.value));
 
 const history = ref<readonly SaleHistoryEntry[]>([]);
 const categories = ref<readonly Category[]>([]);
@@ -114,7 +129,12 @@ function weekdayName(dayIndex: number): string {
 }
 
 const todayData = computed(() =>
-  todayReport(history.value, nowDate.value, (d) => fmtDay(d)),
+  todayReport(
+    history.value,
+    dayDate.value,
+    (d) => fmtDay(d),
+    isDayToday.value ? 'النهارده' : 'اليوم المختار',
+  ),
 );
 
 const maxWeekSalesMinor = computed(() =>
@@ -462,14 +482,14 @@ const smartAlerts = computed(() =>
     posProducts: posProducts.value,
     units: allUnits.value,
     salesHistory: history.value,
-    now: nowDate.value,
+    now: dayDate.value,
   }),
 );
 
 const dailyWhatsAppSummaryText = computed(() =>
   formatDailyWhatsAppSummary({
     shopName: appearance.shopName || 'موبايل ستور',
-    date: nowDate.value,
+    date: dayDate.value,
     shiftNumber: currentShiftNumber.value,
     salesMinor: todayData.value.salesMinor,
     invoicesCount: todayData.value.invoices,
@@ -585,6 +605,43 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
+/** The three money flows that are not sales lines, for one reported day. */
+async function loadDayAuxiliary(day: Date): Promise<void> {
+  const fromMs = dayStart(day).getTime();
+  const toMs = addDays(dayStart(day), 1).getTime() - 1;
+  const [wOv, rOv, eOv] = await Promise.all([
+    walletsOverview(fromMs, fromMs, toMs).catch(() => null),
+    repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
+    expensesOverview(fromMs, toMs).catch(() => null),
+  ]);
+  todayWallets.value = wOv;
+  todayRepairs.value = rOv;
+  todayExpenses.value = eOv;
+}
+
+/**
+ * Pick the day the report reads.
+ *
+ * Today keeps the current time, so «من أول اليوم لحد دلوقتي» and the
+ * «عن امبارح لنفس الساعة» comparison stay honest. Any other day is read as a
+ * finished day, so yesterday's comparison is the whole of yesterday and not
+ * just the same hour of a day that is already over.
+ */
+function setReportDay(iso: string): void {
+  const picked = parseIsoDay(iso);
+  if (picked === null) return;
+  const today = new Date();
+  dayDate.value = sameDay(picked, today)
+    ? today
+    : new Date(picked.getFullYear(), picked.getMonth(), picked.getDate(), 23, 59, 59, 999);
+  activeTab.value = 'today';
+  void loadDayAuxiliary(dayDate.value);
+}
+
+function backToToday(): void {
+  setReportDay(isoDay(new Date()));
+}
+
 async function loadMonthAuxiliary(monthDate: Date): Promise<void> {
   const fromMs = monthStart(monthDate).getTime();
   const toMs = addDays(monthEnd(monthDate), 1).getTime() - 1;
@@ -602,17 +659,12 @@ async function loadMonthAuxiliary(monthDate: Date): Promise<void> {
 async function loadAll(): Promise<void> {
   loading.value = true;
   nowDate.value = new Date();
-  const todayStartMs = dayStart(nowDate.value).getTime();
-  const todayEndMs = addDays(dayStart(nowDate.value), 1).getTime() - 1;
   try {
     const [
       salesData,
       catsData,
       usersData,
       shiftData,
-      wToday,
-      rToday,
-      eToday,
       shOv,
       posCat,
       unitsList,
@@ -621,9 +673,6 @@ async function loadAll(): Promise<void> {
       listCategories().catch(() => [] as Category[]),
       listUsers().catch(() => [] as UserSummary[]),
       currentShiftSummary().catch(() => null),
-      walletsOverview(todayStartMs, todayStartMs, todayEndMs).catch(() => null),
-      repairsOverview({ fromTs: todayStartMs, toTs: todayEndMs }).catch(() => null),
-      expensesOverview(todayStartMs, todayEndMs).catch(() => null),
       shortagesOverview().catch(() => null),
       posCatalog().catch(() => ({ products: [], categories: [], brands: [], units: [] })),
       listAllProductUnits().catch(() => [] as ProductUnit[]),
@@ -632,9 +681,7 @@ async function loadAll(): Promise<void> {
     categories.value = catsData;
     users.value = usersData;
     shiftState.value = shiftData;
-    todayWallets.value = wToday;
-    todayRepairs.value = rToday;
-    todayExpenses.value = eToday;
+    await loadDayAuxiliary(dayDate.value);
     shortagesData.value = shOv;
     posProducts.value = posCat.products;
     allUnits.value = unitsList;
@@ -716,7 +763,7 @@ onBeforeUnmount(() => {
           data-reports-tab="today"
           @click="activeTab = 'today'"
         >
-          النهارده
+          يوم
         </button>
         <button
           type="button"
@@ -730,8 +777,30 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <span class="sub" data-reports-subtitle>
-        {{ activeTab === 'today' ? fmtLong(nowDate) : 'الشهر كله ومقارنته وتقييمه' }}
+        {{ activeTab === 'today' ? fmtLong(dayDate) : 'الشهر كله ومقارنته وتقييمه' }}
       </span>
+      <!-- اختيار اليوم (طلب المالك، 2026-11-09): التقويم بيقرأ نفس شكل التقويم
+           اللي في «المبيعات»، والرجوع للنهارده بزرار واحد. -->
+      <label class="day-pick" title="اختار يوم" data-reports-day-pick>
+        <Icon name="calendar" />
+        <span class="dl">{{ isDayToday ? 'النهارده' : dayIso }}</span>
+        <input
+          type="date"
+          data-reports-date-input
+          :value="dayIso"
+          aria-label="اختار يوم"
+          @change="setReportDay(($event.target as HTMLInputElement).value)"
+        />
+      </label>
+      <button
+        v-if="!isDayToday"
+        type="button"
+        class="btn sm ghost"
+        data-reports-back-today
+        @click="backToToday"
+      >
+        النهارده
+      </button>
       <span class="sp"></span>
       <button
         type="button"
@@ -807,7 +876,7 @@ onBeforeUnmount(() => {
       <section class="card today-frame" data-reports-day-sections data-reports-day-frame>
         <div class="card-h">
           <h3><Icon name="receipt" /> كل اللي حصل النهارده</h3>
-          <span class="muted small">من أول اليوم لحد دلوقتي</span>
+          <span class="muted small">{{ isDayToday ? 'من أول اليوم لحد دلوقتي' : 'اليوم كله' }}</span>
         </div>
         <div class="dl">
           <div class="li" data-day-section="goods">
@@ -870,7 +939,7 @@ onBeforeUnmount(() => {
             :class="todayData.vsYesterday >= 0 ? 'ok-t' : 'danger-t'"
           >
             <Icon :name="todayData.vsYesterday >= 0 ? 'trending-up' : 'trending-down'" />
-            {{ num(Math.abs(todayData.vsYesterday)) }}% عن امبارح لنفس الساعة
+            {{ num(Math.abs(todayData.vsYesterday)) }}% {{ isDayToday ? 'عن امبارح لنفس الساعة' : 'عن اليوم اللي قبله' }}
           </div>
         </div>
 

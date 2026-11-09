@@ -146,3 +146,13 @@ input[dir="ltr"] { text-align: left; }
 @media (max-width: 760px) {
   .g2, .g3 { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ===== الخدمات السريعة: المبلغ والعمولة على سطر واحد =====
+   طلب صاحب المحل (2026-11-09): «ظبّط خانة المبلغ والعمولة بحيث يبقوا على نفس
+   السطر». `.g3` كانت بتقع لعمود واحد على أي عرض أقل من 760px — ونافذة الخدمات
+   أضيق من كده — فالاتنين كانوا بيقعدوا فوق بعض. الشبكة دي بتفضل عمودين على كل
+   عرض، والملاحظة بتنزل سطر لوحدها تحتهم. */
+.svc-row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+@media (max-width: 420px) {
+  .svc-row2 { gap: 8px; }
+}

@@ -571,6 +571,8 @@ interface DemoSale {
   totalMinor: number;
   costTotalMinor: number;
   discountMinor: number;
+  /** Money added above the net total (`0037`); part of `totalMinor`. */
+  surchargeMinor?: number;
   customerId: string | null;
   isCancelled: boolean;
   occurredAt: number;
@@ -1274,6 +1276,9 @@ interface DemoRepair {
   estimatedPriceMinor: number;
   finalPriceMinor: number;
   partsCostMinor: number;
+  /** القطعة وموردها (`0036`). */
+  partName?: string;
+  partSupplier?: string;
   depositMinor: number;
   payMethod: 'cash' | 'vf' | 'instapay' | 'card';
   /** The shop wallet the ticket's money was collected into (`ADR-041`). */
@@ -1974,6 +1979,8 @@ function repairTicketDto(rep: DemoRepair, includeCost: boolean) {
     estimatedPriceMinor: rep.estimatedPriceMinor,
     finalPriceMinor: rep.finalPriceMinor,
     partsCostMinor: includeCost ? rep.partsCostMinor : null,
+    partName: rep.partName ?? '',
+    partSupplier: rep.partSupplier ?? '',
     netProfitMinor: includeCost ? netProfit : null,
     depositMinor: rep.depositMinor,
     collectedMinor,
@@ -2660,8 +2667,16 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (!Number.isInteger(invoiceDisc) || invoiceDisc < 0 || invoiceDisc > linesNetSubtotal) {
       fail('SALE_DISCOUNT_INVALID');
     }
-    const total = linesNetSubtotal - invoiceDisc;
-    const totalDiscount = grossSubtotal - total;
+    // Money added above the net total (`0037`): delivery, installation, rounding.
+    // Added after the discount and kept out of `discountMinor`, exactly as Rust does.
+    const surchargeMinor =
+      typeof args?.['surchargeMinor'] === 'number' ? Math.trunc(args['surchargeMinor'] as number) : 0;
+    if (!Number.isInteger(surchargeMinor) || surchargeMinor < 0 || surchargeMinor > 100_000_000) {
+      fail('SALE_SURCHARGE_INVALID');
+    }
+    const netTotal = linesNetSubtotal - invoiceDisc;
+    const total = netTotal + surchargeMinor;
+    const totalDiscount = grossSubtotal - netTotal;
     const confirmed = args?.['confirmedTotalMinor'];
     if (typeof confirmed === 'number' && confirmed !== total) fail('SALE_PRICE_CHANGED');
 
@@ -2831,6 +2846,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       totalMinor: total,
       costTotalMinor: cost,
       discountMinor: totalDiscount,
+      surchargeMinor,
       customerId: linkedCustomer ? linkedCustomer.id : null,
       isCancelled: false,
       occurredAt: now(),
@@ -2893,6 +2909,9 @@ const handlers: Record<string, (args: Args) => unknown> = {
       totalMinor: orig.totalMinor,
       costTotalMinor: orig.costTotalMinor,
       discountMinor: orig.discountMinor,
+      // A reversal mirrors the original's money, surcharge included, so the pair
+      // still reads as zero in every report (`0037`).
+      surchargeMinor: orig.surchargeMinor ?? 0,
       customerId: orig.customerId,
       isCancelled: false,
       occurredAt: now(),
@@ -2995,6 +3014,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
         customerPhone: cust ? cust.contact : null,
         linesSubtotalMinor: s.linesSubtotalMinor,
         discountMinor: s.discountMinor,
+        surchargeMinor: s.surchargeMinor ?? 0,
         totalMinor: s.totalMinor,
         ...(canSeeCost
           ? {
@@ -3503,6 +3523,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const saleOutcome = handlers['record_sale']!({
       lines: args?.['newLines'],
       invoiceDiscountMinor: args?.['newInvoiceDiscountMinor'] ?? 0,
+      surchargeMinor: args?.['newSurchargeMinor'] ?? 0,
       payments: args?.['newPayments'],
       customerId: args?.['customerId'],
     }) as {
@@ -5440,6 +5461,10 @@ const handlers: Record<string, (args: Args) => unknown> = {
       typeof args?.['estimatedPriceMinor'] === 'number' ? Math.trunc(args['estimatedPriceMinor']) : 0;
     const partsCostMinor =
       typeof args?.['partsCostMinor'] === 'number' ? Math.trunc(args['partsCostMinor']) : 0;
+    const partName =
+      typeof args?.['partName'] === 'string' ? args['partName'].trim().slice(0, 120) : '';
+    const partSupplier =
+      typeof args?.['partSupplier'] === 'string' ? args['partSupplier'].trim().slice(0, 120) : '';
     const depositMinor =
       typeof args?.['depositMinor'] === 'number' ? Math.trunc(args['depositMinor']) : 0;
     const payMethodRaw = typeof args?.['payMethod'] === 'string' ? args['payMethod'].trim() : 'cash';
@@ -5483,6 +5508,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
       estimatedPriceMinor,
       finalPriceMinor: deliverNow ? estimatedPriceMinor : 0,
       partsCostMinor,
+      partName,
+      partSupplier,
       depositMinor: deliverNow ? 0 : depositMinor,
       payMethod,
       payWalletId,
@@ -5513,6 +5540,12 @@ const handlers: Record<string, (args: Args) => unknown> = {
     }
     if (typeof args?.['partsCostMinor'] === 'number') {
       rep.partsCostMinor = Math.trunc(args['partsCostMinor']);
+    }
+    if (typeof args?.['partName'] === 'string') {
+      rep.partName = args['partName'].trim().slice(0, 120);
+    }
+    if (typeof args?.['partSupplier'] === 'string') {
+      rep.partSupplier = args['partSupplier'].trim().slice(0, 120);
     }
     if (typeof args?.['note'] === 'string') {
       rep.note = args['note'].trim();

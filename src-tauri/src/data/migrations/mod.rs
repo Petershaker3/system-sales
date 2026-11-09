@@ -179,3 +179,14 @@ pub const WALLET_MONTHLY_LIMIT: &str = include_str!("0034_wallet_monthly_limit.s
 /// read back as one page with the supplier's invoice number on it. Purely
 /// additive; a receipt written before it carried no paperwork.
 pub const RECEIVING_DOCUMENT: &str = include_str!("0035_receiving_document.sql");
+
+/// `0036`: the repair ticket carries the part — its name and the supplier it was
+/// bought from, next to the cost that was already there (owner, 2026-11-09).
+/// Purely additive: two optional texts, and nothing is deducted from stock.
+pub const REPAIR_PARTS: &str = include_str!("0036_repair_parts.sql");
+
+/// `0037`: a sale can carry a surcharge above the lines' net total — delivery,
+/// installation, a rounding the customer agreed to. Separate from
+/// `discount_minor`, which keeps meaning «what came off the lines» (owner,
+/// 2026-11-09). Purely additive; every existing sale starts at 0.
+pub const SALE_SURCHARGE: &str = include_str!("0037_sale_surcharge.sql");

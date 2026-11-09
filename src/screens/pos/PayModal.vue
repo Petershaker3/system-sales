@@ -61,6 +61,8 @@ const props = defineProps<{
   count: number;
   selectedCustomer?: Customer | null;
   invoiceDiscountMinor?: number;
+  /** Money added above the net total (`0037`); `totalMinor` already includes it. */
+  surchargeMinor?: number;
   grossSubtotalMinor?: number;
   sellerName?: string;
   tradeInCreditMinor?: number;
@@ -520,7 +522,8 @@ async function pay(): Promise<void> {
           props.totalMinor,
           paymentsForSale,
           props.selectedCustomer?.id ?? null,
-          props.invoiceDiscountMinor ?? 0
+          props.invoiceDiscountMinor ?? 0,
+          props.surchargeMinor ?? 0
         ),
       'موافقة المالك على خصم الفاتورة'
     );
@@ -544,6 +547,9 @@ async function pay(): Promise<void> {
     }
 
     const grossSubtotal = props.grossSubtotalMinor ?? props.totalMinor;
+    // The discount is what came off the lines. The surcharge is on top of the
+    // total and must not be read as a discount (`0037`).
+    const surchargeMinor = props.surchargeMinor ?? 0;
     const receiptData: ReceiptData = {
       reference: outcome.reference,
       occurredAt: saleTimestamp,
@@ -566,7 +572,8 @@ async function pay(): Promise<void> {
         };
       }),
       grossSubtotalMinor: grossSubtotal,
-      discountMinor: Math.max(0, grossSubtotal - props.totalMinor),
+      discountMinor: Math.max(0, grossSubtotal - (props.totalMinor - surchargeMinor)),
+      surchargeMinor,
       totalMinor: props.totalMinor,
       payments: finalPayments,
       changeMinor: cashChangeMinor,
@@ -651,21 +658,25 @@ function onEnter(): void {
     >
       <div class="due-box">
         <div
-          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor"
+          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor - (surchargeMinor ?? 0)"
           class="r"
         >
           <span>الإجمالي قبل الخصم ({{ pcsWord(count) }})</span>
           <span class="num">{{ money(grossSubtotalMinor ?? totalMinor) }}</span>
         </div>
         <div
-          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor"
+          v-if="(grossSubtotalMinor ?? totalMinor) > totalMinor - (surchargeMinor ?? 0)"
           class="r"
         >
           <span>الخصم</span>
-          <span class="num">- {{ money((grossSubtotalMinor ?? totalMinor) - totalMinor) }}</span>
+          <span class="num">- {{ money((grossSubtotalMinor ?? totalMinor) - (totalMinor - (surchargeMinor ?? 0))) }}</span>
+        </div>
+        <div v-if="(surchargeMinor ?? 0) > 0" class="r" data-pay-surcharge-row>
+          <span>زيادة على الفاتورة</span>
+          <span class="num">+ {{ money(surchargeMinor ?? 0) }}</span>
         </div>
         <div class="r">
-          <span>{{ (grossSubtotalMinor ?? totalMinor) > totalMinor ? 'الصافي بعد الخصم' : `الإجمالي (${pcsWord(count)})` }}</span>
+          <span>{{ (grossSubtotalMinor ?? totalMinor) > totalMinor - (surchargeMinor ?? 0) || (surchargeMinor ?? 0) > 0 ? 'المطلوب' : `الإجمالي (${pcsWord(count)})` }}</span>
           <span class="num">{{ money(totalMinor) }}</span>
         </div>
         <div

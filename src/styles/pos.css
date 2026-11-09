@@ -104,6 +104,8 @@
 .totals { padding: 10px 14px; border-top: 1px solid var(--border); display: grid; gap: 4px; flex: none; }
 .totals .r { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .totals .disc { color: var(--ok); font-weight: 600; }
+/* «زيادة» على الفاتورة (`0037`): بتزوّد المطلوب، فبتتقري في اتجاه عكس الخصم. */
+.totals .add { color: var(--warn); font-weight: 600; }
 .totals .grand { font-size: 1.55rem; font-weight: 700; }
 .totals .profit { font-size: .8rem; color: var(--muted); }
 .reveal { border: 0; background: transparent; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; padding: 0; font-size: .8rem; }

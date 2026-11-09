@@ -177,6 +177,7 @@ export const ErrorCode = {
   SALE_INSTALLMENT_PROVIDER_REQUIRED: 'SALE_INSTALLMENT_PROVIDER_REQUIRED',
   SALE_CREDIT_REQUIRES_CUSTOMER: 'SALE_CREDIT_REQUIRES_CUSTOMER',
   SALE_DISCOUNT_INVALID: 'SALE_DISCOUNT_INVALID',
+  SALE_SURCHARGE_INVALID: 'SALE_SURCHARGE_INVALID',
   SALE_RETURN_EMPTY: 'SALE_RETURN_EMPTY',
   SALE_RETURN_LINE_NOT_FOUND: 'SALE_RETURN_LINE_NOT_FOUND',
   SALE_RETURN_QUANTITY_EXCEEDS_REMAINING: 'SALE_RETURN_QUANTITY_EXCEEDS_REMAINING',
@@ -523,6 +524,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'اختار شركة التقسيط الأول.',
   [ErrorCode.SALE_CREDIT_REQUIRES_CUSTOMER]:
     'البيع الآجل لازم يتربط بعميل متسجّل.',
+  [ErrorCode.SALE_SURCHARGE_INVALID]: 'الزيادة على الفاتورة مش صحيحة — لازم تكون صفر أو أكبر، وفي حدود المسموح.',
   [ErrorCode.SALE_DISCOUNT_INVALID]:
     'قيمة الخصم غير صالحة أو أكبر من إجمالي الصنف أو الفاتورة.',
   [ErrorCode.SALE_RETURN_EMPTY]:

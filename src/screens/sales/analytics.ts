@@ -1375,6 +1375,12 @@ export function todayReport(
   list: readonly SaleHistoryEntry[],
   now: Date = new Date(),
   weekdayLabelFn?: (d: Date) => string,
+  /**
+   * What the last column of the seven-day strip is called. «النهارده» is right
+   * only when the report reads today; the Reports screen passes another label
+   * when the owner picked an earlier day from the calendar (2026-11-09).
+   */
+  todayLabel = 'النهارده',
 ): TodayDashboardReport {
   const today = dayStart(now);
   const ySame = spanEnd(addDays(today, -1), true, now);
@@ -1426,7 +1432,7 @@ export function todayReport(
     const dt = addDays(today, -(6 - i));
     const isToday = i === 6;
     const label = isToday
-      ? 'النهارده'
+      ? todayLabel
       : weekdayLabelFn
         ? weekdayLabelFn(dt)
         : isoDay(dt);

@@ -27,6 +27,8 @@ export interface ReceiptData {
   readonly lines: readonly ReceiptLineData[];
   readonly grossSubtotalMinor: number;
   readonly discountMinor: number;
+  /** Money added above the net total (`0037`); part of `totalMinor`. */
+  readonly surchargeMinor?: number;
   readonly totalMinor: number;
   readonly payments: readonly DraftPayment[];
   readonly changeMinor: number;
@@ -227,6 +229,7 @@ export async function renderReceiptCanvas(
     receipt.lines.length * 46 +
     receipt.payments.length * 24 +
     (receipt.discountMinor > 0 ? 24 : 0) +
+    ((receipt.surchargeMinor ?? 0) > 0 ? 24 : 0) +
     (receipt.changeMinor > 0 ? 24 : 0) +
     80;
   const heightCss = Math.max(320, baseRows);
@@ -362,6 +365,9 @@ export async function renderReceiptCanvas(
   drawRow('الإجمالي', num(receipt.grossSubtotalMinor / 100));
   if (receipt.discountMinor > 0) {
     drawRow('خصم', `- ${num(receipt.discountMinor / 100)}`);
+  }
+  if ((receipt.surchargeMinor ?? 0) > 0) {
+    drawRow('زيادة', `+ ${num((receipt.surchargeMinor ?? 0) / 100)}`);
   }
   drawRow('المطلوب', money(receipt.totalMinor), true, false);
 

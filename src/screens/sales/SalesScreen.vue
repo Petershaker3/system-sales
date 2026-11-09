@@ -35,6 +35,8 @@ import { chatOpenNote, openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
 import Modal from '../../ui/Modal.vue';
 import ReturnModal from '../pos/ReturnModal.vue';
+import EditSaleModal from './EditSaleModal.vue';
+import { posCatalog, type PosProduct } from '../../api/pos';
 import { toast } from '../../ui/toast';
 import {
   buildWhatsAppUrl,
@@ -127,6 +129,31 @@ const shopLogo = ref<string | null>(null);
 const loading = ref(false);
 
 const selectedSaleId = ref<string | null>(null);
+/**
+ * «تعديل الفاتورة» (طلب المالك، 2026-11-09): بيفتح على الفاتورة المختارة،
+ * والكتالوج بيتقرأ عشان تقدر تضيف صنف. المالك فقط — السعر في التعديل تغيير سعر.
+ */
+const editTarget = ref<SaleHistoryEntry | null>(null);
+const editProducts = ref<readonly PosProduct[]>([]);
+
+async function openEditSale(sale: SaleHistoryEntry): Promise<void> {
+  if (!isOwner.value || sale.isCancelled) return;
+  try {
+    const catalog = await posCatalog();
+    editProducts.value = catalog.products;
+  } catch (err) {
+    toast(describeError(err), 'err');
+    return;
+  }
+  selectedSaleId.value = null;
+  editTarget.value = sale;
+}
+
+function onSaleEdited(): void {
+  editTarget.value = null;
+  void loadAll();
+  emit('changed');
+}
 const resendPhoneDraft = ref('');
 const showCancelBox = ref(false);
 const cancelReason = ref('');
@@ -464,6 +491,7 @@ async function resendReceiptWhatsApp(sale: SaleHistoryEntry): Promise<void> {
     })),
     grossSubtotalMinor: sale.linesSubtotalMinor,
     discountMinor: sale.discountMinor,
+    surchargeMinor: sale.surchargeMinor ?? 0,
     totalMinor: sale.totalMinor,
     payments: sale.payments.map((p) => ({
       method: p.method as 'cash' | 'vf' | 'instapay' | 'card' | 'install' | 'credit',
@@ -1302,6 +1330,10 @@ onBeforeUnmount(() => {
             <span>خصم</span>
             <span class="num">− {{ money(selectedSale.discountMinor) }}</span>
           </div>
+          <div v-if="(selectedSale.surchargeMinor ?? 0) > 0" class="r">
+            <span>زيادة</span>
+            <span class="num">+ {{ money(selectedSale.surchargeMinor ?? 0) }}</span>
+          </div>
           <div class="r grand">
             <span>الإجمالي</span>
             <span class="num" data-sales-detail-total>{{ money(selectedSale.totalMinor) }}</span>
@@ -1394,6 +1426,16 @@ onBeforeUnmount(() => {
           <Icon name="undo-2" /> مرتجع من الفاتورة دي
         </button>
         <button
+          v-if="isOwner && !selectedSale.isCancelled"
+          type="button"
+          class="btn"
+          data-sales-detail-edit
+          title="عدّل الأصناف أو الكميات أو الأسعار — بتتسجل فاتورة مصححة"
+          @click="openEditSale(selectedSale)"
+        >
+          <Icon name="pencil" /> تعديل الفاتورة
+        </button>
+        <button
           v-if="isOwner && !selectedSale.isCancelled && !showCancelBox"
           type="button"
           class="btn ghost danger"
@@ -1424,6 +1466,13 @@ onBeforeUnmount(() => {
     </Modal>
 
     <!-- المرتجع والاستبدال: نفس النافذة اللي الكاشير بيفتحها، بفاتورة محددة -->
+    <EditSaleModal
+      v-if="editTarget"
+      :sale="editTarget"
+      :products="editProducts"
+      @close="editTarget = null"
+      @saved="onSaleEdited"
+    />
     <ReturnModal
       v-if="returnOpen"
       :initial-sale-reference="returnReference"

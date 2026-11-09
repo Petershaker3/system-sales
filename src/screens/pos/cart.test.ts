@@ -24,6 +24,7 @@ import {
   removeLine,
   reprice,
   setInvoiceDiscount,
+  setInvoiceSurcharge,
   setLineDiscount,
   setLineImei,
   setLineWarranty,
@@ -203,8 +204,20 @@ test('line and invoice discounts reduce net totals and clamp when quantities shr
     invoiceDiscountMinor: 1050,
     totalDiscountMinor: 3050,
     netTotalMinor: 32000,
+    surchargeMinor: 0,
+    totalMinor: 32000,
   });
   assert.deepEqual(totals(current(cart)), { totalMinor: 32000, count: 3 });
+
+  // The surcharge sits on top of the net: it never eats into the discount.
+  assert.equal(setInvoiceSurcharge(cart, 5000), true);
+  assert.equal(discountSummary(current(cart)).surchargeMinor, 5000);
+  assert.equal(discountSummary(current(cart)).netTotalMinor, 32000);
+  assert.equal(discountSummary(current(cart)).totalMinor, 37000);
+  assert.deepEqual(totals(current(cart)), { totalMinor: 37000, count: 3 });
+  assert.equal(setInvoiceSurcharge(cart, -1), false);
+  assert.equal(setInvoiceSurcharge(cart, 100_000_001), false);
+  assert.equal(setInvoiceSurcharge(cart, 0), true);
 
   // Out-of-range discounts are rejected.
   assert.equal(setLineDiscount(cart, 0, 30001), false);

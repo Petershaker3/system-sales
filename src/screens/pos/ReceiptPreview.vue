@@ -73,6 +73,10 @@ defineProps<{
       <span>خصم</span>
       <span class="num">− {{ money(sale.discountMinor) }}</span>
     </div>
+    <div v-if="(sale.surchargeMinor ?? 0) > 0" class="r">
+      <span>زيادة</span>
+      <span class="num">+ {{ money(sale.surchargeMinor ?? 0) }}</span>
+    </div>
     <div class="r tot">
       <span>المطلوب</span>
       <span class="num">{{ money(sale.totalMinor) }}</span>

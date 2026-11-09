@@ -178,6 +178,7 @@ pub async fn record_sale(
     payments: Option<Vec<SalePaymentInputDto>>,
     customer_id: Option<String>,
     invoice_discount_minor: Option<i64>,
+    surcharge_minor: Option<i64>,
 ) -> Result<serde_json::Value, SalesCommandError> {
     let mut mapped_lines = Vec::with_capacity(lines.len());
     let mut line_discounts_minor = Vec::with_capacity(lines.len());
@@ -191,7 +192,7 @@ pub async fn record_sale(
     }
     let mapped_payments: Option<Vec<SalePaymentInput>> =
         payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
-    let outcome = use_cases::record_sale_with_line_prices(
+    let outcome = use_cases::record_sale_with_line_prices_and_surcharge(
         &ctx.pool,
         ctx.tokens.as_ref(),
         &mapped_lines,
@@ -201,6 +202,7 @@ pub async fn record_sale(
         invoice_discount_minor.unwrap_or(0),
         &line_discounts_minor,
         &line_price_overrides_minor,
+        surcharge_minor.unwrap_or(0),
     )
     .await?;
     // Authorize cost visibility from the session, not from caller role alone.
@@ -637,6 +639,7 @@ pub async fn record_sale_exchange(
     refund_payments: Option<Vec<SalePaymentInputDto>>,
     new_lines: Vec<SaleLineInputDto>,
     new_invoice_discount_minor: Option<i64>,
+    new_surcharge_minor: Option<i64>,
     new_payments: Option<Vec<SalePaymentInputDto>>,
     customer_id: Option<String>,
 ) -> Result<serde_json::Value, SalesCommandError> {
@@ -647,15 +650,18 @@ pub async fn record_sale_exchange(
 
     let mut mapped_new_lines = Vec::with_capacity(new_lines.len());
     let mut new_line_discounts_minor = Vec::with_capacity(new_lines.len());
+    let mut new_line_price_overrides_minor = Vec::with_capacity(new_lines.len());
     for dto in new_lines {
+        let typed = dto.typed_price_minor();
         let (input, discount_minor) = dto.into_input_and_discount()?;
         mapped_new_lines.push(input);
         new_line_discounts_minor.push(discount_minor);
+        new_line_price_overrides_minor.push(typed);
     }
     let mapped_new_payments: Option<Vec<SalePaymentInput>> =
         new_payments.map(|list| list.into_iter().map(SalePaymentInput::from).collect());
 
-    let outcome = use_cases::record_sale_exchange(
+    let outcome = use_cases::record_sale_exchange_with_extras(
         &ctx.pool,
         ctx.tokens.as_ref(),
         &original_sale_id,
@@ -664,7 +670,9 @@ pub async fn record_sale_exchange(
         mapped_refund_payments.as_deref(),
         &mapped_new_lines,
         &new_line_discounts_minor,
+        &new_line_price_overrides_minor,
         new_invoice_discount_minor.unwrap_or(0),
+        new_surcharge_minor.unwrap_or(0),
         mapped_new_payments.as_deref(),
         customer_id.as_deref(),
     )
@@ -763,6 +771,8 @@ pub struct SaleHistoryEntryDto {
     pub customer_phone: Option<String>,
     pub lines_subtotal_minor: i64,
     pub discount_minor: i64,
+    /// Money added above the lines' net total (`0037`); `total_minor` includes it.
+    pub surcharge_minor: i64,
     pub total_minor: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_total_minor: Option<i64>,
@@ -794,6 +804,7 @@ pub async fn list_sales_history(
             customer_phone: r.customer_phone,
             lines_subtotal_minor: r.lines_subtotal_minor,
             discount_minor: r.discount_minor,
+            surcharge_minor: r.surcharge_minor,
             total_minor: r.total_minor,
             cost_total_minor: r.cost_total_minor,
             profit_minor: r.profit_minor,

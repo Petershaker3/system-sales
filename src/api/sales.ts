@@ -110,7 +110,13 @@ export async function recordSale(
   confirmedTotalMinor?: number,
   payments?: readonly SalePaymentInput[],
   customerId?: string | null,
-  invoiceDiscountMinor?: number
+  invoiceDiscountMinor?: number,
+  /**
+   * Money added above the net total for this invoice (`0037`, owner 2026-11-09):
+   * delivery, installation, a rounding the customer agreed to. Rust validates,
+   * stores and includes it in `totalMinor`; it never folds into the discount.
+   */
+  surchargeMinor?: number
 ): Promise<SaleOutcome> {
   return invoke<SaleOutcome>('record_sale', {
     lines: lines.map((line) => ({
@@ -134,6 +140,7 @@ export async function recordSale(
         : null,
     customerId: customerId ?? null,
     invoiceDiscountMinor: invoiceDiscountMinor ?? 0,
+    surchargeMinor: surchargeMinor ?? 0,
   });
 }
 
@@ -361,6 +368,11 @@ export async function recordSaleExchange(
   refundPayments?: readonly SalePaymentInput[] | null,
   newPayments?: readonly SalePaymentInput[] | null,
   customerId?: string | null,
+  /**
+   * Money added above the replacement invoice's net total (`0037`). Used when
+   * an invoice is edited and the original carried a delivery/installation extra.
+   */
+  newSurchargeMinor?: number,
 ): Promise<SaleExchangeOutcome> {
   return invoke<SaleExchangeOutcome>('record_sale_exchange', {
     originalSaleId,
@@ -386,8 +398,10 @@ export async function recordSaleExchange(
       warrantyEnd: line.warrantyEnd ?? null,
       imei: line.imei ?? null,
       discountMinor: line.discountMinor ?? 0,
+      unitPriceMinor: line.unitPriceMinor ?? null,
     })),
     newInvoiceDiscountMinor: newInvoiceDiscountMinor ?? 0,
+    newSurchargeMinor: newSurchargeMinor ?? 0,
     newPayments:
       newPayments && newPayments.length > 0
         ? newPayments.map((p) => ({
@@ -451,6 +465,8 @@ export interface SaleHistoryEntry {
   readonly customerPhone: string | null;
   readonly linesSubtotalMinor: number;
   readonly discountMinor: number;
+  /** Money added above the lines' net total (`0037`); `totalMinor` includes it. */
+  readonly surchargeMinor?: number;
   readonly totalMinor: number;
   readonly costTotalMinor?: number;
   readonly profitMinor?: number;

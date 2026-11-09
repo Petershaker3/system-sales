@@ -21,6 +21,8 @@ pub const MAX_REPAIR_ACCESSORIES_CHARS: usize = 240;
 pub const MAX_REPAIR_DUE_CHARS: usize = 80;
 pub const MAX_REPAIR_TECHNICIAN_CHARS: usize = 120;
 pub const MAX_REPAIR_NOTE_CHARS: usize = 400;
+/// The part the technician fitted, and who it was bought from (owner, 2026-11-09).
+pub const MAX_REPAIR_PART_CHARS: usize = 120;
 pub const MAX_REPAIR_PRICE_MINOR: i64 = 100_000_000; // 1,000,000 EGP
 
 /// Stable identifier of a repair/software ticket (`UUID v7`).
@@ -154,6 +156,10 @@ pub struct RepairTicket {
     pub estimated_price_minor: i64,
     pub final_price_minor: i64,
     pub parts_cost_minor: Option<i64>,
+    /// The part's name and supplier, as the shopkeeper wrote them (`0036`).
+    /// Empty means «مش مسجّل» rather than missing.
+    pub part_name: String,
+    pub part_supplier: String,
     pub net_profit_minor: Option<i64>,
     pub deposit_minor: i64,
     pub collected_minor: i64,

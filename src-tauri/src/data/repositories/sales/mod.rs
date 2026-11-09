@@ -27,6 +27,9 @@ pub struct SaleRecord {
     pub cost_total_minor: i64,
     /// Total discount on this sale in piastres (`ADR-021`).
     pub discount_minor: i64,
+    /// Money added above the lines' net total (`0037`) — delivery, installation,
+    /// rounding. `total_minor` already includes it; the discount does not.
+    pub surcharge_minor: i64,
     /// Manager who approved an above-limit discount (`ADR-021`), if any.
     pub approved_by: Option<String>,
 }
@@ -112,8 +115,9 @@ pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Resu
     sqlx::query(
         "INSERT INTO sales
              (id, reference, occurred_at, sold_by, kind, reverses_sale_id,
-              total_minor, cost_total_minor, discount_minor, approved_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+              total_minor, cost_total_minor, discount_minor, approved_by,
+              surcharge_minor)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(&sale.id)
     .bind(&sale.reference)
@@ -125,6 +129,7 @@ pub async fn insert_sale(conn: &mut SqliteConnection, sale: &SaleRecord) -> Resu
     .bind(sale.cost_total_minor)
     .bind(sale.discount_minor)
     .bind(sale.approved_by.as_deref())
+    .bind(sale.surcharge_minor)
     .execute(&mut *conn)
     .await?;
     Ok(())
@@ -207,7 +212,8 @@ pub async fn find_sale(
 ) -> Result<Option<SaleRecord>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT id, reference, occurred_at, sold_by, kind, reverses_sale_id,
-                total_minor, cost_total_minor, discount_minor, approved_by
+                total_minor, cost_total_minor, discount_minor, approved_by,
+                surcharge_minor
          FROM sales WHERE id = ?1",
     )
     .bind(id)
@@ -225,6 +231,7 @@ pub async fn find_sale(
         cost_total_minor: row.get("cost_total_minor"),
         discount_minor: row.get("discount_minor"),
         approved_by: row.get("approved_by"),
+        surcharge_minor: row.get("surcharge_minor"),
     }))
 }
 
@@ -685,6 +692,8 @@ pub struct SaleHistoryRow {
     pub customer_phone: Option<String>,
     pub lines_subtotal_minor: i64,
     pub discount_minor: i64,
+    /// What was added above the lines' net total (`0037`). `total_minor` includes it.
+    pub surcharge_minor: i64,
     pub total_minor: i64,
     pub cost_total_minor: Option<i64>,
     pub profit_minor: Option<i64>,
@@ -987,6 +996,7 @@ pub async fn find_sale_by_id_or_reference(
         cost_total_minor: row.get("cost_total_minor"),
         discount_minor: row.get("discount_minor"),
         approved_by: row.get("approved_by"),
+        surcharge_minor: row.get("surcharge_minor"),
     }))
 }
 
@@ -1102,6 +1112,7 @@ pub async fn list_sales_history(
                 s.total_minor AS total_minor,
                 s.cost_total_minor AS cost_total_minor,
                 s.discount_minor AS discount_minor,
+                s.surcharge_minor AS surcharge_minor,
                 COALESCE((SELECT SUM(sr.refund_minor) FROM sale_returns sr WHERE sr.original_sale_id = s.id), 0) AS already_refunded_minor,
                 CASE WHEN EXISTS (SELECT 1 FROM sale_reversals rev WHERE rev.original_sale_id = s.id) THEN 1 ELSE 0 END AS is_cancelled
          FROM sales s
@@ -1219,6 +1230,7 @@ pub async fn list_sales_history(
             customer_phone: srow.get("customer_phone"),
             lines_subtotal_minor,
             discount_minor,
+            surcharge_minor: srow.get("surcharge_minor"),
             total_minor,
             cost_total_minor: Some(cost_total_minor),
             profit_minor: Some(total_minor - cost_total_minor),

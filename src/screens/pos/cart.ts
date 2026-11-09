@@ -106,6 +106,12 @@ export interface Invoice {
   customerName: string;
   /** Invoice-level discount in piastres (`ADR-021`). */
   discountMinor?: number;
+  /**
+   * Money added above the net total (`0037`, owner 2026-11-09): delivery, a
+   * fitted screen protector, a rounding the customer agreed to. Kept apart from
+   * `discountMinor` so the receipt can show both and neither cancels the other.
+   */
+  surchargeMinor?: number;
   held: boolean;
 }
 
@@ -136,7 +142,15 @@ function nextLineId(): string {
 }
 
 export function newInvoice(id: string = nextId()): Invoice {
-  return { id, lines: [], customerId: null, customerName: '', discountMinor: 0, held: false };
+  return {
+    id,
+    lines: [],
+    customerId: null,
+    customerName: '',
+    discountMinor: 0,
+    surchargeMinor: 0,
+    held: false,
+  };
 }
 
 export function newCart(): CartState {
@@ -358,7 +372,12 @@ export interface DiscountSummary {
   readonly linesNetSubtotalMinor: number;
   readonly invoiceDiscountMinor: number;
   readonly totalDiscountMinor: number;
+  /** Net after every discount, before the surcharge. */
   readonly netTotalMinor: number;
+  /** The extra added above the net total (`0037`). */
+  readonly surchargeMinor: number;
+  /** What the customer pays: `netTotalMinor + surchargeMinor`. */
+  readonly totalMinor: number;
 }
 
 export function discountSummary(inv: Invoice): DiscountSummary {
@@ -374,6 +393,11 @@ export function discountSummary(inv: Invoice): DiscountSummary {
     rawInv <= 0 ? 0 : Math.min(linesNetSubtotalMinor, rawInv);
   const totalDiscountMinor = linesDiscountMinor + invoiceDiscountMinor;
   const netTotalMinor = linesNetSubtotalMinor - invoiceDiscountMinor;
+  const rawSurcharge = inv.surchargeMinor ?? 0;
+  const surchargeMinor =
+    Number.isFinite(rawSurcharge) && rawSurcharge > 0
+      ? Math.min(MAX_SURCHARGE_MINOR, Math.round(rawSurcharge))
+      : 0;
   return {
     grossSubtotalMinor,
     linesDiscountMinor,
@@ -381,8 +405,13 @@ export function discountSummary(inv: Invoice): DiscountSummary {
     invoiceDiscountMinor,
     totalDiscountMinor,
     netTotalMinor,
+    surchargeMinor,
+    totalMinor: netTotalMinor + surchargeMinor,
   };
 }
+
+/** The ceiling Rust enforces (`MAX_SURCHARGE_MINOR` in `0037`): 1,000,000 EGP. */
+export const MAX_SURCHARGE_MINOR = 100_000_000;
 
 function clampInvoiceDiscounts(inv: Invoice): void {
   let netLines = 0;
@@ -448,6 +477,20 @@ export function setLineDiscount(
   return true;
 }
 
+/** Apply or clear the amount added above the net total (`0037`). */
+export function setInvoiceSurcharge(state: CartState, surchargeMinor: number): boolean {
+  const inv = current(state);
+  if (
+    !Number.isInteger(surchargeMinor) ||
+    surchargeMinor < 0 ||
+    surchargeMinor > MAX_SURCHARGE_MINOR
+  ) {
+    return false;
+  }
+  inv.surchargeMinor = surchargeMinor;
+  return true;
+}
+
 /** Apply or clear an invoice-level discount on the active invoice (`ADR-021`). */
 export function setInvoiceDiscount(
   state: CartState,
@@ -476,8 +519,8 @@ export function totals(inv: Invoice): Totals {
   for (const line of inv.lines) {
     count += line.quantity;
   }
-  const { netTotalMinor } = discountSummary(inv);
-  return { totalMinor: netTotalMinor, count };
+  const { totalMinor } = discountSummary(inv);
+  return { totalMinor, count };
 }
 
 /** F8: put the current invoice on hold and open a fresh one. */

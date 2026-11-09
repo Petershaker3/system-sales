@@ -25,6 +25,16 @@ const kind = ref<RepairServiceKind>('software');
 const device = ref('');
 const issueText = ref('');
 const priceText = ref('');
+/**
+ * القطعة وموردها (`0036`، طلب المالك 2026-11-09): «إضافة الصيانة تكون متكاملة
+ * — سعر القطعة والمورد وهكذا».
+ *
+ * الثلاثة اختيارية: صيانة السوفت وير غالبًا بلا قطعة، والتذكرة اللي مالهاش
+ * قطعة مش ناقصة. اللي بيتكتب بيتسجّل على التذكرة ويظهر في شاشة الصيانة.
+ */
+const partName = ref('');
+const partSupplier = ref('');
+const partCostText = ref('');
 const paidNow = ref(true);
 const payMethod = ref<RepairPayMethod>('cash');
 /**
@@ -77,6 +87,11 @@ async function submit(): Promise<void> {
     error.value = 'السعر مش صحيح.';
     return;
   }
+  const partCostMinor = parseMoney(partCostText.value) ?? 0;
+  if (partCostMinor < 0) {
+    error.value = 'سعر القطعة مش صحيح.';
+    return;
+  }
 
   busy.value = true;
   try {
@@ -87,6 +102,9 @@ async function submit(): Promise<void> {
       deviceName: device.value.trim(),
       issue: issueText.value.trim(),
       estimatedPriceMinor: priceMinor,
+      partsCostMinor: partCostMinor,
+      partName: partName.value.trim() || null,
+      partSupplier: partSupplier.value.trim() || null,
       depositMinor: paidNow.value ? priceMinor : 0,
       // A ticket that is not collected now takes its deposit in cash, exactly as
       // the repairs screen does; a collected one names the method it was paid by.
@@ -147,6 +165,22 @@ nextTick(() => deviceInput.value?.focus());
         <label class="field" style="flex: 1; min-width: 140px">
           <span>السعر ({{ moneyUnitWord() }})</span>
           <input v-model="priceText" inputmode="decimal" autocomplete="off" placeholder="0" data-quick-repair-price />
+        </label>
+      </div>
+
+      <!-- القطعة وموردها: تفضل اختيارية، وبتظهر على التذكرة في شاشة الصيانة. -->
+      <div class="row" style="gap: 10px; flex-wrap: wrap">
+        <label class="field" style="flex: 1; min-width: 150px">
+          <span>اسم القطعة (اختياري)</span>
+          <input v-model="partName" autocomplete="off" placeholder="مثال: شاشة أصلية" data-quick-repair-part-name />
+        </label>
+        <label class="field" style="flex: 1; min-width: 130px">
+          <span>سعر القطعة ({{ moneyUnitWord() }})</span>
+          <input v-model="partCostText" inputmode="decimal" autocomplete="off" placeholder="0" data-quick-repair-part-cost />
+        </label>
+        <label class="field" style="flex: 1; min-width: 130px">
+          <span>المورد (اختياري)</span>
+          <input v-model="partSupplier" autocomplete="off" placeholder="مين وارّدها" data-quick-repair-part-supplier />
         </label>
       </div>
 

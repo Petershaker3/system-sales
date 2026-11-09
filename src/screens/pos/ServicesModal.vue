@@ -519,7 +519,7 @@ async function submitBillOp(): Promise<void> {
             </span>
           </div>
 
-          <div class="g3">
+          <div class="svc-row2">
             <div class="field">
               <label class="lbl" for="svc-amt">المبلغ ({{ moneyUnitWord() }})</label>
               <input
@@ -557,18 +557,19 @@ async function submitBillOp(): Promise<void> {
                 }}
               </small>
             </div>
+          </div>
 
-            <!-- الملاحظة على جنب في نفس السطر: بتاخد عرض صغير ومش بتاكل سطر كامل. -->
-            <div class="field field-inline-note">
-              <label class="lbl" for="svc-note">ملاحظة (اختياري)</label>
-              <input
-                id="svc-note"
-                v-model="svcNoteText"
-                class="in sm"
-                placeholder="ملاحظة قصيرة"
-                data-svc-note
-              />
-            </div>
+          <!-- الملاحظة تحت المبلغ والعمولة: سطر لوحدها عشان الاتنين يفضلوا جنب
+               بعض على أي عرض (طلب المالك، 2026-11-09). -->
+          <div class="field" style="margin-top: 10px">
+            <label class="lbl" for="svc-note">ملاحظة (اختياري)</label>
+            <input
+              id="svc-note"
+              v-model="svcNoteText"
+              class="in sm"
+              placeholder="ملاحظة قصيرة"
+              data-svc-note
+            />
           </div>
 
           <div
@@ -697,7 +698,7 @@ async function submitBillOp(): Promise<void> {
             </button>
           </div>
 
-          <div class="g3">
+          <div class="svc-row2">
             <div class="field">
               <label class="lbl" for="card-amt">قيمة الكارت ({{ moneyUnitWord() }})</label>
               <input
@@ -727,16 +728,17 @@ async function submitBillOp(): Promise<void> {
               />
               <small class="hint">لو مفيش عمولة اكتب 0</small>
             </div>
-            <div class="field">
-              <label class="lbl" for="card-note">ملاحظة (اختياري)</label>
-              <input
-                id="card-note"
-                v-model="cardNoteText"
-                class="in"
-                placeholder="كارت فكة / شحن عالطاير"
-                data-svc-card-note
-              />
-            </div>
+          </div>
+
+          <div class="field" style="margin-top: 10px">
+            <label class="lbl" for="card-note">ملاحظة (اختياري)</label>
+            <input
+              id="card-note"
+              v-model="cardNoteText"
+              class="in"
+              placeholder="كارت فكة / شحن عالطاير"
+              data-svc-card-note
+            />
           </div>
 
           <div class="due-box" style="margin-top: 12px">
@@ -766,7 +768,7 @@ async function submitBillOp(): Promise<void> {
             </button>
           </div>
 
-          <div class="g3">
+          <div class="svc-row2">
             <div class="field">
               <label class="lbl" for="bill-amt">مبلغ الفاتورة ({{ moneyUnitWord() }})</label>
               <input
@@ -778,20 +780,6 @@ async function submitBillOp(): Promise<void> {
                 inputmode="decimal"
                 placeholder="200"
                 data-svc-bill-amt
-              />
-            </div>
-            <div class="field">
-              <label class="lbl" for="bill-acct">
-                رقم الحساب أو التليفون (اختياري)
-              </label>
-              <input
-                id="bill-acct"
-                v-model="billAcctText"
-                class="in"
-                :class="{ mono: billAcctText !== '' }"
-                :dir="billAcctText ? 'ltr' : 'rtl'"
-                placeholder="لو محتاج تفكّر نفسك"
-                data-svc-bill-acct
               />
             </div>
             <div class="field">
@@ -818,6 +806,20 @@ async function submitBillOp(): Promise<void> {
             </div>
           </div>
 
+          <div class="field" style="margin-top: 10px">
+            <label class="lbl" for="bill-acct">
+              رقم الحساب أو التليفون (اختياري)
+            </label>
+            <input
+              id="bill-acct"
+              v-model="billAcctText"
+              class="in"
+              :class="{ mono: billAcctText !== '' }"
+              :dir="billAcctText ? 'ltr' : 'rtl'"
+              placeholder="لو محتاج تفكّر نفسك"
+              data-svc-bill-acct
+            />
+          </div>
           <div class="due-box" style="margin-top: 12px">
             <small>تحصّل من العميل</small>
             <b class="num" data-svc-bill-total>

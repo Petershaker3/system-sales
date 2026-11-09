@@ -32,7 +32,7 @@ use crate::domain::organisation::CostMethod;
 use crate::domain::sales::{
     allocate_default_refund_payments, civil_ymd_from_millis, compute_partial_line_return,
     compute_return_refund_minor, discount_exceeds_limit, format_invoice_reference,
-    validate_invoice_discount, validate_line_discount, validate_return_reason,
+    validate_invoice_discount, validate_line_discount, validate_return_reason, validate_surcharge,
     validate_sale_payments, PaymentMethod, ReturnCondition, SaleError, SalePaymentInput,
     SaleReturnLineInput, WarrantyDate,
 };
@@ -315,6 +315,43 @@ pub async fn record_sale_with_line_prices(
     line_discounts_minor: &[i64],
     line_price_overrides_minor: &[Option<i64>],
 ) -> Result<SaleOutcome, SaleServiceError> {
+    record_sale_with_line_prices_and_surcharge(
+        pool,
+        tokens,
+        lines,
+        confirmed_total_minor,
+        payments,
+        customer_id,
+        invoice_discount_minor,
+        line_discounts_minor,
+        line_price_overrides_minor,
+        0,
+    )
+    .await
+}
+
+/// The same sale with an optional surcharge above the lines' net total (`0037`).
+///
+/// `surcharge_minor` is money added, not money taken off: delivery, a screen
+/// protector fitted, a rounding the customer agreed to. It is stored on its own
+/// column and added **after** the invoice discount, so `discount_minor` keeps
+/// meaning «what came off the lines» and every reader of `total_minor` (the
+/// drawer, the receipt, the day report) sees the money that was actually
+/// collected. Its two limits are the same as a line price: non-negative and
+/// bounded — a typo that adds a hundred million piastres is refused, not saved.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_sale_with_line_prices_and_surcharge(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    lines: &[SaleLineWithUnitInput],
+    confirmed_total_minor: Option<i64>,
+    payments: Option<&[SalePaymentInput]>,
+    customer_id: Option<&str>,
+    invoice_discount_minor: i64,
+    line_discounts_minor: &[i64],
+    line_price_overrides_minor: &[Option<i64>],
+    surcharge_minor: i64,
+) -> Result<SaleOutcome, SaleServiceError> {
     if lines.is_empty() {
         return Err(SaleError::Empty.into());
     }
@@ -541,10 +578,16 @@ pub async fn record_sale_with_line_prices(
         });
     }
 
-    let total_minor =
+    let net_total_minor =
         validate_invoice_discount(lines_net_subtotal_minor, invoice_discount_minor)?;
+    // Added after the discount, so the surcharge never cancels a discount and a
+    // discount never eats into the extra the customer agreed to.
+    let surcharge_minor = validate_surcharge(surcharge_minor)?;
+    let total_minor = net_total_minor
+        .checked_add(surcharge_minor)
+        .ok_or(CostError::Overflow)?;
     let total_discount_minor = gross_subtotal_minor
-        .checked_sub(total_minor)
+        .checked_sub(net_total_minor)
         .ok_or(CostError::Overflow)?;
 
     // Confirmation gate. Checked after the arithmetic, before the write; an
@@ -599,6 +642,7 @@ pub async fn record_sale_with_line_prices(
             cost_total_minor,
             discount_minor: total_discount_minor,
             approved_by: approved_by.map(|u| u.as_str().to_owned()),
+            surcharge_minor,
         },
     )
     .await
@@ -837,6 +881,9 @@ pub async fn cancel_sale(
             cost_total_minor: original.cost_total_minor,
             discount_minor: original.discount_minor,
             approved_by: approved_by.as_ref().map(|u| u.as_str().to_owned()),
+            // A reversal mirrors the original's money, surcharge included, so the
+            // pair still reads as zero in every report.
+            surcharge_minor: original.surcharge_minor,
         },
     )
     .await
@@ -1531,6 +1578,7 @@ async fn execute_return_core_in_tx(
 
     let (refund_minor, inv_discount_share_minor) = compute_return_refund_minor(
         original.total_minor,
+        original.surcharge_minor,
         orig_lines_net_subtotal_minor,
         already_returned_lines_net_minor,
         already_refunded_total_minor,
@@ -1587,6 +1635,9 @@ async fn execute_return_core_in_tx(
             cost_total_minor: cost_returned_minor,
             discount_minor: total_return_discount_minor,
             approved_by: Some(approved_by.as_str().to_owned()),
+            // A partial return refunds the lines that came back; the surcharge was
+            // for a service already performed, so it stays on the original invoice.
+            surcharge_minor: 0,
         },
     )
     .await
@@ -1952,6 +2003,48 @@ pub async fn record_sale_exchange(
     new_payments: Option<&[SalePaymentInput]>,
     customer_id: Option<&str>,
 ) -> Result<SaleExchangeOutcome, SaleServiceError> {
+    record_sale_exchange_with_extras(
+        pool,
+        tokens,
+        original_sale_id,
+        return_lines,
+        reason,
+        refund_payments,
+        new_lines,
+        new_line_discounts_minor,
+        &[],
+        new_invoice_discount_minor,
+        0,
+        new_payments,
+        customer_id,
+    )
+    .await
+}
+
+/// The same exchange with a typed price per replacement line and a surcharge on
+/// the replacement invoice (`0037`, edit-invoice 2026-11-09).
+///
+/// `new_line_price_overrides_minor` runs parallel to `new_lines`: `None` means
+/// «the model's price», `Some(minor)` means «this piece goes for this much on the
+/// corrected invoice». It carries the same authority as a one-time price in a
+/// fresh sale — `Permission::ManageCatalog` — because it is the same act: changing
+/// what a piece is charged without changing the model.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_sale_exchange_with_extras(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    original_sale_id: &str,
+    return_lines: &[SaleReturnLineInput],
+    reason: &str,
+    refund_payments: Option<&[SalePaymentInput]>,
+    new_lines: &[SaleLineWithUnitInput],
+    new_line_discounts_minor: &[i64],
+    new_line_price_overrides_minor: &[Option<i64>],
+    new_invoice_discount_minor: i64,
+    new_surcharge_minor: i64,
+    new_payments: Option<&[SalePaymentInput]>,
+    customer_id: Option<&str>,
+) -> Result<SaleExchangeOutcome, SaleServiceError> {
     if return_lines.is_empty() {
         return Err(SaleError::ReturnEmpty.into());
     }
@@ -2087,8 +2180,20 @@ pub async fn record_sale_exchange(
             .map_err(|_| DomainError::StorageUnavailable)?
             .ok_or(CatalogError::NoProductWithThisId)?;
 
-        let price = product.sale_price.ok_or(SaleError::PriceNotSet)?;
-        let unit_price_minor = price.as_minor();
+        let unit_price_minor = match new_line_price_overrides_minor
+            .get(line_idx)
+            .copied()
+            .flatten()
+        {
+            Some(typed) => {
+                session.authorize(Permission::ManageCatalog)?;
+                SalePrice::new_minor(typed)?.as_minor()
+            }
+            None => product
+                .sale_price
+                .ok_or(SaleError::PriceNotSet)?
+                .as_minor(),
+        };
         let gross_line_minor = unit_price_minor
             .checked_mul(line.quantity)
             .ok_or(CostError::Overflow)?;
@@ -2177,10 +2282,14 @@ pub async fn record_sale_exchange(
         });
     }
 
-    let new_total_minor =
+    let new_net_total_minor =
         validate_invoice_discount(lines_net_subtotal_minor, new_invoice_discount_minor)?;
+    let new_surcharge_minor = validate_surcharge(new_surcharge_minor)?;
+    let new_total_minor = new_net_total_minor
+        .checked_add(new_surcharge_minor)
+        .ok_or(CostError::Overflow)?;
     let new_total_discount_minor = gross_subtotal_minor
-        .checked_sub(new_total_minor)
+        .checked_sub(new_net_total_minor)
         .ok_or(CostError::Overflow)?;
 
     let default_cash = [SalePaymentInput {
@@ -2212,6 +2321,7 @@ pub async fn record_sale_exchange(
             cost_total_minor,
             discount_minor: new_total_discount_minor,
             approved_by: Some(approved_by.as_str().to_owned()),
+            surcharge_minor: new_surcharge_minor,
         },
     )
     .await

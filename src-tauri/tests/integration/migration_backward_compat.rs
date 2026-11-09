@@ -299,7 +299,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 35, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 37, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 

@@ -26,6 +26,13 @@ export interface RepairTicket {
   readonly estimatedPriceMinor: number;
   readonly finalPriceMinor: number;
   readonly partsCostMinor: number | null;
+  /**
+   * The part fitted and the supplier it came from (`0036`). Empty = not recorded.
+   * Optional in the type so a ticket fixture written before the field existed
+   * still describes a valid ticket — the shop simply never wrote it down.
+   */
+  readonly partName?: string;
+  readonly partSupplier?: string;
   readonly netProfitMinor: number | null;
   readonly depositMinor: number;
   readonly collectedMinor: number;
@@ -89,6 +96,8 @@ export interface CreateRepairParams {
   readonly dueLabel?: string | null;
   readonly estimatedPriceMinor: number;
   readonly partsCostMinor?: number | null;
+  readonly partName?: string | null;
+  readonly partSupplier?: string | null;
   readonly depositMinor: number;
   readonly payMethod?: RepairPayMethod | null;
   /** The wallet number that took the money (`ADR-041`). */
@@ -105,6 +114,9 @@ export interface UpdateRepairStatusParams {
   readonly technicianName?: string | null;
   readonly estimatedPriceMinor?: number | null;
   readonly partsCostMinor?: number | null;
+  /** `''` clears the field; absent leaves it as it was (`0036`). */
+  readonly partName?: string | null;
+  readonly partSupplier?: string | null;
   readonly note?: string | null;
 }
 
@@ -143,6 +155,8 @@ export async function createRepair(params: CreateRepairParams): Promise<RepairTi
     dueLabel: params.dueLabel ?? null,
     estimatedPriceMinor: params.estimatedPriceMinor,
     partsCostMinor: params.partsCostMinor ?? null,
+    partName: params.partName ?? null,
+    partSupplier: params.partSupplier ?? null,
     depositMinor: params.depositMinor,
     payMethod: params.payMethod ?? 'cash',
     payWalletId: params.payWalletId ?? null,
@@ -160,6 +174,8 @@ export async function updateRepairStatus(params: UpdateRepairStatusParams): Prom
     technicianName: params.technicianName ?? null,
     estimatedPriceMinor: params.estimatedPriceMinor ?? null,
     partsCostMinor: params.partsCostMinor ?? null,
+    partName: params.partName ?? null,
+    partSupplier: params.partSupplier ?? null,
     note: params.note ?? null,
   });
 }

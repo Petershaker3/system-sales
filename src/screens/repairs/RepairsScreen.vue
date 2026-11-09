@@ -127,6 +127,9 @@ const intakeDue = ref('بكره');
 const intakeTech = ref('');
 const intakePriceEgp = ref('');
 const intakePartsCostEgp = ref('');
+/** القطعة وموردها: ورق على التذكرة (`0036`، طلب المالك 2026-11-09). */
+const intakePartName = ref('');
+const intakePartSupplier = ref('');
 const intakeDepositEgp = ref('0');
 const intakePayMethod = ref<RepairPayMethod>('cash');
 /** Which wallet number took the money collected at intake (`ADR-041`). */
@@ -152,6 +155,8 @@ const detailStatus = ref<RepairStatusId>('received');
 const detailTech = ref('');
 const detailEstPriceEgp = ref('');
 const detailPartsCostEgp = ref('');
+const detailPartName = ref('');
+const detailPartSupplier = ref('');
 const detailNote = ref('');
 const detailSubmitting = ref(false);
 const detailError = ref('');
@@ -246,6 +251,8 @@ function openIntakeModal(defaultKind: RepairServiceKind = 'hardware'): void {
   intakeTech.value = '';
   intakePriceEgp.value = '';
   intakePartsCostEgp.value = '0';
+  intakePartName.value = '';
+  intakePartSupplier.value = '';
   intakeDepositEgp.value = '0';
   intakePayMethod.value = 'cash';
   intakePayWalletId.value = null;
@@ -348,6 +355,8 @@ async function submitIntake(): Promise<void> {
       dueLabel: intakeDue.value,
       estimatedPriceMinor: priceMinor,
       partsCostMinor: partsMinor,
+      partName: intakePartName.value.trim() || null,
+      partSupplier: intakePartSupplier.value.trim() || null,
       depositMinor,
       payMethod: intakeDeliverNow.value ? intakePayMethod.value : 'cash',
       payWalletId: intakeDeliverNow.value ? intakePayWalletId.value : null,
@@ -464,6 +473,8 @@ function openDetailModal(ticket: RepairTicket): void {
     ticket.partsCostMinor !== null
       ? moneyInputValue(ticket.partsCostMinor)
       : '0';
+  detailPartName.value = ticket.partName ?? '';
+  detailPartSupplier.value = ticket.partSupplier ?? '';
   detailNote.value = ticket.note ?? '';
 }
 
@@ -485,6 +496,8 @@ async function saveDetailChanges(): Promise<void> {
       technicianName: detailTech.value.trim() || null,
       estimatedPriceMinor: estMinor,
       partsCostMinor: partsMinor,
+      partName: detailPartName.value.trim(),
+      partSupplier: detailPartSupplier.value.trim(),
       note: detailNote.value.trim(),
     });
     detailTarget.value = null;
@@ -1110,6 +1123,30 @@ onMounted(async () => {
             </label>
           </div>
 
+          <!-- القطعة وموردها (`0036`): اسم القطعة اللي اتغيرت، ومين وارّدها. -->
+          <div class="form-grid">
+            <label class="field">
+              <span class="lbl">اسم القطعة (اختياري)</span>
+              <input
+                v-model="intakePartName"
+                type="text"
+                class="input"
+                placeholder="مثال: شاشة A15 أصلية"
+                data-intake-part-name
+              />
+            </label>
+            <label class="field">
+              <span class="lbl">المورد (اختياري)</span>
+              <input
+                v-model="intakePartSupplier"
+                type="text"
+                class="input"
+                placeholder="مين وارّد القطعة"
+                data-intake-part-supplier
+              />
+            </label>
+          </div>
+
           <div class="form-grid cols-3">
             <template v-if="intakeDeliverNow">
               <label class="field">
@@ -1546,6 +1583,28 @@ onMounted(async () => {
               :class="{ mono: detailPartsCostEgp !== '' }"
               :dir="detailPartsCostEgp ? 'ltr' : 'rtl'"
               data-detail-parts-cost
+            />
+          </label>
+
+          <label class="field">
+            <span class="lbl">اسم القطعة</span>
+            <input
+              v-model="detailPartName"
+              type="text"
+              class="input"
+              placeholder="مثال: شاشة A15 أصلية"
+              data-detail-part-name
+            />
+          </label>
+
+          <label class="field">
+            <span class="lbl">المورد</span>
+            <input
+              v-model="detailPartSupplier"
+              type="text"
+              class="input"
+              placeholder="مين وارّد القطعة"
+              data-detail-part-supplier
             />
           </label>
         </div>

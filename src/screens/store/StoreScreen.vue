@@ -292,14 +292,22 @@ function closeReceive(): void {
 }
 
 /**
- * A delivery was written. The window says so and goes away, and the shelves
- * behind it are read again: the balance, the shortage badge and the value the
- * shopkeeper came here for all changed in that one write.
+ * A delivery was written. The shelves behind the window are read again: the
+ * balance, the shortage badge and the value the shopkeeper came here for all
+ * changed in that one write.
+ *
+ * The window stays open (owner, 2026-11-09). It used to close after every saved
+ * line, so a supplier invoice with twenty items meant opening it twenty times —
+ * the exact trip the window exists to save. The shopkeeper closes it himself
+ * when the invoice is done, and the panel underneath keeps the running batch.
  */
 function onReceived(productId: string): void {
-  receiveFor.value = '';
   reload.value += 1;
-  toast(`اتضاف المخزون${productId === '' ? '' : ' على الصنف ده'} — الرصيد اتحدّث`, 'ok', 4000);
+  toast(
+    `اتضاف المخزون${productId === '' ? '' : ' على الصنف ده'} — الرصيد اتحدّث. كمّل باقي الأصناف أو اقفل النافذة`,
+    'ok',
+    4000,
+  );
 }
 
 function registered(name: string, productId = ''): void {
@@ -859,12 +867,12 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
       v-if="receiveOpen"
       size="wide"
       title="إضافة مخزون"
-      sub="الكمية وسعر الشراء والورق — الحفظ مرة واحدة"
+      sub="الكمية وسعر الشراء والورق — النافذة تفضل مفتوحة لحد ما تخلّص الفاتورة"
       @close="closeReceive"
     >
       <div data-store-receive-modal>
         <StockPanel
-          :key="`m${reload}-${justCreated}`"
+          :key="`m-${justCreated}`"
           embedded
           :select-product="justCreated"
           @new-item="
@@ -879,6 +887,13 @@ function openLabelsModal(productId?: string | null, unitId?: string | null): voi
           @received="onReceived"
         />
       </div>
+      <template #foot>
+        <span class="muted small">كل صنف اتسجّل هنا اتحفظ على طول في المخزن.</span>
+        <span class="sp"></span>
+        <button type="button" class="btn primary" data-store-receive-done @click="closeReceive">
+          <Icon name="check" /> خلصت — اقفل النافذة
+        </button>
+      </template>
     </Modal>
 
     <NewItemKindModal v-if="kind" @close="kind = false" @pick="pick" />

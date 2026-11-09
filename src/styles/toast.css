@@ -2,15 +2,17 @@
    Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
    class names and values are kept so the real screens match the mockup (DESIGN.md). */
 /* ===== رسائل التنبيه ===== */
-/* فوق على اليمين (طلب صاحب المحل، 2026-11-02): الرسالة تبان في وشه وقت ما يسجّل
-   بيعة أو موبايل، مش تحت الشاشة بعيد عن اللي بيعمله. */
-#toasts { position: fixed; top: 14px; inset-inline-end: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
+/* فوق على اليمين (طلب صاحب المحل، 2026-11-02 و2026-11-09): الرسالة تبان في وشه
+   وقت ما يسجّل بيعة أو موبايل، مش تحت الشاشة بعيد عن اللي بيعمله.
+   «اليمين» هنا اليمين الحقيقي على الشاشة — `inset-inline-end` في صفحة عربية
+   (`RTL`) معناها الشمال، فكانت الرسالة بتطلع في المكان الغلط. */
+#toasts { position: fixed; top: 14px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 120; pointer-events: none; width: max-content; max-width: min(460px, 92vw); }
 /* والنافذة مفتوحة: نفس المكان، أضيق، عشان ما تغطيش كلام النافذة */
-body.has-modal #toasts { top: 14px; align-items: flex-end; max-width: 340px; }
+body.has-modal #toasts { top: 14px; right: 16px; align-items: flex-end; max-width: 340px; }
 body.has-modal .toast { max-width: 340px; }
 /* على الموبايل اليمين ضيّق: الرسالة تاخد عرض الشاشة من غير ما تخرج برّاها. */
 @media (max-width: 620px) {
-  #toasts { inset-inline: 10px; max-width: none; align-items: stretch; }
+  #toasts { left: 10px; right: 10px; max-width: none; align-items: stretch; }
   .toast { max-width: none; }
 }
 .toast {

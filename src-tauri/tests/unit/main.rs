@@ -3064,12 +3064,20 @@ fn partial_returns_and_default_refund_allocation_domain_rules_hold() {
     );
 
     // Invoice-level discount pro-rating + exact final remainder.
-    let (ref1, disc1) = compute_return_refund_minor(27_000, 30_000, 0, 0, 10_000);
+    let (ref1, disc1) = compute_return_refund_minor(27_000, 0, 30_000, 0, 0, 10_000);
     assert_eq!(disc1, 1_000);
     assert_eq!(ref1, 9_000);
-    let (ref2, disc2) = compute_return_refund_minor(27_000, 30_000, 10_000, ref1, 20_000);
+    let (ref2, disc2) = compute_return_refund_minor(27_000, 0, 30_000, 10_000, ref1, 20_000);
     assert_eq!(ref1 + ref2, 27_000);
     assert_eq!(disc1 + disc2, 3_000);
+
+    // A surcharge is not a discount: with 10 out of 30 net returned, the customer
+    // gets the line's share of the 3,000 discount only — the 5,000 extra stays on
+    // the invoice, and a full return still hands back the whole 32,000.
+    let (part, _) = compute_return_refund_minor(32_000, 5_000, 30_000, 0, 0, 10_000);
+    assert_eq!(part, 9_000);
+    let (all, _) = compute_return_refund_minor(32_000, 5_000, 30_000, 0, 0, 30_000);
+    assert_eq!(all, 32_000);
 
     // Default refund allocation across split payment methods.
     let alloc = allocate_default_refund_payments(

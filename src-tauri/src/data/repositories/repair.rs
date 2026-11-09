@@ -25,6 +25,8 @@ pub struct NewRepairRow<'a> {
     pub estimated_price_minor: i64,
     pub final_price_minor: i64,
     pub parts_cost_minor: i64,
+    pub part_name: &'a str,
+    pub part_supplier: &'a str,
     pub deposit_minor: i64,
     pub pay_method: RepairPayMethod,
     pub technician_name: Option<&'a str>,
@@ -52,6 +54,8 @@ pub struct RawRepairRow {
     pub estimated_price_minor: i64,
     pub final_price_minor: i64,
     pub parts_cost_minor: i64,
+    pub part_name: String,
+    pub part_supplier: String,
     pub deposit_minor: i64,
     pub pay_method: String,
     pub technician_name: Option<String>,
@@ -97,6 +101,8 @@ impl RawRepairRow {
             estimated_price_minor: self.estimated_price_minor,
             final_price_minor: self.final_price_minor,
             parts_cost_minor: include_cost.then_some(self.parts_cost_minor),
+            part_name: self.part_name,
+            part_supplier: self.part_supplier,
             net_profit_minor: include_cost.then_some(net_profit),
             deposit_minor: self.deposit_minor,
             collected_minor,
@@ -130,6 +136,8 @@ fn map_raw_row(r: sqlx::sqlite::SqliteRow) -> RawRepairRow {
         estimated_price_minor: r.get("estimated_price_minor"),
         final_price_minor: r.get("final_price_minor"),
         parts_cost_minor: r.get("parts_cost_minor"),
+        part_name: r.get("part_name"),
+        part_supplier: r.get("part_supplier"),
         deposit_minor: r.get("deposit_minor"),
         pay_method: r.get("pay_method"),
         technician_name: r.get("technician_name"),
@@ -161,7 +169,8 @@ pub async fn find_raw_by_id(
         "SELECT r.id, r.ticket_no, r.service_kind, r.customer_name, r.customer_phone,
                 r.device_name, r.imei, r.device_lock, r.issue, r.accessories,
                 r.due_label, r.status, r.estimated_price_minor, r.final_price_minor,
-                r.parts_cost_minor, r.deposit_minor, r.pay_method, r.technician_name,
+                r.parts_cost_minor, r.part_name, r.part_supplier,
+                r.deposit_minor, r.pay_method, r.technician_name,
                 r.warranty_days, r.note, r.created_by,
                 COALESCE(u.display_name, r.created_by) AS created_by_name,
                 r.created_at, r.delivered_at
@@ -185,13 +194,15 @@ pub async fn insert(
             device_name, imei, device_lock, issue, accessories,
             due_label, status, estimated_price_minor, final_price_minor,
             parts_cost_minor, deposit_minor, pay_method, technician_name,
-            warranty_days, note, created_by, created_at, delivered_at
+            warranty_days, note, created_by, created_at, delivered_at,
+            part_name, part_supplier
          ) VALUES (
             ?1, ?2, ?3, ?4, ?5,
             ?6, ?7, ?8, ?9, ?10,
             ?11, ?12, ?13, ?14,
             ?15, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22, ?23
+            ?19, ?20, ?21, ?22, ?23,
+            ?24, ?25
          )",
     )
     .bind(row.id.as_str())
@@ -217,6 +228,8 @@ pub async fn insert(
     .bind(row.created_by)
     .bind(row.created_at)
     .bind(row.delivered_at)
+    .bind(row.part_name)
+    .bind(row.part_supplier)
     .execute(&mut *conn)
     .await?;
 
@@ -254,6 +267,8 @@ pub async fn update_status_and_details(
     technician_name: Option<&str>,
     estimated_price_minor: Option<i64>,
     parts_cost_minor: Option<i64>,
+    part_name: Option<&str>,
+    part_supplier: Option<&str>,
     note: Option<&str>,
 ) -> Result<RawRepairRow, sqlx::Error> {
     let existing = find_raw_by_id(conn, id)
@@ -262,6 +277,8 @@ pub async fn update_status_and_details(
     let next_tech = technician_name.or(existing.technician_name.as_deref());
     let next_est = estimated_price_minor.unwrap_or(existing.estimated_price_minor);
     let next_parts = parts_cost_minor.unwrap_or(existing.parts_cost_minor);
+    let next_part_name = part_name.unwrap_or(&existing.part_name);
+    let next_part_supplier = part_supplier.unwrap_or(&existing.part_supplier);
     let next_note = note.unwrap_or(&existing.note);
 
     sqlx::query(
@@ -270,14 +287,18 @@ pub async fn update_status_and_details(
                 technician_name = ?2,
                 estimated_price_minor = ?3,
                 parts_cost_minor = ?4,
-                note = ?5
-          WHERE id = ?6",
+                note = ?5,
+                part_name = ?6,
+                part_supplier = ?7
+          WHERE id = ?8",
     )
     .bind(status.as_str())
     .bind(next_tech)
     .bind(next_est)
     .bind(next_parts)
     .bind(next_note)
+    .bind(next_part_name)
+    .bind(next_part_supplier)
     .bind(id)
     .execute(&mut *conn)
     .await?;
@@ -365,7 +386,8 @@ pub async fn list_all_raw(conn: &mut SqliteConnection) -> Result<Vec<RawRepairRo
         "SELECT r.id, r.ticket_no, r.service_kind, r.customer_name, r.customer_phone,
                 r.device_name, r.imei, r.device_lock, r.issue, r.accessories,
                 r.due_label, r.status, r.estimated_price_minor, r.final_price_minor,
-                r.parts_cost_minor, r.deposit_minor, r.pay_method, r.technician_name,
+                r.parts_cost_minor, r.part_name, r.part_supplier,
+                r.deposit_minor, r.pay_method, r.technician_name,
                 r.warranty_days, r.note, r.created_by,
                 COALESCE(u.display_name, r.created_by) AS created_by_name,
                 r.created_at, r.delivered_at

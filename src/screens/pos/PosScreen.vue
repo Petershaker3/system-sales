@@ -41,6 +41,7 @@ import type { SellableProduct } from './cart';
 import { brandChips, buildTree, inSelection, keepSelection, mainChips, mainOf, searchWords, subChips, toggle } from './categories';
 import CustomerPickerModal from './CustomerPickerModal.vue';
 import DiscountModal from './DiscountModal.vue';
+import SurchargeModal from './SurchargeModal.vue';
 import { asIconName, tileIcon } from './icons';
 import { isSerialProduct, requiresImeiOnSale, searchUnitsByImei } from './imei';
 import ImeiPickerModal from './ImeiPickerModal.vue';
@@ -80,7 +81,9 @@ function onScan(reading: ScanReading): void {
 const query = ref('');
 const highlighted = ref(0);
 const chip = ref<string>('top');
-const modal = ref<null | 'pay' | 'qty' | 'clear' | 'discount' | 'warranty' | 'services' | 'returns'>(null);
+const modal = ref<
+  null | 'pay' | 'qty' | 'clear' | 'discount' | 'surcharge' | 'warranty' | 'services' | 'returns'
+>(null);
 /** «إضافة صيانة / سوفت وير» من غير ما يسيب الفاتورة (2026-11-02). */
 const quickRepair = ref(false);
 const discountInitialScope = ref<'invoice' | 'line'>('invoice');
@@ -746,6 +749,34 @@ function onApplyLineDiscount(lineIndex: number, discountMinor: number): void {
   void nextTick(focusSearch);
 }
 
+/**
+ * «زيادة على الفاتورة» (طلب المالك، 2026-11-09): مبلغ فوق صافي البنود — توصيل،
+ * تركيب، تقريب. بيتحفظ في الفاتورة المفتوحة وبيوصل لـRust كـ`surchargeMinor`،
+ * فالإيصال والدرج والتقارير بيشوفوا اللي اتحصّل فعلًا.
+ */
+function openSurcharge(): void {
+  if (empty.value) {
+    toast('الفاتورة فاضية، ضيف صنف الأول', 'info');
+    return;
+  }
+  modal.value = 'surcharge';
+}
+
+function onApplySurcharge(surchargeMinor: number): void {
+  if (cart.setInvoiceSurcharge(state, surchargeMinor)) {
+    toast(
+      surchargeMinor > 0
+        ? `اتضافت زيادة ${money(surchargeMinor)} على الفاتورة`
+        : 'اتشالت الزيادة من الفاتورة',
+      surchargeMinor > 0 ? 'ok' : 'info',
+    );
+    modal.value = null;
+    focusSearch();
+  } else {
+    toast('المبلغ المضاف مش صحيح', 'err');
+  }
+}
+
 function onApplyInvoiceDiscount(discountMinor: number): void {
   modal.value = null;
   if (cart.setInvoiceDiscount(state, discountMinor)) {
@@ -823,7 +854,8 @@ async function payExactCash(): Promise<void> {
           netTotal,
           [{ method: 'cash', amountMinor: netTotal, reference: null }],
           selectedCustomer.value?.id ?? null,
-          discSummary.value.invoiceDiscountMinor
+          discSummary.value.invoiceDiscountMinor,
+          discSummary.value.surchargeMinor
         ),
       'موافقة المالك على خصم الفاتورة'
     );
@@ -1554,6 +1586,20 @@ const KEYS: readonly [string, string][] = [
             </span>
             <span class="num">− {{ money(discSummary.totalDiscountMinor) }}</span>
           </div>
+          <div v-if="discSummary.surchargeMinor > 0" id="pos-surcharge-row" class="r add" data-pos-surcharge-row>
+            <span>
+              زيادة
+              <button
+                type="button"
+                class="icon-btn sm"
+                title="تعديل الزيادة"
+                @click.stop="openSurcharge"
+              >
+                <Icon name="pencil" />
+              </button>
+            </span>
+            <span class="num">+ {{ money(discSummary.surchargeMinor) }}</span>
+          </div>
           <div v-if="activeTradeIn" id="pos-tradein-row" class="r disc" data-pos-tradein-row>
             <span>
               استبدال (<bdi dir="rtl">{{ activeTradeIn.productName }}</bdi>)
@@ -1596,6 +1642,17 @@ const KEYS: readonly [string, string][] = [
             خصم <kbd>F3</kbd>
           </button>
           <button
+            id="pos-surcharge-btn"
+            type="button"
+            class="btn"
+            :disabled="empty"
+            title="أضف مبلغ على الفاتورة: توصيل، تركيب، خدمة، أو تقريب"
+            data-pos-surcharge-btn
+            @click="openSurcharge"
+          >
+            زيادة
+          </button>
+          <button
             id="pos-hold-btn"
             type="button"
             class="btn"
@@ -1632,6 +1689,7 @@ const KEYS: readonly [string, string][] = [
       :count="totals.count"
       :selected-customer="selectedCustomer"
       :invoice-discount-minor="discSummary.invoiceDiscountMinor"
+      :surcharge-minor="discSummary.surchargeMinor"
       :gross-subtotal-minor="discSummary.grossSubtotalMinor"
       :seller-name="props.session.displayName"
       :trade-in-credit-minor="activeTradeIn?.creditMinor ?? 0"
@@ -1645,6 +1703,13 @@ const KEYS: readonly [string, string][] = [
     <ImeiCheckModal
       v-if="showImeiCheck"
       @close="showImeiCheck = false"
+    />
+    <SurchargeModal
+      v-if="modal === 'surcharge'"
+      :current-minor="discSummary.surchargeMinor"
+      :base-minor="discSummary.netTotalMinor"
+      @close="closeModal"
+      @apply="onApplySurcharge"
     />
     <DiscountModal
       v-if="modal === 'discount'"
