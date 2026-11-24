@@ -132,6 +132,7 @@ pub struct SaleOutcome {
 /// sale link inherits because it names a customer.
 #[derive(Debug)]
 pub enum SaleServiceError {
+    InvalidReportPeriod,
     Identity(DomainError),
     Sale(SaleError),
     Stock(inventory::StockServiceError),
@@ -187,6 +188,7 @@ impl SaleServiceError {
     /// this layer and the drift guard keeps covering every table.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidReportPeriod => "SALES_REPORT_PERIOD_INVALID",
             Self::Identity(error) => error.code(),
             Self::Sale(error) => error.code(),
             Self::Stock(error) => error.code(),
@@ -200,6 +202,7 @@ impl SaleServiceError {
 impl std::fmt::Display for SaleServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidReportPeriod => write!(f, "invalid report period"),
             Self::Identity(error) => write!(f, "{error}"),
             Self::Sale(error) => write!(f, "{error}"),
             Self::Stock(error) => write!(f, "{error}"),
@@ -2766,4 +2769,22 @@ pub async fn list_sales_history(
     }
 
     Ok(rows)
+}
+
+/// Shop-wide raw event components, never a net-profit report. Only managers
+/// may access shop-wide sales history; the same boundary applies here.
+pub async fn financial_event_totals(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore, from_ms: i64, to_ms_exclusive: i64,
+) -> Result<sales_repo::FinancialEventTotals, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+    if session.role() != crate::domain::identity::Role::Manager {
+        return Err(DomainError::PermissionDenied.into());
+    }
+    if from_ms >= to_ms_exclusive {
+        return Err(SaleServiceError::InvalidReportPeriod);
+    }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::financial_event_totals(&mut conn, from_ms, to_ms_exclusive)
+        .await.map_err(|_| DomainError::StorageUnavailable.into())
 }

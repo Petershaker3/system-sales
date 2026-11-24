@@ -133,6 +133,7 @@ pub fn run() {
             commands::sales::record_sale_exchange,
             commands::sales::list_damaged_stock,
             commands::sales::list_sales_history,
+            commands::sales::sales_financial_event_totals,
             commands::shortage::shortages_overview,
             commands::shortage::add_shortage,
             commands::shortage::set_shortage_status,

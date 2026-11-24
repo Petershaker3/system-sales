@@ -11,7 +11,7 @@ import { listUsers, type Session, type UserSummary } from '../../api/identity';
 import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { repairsOverview, type RepairsOverview } from '../../api/repairs';
-import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
+import { listSalesHistory, salesFinancialEvents, type SaleHistoryEntry, type SalesFinancialEvents } from '../../api/sales';
 import { currentShiftSummary, type CurrentShiftState } from '../../api/shift';
 import { shortagesOverview, type ShortagesOverview } from '../../api/shortages';
 import { walletsOverview, type WalletsOverview } from '../../api/wallet';
@@ -125,6 +125,29 @@ const monthAvailability = computed(() => reportAvailability({
   repairSoftwareProfit: monthRepairs.value?.software.netProfitMinor,
 }));
 const activeAvailability = computed(() => activeTab.value === 'today' ? dayAvailability.value : monthAvailability.value);
+
+// Independent, explicitly provisional event components. They never unlock the
+// legacy report or feed its profit, exports, charts or WhatsApp summary.
+const eventTotals = ref<SalesFinancialEvents | null>(null);
+const eventState = ref<SourceState>('loading');
+let eventRequest = 0;
+async function loadEvents(): Promise<void> {
+  const request = ++eventRequest;
+  eventTotals.value = null;
+  eventState.value = 'loading';
+  const start = activeTab.value === 'today' ? dayStart(dayDate.value) : monthStart(selectedMonth.value);
+  const end = activeTab.value === 'today' ? addDays(start, 1) : addDays(monthEnd(selectedMonth.value), 1);
+  try {
+    const data = await salesFinancialEvents(start.getTime(), end.getTime());
+    if (request !== eventRequest) return;
+    eventTotals.value = data;
+    eventState.value = 'ready';
+  } catch {
+    if (request === eventRequest) eventState.value = 'failed';
+  }
+}
+watch([activeTab, dayDate, selectedMonth], () => { void loadEvents(); }, { immediate: true });
+
 
 function categoryNameById(id: string, fallback = ''): string {
   if (id === 'svc') return 'خدمات وصيانة';
@@ -878,6 +901,21 @@ onBeforeUnmount(() => {
         <button type="button" class="btn" @click="loadAll">حاول تاني</button>
       </template>
     </div>
+    <section class="card" data-reports-event-components aria-label="حركات المبيعات حسب التاريخ">
+      <h3>حركات المبيعات حسب تاريخها — معاينة غير مُراجَعة</h3>
+      <p>الفترة يوم أو شهر عمل كامل وفق ساعة بداية اليوم وإعدادات التوقيت المحلية. المبيعات الأصلية تُسجّل في تاريخها، والمرتجعات والإلغاءات في تاريخ حركتها. هذه مكونات أولية وليست ربحاً أو تقريراً مالياً معتمداً؛ لم تتم مطابقة مصادر الدفع والمخزون بعد.</p>
+      <p v-if="eventState === 'loading'">بيتحمّل ملخص الحركات…</p>
+      <p v-else-if="eventState === 'failed'" role="alert">ملخص الحركات غير متاح أو غير متسق؛ لم تُستبدل البيانات بأصفار. <button type="button" class="btn" @click="loadEvents">حاول تاني</button></p>
+      <dl v-else-if="eventTotals">
+        <dt>فواتير البيع الأصلية</dt><dd>{{ num(eventTotals.saleCount) }} — {{ money(eventTotals.saleTotalMinor) }}</dd>
+        <dt>تكلفة فواتير البيع الأصلية</dt><dd>{{ money(eventTotals.saleCostMinor) }}</dd>
+        <dt>حركات المرتجع ومبالغها</dt><dd>{{ num(eventTotals.returnCount) }} — {{ money(eventTotals.refundMinor) }}</dd>
+        <dt>تكلفة المرتجع السليم إلى المخزون</dt><dd>{{ money(eventTotals.intactCostMinor) }}</dd>
+        <dt>تكلفة المرتجع التالف</dt><dd>{{ money(eventTotals.damagedCostMinor) }}</dd>
+        <dt>حركات الإلغاء ومبالغها</dt><dd>{{ num(eventTotals.cancellationCount) }} — {{ money(eventTotals.cancelledTotalMinor) }}</dd>
+        <dt>تكلفة فواتير الإلغاء</dt><dd>{{ money(eventTotals.cancelledCostMinor) }}</dd>
+      </dl>
+    </section>
     <template v-if="activeAvailability === 'ready'">
     <!-- معاينة رسالة ملخص اليوم واتساب للمالك -->
     <div

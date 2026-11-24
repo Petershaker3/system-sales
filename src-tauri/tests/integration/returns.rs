@@ -528,3 +528,20 @@ async fn financial_event_totals_include_over_5000_sales_without_multiplying_retu
     assert_eq!((second.return_count, second.refund_minor, second.intact_cost_minor), (2, 1000, 600));
     assert_eq!(second.sale_count, 0);
 }
+
+#[tokio::test]
+async fn event_reporting_requires_manager_and_valid_period() {
+    let (pool, tokens, manager, seller, _, _) = setup_shop_for_returns().await;
+    // setup_shop_for_returns leaves the seller signed in.
+    let denied = sales::financial_event_totals(&pool, tokens.as_ref(), 0, 1).await
+        .expect_err("seller cannot inspect shop-wide costs");
+    assert_eq!(denied.code(), "PERMISSION_DENIED");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
+    let invalid = sales::financial_event_totals(&pool, tokens.as_ref(), 1, 1).await
+        .expect_err("empty period is invalid");
+    assert_eq!(invalid.code(), "SALES_REPORT_PERIOD_INVALID");
+    let empty = sales::financial_event_totals(&pool, tokens.as_ref(), 0, 1).await
+        .expect("manager can read valid period");
+    assert_eq!((empty.sale_count, empty.return_count, empty.cancellation_count), (0, 0, 0));
+    let _ = seller;
+}

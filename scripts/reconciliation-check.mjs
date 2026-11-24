@@ -52,6 +52,29 @@ try {
   assert.equal(await page.$eval('[data-reports-export]', el => el.disabled), true);
   assert.match(await page.$eval('[data-reports-incomplete]', el => el.textContent), /المصاريف/);
   console.log('PASS failed expense source hides report and disables exports');
+  // Transport/UI test with deliberately synthetic event components: it is not
+  // an end-to-end SQLx or financial reconciliation test.
+  await page.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__eventCalls = [];
+    window.__TAURI_INTERNALS__.invoke = (cmd, args, ...rest) => {
+      if (cmd !== 'sales_financial_event_totals') return original(cmd, args, ...rest);
+      window.__eventCalls.push(args);
+      return Promise.resolve({ saleCount: 5002, saleTotalMinor: 50020000, saleCostMinor: 30012000,
+        returnCount: 2, refundMinor: 1000, intactCostMinor: 600, damagedCostMinor: 0,
+        cancellationCount: 1, cancelledTotalMinor: 10000, cancelledCostMinor: 6000, inconsistentCancellationCount: 0 });
+    };
+  });
+  await page.click('[data-reports-event-components] button');
+  await page.waitForSelector('[data-reports-event-components] dl');
+  assert.match(await page.$eval('[data-reports-event-components]', e => e.textContent), /معاينة غير مُراجَعة/);
+  assert.equal(await page.$('[data-day-net]'), null, 'component preview must not unlock guarded report');
+  const calls = await page.evaluate(() => window.__eventCalls);
+  assert.ok(calls[0].fromMs < calls[0].toMsExclusive);
+  await page.click('[data-reports-tab="month"]');
+  await page.waitForFunction(() => window.__eventCalls.length >= 2);
+  assert.ok((await page.evaluate(() => window.__eventCalls[1].toMsExclusive - window.__eventCalls[1].fromMs)) > 27 * 86400000);
+  console.log('PASS synthetic event preview respects guard and requests separate day/month periods');
   await clickText('.rail .nav-btn', 'المصاريف');
   await page.evaluate(() => {
     const original = window.__reconciliationOriginalInvoke;

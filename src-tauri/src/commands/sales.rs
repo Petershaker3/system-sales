@@ -848,3 +848,11 @@ pub async fn list_sales_history(
         })
         .collect())
 }
+/// Half-open UTC interval; these are raw event components, not a profit figure.
+#[tauri::command]
+pub async fn sales_financial_event_totals(
+    ctx: Ctx<'_>, from_ms: i64, to_ms_exclusive: i64,
+) -> Result<crate::data::repositories::sales::FinancialEventTotals, SalesCommandError> {
+    use_cases::financial_event_totals(&ctx.pool, ctx.tokens.as_ref(), from_ms, to_ms_exclusive)
+        .await.map_err(Into::into)
+}

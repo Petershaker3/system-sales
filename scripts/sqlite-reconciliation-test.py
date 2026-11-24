@@ -41,6 +41,24 @@ class LedgerReconciliation(unittest.TestCase):
         finally:
             restored.close()
 
+    def test_populated_previous_schema_accepts_additive_index(self):
+        prior = sqlite3.connect(':memory:')
+        try:
+            prior.execute('PRAGMA foreign_keys=ON')
+            migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
+            for path in migrations[:-1]:
+                prior.executescript(path.read_text(encoding='utf-8'))
+            prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
+            prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
+            before = prior.execute('SELECT * FROM sales').fetchall()
+            prior.executescript(migrations[-1].read_text(encoding='utf-8'))
+            self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
+            self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
+            self.assertEqual(prior.execute('PRAGMA foreign_key_check').fetchall(), [])
+            self.assertTrue(any(row[1] == 'idx_sale_reversals_occurred_at' for row in prior.execute("PRAGMA index_list('sale_reversals')")))
+        finally:
+            prior.close()
+
     def test_ledger_event_totals_do_not_multiply_split_returns_or_hide_zero_refunds(self):
         # 5002 sale documents plus a later exchange sale. Both refunds refer to
         # the same original sale: joining sales directly to returns would repeat

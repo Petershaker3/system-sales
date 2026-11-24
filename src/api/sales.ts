@@ -485,3 +485,30 @@ export async function listSalesHistory(
     limit: limit ?? 500,
   });
 }
+/** Raw period events; costs and refunds are not a reconciled profit figure. */
+export interface SalesFinancialEvents {
+  readonly saleCount: number;
+  readonly saleTotalMinor: number;
+  readonly saleCostMinor: number;
+  readonly returnCount: number;
+  readonly refundMinor: number;
+  readonly intactCostMinor: number;
+  readonly damagedCostMinor: number;
+  readonly cancellationCount: number;
+  readonly cancelledTotalMinor: number;
+  readonly cancelledCostMinor: number;
+  readonly inconsistentCancellationCount: number;
+}
+
+export async function salesFinancialEvents(fromMs: number, toMsExclusive: number): Promise<SalesFinancialEvents> {
+  if (!Number.isSafeInteger(fromMs) || !Number.isSafeInteger(toMsExclusive) || fromMs >= toMsExclusive) {
+    throw new Error('SALES_REPORT_PERIOD_INVALID');
+  }
+  const result = await invoke<SalesFinancialEvents>('sales_financial_event_totals', { fromMs, toMsExclusive });
+  const keys: readonly (keyof SalesFinancialEvents)[] = ['saleCount', 'saleTotalMinor', 'saleCostMinor', 'returnCount', 'refundMinor', 'intactCostMinor', 'damagedCostMinor', 'cancellationCount', 'cancelledTotalMinor', 'cancelledCostMinor', 'inconsistentCancellationCount'];
+  if (!result || keys.some(key => !Number.isSafeInteger(result[key]) || result[key] < 0)) {
+    throw new Error('SALES_REPORT_UNSAFE_OR_MISSING_DATA');
+  }
+  if (result.inconsistentCancellationCount !== 0) throw new Error('SALES_REPORT_INCONSISTENT_CANCELLATION');
+  return result;
+}

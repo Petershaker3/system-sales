@@ -1256,7 +1256,8 @@ pub async fn list_sales_history(
 /// A single SQLite statement reads a single snapshot and keeps the separate
 /// event streams from multiplying one another. SQLite reports integer SUM
 /// overflow as an error rather than returning an approximate floating amount.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FinancialEventTotals {
     pub sale_count: i64,
     pub sale_total_minor: i64,

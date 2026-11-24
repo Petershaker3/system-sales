@@ -79,3 +79,47 @@ transactions, source balances or profits. The new Rust integration test is
 unexecuted. Cargo/rustc/rustup were absent, and a direct attempt to reach the
 pinned toolchain distribution at static.rust-lang.org failed with SSL connection
 error in this network environment. No platform or backup-restore claims follow.
+
+### Provisional event components integrated, not a reconciled report
+
+The repository event query is exposed through a manager-only service, command,
+typed API and separately labeled provisional UI panel. The request interval is
+half-open and computed from the configured local business-day boundary; changing
+periods discards stale responses. Missing, unsafe-integer and inconsistent
+cancellation results are rejected. The panel does not supply any existing profit,
+chart, export or WhatsApp figure and does not bypass the existing report guard.
+It is explicitly marked unreviewed, not an approved financial statement. The
+report still cannot be considered complete or reconciled.
+
+**Source trace / unresolved financial risk:** `sale_payments` snapshots method
+and `wallet_id` but does not contain a cash drawer id; shift totals derive cash
+from signed sale/reversal rows by time, while wallet balances use signed rows by
+the recorded wallet id. A cancellation copies original payment rows, including
+wallet id; a return can accept explicit refund sources. For default partial
+returns `refunded_by_method_for_sale` groups prior refunds by method, not wallet,
+and `remaining_by_method` removes that method total once while iterating original
+payment rows; multiple original wallets with the same method can therefore be
+misallocated. The fallback allocation can put leftover on the first source.
+This is a source-code finding, not a reproduced production transaction; do not
+claim per-wallet or historical drawer reconciliation. A cash-drawer identity
+cannot be inferred from the payment record or current settings without further
+historical evidence. Do not silently rewrite old rows or invent one.
+
+Intact return lines append positive `sale_reversal` inventory movements and
+restore stock value at the original line cost; damaged returns go to
+`damaged_stock` and retire units rather than restoring sellable stock. Full
+cancellation reverses the original snapshots. These are traced code paths,
+not an independently verified profit formula or proof of every inventory cost
+method. Service-level test scenarios and accounting reconciliation are still
+needed, including split same-method wallets, custom refund sources and original
+cash-drawer provenance. Repair, expense, wallet-service and all legacy report
+metrics remain unreconciled.
+
+The additional populated-v37-to-v38 Python SQLite experiment applies the real
+SQL files and checks preserved sales rows, integrity and foreign keys. It is not
+SQLx, a real backup restore, or an upgrade test for every historical schema.
+The Rust service authorization test and integration tests are present but not
+run. No Rust toolchain was found locally; static.rust-lang.org is unreachable,
+and the GitHub Rust 1.98.1 release query did not provide a toolchain. No CI or
+release workflow was triggered. The remaining recovery, durable persistence,
+platform and independent audit work is open.
