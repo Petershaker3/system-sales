@@ -25,3 +25,10 @@ This is a **partial** semantic comparison, not a complete audit. Candidate `8946
 * Candidate reports use auxiliary `.catch(() => null)` paths and can calculate from default zeros (`src/screens/reports/ReportsScreen.vue`). This high-priority financial issue is not fixed or reconciled here. Tests must cover failed sources, period switches, export/print and data availability, as well as actual business reconciliation.
 * Repair overview loads all raw tickets (`src-tauri/src/data/repositories/repair.rs`); performance impact and ticket creation root cause remain unmeasured.
 * The full system audit, migration runtime checks, financial reconciliation, backup restoration, Windows and Android device verification remain outstanding. Do not describe this branch as production-ready or ready to promote yet.
+
+## Verification of implementation commit `3c67661754cb65ee122829c2352ab4dacc8cddd3`
+
+* Passed locally: `npm run typecheck`; `npm run test:unit` (290 passed, 0 failed, 0 skipped); `npm run build`; `git diff --check HEAD^ HEAD`.
+* Build warns of an ineffective dynamic import and a chunk over 500 kB (main JS 973.69 kB, gzip 280.86 kB). This is a size measurement, not a startup-performance measurement.
+* Rust and migration execution blocked locally: neither `cargo` nor `rustc` is installed. Browser interaction, Windows/Android device checks, full financial tests and backup/restore were not run. No CI was triggered for this commit.
+* The only code changes are frontend reminders and local templates; no migrations or backend financial rules were modified. Template selection deliberately requires confirmation via the normal expense form. No claim of completed reconciliation, full audit or readiness for promotion.
