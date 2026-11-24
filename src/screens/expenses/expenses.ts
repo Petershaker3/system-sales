@@ -1,0 +1,228 @@
+/**
+ * The expenses section's pure parts (`ADR-043`): its periods, its default categories,
+ * and the labels it prints. Kept out of the component so they can be tested without
+ * a browser.
+ */
+
+import { addDays, dayEnd, dayStart, monthStart } from '../sales/analytics.ts';
+import type { PaidFrom } from '../../api/expenses';
+
+export type ExpensePeriodKey = 'today' | 'yesterday' | 'week' | 'month' | 'all';
+
+export const EXPENSE_PERIODS: ReadonlyArray<{
+  readonly k: ExpensePeriodKey;
+  readonly label: string;
+}> = [
+  { k: 'today', label: 'النهارده' },
+  { k: 'yesterday', label: 'امبارح' },
+  { k: 'week', label: 'آخر 7 أيام' },
+  { k: 'month', label: 'الشهر ده' },
+  { k: 'all', label: 'الكل' },
+];
+
+export interface ExpensePeriodBounds {
+  readonly fromMs: number | null;
+  readonly toMs: number | null;
+}
+
+/**
+ * The window a period means, from the calendar day of `now`.
+ *
+ * Same arithmetic as the repairs screen (`repairPeriodRange`), for the same reason:
+ * a day is a local calendar day, not "twenty-four hours ago", and two screens that
+ * disagree about where a day starts disagree about money.
+ */
+export function expensePeriodBounds(
+  period: ExpensePeriodKey,
+  nowMs: number = Date.now()
+): ExpensePeriodBounds {
+  if (period === 'all') {
+    return { fromMs: null, toMs: null };
+  }
+  const now = new Date(nowMs);
+  // The shop's own day (`ui.day_start`), shared with التقارير والمبيعات: after
+  // midnight the till is still open, so «النهارده» must mean the same day on
+  // every screen — otherwise the expenses total and the profit total disagree.
+  const startOfToday = dayStart(now).getTime();
+  const endOfToday = dayEnd(now).getTime();
+  const startOfYesterday = dayStart(addDays(now, -1)).getTime();
+  if (period === 'today') {
+    return { fromMs: startOfToday, toMs: endOfToday };
+  }
+  if (period === 'yesterday') {
+    return { fromMs: startOfYesterday, toMs: startOfToday - 1 };
+  }
+  if (period === 'week') {
+    return { fromMs: dayStart(addDays(now, -6)).getTime(), toMs: endOfToday };
+  }
+  // The same first day the reports use, moved to the shop's hour: `inRange()` starts a
+  // month at `dayStart(monthStart(...))`, and the two screens must agree on it.
+  const startOfMonth = dayStart(monthStart(now)).getTime();
+  return { fromMs: startOfMonth, toMs: endOfToday };
+}
+
+/**
+ * The categories a shop most often spends on, offered as buttons before it has any
+ * history of its own. They are suggestions, never a closed list: the field beside them
+ * is free text, and the words a shop actually uses come back from its own rows.
+ */
+export const EXPENSE_SECTION_CATEGORIES: readonly string[] = [
+  'إيجار',
+  'رواتب',
+  'كهرباء ومياه',
+  'إنترنت وتليفون',
+  'مواصلات وشحن',
+  'صيانة وإصلاح',
+  'ضيافة',
+  'مستلزمات',
+  'أخرى',
+];
+
+/** `من الدرج` / `من برّه الدرج` — one line, no invented nuance. */
+export function paidFromLabel(paidFrom: PaidFrom): string {
+  return paidFrom === 'drawer' ? 'من الدرج' : 'من برّه الدرج';
+}
+
+/**
+ * One sentence about the form's default source.
+ *
+ * It reports the drawer's real state rather than a preference: with a shift open the
+ * drawer is a legitimate answer, and without one the only honest answer is that the
+ * money did not come out of a till nobody opened.
+ */
+export function drawerAvailabilityNote(openShiftId: string | null): string {
+  return openShiftId === null
+    ? 'مفيش وردية مفتوحة دلوقتي، فالمصروف هيتسجّل «من برّه الدرج» — ومش هيمسّ فلوس الدرج.'
+    : 'فيه وردية مفتوحة — تقدر تسجّل المصروف «من الدرج» لو الفلوس خرجت من التilla، أو «من برّه الدرج» لو مدفوعة من مكان تاني.';
+}
+
+/**
+ * What the source toggle does when the drawer is closed.
+ *
+ * A choice that cannot happen is not offered: with no open shift the only source is
+ * outside, and the form says so instead of showing a disabled button that explains
+ * nothing.
+ */
+export function effectivePaidFrom(openShiftId: string | null, chosen: PaidFrom): PaidFrom {
+  return openShiftId === null ? 'outside' : chosen;
+}
+
+/** Categories to offer: the shop's own first, then the defaults it has not used yet. */
+export function suggestedCategories(
+  known: readonly string[],
+  defaults: readonly string[] = EXPENSE_SECTION_CATEGORIES
+): readonly string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...known, ...defaults]) {
+    const value = raw.trim();
+    if (value === '' || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * A category's share of the period's spending, as a percentage rounded down.
+ *
+ * Used for the little bar beside each category. Returns 0 for an empty period rather
+ * than dividing by zero or claiming a share nobody spent.
+ */
+export function categorySharePercent(totalMinor: number, partMinor: number): number {
+  if (totalMinor <= 0 || partMinor <= 0) return 0;
+  return Math.min(100, Math.floor((partMinor * 100) / totalMinor));
+}
+
+/** The biggest category in the period, or `null` when nothing was spent. */
+export function topCategory(
+  rows: readonly { readonly category: string; readonly totalMinor: number }[]
+): { readonly category: string; readonly totalMinor: number } | null {
+  let best: { category: string; totalMinor: number } | null = null;
+  for (const row of rows) {
+    if (row.totalMinor <= 0) continue;
+    if (best === null || row.totalMinor > best.totalMinor) {
+      best = { category: row.category, totalMinor: row.totalMinor };
+    }
+  }
+  return best;
+}
+
+/**
+ * The reasons the shop keeps at hand for one-tap expenses (`ui.expense_reasons`).
+ *
+ * The owner asked for «إضافة» inside the reason box: the shop pays the same rent
+ * and the same internet bill every month, and typing the reason again on a phone
+ * keyboard at the counter is the slowest part of recording it. What is kept is a
+ * short list of **labels** — the money is still the money, and nothing here
+ * touches what gets stored for an expense.
+ *
+ * The list is what the shop kept on purpose; the chips on screen also read the
+ * shop's own past expenses, so a fresh shop that keeps nothing still gets its
+ * history without a setting.
+ */
+export const MAX_KEPT_REASONS = 12;
+export const MAX_REASON_CHARS = 40;
+
+/** A stored list, cleaned: trimmed, one line each, no repeats, capped. */
+export function keptReasons(raw: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const value = part.replace(/[\r\n\t]+/g, ' ').trim();
+    if (value === '' || value.length > MAX_REASON_CHARS) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+    if (out.length === MAX_KEPT_REASONS) break;
+  }
+  return out.join(',');
+}
+
+/**
+ * Keep one reason, or refuse it (`null`).
+ *
+ * Refused: nothing typed (a blank chip is a chip that does nothing), something
+ * longer than a receipt line, a comma (the separator), and a reason already kept
+ * — the second copy would be a second chip with the same label.
+ */
+export function keepReason(raw: string, reason: string): string | null {
+  const value = reason.replace(/[\r\n\t]+/g, ' ').trim();
+  if (value === '' || value.length > MAX_REASON_CHARS || value.includes(',')) return null;
+  const current = keptReasons(raw);
+  const list = current === '' ? [] : current.split(',');
+  if (list.includes(value)) return null;
+  if (list.length >= MAX_KEPT_REASONS) return null;
+  return [...list, value].join(',');
+}
+
+/** Drop one kept reason (the shop stopped paying it). */
+export function forgetReason(raw: string, reason: string): string {
+  const value = reason.trim();
+  const current = keptReasons(raw);
+  if (current === '') return '';
+  return current
+    .split(',')
+    .filter((kept) => kept !== value)
+    .join(',');
+}
+
+/**
+ * The chips to offer above the field: what the shop kept first, then the reasons
+ * it has actually written before — one list, no repeats, capped.
+ */
+export function reasonChoices(
+  kept: string,
+  history: readonly string[]
+): readonly string[] {
+  const current = keptReasons(kept);
+  const out: string[] = current === '' ? [] : current.split(',');
+  for (const raw of history) {
+    const value = raw.replace(/[\r\n\t]+/g, ' ').trim();
+    if (value === '' || value.length > MAX_REASON_CHARS || value.includes(',')) continue;
+    if (out.includes(value)) continue;
+    out.push(value);
+    if (out.length >= MAX_KEPT_REASONS) break;
+  }
+  return out;
+}

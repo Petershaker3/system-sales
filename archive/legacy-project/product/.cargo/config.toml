@@ -1,0 +1,4 @@
+[build]
+# Keep the multi-hundred-megabyte target tree off C:. Every cargo invocation
+# under product/ inherits this, so no per-command flags are needed.
+target-dir = "D:/Dev/_build/product"

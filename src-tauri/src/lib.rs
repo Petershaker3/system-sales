@@ -1,0 +1,290 @@
+//! Application wiring.
+//!
+//! Only this file knows about Tauri and about the platform credential store
+//! together. Everything below it is ordinary Rust.
+
+pub mod commands;
+pub mod data;
+pub mod domain;
+pub mod services;
+
+use std::sync::Arc;
+
+use tauri::Manager;
+
+use services::catalog::CatalogContext;
+use services::identity::secure_store::{KeyringTokenStore, SecureTokenStore};
+use services::identity::IdentityContext;
+
+/// Filename of the device's local database.
+///
+/// Each device owns exactly one of these. There is no shared database and no
+/// synchronisation in V1 (`ADR-008:12`).
+const DB_FILENAME: &str = "shop.db";
+
+// Tauri's mobile entry point.
+//
+// `#[cfg_attr(mobile, ...)]` applies the attribute only when tauri-build sets
+// the `mobile` cfg, so desktop keeps an ordinary `main` and mobile gains the
+// `start_app` C symbol that the generated Gradle project links against.
+//
+// Without it the desktop build is perfectly happy while the Android build fails
+// at packaging time with:
+//
+//     failed to validate library: ... does not include required runtime symbols.
+//     This means you are likely missing the tauri::mobile_entry_point macro usage
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        // The camera is how a barcode and an IMEI are read (`ADR-043`). A WebView
+        // refuses `getUserMedia` unless the host answers its permission request:
+        // on Android the answer is JNI to `WebChromeClient.onPermissionRequest`,
+        // which also raises the OS runtime prompt, and on Windows it is WebView2's
+        // own prompt. Everything except the camera keeps the platform default, so
+        // this handler grants nothing nobody asked for.
+        .on_permission_request(|_webview, kind| match kind {
+            tauri::webview::PermissionKind::Camera => {
+                tauri::webview::PermissionResponse::Allow
+            }
+            _ => tauri::webview::PermissionResponse::Default,
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::identity::bootstrap_status,
+            commands::identity::claim_open_account,
+            commands::identity::list_users_for_picker,
+            commands::identity::login,
+            commands::identity::login_with_pin,
+            commands::identity::approve_with_owner_pin,
+            commands::identity::recover_password_with_code,
+            commands::identity::logout,
+            commands::identity::whoami,
+            commands::identity::reauthenticate,
+            commands::catalog::create_product,
+            commands::catalog::get_product,
+            commands::catalog::list_products,
+            commands::catalog::update_product,
+            commands::catalog::set_product_archived,
+            commands::catalog::find_product_by_barcode,
+            commands::catalog::set_product_category,
+            commands::catalog::next_shop_code,
+            commands::catalog::next_shop_codes,
+            commands::catalog::create_variants,
+            commands::catalog::list_product_images,
+            commands::catalog::set_product_image,
+            commands::catalog::remove_product_image,
+            commands::catalog::get_shop_logo,
+            commands::catalog::set_shop_logo,
+            commands::catalog::remove_shop_logo,
+
+
+            commands::identity_lifecycle::change_own_password,
+            commands::identity_lifecycle::list_users_for_management,
+            commands::identity_lifecycle::create_user,
+            commands::identity_lifecycle::reset_user_password,
+            commands::identity_lifecycle::set_my_pin,
+            commands::identity_lifecycle::set_user_pin,
+            commands::identity_lifecycle::create_recovery_code,
+            commands::identity_lifecycle::recovery_code_status,
+            commands::identity_lifecycle::change_user_role,
+            commands::identity_lifecycle::disable_user,
+            commands::identity_lifecycle::enable_user,
+            commands::identity_lifecycle::set_username,
+            commands::identity_lifecycle::password_change_required,
+            commands::categories::list_categories,
+            commands::categories::create_category,
+            commands::categories::rename_category,
+            commands::categories::set_category_hidden,
+            commands::categories::move_category,
+            commands::categories::delete_category,
+            commands::brands::list_brands,
+            commands::brands::create_brand,
+            commands::brands::rename_brand,
+            commands::brands::set_brand_type,
+            commands::brands::set_brand_hidden,
+            commands::brands::move_brand,
+            commands::brands::delete_brand,
+            commands::brands::create_phone,
+            commands::brands::create_used_phone,
+            commands::brands::check_imei,
+            commands::settings::read_settings,
+            commands::settings::update_setting,
+            commands::settings::read_appearance,
+            commands::settings::update_appearance,
+            commands::inventory::receive_stock,
+            commands::inventory::receive_document,
+            commands::inventory::register_stock_unit,
+            commands::inventory::receive_opening_stock,
+            commands::inventory::list_product_units,
+            commands::inventory::list_all_product_units,
+            commands::inventory::set_unit_imei,
+            commands::inventory::remove_stock,
+            commands::inventory::reconcile_stock_count,
+            commands::inventory::get_position,
+            commands::inventory::stock_value,
+            commands::inventory::list_receipts,
+            commands::pos::pos_catalog,
+            commands::sales::record_sale,
+            commands::sales::cancel_sale,
+            commands::sales::link_sale_customer,
+            commands::sales::set_sale_customer_name,
+            commands::sales::inspect_sale_for_return,
+            commands::sales::list_recent_sales_for_return,
+            commands::sales::record_sale_return,
+            commands::sales::record_sale_exchange,
+            commands::sales::list_damaged_stock,
+            commands::sales::list_sales_history,
+            commands::shortage::shortages_overview,
+            commands::shortage::add_shortage,
+            commands::shortage::set_shortage_status,
+            commands::shortage::resolve_shortage,
+            commands::shortage::delete_shortage,
+            commands::shortage::add_all_suggested_shortages,
+            commands::repair::repairs_overview,
+            commands::repair::create_repair,
+            commands::repair::update_repair_status,
+            commands::repair::deliver_repair,
+            commands::repair::cancel_repair,
+            commands::customer::create_customer,
+            commands::customer::list_customers,
+            commands::customer::get_customer,
+            commands::customer::archive_customer,
+            commands::customer::record_customer_payment,
+            commands::customer::list_customer_ledger,
+            commands::shift::current_shift_summary,
+            commands::shift::open_shift,
+            commands::shift::record_expense,
+            commands::shift::record_shop_expense,
+            commands::shift::expenses_overview,
+            commands::shift::record_cash_movement,
+            commands::shift::close_shift,
+            commands::wallet::wallets_overview,
+            commands::wallet::record_wallet_op,
+            commands::wallet::record_service_op,
+            commands::wallet::record_wallet_movement,
+            commands::wallet::reconcile_wallet,
+            commands::wallet::void_wallet_op,
+            commands::wallet::payment_wallet_candidates,
+            commands::wallet::create_wallet,
+            commands::wallet::update_wallet,
+            commands::wallet::delete_wallet,
+            commands::backup::create_backup,
+            commands::backup::restore_backup,
+            commands::backup::list_saved_backups,
+            commands::backup::create_auto_backup_now,
+            commands::backup::copy_latest_backup_to_usb,
+            commands::backup::restore_saved_backup,
+            commands::backup::run_periodic_backup_tick,
+            // The window's own command: after a restore the pool is closed for
+            // good, and only a new process can open the restored database.
+            commands::shell::restart_app,
+            // A WhatsApp chat opens in the machine's own browser: a webview
+            // cannot leave the window by itself.
+            commands::shell::open_external_url,
+            commands::companion::companion_overview,
+            commands::companion::pair_companion_device,
+            commands::companion::unpair_companion_device,
+            commands::companion::push_companion_scan,
+            commands::companion::consume_companion_scans,
+            commands::companion::set_companion_remote,
+            commands::companion::companion_connect_host,
+            commands::companion::companion_probe_host,
+            commands::companion::companion_save_capture,
+            commands::companion::companion_push_captures,
+            commands::companion::companion_clear_outbox,
+            commands::companion::companion_accept_intake,
+            commands::companion::companion_reject_intake,
+            commands::companion::companion_rotate_pair_code,
+        ])
+        .setup(move |app| {
+            // Fail closed, and loudly. If the OS credential store cannot be
+            // reached there is no safe way to hold a session token, and
+            // continuing would mean inventing a weaker fallback (ADR-009).
+            let tokens: Arc<dyn SecureTokenStore> = Arc::new(
+                KeyringTokenStore::new()
+                    .map_err(|e| format!("secure session storage is unavailable: {e}"))?,
+            );
+
+            let data_dir = app
+                .path()
+                .app_local_data_dir()
+                .map_err(|e| format!("could not resolve the application data directory: {e}"))?;
+            std::fs::create_dir_all(&data_dir)
+                .map_err(|e| format!("could not create the application data directory: {e}"))?;
+
+            // Crash recovery for an interrupted restore (P2a-Rust). This runs
+            // BEFORE the database is opened: an interrupted restore leaves a
+            // half-replaced device, and opening it would be acting on suspect
+            // state. A clean or reverted device proceeds; a device that cannot
+            // be recovered refuses to start (fail closed).
+            match services::backup::recover_interrupted(&data_dir) {
+                Ok(services::backup::RecoveryOutcome::NothingToDo) => {}
+                Ok(recovered) => {
+                    eprintln!("backup recovery at startup: {recovered:?}");
+                }
+                Err(error) => {
+                    Err(format!(
+                        "an interrupted backup restore could not be completed: {error}"
+                    ))?;
+                }
+            }
+
+            let pool = tauri::async_runtime::block_on(data::db::open(&data_dir.join(DB_FILENAME)))
+                .map_err(|e| format!("could not open the local database: {e}"))?;
+
+            // Clear sessions that expired while the device was off. Housekeeping
+            // only: no decision depends on it.
+            let _ = tauri::async_runtime::block_on(services::identity::session::purge_expired(&pool));
+
+            // A shop that has never made an account runs without one (`ADR-039`).
+            // The open owner row is written here, before the defaults below, so the
+            // default categories and phone companies are attributed to it like they
+            // are to a manager, and so a first launch opens on the sales screen
+            // instead of on a setup form. The account is the owner's to make later,
+            // from الإعدادات ← المستخدمين والصلاحيات.
+            //
+            // Not best effort in the usual sense: if it fails there is no operator for
+            // the first sale to belong to, and the lock card says out loud that this
+            // device has no accounts. There is no setup form to fall back to any more
+            // (`ADR-039`), and this line is the reason that is survivable: it runs on
+            // every launch, so starting the program again is the repair.
+            let opening =
+                tauri::async_runtime::block_on(services::identity::open_mode::ensure_open_account(
+                    &pool,
+                ));
+            if let Err(error) = &opening {
+                eprintln!("could not open the shop without an account: {error:?}");
+            }
+
+            // The default categories, for a database made before the tree
+            // (ADR-018 §1). Added once, by fixed id; on a device with no manager
+            // yet nothing happens, and setup adds them. Best effort: a shop
+            // whose defaults could not be added still opens and sells.
+            let _ = tauri::async_runtime::block_on(
+                services::organisation::categories::add_default_categories(&pool),
+            );
+            // The default phone companies (ADR-018 §2), the same way.
+            let _ = tauri::async_runtime::block_on(
+                services::catalog::brands::add_default_brands(&pool),
+            );
+
+            // Start the shop Wi-Fi companion listener on 0.0.0.0:8787 (`ADR-037`).
+            //
+            // Desktops only, from here on: the handset dials the link, it does not
+            // host one. Both platforms answering on 8787 against two separate
+            // databases is how the two screens ended up showing each other the
+            // same page (`ADR-042`).
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            services::companion::spawn_lan_companion_listener(
+                domain::companion::DEFAULT_COMPANION_PORT,
+            );
+
+            app.manage(IdentityContext::new(pool.clone(), tokens.clone()));
+            // The catalogue shares the same pool and the same credential store.
+            // Sharing the store is what lets every catalogue command resolve the
+            // operator without any command accepting a session parameter.
+            app.manage(CatalogContext::new(pool, tokens));
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running the application");
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Mobile capability. Intentionally minimal: identical to desktop for now. NO barcode-scanner permission — Barcode architecture is BLOCKED (ADR-004 + Gate C finding), and a granted permission grants access whether or not the Rust crate is imported.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

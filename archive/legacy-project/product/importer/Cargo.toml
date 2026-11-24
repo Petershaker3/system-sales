@@ -1,0 +1,20 @@
+[package]
+name = "mshop_importer"
+version = "0.1.0"
+edition = "2021"
+description = "Step 3: writes mapped legacy rows into a fresh SQLite database in one transaction. Blocked rows abort before anything is written."
+
+[lib]
+name = "mshop_importer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mshop-import"
+path = "src/bin/mshop-import.rs"
+
+[dependencies]
+mshop_schema = { path = "../schema" }
+mshop_migration = { path = "../migration" }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

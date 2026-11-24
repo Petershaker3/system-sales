@@ -1,0 +1,51 @@
+{
+  "_fixture": "clean-migratable-export",
+  "_note": "Every row migrates: no blocks, no reviews. Category and wallet names are ASCII so the file carries no encoding risk; the single Arabic literal (cashType) uses JSON escapes.",
+  "mshop_cats": ["CAT-A"],
+  "mshop_ce": ["EXP-A"],
+  "mshop_stagnant_days": "45",
+  "mshop_ca": [
+    {"name": "ACC-A", "mainCat": "CAT-A", "buy": 100, "sell": 150}
+  ],
+  "mshop_cu": [],
+  "mshop_inventory": [
+    {"id": "m9", "brand": "B", "model": "M", "qty": 2,
+     "purchaseHistory": [{"price": 5000, "supplier": "S", "date": "2026-10-01", "qty": 2}]}
+  ],
+  "mshop_repair_parts": [
+    {"id": "rp1", "name": "P", "qty": 2, "buyPrice": 100}
+  ],
+  "mshop_wallets": {"order": ["W1"], "limits": {}, "opening": {"W1": 1000}},
+  "mshop_d_2026-10-01": {
+    "acc": [
+      {"name": "ACC-A", "mainCat": "CAT-A", "buy": 100, "sell": 150, "profit": 50, "qty": 1, "time": "10:00"}
+    ],
+    "used": [
+      {"name": "U1", "buy": 6000, "sell": 6800, "profit": 800, "time": "11:00"}
+    ],
+    "sw": [
+      {"name": "S1", "price": 200, "paid": true, "delivered": true, "time": "12:00"}
+    ],
+    "cash": [
+      {"cashType": "\u0627\u064a\u062f\u0627\u0639", "service": "W1", "amount": 500, "time": "13:00"}
+    ],
+    "exp": [
+      {"category": "EXP-A", "amount": 120, "time": "14:00"}
+    ],
+    "phones": [
+      {"id": "p1", "modelId": "m9", "snapshotModelName": "B M", "buyPrice": 5000,
+       "sellPrice": 6000, "profit": 1000, "qty": 1, "createdAt": "2026-10-01T15:00:00.000Z"}
+    ],
+    "repairs": [
+      {"id": "r1", "brand": "B", "model": "M", "servicePrice": 300, "profit": 120,
+       "status": "inProgress", "clientName": "C", "fixed": true, "delivered": true,
+       "paid": true, "time": "16:00",
+       "statusHistory": [{"status": "inProgress", "time": "16:00"}]}
+    ]
+  },
+  "_expected": {
+    "aS": 150, "aP": 50, "uS": 6800, "uP": 800, "cT": 1500, "sT": 200,
+    "eT": 120, "phS": 6000, "phP": 1000, "repS": 300, "repP": 120,
+    "total": 1850, "profit": 3550
+  }
+}

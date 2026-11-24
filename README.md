@@ -1,0 +1,814 @@
+# Mobile Shop System
+
+Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQLite.
+
+> **Plan of record (2026-10-16): [`docs/PLAN.md`](docs/PLAN.md)** — decisions in
+> [`ADR-016`](docs/decisions/ADR-016-owner-plan-2026-10-16.md). The **Windows desktop is the
+> point of sale and the single source of truth** (one SQLite database, sells with no internet);
+> the **Android app becomes a companion** over the shop's Wi-Fi with **no database of its own**
+> (live sales, price/stock lookup, camera scanner, photos). Cloud / remote viewing is a later,
+> optional phase. This replaces the earlier "two independent full POS devices, no sync" scope
+> (`ADR-008`, superseded).
+>
+> **UI reference:** [`docs/ui/mockup-v1/`](docs/ui/mockup-v1/README.md) — download
+> `mockup-offline.html` and double-click it; it runs with no server and no internet.
+>
+> **Try the real app** (installer or browser demo, in Arabic): [`docs/TRY-THE-APP.md`](docs/TRY-THE-APP.md).
+>
+> **Starting a new chat or session?** Read [`HANDOFF_2026-10-17.md`](HANDOFF_2026-10-17.md) first.
+>
+> **This README describes the code as it is today.** Pieces the plan replaces are marked
+> **→ plan** below: cash-only sales (→ payments) and the full-POS Android build (→ companion).
+> FIFO and the costing-method switch are already retired (phase 1.3, 2026-10-17; `ADR-002`
+> only), and so are the Pattern step-up and the `recovery` build, replaced by the owner's PIN
+> approval and a recovery code (phase 1.1, 2026-10-17; `ADR-017`). Work order: [`tasks/todo.md`](tasks/todo.md).
+> Archived material and why: [`archive/README.md`](archive/README.md).
+
+> **Status: Identity + Identity lifecycle + Product catalogue + Authority & settings (SP-1) + Inventory & costing (SP-2) slices.**
+> Accounts, sessions, roles, the login flow, password management, user
+> administration, the product identity catalogue, department classification,
+> device settings, PIN sign-in with the lock screen and quick switching, the
+> owner's PIN approval and the owner's recovery code are implemented and tested.
+> **Moving Average costing is implemented**: stock positions, receiving and
+> consumption. FIFO and the costing-method switch, built in SP-2, were retired in
+> phase 1.3 (2026-10-17): every quantity product is Moving Average, and a position
+> recorded under FIFO collapses into an average the first time it is touched.
+> The sales slice is also implemented: atomic invoice + lines + stock + cost +
+> ledger + audit with line-level cost snapshots (`commands/sales.rs`,
+> `migrations/0011`). **Phase 1 has started (2026-10-17):** the approved design is
+> ported (`src/styles/`, `src/shell/`), the desktop sales screen sells cash and
+> quantity products (`src/screens/pos/`, `pos_catalog`), and Settings → الشكل
+> stores the look (`ui.*` keys). Receipt documents and barcode capture are still
+> absent. See [Current scope](#current-scope).
+>
+> **Verification status differs by slice, and the difference is deliberate.** The
+> Identity slice is verified on the physical SM-N976N. The Product catalogue and
+> the Authority & settings slice are verified on desktop only; their Android runs
+> are recorded as not done, for reasons that have nothing to do with the slice
+> code. **SP-2 is verified by the reported test suite only — its device
+> verification has not been run, and no Android behaviour is claimed for it.**
+> See [Hardware verification](#hardware-verification).
+
+---
+
+## Requirements
+
+| Tool | Version | Notes |
+|---|---|---|
+| Rust | `1.98.1` | pinned by `rust-toolchain.toml`; do not override |
+| Node.js | 24+ | `npm` must be on `PATH` |
+| Visual Studio Build Tools | 2022 or newer | **required on Windows** — see below |
+| Android SDK + NDK | NDK `28.2.13676358` | `platforms/android-37`, `build-tools/36.0.0` |
+| JDK | 17 | Gradle requirement |
+
+`rust-toolchain.toml` pins exactly two targets:
+
+```text
+aarch64-linux-android
+x86_64-pc-windows-msvc
+```
+
+## The MSVC prerequisite
+
+Cargo compiles build scripts for the **host**, so an Android build still needs the
+MSVC linker. Without this you get:
+
+```text
+error: linker `link.exe` not found
+```
+
+`vcvars64.bat` must be loaded before any cargo command. `scripts/android-build.ps1`
+does this for you. For a manual cargo command, run it inside a shell that has
+already sourced `vcvars64.bat`.
+
+## Commands
+
+Run from the repository root unless noted.
+
+> **Set `CARGO_TARGET_DIR` for desktop cargo commands too.** By default cargo
+> writes to `src-tauri/target`, which is on `C:`. After the identity slice that
+> directory reached **7.49 GB** and left `C:` with roughly 2 GB free. Building on
+> `E:` keeps the two drives separate:
+>
+> ```powershell
+> $env:CARGO_TARGET_DIR = 'E:\Rust\targets'
+> ```
+>
+> `scripts/android-build.ps1` sets this automatically for Android builds; a bare
+> `cargo test` does not.
+
+```bash
+# Rust
+cd src-tauri
+cargo build --lib                 # compile the library
+cargo check                       # type-check without codegen
+cargo test                        # 606 on CI: 31 lib + 171 unit + 323 integration + 81 architecture
+cd ..
+
+# Frontend
+npm ci
+npm run typecheck                 # vue-tsc --noEmit, strict
+npm run test:unit                 # node --test on src/**/*.test.ts (pure screen logic, no extra dependency)
+npm run build                     # typecheck + vite build -> dist/
+
+# Browser demo: the real screens on an in-memory stand-in for Rust (demo data,
+# password 1234 for every account). Never part of dist/ or of a Tauri build.
+npm run demo                      # vite --mode demo, on 0.0.0.0:5173
+node scripts/demo-smoke.mjs http://127.0.0.1:5173/ /tmp/shots   # 91 browser checks + screenshots
+
+                                  # (borrows docs/ui/mockup-v1/tools: run `npm ci` there once)
+
+# CI (GitHub Actions, .github/workflows/ci.yml): every push runs the frontend
+# checks and `cargo test` on Linux; "[windows]" in the commit message adds the
+# Windows `cargo test` and the NSIS installer as an artifact.
+scripts/ci-results.sh             # latest run: jobs, test counts, failures (as annotations)
+
+# Android: build a debug APK
+.\scripts\android-build.ps1 -Apk
+
+# Android: build, then install on a connected device
+.\scripts\android-build.ps1 -Apk -Device
+
+# Android: provision the environment and exit without building
+.\scripts\android-build.ps1 -Verify
+```
+
+### Test layout
+
+| Path | Scope |
+|---|---|
+| `src-tauri/tests/unit/` | Domain rules only — no Tauri, no SQLite, no OS |
+| `src-tauri/tests/integration/` | Real SQLite and the real service layer. No mock database |
+| `src-tauri/tests/architecture/` | Invariants asserted against source text at compile time |
+| `src/**/*.test.ts` | Pure frontend logic (cart, search, money format, Arabic normalisation, colour contrast) with `node --test` — no extra dependency |
+| `scripts/demo-smoke.mjs` | The screens in headless Chromium against the browser demo: a seller's and the owner's journey |
+
+The architecture tests exist because some guarantees here are not runtime
+behaviour. They fail **the build** if, for example, a command grows a token
+parameter, `Session` gains a public constructor, or anything in `src/` mentions
+`localStorage`.
+
+## Build environment
+
+Android builds write several gigabytes. On this machine the drives do not have
+room on `D:`, so `scripts/android-build.ps1` redirects the heavy paths to `E:`
+**for the build process only** — no `setx`, no registry writes, no change to your
+machine's environment:
+
+| Variable | Value | Why |
+|---|---|---|
+| `CARGO_TARGET_DIR` | `E:\Rust\targets` | ~5 GB of cargo artifacts |
+| `GRADLE_USER_HOME` | `E:\Gradle` | Gradle cache and wrapper |
+| `TEMP` / `TMP` | `E:\Rust\temp` | Gradle and NDK scratch space |
+| `npm_config_cache` | `E:\Rust\npm-cache` | npm cache |
+
+The Android SDK and NDK stay on `D:`; they are read-mostly.
+
+`tools/npm.bat` exists because Gradle's Tauri plugin spawns the literal command
+`npm.bat`, and Node 24 ships only `npm`, `npm.cmd` and `npm.ps1`. The shim is
+project-owned and put on `PATH` for the build only — Node's own directory is
+never modified.
+
+## Security model
+
+| Property | How |
+|---|---|
+| Passwords | Argon2id, PHC string, cost `m=19456 KiB, t=2, p=1` |
+| Session token | 32 bytes from the OS CSPRNG, hex-encoded |
+| Token storage | OS credential store only — Windows Credential Manager (`Local` persistence) / Android Keystore |
+| Token in the database | `SHA-256(token)` only, never the token |
+| Token in JavaScript | **Never.** No command accepts one; the frontend holds no credential |
+| Session lifetime | 15 minutes idle, 12 hours absolute; idle never extends the absolute deadline |
+| Lockout | 5 failed attempts → 15 minutes |
+| Account enumeration | Unknown account and wrong password return the same error and cost the same Argon2 work |
+| Wholesale data | Requires the `Manager` role **and** a `reauthenticated` session |
+| Credential store down | **Fail closed.** No fallback exists by design |
+| Shop with no account yet | Runs on one `users` row marked `provisional` (`ADR-039`). Still resolved in Rust, still audited by that row's id; no password and no PIN exist for it |
+
+The frontend receives `{ userId, displayName, role, assurance }` after login and
+nothing else. Every later command resolves the session internally.
+
+**Open mode (`ADR-039`).** A fresh device is not gated on a setup form: `lib.rs`
+creates the open owner row, and `services::identity::session::resolve` — the single
+place all commands ask who is operating — answers with that row's manager session when
+there is no token. Owner approval for sensitive operations is minted for the session
+and consumed without a database row, because the approval exists to protect the till
+from a second user and an open shop has none. The account is claimed afterwards from
+الإعدادات ← المستخدمين والصلاحيات: `claim_open_account` overwrites the verifier and
+clears the flag in one `UPDATE … WHERE provisional = 1`, so a double submit is
+`BOOTSTRAP_ALREADY_COMPLETED` and the shop's existing history stays attributed to the
+same row. Hiding the lock, the PIN and the sign-out in this state is presentation in
+`src/shell/open-mode.ts`; authority is not decided there.
+
+Installing a build does not reset a device, and neither does uninstalling one: the
+database at `%LOCALAPPDATA%\com.mshop.system` belongs to the machine, not to the
+installer. So a shop that ran any build from before 2026-10-19 — the day the demo
+account stopped being seeded — still opens on the lock card with that account in its
+list, and that is the correct answer rather than a leftover: accounts exist, nobody is
+signed in, the till is locked. Sign in with the old account, make your own from
+الإعدادات ← المستخدمين والصلاحيات, then disable the old one. There is **no factory-reset
+command in the app and no script that clears a shop's data**, because deleting the
+database is the owner's decision and not a side effect of an install; moving
+`shop.db`, `shop.db-shm` and `shop.db-wal` aside yourself is the only way to see the
+fresh-device state on a machine that already sold something. The same holds on the
+phone, where the file is `/data/user/0/com.mshop.system/shop.db` and a reinstall over an
+APK keeps it.
+
+> **Threat model.** As recorded in `ADR-003` and `spec:55`: this does not protect
+> the database file from someone who can read it directly, and does not claim to.
+> The token digest is stored unencrypted for that reason. It does mean a stolen
+> database yields no usable session.
+
+## Architecture
+
+```text
+Vue ──▶ commands ──▶ services ──▶ domain ──▶ repositories ──▶ SQLite
+        transport     orchestration  rules      SQLx lives here
+        only          + keyring       only
+```
+
+- `domain/` depends on no Tauri, no SQLx, no SQLite, no operating system
+- `commands/` are transport only: no SQL, no business rules, no `executeSql`
+- `repositories/` are the only place SQLx appears
+- `Session` has private fields and no public constructor, so `commands/` cannot
+  fabricate one — only `Session::open`, which validates expiry
+
+## Database
+
+One database file, owned by the shop desktop — the single source of truth
+(`ADR-016`; the companion phone keeps no database). No cloud. *(Today's build still
+gives each device its own file, per the superseded `ADR-008`; the companion
+arrives in phase 3 of `docs/PLAN.md`.)* Migrations are forward-only; rollback means restore a backup then
+fix forward, not run a `Down` script.
+
+Seventeen migrations (`0001`…`0017`), forward-only. Tables:
+
+| Table | Migration | Purpose |
+|---|---|---|
+| `users` | `0001` | Accounts, Argon2id verifiers, lockout counters |
+| `sessions` | `0001`, `0003`, `0015` | Token digest, assurance level, expiry; the pending owner-PIN approval (`approved_by`, `approved_at`, `0015`). The Pattern columns (`0007`) stay, unread |
+| `audit_events` | `0001` | Every attributed operation: identity, approvals, the recovery code, catalogue, departments, settings, stock, sales |
+| `products` | `0002`, `0005`, `0017` | Product identity, disposition, category, prices; a phone's company, model, touch/keypad, storage and RAM (`0017`, whole or absent, by trigger) |
+| `brands` | `0017` | Phone companies: name, touch/keypad/both, order, hidden from «موبايل جديد» |
+| `user_credentials` | `0003`, `0015` | Login identifier, forced-change flag; the PIN and recovery-code **verifiers** and when the code was made (`0015`) |
+| `departments` | `0004`, `0016` | Product classification; since phase 1.2 the two-level category tree: parent, kind, icon, hidden (`0016`). The costing method and VAT defaults stay inert |
+| `app_settings` | `0006` | Device defaults; `product_price_history` records every price transition |
+| `manager_pattern` | `0007` | Retired in phase 1.1: unread since the owner's PIN approval replaced the Pattern |
+| `stock_levels` | `0008` | One stock counter per product (`product_id` alone, no location) |
+| `fifo_layers` | `0008` | Cost layers, consumed oldest-first by `(received_at, id)` |
+| `product_price_history` | `0006` | Every price transition, written in the same transaction as the change |
+| `recovery_approval` | `0009` | Retired in phase 1.1 with the `recovery` build: unread |
+| `recovery_attempt` | `0010` | Retired in phase 1.1 with the `recovery` build: unread |
+| `sales` | `0011`, `0012` | Sale header: immutable monotonic reference, cancellation state; an optional customer link or name snapshot (`0012`) |
+| `sale_lines` | `0011`, `0013` | Line snapshots: price/cost/profit at sale time, never recomputed; warranty dates (`0013`) |
+| `stock_movements` | `0011`, `0014` | Movement ledger: the rebuild source; the supplier's name, on receipts only (`0014`) |
+| `sale_reversals` | `0011` | Cancellation reversals; no edit, no double-cancel |
+| `customers` | `0012` | Customer file: a name and one optional contact, never merged |
+
+There are deliberately **no** `sync_outbox` or `sync_cursors` tables.
+
+### The costing authority rule
+
+> **Since phase 1.3 (2026-10-17)** every quantity product costs by Moving Average
+> (`QUANTITY_COST_METHOD` in `services/inventory/stock.rs`), whatever its
+> department's `cost_method` says, and nothing writes `fifo_layers` any more. The
+> table below still describes the two shapes a stored position can have: one
+> recorded under FIFO before 1.3 has layers and a `NULL` total. Reading it
+> (`position()`) reports the summed layers and writes nothing; the first receipt,
+> removal, sale or reversal that touches it collapses the layers into
+> `total_cost_minor` in the same transaction, audited as `cost_layers_collapsed`.
+> A position that contradicts itself is refused with `STOCK_COST_AUTHORITY_CONFLICT`.
+> `departments.cost_method` and `app_settings.default_cost_method` are kept, and
+> inert. No migration.
+
+A product's cost lives in exactly one place, decided by its department's
+`cost_method`. Storing both would mean two sources of truth that drift; storing
+one with no rule would leave a reader unable to tell which (`ADR-015`).
+
+| `cost_method` | owns the cost | the other representation |
+|---|---|---|
+| `moving_average` | `stock_levels.total_cost_minor` | `fifo_layers` must be **empty** |
+| `fifo` | `fifo_layers` | `total_cost_minor` must be **`NULL`** |
+
+`NULL` is not zero: `NULL` means "the layers are in charge", and `0` would read as
+free stock. `stock_levels.quantity` is the on-hand count under either method.
+
+Rounding is **ceiling to the piastre at computation only**, intermediates are
+`i128`, storage is integer minor units, and there is deliberately no remainder
+column and no floating point anywhere in the money path (`ADR-013`, spec §10). A
+product with **no department** follows the device default in
+`app_settings.default_cost_method` rather than being refused or auto-classified.
+
+## Dependencies
+
+Pinned exactly in `Cargo.toml`; no automatic major/minor upgrades (`ADR-008`).
+
+Licences were re-verified against the **actual resolved tree** on 2026-10-03 by
+reading `license` out of each of the 436 crates' own `Cargo.toml` in the registry
+cache. Every crate in the tree declared a licence; none was unreadable.
+
+### Correction: the tree is not copyleft-free
+
+An earlier note in this project claimed the dependency tree contained no
+copyleft. **That was wrong**, and the full-tree check is what caught it.
+
+| Crate | Version | Licence | Origin |
+|---|---|---|---|
+| `cssparser` | 0.37.0 | MPL-2.0 | transitive, via the Tauri webview stack |
+| `cssparser-macros` | 0.7.1 | MPL-2.0 | transitive, via the Tauri webview stack |
+| `selectors` | 0.38.0 | MPL-2.0 | transitive, via the Tauri webview stack |
+| `dtoa-short` | 0.3.5 | MPL-2.0 | transitive |
+| `option-ext` | 0.2.0 | MPL-2.0 | transitive |
+| `r-efi` | 6.0.0 | MIT OR Apache-2.0 **OR** LGPL-2.1-or-later | transitive; permissively licensable |
+
+These are **file-level** copyleft obligations, not per-derivative-work ones, and
+they entered with Tauri in an earlier step, not with the identity slice. MPL-2.0
+in a statically-linked dependency is ordinarily compatible with distributing a
+proprietary application, but that is a legal judgement, not an engineering one,
+and `spec:239` reserves licence review to the Product Owner.
+
+**Every dependency added by the identity slice is permissively licensed:**
+
+| Crate | Licence |
+|---|---|
+| `argon2`, `password-hash`, `phc`, `blake2` | MIT OR Apache-2.0 |
+| `uuid` (v7), `sha2`, `digest`, `crypto-common` | MIT OR Apache-2.0 |
+| `getrandom` | MIT OR Apache-2.0 |
+| `keyring-core` | MIT OR Apache-2.0 |
+| `windows-native-keyring-store` | MIT OR Apache-2.0 |
+| `android-native-keyring-store` | MIT OR Apache-2.0 |
+| `jni`, `ndk-context`, `log`, `regex`, `thiserror` | MIT OR Apache-2.0 |
+| `byteorder` | Unlicense OR MIT |
+| `windows-sys`, `zeroize`, `chrono` | MIT OR Apache-2.0 |
+| `tempfile` (dev), `sqlx` | MIT OR Apache-2.0 |
+
+Neither native keyring store pulls OpenSSL, which matters because the Android
+cross-build is already sensitive to added build steps.
+
+## Current scope
+
+Implemented and tested:
+
+- The owner's account, made from الإعدادات ← المستخدمين والصلاحيات (`ADR-039`) — once,
+  enforced transactionally, and the same command answers a device with no rows at all
+- Login by user picker plus password
+- Sessions with idle and absolute expiry, resolved from the OS credential store
+- Re-authentication to raise the assurance level
+- Lockout after five failed attempts
+- Audit trail
+- Product catalogue: create, read, list, edit, archive, reactivate
+- Sale price in piastres as an `INTEGER`, with `NULL` meaning "not set" and `0`
+  meaning genuinely free (ADR-010)
+- Disposition recorded as `quantity` or `serialized`, with no tracking yet
+- Optional unique barcode, plus case-insensitive typed/pasted lookup
+- Attribution (`created_by`, `updated_by`) taken from the resolved session
+- Password change: own password, and a manager reset that forces a change at next
+  sign-in. A forgotten password no longer bricks a device
+- User administration: create, change role, disable/enable, change the login
+  identifier. No user is ever deleted
+- `username` as an independent, unique, normalised login identifier, with
+  `display_name` left non-unique so two operators may share a name
+- A broken `user_credentials` row is reported as `ACCOUNT_DATA_INTEGRITY_ERROR`
+  rather than being hidden or defaulted. Login and session resolution refuse such
+  an account; the management list still shows it, flagged
+- Categories (phase 1.2, `ADR-018` §1): a two-level tree on the `departments` rows,
+  managed by the owner from Settings — add (main, or under a main), rename, move up
+  or down, show or hide on the sales screen, delete an empty one he made. The default
+  tree (PLAN §6) is added once and is renamed or hidden, never deleted. A
+  sub-category takes its main's kind (counted, phone, used), and triggers in `0016`
+  keep the tree two levels deep. The sales screen shows the mains and, under the
+  chosen one, its sub-categories. The SP-1b department commands (costing method,
+  VAT, archive, full re-order) were retired with their panel
+- Phone companies and «موبايل جديد» (phase 1.2, `ADR-018` §2): the owner keeps the
+  companies in Settings (touch, keypad or both; order; hidden from the new-phone
+  form; delete one he added that has no phone). The mockup's twelve are added once.
+  A new phone is registered from «المخزن» with its company, model, storage and
+  RAM; its name is built by the domain («Samsung Galaxy A16 128GB», «iPhone 16
+  128GB»), and the same phone twice is refused. On the sales screen a phone
+  category's second row is its companies, and search finds a phone by its company
+  in Arabic
+- «صنف جديد» for counted goods (phase 1.2, `ADR-018` §3): the store's button opens
+  the kind chooser (a new phone, or a counted item; «موبايل مستعمل» waits for the
+  units of 1.4), and the counted-item form takes the category (with an inline «تصنيف
+  جديد»), the name, the barcode — typed or scanned — or a shop code, and the sale
+  price. The shop code is an EAN-13 starting with 2, numbered by Rust
+  (`next_shop_code`, `domain/catalog/shop_code.rs`) and unique through the barcode
+  column's UNIQUE index. The legacy product panel now only edits and archives; its
+  create form was removed, since «صنف جديد» replaces it
+- Product variants (phase 1.2, `ADR-018` §4, migration `0018`): switching on «الصنف
+  ده ليه تفرعات» in the counted-item form registers a parent (`product_parents`) with
+  up to two dimensions (`NI_DIMS`: `الموبايل`, `اللون`, `النوع`, `المقاس`, `القوة`,
+  `الطول`, `المساحة`) and up to 60 combinations (`create_variants`). Each combination
+  becomes a `products` row (`parent_id`, `variant_1`, `variant_2`, `variant_order`,
+  enforced all-or-nothing by SQLite triggers) with its own barcode, sale price (or
+  the parent's default price when left blank), stock position and moving-average
+  cost; «اعمل أكواد للي من غير باركود» (`next_shop_codes`) fills blank rows with
+  consecutive EAN-13 shop codes. On the sales screen, variants of a parent collapse
+  into one `.tile.fam` tile (`X أنواع`, lowest price, total stock) that opens
+  `VariantPickerModal`, while search and barcode lookup find the variant itself
+
+- Device settings: read and write the seven stored keys, every read and every write
+  behind fresh re-authentication (`ManageSettings`). Unknown keys and malformed
+  values are refused by the domain; a missing key reads as its default (SP-1b)
+- PIN sign-in and the lock screen (phase 1.1, `ADR-017` §1–2): a 4–6 digit PIN per
+  account, kept as an Argon2id verifier; wrong PINs share the password's lockout (5
+  failures, 15 minutes); `Ctrl+L` or «قفل» locks without closing the open invoices,
+  and switching seller asks for that seller's PIN every time
+- The owner's PIN approval (phase 1.1, `ADR-017` §3), replacing the Pattern step-up
+  of `ADR-014`: a sensitive operation needs the owner's PIN, even on the owner's own
+  session. The approval lives two minutes, is spent once inside the operation's own
+  transaction, and is audited (`owner_approval_granted`, and `approved_by` on the
+  operation). Changing that PIN, disabling or demoting the owner withdraws it
+- The owner's recovery code (phase 1.1, `ADR-017` §4), replacing the `recovery`
+  build: 20 symbols without 0/O/1/I/L, shown once when the account is made and from
+  Settings, kept
+  only as an Argon2id verifier. «نسيت كلمة السر؟» on the owner's lock card sets a new
+  password with it, ends every session and burns the code for a new one; a wrong
+  code counts against the shared lockout
+- Price history: changing a product's sale price writes the old and new value in
+  the same transaction as the change itself (SP-1b)
+- Stock and costing (SP-2, simplified in phase 1.3): one stock counter per product,
+  Moving Average cost arithmetic with the ceiling rounding rule of `ADR-013`,
+  receiving and consumption. FIFO and the costing-method switch were retired in
+  phase 1.3 (`ADR-002`); positions recorded under FIFO collapse into an average on
+  first touch (see [the costing authority rule](#the-costing-authority-rule))
+- Receiving a delivery is routine; declaring an opening balance is sensitive and
+  needs the owner's PIN approval (`ADR-015`, `ADR-017` §3)
+- Insufficient stock refuses the whole operation: no partial consumption, and a
+  negative balance is impossible at the storage layer
+- Encrypted backup in-app (P2a, `ADR-003`): manager-only create/restore
+  commands plus UI, crash-safe staged restore with startup recovery wiring
+  (`recover_interrupted` before open, fail closed). Restore takes effect on
+  manual restart — automatic restart and auto-close were decided against
+  **→ 2026-10-22:** the panel asks for the manager password in the dialog the
+  other `ManageSettings` screens use (`src/shell/reauth.ts`) instead of echoing
+  `REAUTHENTICATION_REQUIRED`, a refused restore says the data was not touched
+  (only a failure *after* authorization needs the manual restart, because
+  `authorize` runs before `pool.close()`), the package can be dropped on the
+  panel instead of typed, and the new file name is pre-filled. A native
+  «choose a file» dialog waits on `tauri-plugin-dialog` (`Cargo.lock` + a named
+  decision), so drag-and-drop is the picker for now
+- Customer file core (P4, `spec:178-179`): name plus one optional contact,
+  never merged; explicit one-time sale links and free-text snapshots on
+  unlinked sales, entered at invoice time in the sales panel. Browsing is
+  manager-only; sellers create at invoice time.
+  Warranty dates at sale time (`0013_warranty.sql`, `YYYY-MM-DD` on `sale_lines`).
+  **→ plan:** presets by product type pre-fill them, editable per line (phase 1.8)
+- Receiving records an optional supplier name (decision D1,
+  `0014_receiving_supplier.sql`); no supplier table, no purchase orders
+- **Desktop sales screen (phase 1.6, partial — 2026-10-17):** `pos_catalog`
+  (requires Sell; price, on-hand and 30-day best sellers, never cost) and
+  `src/screens/pos/` as in the mockup: Arabic-normalised search where an exact
+  barcode wins, tiles and cart, several open invoices with F8 «انتظار» and stock
+  checked across all of them, F2 / F12 and the other shortcuts, cash with change.
+  Cash and quantity products only until phases 1.4 / 1.5. `SalesPanel.vue` is no
+  longer mounted
+- **Display choices (phase 1.13, the الشكل part — 2026-10-17):** look, theme, shop
+  colour (kept readable), font, size and digits as `ui.*` rows in `app_settings`,
+  no migration. `read_appearance` needs no session, so the sign-in screen wears
+  the shop's look; the theme is anyone's, the rest needs `ManageSettings` plus
+  re-authentication. The settings snapshot a sale reads skips the `ui.` prefix by
+  name, so a display key can never block a sale
+- **Browser demo** (`npm run demo`): the real screens on an in-memory stand-in for
+  Rust (`src/dev/demo-backend.ts`), labelled as demo data and left out of `dist/`
+  and of every Tauri build
+
+Not started, and deliberately so:
+
+| Item | Blocked on |
+|---|---|
+| Sale-line cost snapshot | Shipped with the sales slice: each line stores price/cost/profit at sale time, never recomputed (`sale_lines.unit_cost_minor`) |
+| Customer returns at original cost | Phase 1.11. Decided: original line cost (D7); damaged goods go to a damaged-stock bucket and are never resold (`ADR-016`) |
+| Movement ledger | Shipped with the sales slice (`stock_movements` in `migrations/0011`); stocktakes and adjustments stay a later slice |
+| Sales recording and cancellation | Shipped (`record_sale` / `cancel_sale` with reversal, no double-cancel). Receipts and reports stay later slices |
+| Serialised units, IMEI tracking | Phase 1.4. **Optional** IMEI (setting: optional / required); quantity stays authoritative (`docs/PLAN.md` §7). `disposition` names the class; nothing tracks units yet |
+| Suppliers, purchase orders, payables | Deferred by `spec` §231. Receiving is a unit cost and a quantity, not a procurement document |
+| Barcode scanning, generation, label printing | No scanner in the shop today: typed search (name, code, last 4 IMEI digits) plus the **companion phone's camera** with a non-Google-services decoder (phase 3); a USB scanner can be added later and needs no change. Labels: phase 2 (content decided, D5) |
+| Wholesale price | Deferred. A shop selling both retail and wholesale will need it |
+| Rounding on weighted average, discounts, tax | Costing rounding shipped with SP-2 (ceiling at each fractional piastre, `ADR-013` §5). Discounts: phase 1.6 (seller limit, owner PIN above it). Tax: data-model defaults, hidden in the UI; e-receipt in phase 4 |
+| Synchronisation | In-shop companion over Wi-Fi in phase 3 (`ADR-016`); the phone keeps no database, so there is nothing to merge. Cloud / remote viewing: phase 4, optional |
+| Payments beyond cash, split, credit | Phase 1.5 (`docs/PLAN.md` §8) — replaces the cash-only V1 (D3) |
+| Receipts, shift, services; the rest of the POS screen (IMEI, payments, discounts) | Phases 1.7, 1.9, 1.10; 1.4, 1.5, 1.6 — per the mockup |
+| PIN sign-in and quick user switch | Shipped in phase 1.1 (`ADR-017`) — PIN on every switch; measuring the 3-second switch on the shop's computer waits for the phase-1 acceptance day |
+| Repairs, used devices / trade-in, stocktake | Phase 2 |
+
+### Schema foundation (SP-1)
+
+Shipped in the `inventory-procurement` slice, deliberately without any costing
+arithmetic. Full plan (archived): `archive/superseded-2026-10-16/superpowers/plans/2026-10-07-sp1-schema-foundation-plan.md`.
+
+| Item | State |
+|---|---|
+| `departments` — product classification | Shipped. `migrations/0004` |
+| Department is a **classification**, not a location | `ADR-012`. One stock counter per product |
+| `one_off` as a third product disposition | Shipped. `spec:175`'s third class, in its own right rather than folded into `quantity` |
+| `products.department_id`, `default_cost_minor`, `vat_rate_bp` | Shipped, all nullable, `NULL` for every pre-existing row. No invented data |
+| `products` rebuilt atomically | Shipped in `0005` — no `PRAGMA`, no `-- no-transaction` |
+| `Piastres` as the single money type | Shipped. `SalePrice` delegates rather than duplicating |
+| `busy_timeout` on both pools | Shipped. 5 s |
+| `departments.cost_method` (`moving_average` / `fifo`) | **Stored and inert.** No costing engine reads it yet — see `ADR-013` |
+| Product classification moved from `catalog-media` to Inventory | `ADR-012`. Supersedes the catalogue slice's D6 deferral |
+
+The ledger, cost layers, serialised units, purchasing and sales are **not** built.
+Nothing in SP-1 computes a cost, a quantity or a tax amount.
+
+`tests/architecture/main.rs` asserts that no cost or wholesale price column, no
+category, no inventory or sync table exists, and that the sale price stays
+nullable, so these boundaries cannot erode unnoticed.
+
+---
+
+### Authority & settings (SP-1b/c)
+
+Shipped as one body on top of SP-1. Authority = who may run a sensitive
+operation and under what freshly-proven conditions; settings = the device's
+configuration store. Full plan:
+`archive/superseded-2026-10-16/superpowers/plans/2026-10-07-sp1bc-authority-settings-plan.md` (archived).
+
+| Item | State |
+|---|---|
+| `departments` CRUD, re-order, archive/restore | Shipped. Audited (`department_created` / `department_updated` / `department_archived`); archived rows refuse edits and re-ordering; restore audits as `department_updated`. Retired from the WebView in phase 1.2: the category commands replace them, and the services stay for their tests |
+| Device settings: `read_settings` / `update_setting` | Shipped. Seven validated keys; unknown keys and malformed values refused; missing keys read as domain defaults |
+| Blanket re-authentication for `ManageSettings` | Shipped — both read and every write (`DomainError::ReauthenticationRequired`) |
+| Pattern approval (`pattern_set` / `pattern_reset`) | Shipped (`ADR-014`), then retired in phase 1.1 for the owner's PIN approval (`ADR-017` §3); the code is in `archive/superseded-2026-10-17/pattern/` |
+| Price history in the catalogue path | Shipped — old and new price written in the same transaction as the price change |
+| `migrations/0007` | Shipped. Two separate `ALTER TABLE` statements (SQLite rejects two clauses in one) |
+| Frontend: Departments / Settings / Pattern panels | Shipped. `npm run typecheck` and `npm run build` exit 0; interaction on a real device is **not** evidenced — see below. The Pattern panel was retired in phase 1.1, and the Departments panel in phase 1.2 for the categories card |
+
+No inventory, costing, purchasing or sales logic was added here — the 
+`departments.cost_method` column and the settings defaults stay inert until a
+later slice reads them (`ADR-013`).
+
+---
+
+## Hardware verification
+
+Verification is tracked per slice, because "it works" means different things for
+a slice that has been on a phone and one that has not.
+
+> The phone runs below concern the **former full-POS Android build**. Under `ADR-016`
+> the phone becomes a companion with no database (phase 3), so these results are
+> history for the identity and catalogue code, not acceptance for the companion.
+
+| Slice | Desktop | Physical SM-N976N |
+|---|---|---|
+| Identity | 94 tests | **Verified** - setup, login, logout, session survives process death, lockout, Android Keystore read/write |
+| Migration `0003` | 154 tests | **Verified** - ran on the live device database, no crash, no migration error |
+| Credentials backfill | 154 tests | **Verified** - the generated `user-01a10c02` is rendered by the login picker |
+| Login picker username | 154 tests | **Verified** - `Peter - user-01a10c02 - manager` on screen |
+| Product catalogue | 154 tests | **Blocked** - behaviour unverified; the Manager credential is unavailable, see below |
+| Identity lifecycle behaviour | 154 tests | **Blocked** - behaviour unverified; the Manager credential is unavailable, see below |
+| SP-1 Android build | 239 tests | **Verified** - debug APK built, `arm64-v8a`, `apksigner verify` clean |
+| SP-1 install compatibility | 239 tests | **Verified** - signing certificate matches the installed app on all three digests; `versionCode` equal |
+| SP-1 install / replace | 239 tests | **Verified** - `adb install -r` `Success`; app data preserved (`firstInstallTime` and `ceDataInode` unchanged) |
+| SP-1 migration `0004` | 239 tests | **Verified** - applied on the live database; `departments` table present |
+| SP-1 migration `0005` | 239 tests | **Verified** - applied on the live database; products rebuild committed; `_sqlx_migrations = 1..5` |
+| SP-1 post-migration integrity | 239 tests | **Verified** - `integrity_check = ok`; schema, FKs and indexes as designed; `users`/`user_credentials`/`audit_events` unchanged |
+| SP-1 UI / login behaviour | 239 tests | **Blocked** - Manager credential unavailable, as above |
+| **SP-1 populated-products preservation** | 16 desktop tests | **UNVERIFIED** - the device held `products = 0`, so `0005` proves the rebuild runs and commits, **not** that it preserves existing rows on device |
+| Authority & settings (SP-1b/c) - backend | 286 tests | **Not run** - no Android build, no install and no on-device migration (`0007`) this round |
+| Authority & settings (SP-1b/c) - UI | 286 tests | **Blocked** - department/settings/pattern interaction unexercised; the Manager credential is unavailable and device operations were frozen for this round, see below |
+| SP-1 device re-run - build and install | 286 tests | **Verified** - debug APK rebuilt from the current source (298 MB), clean uninstall + install, app launched with no crash and no `FATAL`/panic in logcat |
+| SP-1 device re-run - migrations | 286 tests | **Verified** - all seven migrations applied from zero on a fresh `shop.db` (`users = 0`); schema byte-for-byte as `0006`/`0007` define it |
+| SP-1 device re-run - departments | 286 tests | **Verified** - created `GroceryG1`, edited it, archived it and restored it, each with its own audit event |
+| SP-1 device re-run - settings | 286 tests | **Verified** - the Manager re-authentication modal passed and the settings form loaded |
+| SP-1 device re-run - Pattern **save** | 286 tests | **UNVERIFIED** - the UI form and button were reached, but the run was cut short by a timeout before the write. **No `manager_pattern` row and no `PATTERN_SET` event was observed**, so this is not claimed as a pass |
+| Inventory & costing (SP-2) | 361 tests | **Not runnable** - the commands, the API client and the panel now exist, but no APK carrying them has been built, installed or run. Migration `0008` has never been applied on a device |
+
+The Pattern save row is the one to read twice. Reaching the form and pressing the
+button is not evidence that anything was stored; the only evidence that would
+close it is a `manager_pattern` row and a `PATTERN_SET` audit event read back from
+the device database. Neither exists yet, so the row stays unverified rather than
+being folded into the passes above it.
+
+The last two rows carry the distinction that matters most. A successful migration
+is **not** evidence that data was preserved: with zero product rows, there was no
+data to preserve. Populated-product preservation rests on the desktop tests alone,
+which run the rebuild against a hand-built `0004`-state database holding three
+synthetic products.
+
+The last two are **blocked by credential availability, not by a defect**. That
+distinction matters: a code fault and a missing test input both leave a slice
+unverified on hardware, but only one of them is something to fix. The reason is
+established rather than assumed - see [Verification credential policy](#verification-credential-policy).
+
+### What the Product catalogue did reach on the device
+
+The APK built and installed over the Identity build with data preserved, and the
+incremental `0001 -> 0002` migration ran on a real Android SQLite file:
+
+- `app-universal-debug.apk`, aarch64, `minSdk=24`
+- install returned `Success`, `lastUpdateTime` advanced, app data preserved
+- `shop.db-wal` grew to ~169 KB and `shop.db-shm` to 32 KB on first launch
+- the app then served a working login screen, which required a successful query
+  against the already-migrated database
+- logcat carried no `FATAL`, no Rust panic and no SQLite error
+
+So the migration path that desktop in-memory tests cannot exercise - applying
+`0002` to a database that already has `0001` and a live account - does work on
+hardware.
+
+### Why the behaviour steps did not run
+
+Catalogue steps 3-10 and every Identity lifecycle behaviour step require signing in
+as the Manager. That account was created by hand on the device during the Identity
+verification, and its password was never recorded anywhere - see
+[Verification credential policy](#verification-credential-policy) below.
+
+Note what the Identity lifecycle slice changed about this. At the time the
+catalogue was closed, a forgotten password was unrecoverable in principle. It no
+longer is: password change and a manager reset with a forced change at next
+sign-in now exist. The blocker today is narrower and different in kind - **there is
+no authenticated session to perform a reset from**, because establishing one
+requires the password that was never recorded. The capability exists; the door to
+it is not open.
+
+**No catalogue or lifecycle code was reached on hardware.** Nothing here
+contradicts the desktop result, and nothing here should be read as evidence that
+either works on a phone.
+
+### Identity lifecycle slice
+
+Password management and user administration are implemented and verified on
+desktop, and their `0003` migration is verified on hardware - see the table above.
+Not yet verified on hardware:
+
+- The forced-change screen and the re-authentication modal
+- Creating a sales account on the device, which the device currently lacks
+- Disabling and re-enabling an account on the device
+
+The device has no second account, so the `Sales`-role paths are exercised on
+desktop only. **No Android destructive operation was performed**: Peter's real
+device data, audit trail and the `0001 -> 0002` migration evidence are untouched.
+
+### A broken `user_credentials` invariant
+
+Migration `0003` gives every account exactly one `user_credentials` row, and the
+application never deletes one — there is no API that can produce the gap. It can
+still arise from a manual edit, a partial restore, or corruption, and the wrong
+response to it would be quiet and severe: defaulting the missing forced-change flag
+to "not set" would issue a session that walks straight past the gate that confines
+a manager-reset account to a single operation.
+
+So a missing row is treated as what it is — an internal invariant violation:
+
+| Surface | Behaviour |
+|---|---|
+| Login | Refused with `ACCOUNT_DATA_INTEGRITY_ERROR`; no token and no session row left behind |
+| Session resolve | Refused; no `Session` can be built, so nothing can be authorised |
+| Login picker | The whole call fails rather than returning a list with an account missing |
+| User management | The account is still listed, flagged, with a placeholder identifier |
+| Forced-change gate | Cannot be bypassed: a broken account is locked out, not admitted |
+
+The error is deliberately its own code. Reusing `LOCAL_STORAGE_UNAVAILABLE` would
+send a technician chasing a database outage that is not happening; reusing
+`INVALID_CREDENTIALS` would tell an operator their password is wrong when it is not.
+
+`tests/integration/credentials_integrity.rs` covers each surface by deleting a row
+directly, and `tests/architecture/main.rs` guards the shape so the defaulting
+cannot return.
+
+---
+
+## The database lives in three files, and `shop.db` alone can be stale
+
+Discovered while verifying SP-1 on the device. It is recorded here because the
+failure is **silent**: the wrong file still opens, still passes `integrity_check`,
+and is simply older than you think.
+
+**Where the database actually is.** `lib.rs` opens it at
+`app.path().app_local_data_dir()` joined with `shop.db`, and on Android that is
+the **app data directory root**:
+
+```
+/data/user/0/com.mshop.system/shop.db
+```
+
+**not** `databases/shop.db`. That directory exists and is empty. A procedure that
+assumed otherwise reads a non-existent path and produces a **zero-byte file named
+`shop.db`**.
+
+**Before the migration** there was no `-wal` file, so `shop.db` was fully
+self-contained and copying it alone was correct. **After `0004` and `0005` ran:**
+
+```
+shop.db       110592 bytes   ← unchanged; byte-identical to the pre-migration snapshot
+shop.db-wal   111272 bytes   ← every byte the migrations wrote
+shop.db-shm    32768 bytes
+```
+
+`am force-stop` is not a clean SQLite close. SQLite checkpoints and removes the
+WAL only when the last connection closes normally; a force-stop skips that, so the
+committed migration frames stay in `shop.db-wal`.
+
+> **Rule: never treat `shop.db` alone as a valid snapshot while a `-wal` file
+> exists.**
+
+Copying it today yields a valid, `integrity_check`-clean file at migration `3`.
+No error. No warning. Just an older database.
+
+**Restore rule:** place `shop.db` and `shop.db-wal` together, **delete
+`shop.db-shm`**, then open. `-shm` is the WAL index — derived, not data; SQLite
+rebuilds it.
+
+The accepted pre-`0005` recovery point (`E:\backups\shop-pre-0005\shop.db`) stays
+**valid**: it was taken when no WAL existed, so it is self-contained.
+
+Full reasoning, the alternatives rejected, and the restore procedure:
+`docs/decisions/ADR-011-wal-aware-database-snapshot.md`.
+
+### Two consequences
+
+- **Backup and recovery completeness is a dependency, not a gap in this slice.**
+  Inventory does not own backup. A durable online-backup capability belongs to
+  the `local-backup` slice under `ADR-003`. Until that exists, device snapshots
+  require the application to be stopped.
+  **NEEDS FOLLOW-UP / DEPENDENCY** — the architecture decision is settled; what
+  remains is implementing the capability.
+- **No integration test exercises WAL.** `db.rs:72` opens the in-memory pool
+  without a journal mode, and SQLite cannot use WAL on `:memory:`, so the suite
+  runs on a rollback-journal database. WAL growth, checkpointing and the
+  `-wal`/`-shm` lifecycle are untested there. Android hardware evidence covers it
+  instead. File-backed WAL tests are deferred to the backup work rather than
+  refactoring 100 unrelated tests.
+
+---
+
+## Verification credential policy
+
+A hardware verification run needs credentials. Recording them is unavoidable; what
+is decided here is **where they may live and what may be done to obtain them**.
+No secret appears in this document, and none is to be added to it.
+
+**The rules**
+
+1. The first Manager password is typed by the operator when they make the account from
+   الإعدادات ← المستخدمين والصلاحيات (`ADR-039`). It is never generated, seeded or chosen
+   by the build, and there is no first-run screen in front of it: the shop is already
+   selling while the owner decides to.
+2. A Manager password is **never stored in this repository**, in a plan, in a
+   script, in a log or in a commit. Only its Argon2id verifier ever reaches
+   storage, and that verifier does not leave the device's SQLite file.
+3. Credentials used for a hardware run are **not a recovery mechanism**. A
+   password recorded for testing does not become the answer to a lost device.
+4. A hardware run needs its credential available **by a legitimate route before
+   the run starts** - supplied by the operator at that moment, or set on a device
+   provisioned for the purpose.
+5. Losing a Manager password on a real device is **not** resolved in V1 by editing
+   SQLite or by clearing application data. Both are out of scope: the first
+   abandons the audit trail and every record attributed to the account, the second
+   abandons the database entirely.
+6. A Manager reset runs **only from an authenticated Manager session**, gated on
+   `Permission::ManageUsers` and therefore on a freshly proven password.
+7. The one way back without a session is the owner's **recovery code** (phase 1.1,
+   `ADR-017` §4; the owner's choice, `ADR-016` #32). Only a signed-in manager makes
+   one, with the current password; it is shown once to be written on paper, stored
+   only as an Argon2id verifier, counted against the shared lockout, and burnt by use.
+
+**What this means in practice**
+
+A manager reset needs a manager session, and a manager session needs the
+password, so the reset alone cannot help the owner who forgot it. Since phase 1.1
+the recovery code can: «نسيت كلمة السر؟» on the owner's lock card takes the code
+written on paper when the account was made and sets a new password. It is the only unauthenticated
+entry point, and it is deliberate - a secret of about 99 bits that the owner holds
+offline, not a backdoor in the software. An owner who never wrote a code down is
+still locked out of the owner's screens; that is why making the account shows the first code
+and Settings → «كود الاسترجاع» makes a new one.
+
+The gap this section closes is a **testing and operations gap**, not an
+authentication design gap. The difference is worth preserving:
+
+- The desktop suite proves the behaviour: `change_own_password` requires the
+  current password, `manager_reset_password` forces a change at next sign-in, a
+  reset revokes the target's sessions and not the manager's, and no credential
+  material reaches the audit trail.
+- What is unproven on hardware is the UI wiring of those flows - the
+  re-authentication modal, the forced-change screen and the management buttons.
+  That is presentation, not a security boundary.
+
+**For the next hardware run**
+
+Capture the credential in the plan before the run, not during it. A device
+provisioned specifically for testing can have its Manager password set at
+first-run by the operator, which is the intended route and needs no repository
+change at all.
+
+### Gaps this exposed, and their current status
+
+| Gap | Status |
+|---|---|
+| No password-change or password-reset flow | **Closed in the software.** Password change, manager reset and the forced-change gate exist. They need a password; the owner's recovery code (phase 1.1) is the one way back without it. |
+| No staff-creation flow | **Closed.** `create_user`, role change, disable/enable and username change exist behind `ManageUsers`. |
+| Verification credentials are not recorded anywhere | **Still open, and the sole blocker** for Android *behaviour* verification. It does not block migration or schema verification, which do not need a credential. See [Verification credential policy](#verification-credential-policy). |
+| `0005` preserving populated `products` on real Android | **UNVERIFIED.** The device held `products = 0`. Desktop tests are the evidence |
+| Durable backup / recovery | **NEEDS FOLLOW-UP / DEPENDENCY** on the `local-backup` capability (`ADR-003`). See the WAL section above |
+| WAL lifecycle in integration tests | **UNVERIFIED.** The in-memory pool cannot use WAL; device evidence covers it. Deferred to the backup work |
+| `ADR-005` referenced by the superseded Historical Reference slice | **Still open.** The file was never created; the slice itself is out of scope under `ADR-007`. Pre-existing, unrelated to Inventory |
+| Departments UI | **Built in phase 1.2** as the categories card in Settings (`ADR-018` §1) |
+| No documented way to reach a Manager session on a device whose password is unknown | **Closed in phase 1.1** by the owner's recovery code (`ADR-017` §4): written on paper at setup, it sets a new password from the lock card. An owner who never wrote one down is still unrecoverable. |
+
+Step 11 (`PERMISSION_DENIED` for a Sales role) is covered on desktop by
+`a_user_without_catalogue_permission_is_refused`, which uses the real SQLite
+repository and the real authentication and authorization path. It was not
+exercised on device, and no failure and no architecture gap was found there.

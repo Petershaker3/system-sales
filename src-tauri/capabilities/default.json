@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Desktop capability. Intentionally minimal: the WebView gets named capabilities, never generic database access.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

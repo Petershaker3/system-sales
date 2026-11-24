@@ -1,0 +1,7 @@
+/* Reduced motion.
+   Ported from the approved mockup (docs/ui/mockup-v1/styles.css, v1.6) — the look only:
+   class names and values are kept so the real screens match the mockup (DESIGN.md). */
+/* ===== الحركة: لو الجهاز متظبط على «تقليل الحركة» — من غير ظهور تدريجي ولا هزّة ولا خط الكاميرا ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}

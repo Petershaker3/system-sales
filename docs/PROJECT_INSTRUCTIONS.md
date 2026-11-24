@@ -10,7 +10,7 @@ The **Product Owner makes the final decision** on:
 - scope
 - architecture
 - product behavior
-- migration and reference-data boundaries
+- data-interoperability and reporting boundaries
 - significant trade-offs
 
 No other party — including an implementation engineer or agent — may decide these
@@ -20,46 +20,93 @@ When an instruction from the Owner appears to conflict with a lower-level
 instruction, the Owner's most recent explicit statement wins. If two Owner
 statements genuinely conflict, stop and ask.
 
-## 2. Legacy Data Policy
+**Order of authority** (highest first), as of 2026-10-16:
 
-The legacy shop system is **historical reference material only**.
+1. The Owner's most recent explicit statement.
+2. This document.
+3. **The current plan**, [`docs/PLAN.md`](PLAN.md), and its decision record
+   [`ADR-016`](decisions/ADR-016-owner-plan-2026-10-16.md). The Owner said on
+   2026-10-16: «ملناش دعوة بالقديم، خلينا في اللي بنتفق عليه أنا وانت» — only
+   what the Owner and the agent agreed counts; older decisions that conflict
+   with it are void.
+4. Other accepted ADRs in `docs/decisions/`, where not superseded.
+5. The 2026-09-28 specification, as amended at its end.
+6. The UI mockup `docs/ui/mockup-v1/` as the visual and behavioural reference.
+7. `tasks/todo.md` (working list). Handoffs and reports are non-normative.
 
-- Legacy data is **not** being migrated into the new system.
-- **No legacy schema becomes** the new operational schema.
-- **No legacy operational entity is imported** — no products, customers, sales,
-  invoices, repairs, wallets, payments, stock, or media.
-- **No legacy business logic becomes** the new system's business logic unless the
-  Owner explicitly approves reproducing it.
-- Historical reference numbers **must not constrain** the architecture, data model,
-  or workflows of the new system.
-- The legacy system is never the source of truth for the new operational domain.
+## 2. Independent New System
 
-Intended relationship:
+**Decision of record:** ADR-007 establishes that the new system is independent and
+designed from first principles (docs/decisions/ADR-007-independent-new-system.md).
+
+**V1 product scope (ADR-016, 2026-10-16 — supersedes ADR-008):** the Windows
+desktop app is the point of sale and the **single source of truth**, with one
+local SQLite database, and it sells with no internet. The Android app is a
+**companion** that connects to the desktop over the shop's Wi-Fi: it has **no
+database of its own** and does not sell in V1. No cloud in V1; viewing from
+outside the shop is a later, optional phase. Full scope, priorities and roadmap:
+[`docs/PLAN.md`](PLAN.md).
+The new shop system is **designed and built from first principles**. The legacy
+shop system is **archival material** — kept for audit and reference only.
+
+- **No legacy source is a dependency** of the new system.
+- **No legacy schema, table, column, or key** becomes the new schema.
+- **No legacy business logic** — accounting, inventory, cash, reports, or workflow
+  rule — becomes the new system's logic, unless the Owner explicitly approves
+  reproducing a specific named behaviour for a stated reason.
+- **No legacy data is migrated, imported, or converted.** There is no importer,
+  no migration path, and no legacy-shaped record in the new data model.
+- **No legacy report formula, KPI definition, or total** is reproduced,
+  reconciled against, or calibrated with.
+- Legacy archives under `archive/` (including the legacy app source in
+  `archive/legacy-project/dev_extracted/`) remain **read-only** and are never
+  cited as an acceptance criterion for any slice of the new system.
+
+Required relationship:
 
 ```text
-Legacy System
+NEW SYSTEM
     ↓
-Historical Reference Numbers
-    ↓
-Read-only historical reference        (context, not a foundation)
+Own domain model, business rules, database,
+reports, accounting semantics, inventory model,
+sales model, backup model, platform adapters
 
-New System
+LEGACY SYSTEM
     ↓
-Independent operational system
+Archival material — NOT a dependency,
+NOT a source of truth, NOT a compatibility target,
+NOT a migration requirement, NOT an architectural constraint
 ```
 
+The new system must remain able to evolve for years **without** the legacy
+system continuing to exist, be available, or be correct.
+
 If a design choice can only be explained as "the legacy system worked this way",
-that is a signal to stop and ask — not a justification.
+that is **not a justification** — it is a signal to stop and ask.
 
 ### Scope priority
 
 When effort is contested:
 
 ```text
-NEW SYSTEM > HISTORICAL REFERENCE > LEGACY DETAILS
+NEW SYSTEM > OPEN PRODUCT DECISIONS > LEGACY MATERIAL
 ```
 
-The legacy system is not the product. The new system is the product.
+The legacy system is not the product and is not a requirement. The new system
+is the product.
+
+### Defining the domain from first principles
+
+The new system answers its own questions: what a sale is, what a sale line is,
+what inventory and an inventory movement are, what purchase cost and profit
+mean, what a cash movement and an expense and a repair and a customer and a
+supplier and a product and a barcode and a return and a backup and an audit
+event are.
+
+These definitions are written **per module**, from the new system's own
+requirements. They are never copied from legacy behaviour, and a definition is
+not accepted merely because it resembles an old implementation.
+
 
 ## 3. Decision Gate Rule
 
@@ -69,9 +116,9 @@ The legacy system is not the product. The new system is the product.
 
 These require Owner input whenever they are not already explicitly decided:
 
-- "Should we investigate this legacy key?"
-- "Should we support another legacy format?"
-- "Should we preserve this legacy entity?"
+- Should we preserve this behaviour from an archived implementation?
+- Should this become part of the new schema?
+- Should we reproduce that rule? If yes, what is the stated reason?
 - "Should this become part of the new schema?"
 - "Should we reproduce this legacy behavior?"
 
@@ -123,23 +170,29 @@ failure, not an efficiency gain.
 Stop at the end of every phase and report: what was verified, what changed, test
 results, and the diff. Do not continue into the next phase uninvited.
 
+Keep reports **short** — the effort belongs in what the seller and the Owner
+see. A roadmap phase is accepted by **one criterion: a real working day in the
+shop**, run alongside the current way of working, with the drawer and the stock
+matching at the end of the day (difference zero) and the phase's speed targets
+met (`docs/PLAN.md` §1).
+
 ## 6. Avoid Wasted Work
 
-- Do not investigate unrelated legacy behavior merely because it exists.
-- Investigate legacy behavior **only** when it is necessary to obtain the
-  historical reference numbers the Owner explicitly requested.
+- Do not investigate archived or legacy behaviour merely because it exists.
 - An unknown is not automatically a research task.
-- Do not optimize for completeness at the expense of the actual product goal.
-- Do not preserve legacy structure because it already works.
+- Do not optimise for completeness at the expense of the actual product goal.
+- Do not preserve a structure, formula, or pattern merely because it already
+works somewhere else.
 
 ## 7. Safety Rules
 
-- Treat all data under `dev_extracted/`, `archive/`, and any legacy export as
-  **read-only**. Never edit, normalize, or rewrite it.
+- Treat all data under `archive/` and any real export as **read-only**. Never
+  edit, normalize, or rewrite it. Archiving means `git mv` into `archive/` with
+  a reason in `archive/README.md` — never deletion.
 - Real exports may contain credentials in plaintext. Never copy such content into
   the repository, into fixtures, or into reports. Name the risk instead.
 - Never commit secrets. Never place a real export inside the repository.
-- A refused or blocked migration is a correct outcome. Never work around a
+- A refused or blocked change is a correct outcome. Never work around a
   refusal by weakening a check.
 
 ## 8. Reporting

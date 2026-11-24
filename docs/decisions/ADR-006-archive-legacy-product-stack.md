@@ -1,4 +1,18 @@
 # ADR-006: أرشفة شجرة `product/` (legacy product stack)
+> **نُفِّذ في 2026-10-16 بقرار المالك (`ADR-016`):** «أرشف اللي ملهوش لازمة»، وتوصية تقرير المقارنة المعتمدة
+> («`product/` و`spikes/legacy-import` ← أرشفة»). نُقلت الشجرة بـ`git mv` (بلا حذف ولا تعديل) إلى
+> `archive/legacy-project/product/`، ومعها `spikes/legacy-import/` ← `archive/legacy-project/spikes/legacy-import/`.
+> ملاحظة «لماذا أُلغي» تحت هذا السطر **لم تعد سارية**.
+>
+> 
+> **SUPERSEDED — خارج نطاق المنتج الحالي**
+> 
+> **قرار Product Owner بتاريخ 2026-10-02:** النظام الجديد مستقل تمامًا ويُصمَّم من أول المبادئ، والنظام القديم مادة أرشيفية خارج المعمارية. انظر `docs/decisions/ADR-007-independent-new-system.md`.
+> 
+> **لماذا أُلغي:** قرار أرشفة الشجرة كان مرتبطًا بالاتجاه القديم. لا ترحيل ولا أرشفة في نطاق النظام الجديد؛ الشجرة تبقى أثرًا تاريخيًا في مكانها، ولم يُنفَّذ أي نقل أو حذف.
+> 
+> يُحفظ هذا المستند كأثر تخطيطي تاريخي. لا تُنفَّذ أي مهمة فيه، ولا تُشتق منه قاعدة عمل، ولا يُستشهد به كشرط قبول لأي شريحة في النظام الجديد.
+>
 
 ## الحالة
 
@@ -47,14 +61,13 @@
 
 ## الأثر
 
-- **لا أثر على النظام الجديد.** الشجرة مستقلة تمامًا عن Historical Reference (`docs/superpowers/specs/2026-10-02-historical-reference-snapshot-design.md`).
+- **لا أثر على النظام الجديد.** الشجرة مستقلة تمامًا عن Historical Reference (`archive/superseded-2026-10-16/superpowers/specs/2026-10-02-historical-reference-snapshot-design.md`).
 - بعد الأرشفة، `docs/superpowers/specs/2026-09-28-mobile-shop-system.md:30` يتحقق فعليًا: «فصل تعريفات التقارير القديمة عن الجديدة».
 
-## التنفيذ — غير منفَّذ
+## التنفيذ — نُفِّذ 2026-10-16
+
+نُقلت الشجرة بـ`git mv` بلا حذف ولا تعديل لمحتواها (التاريخ محفوظ في git). لا ترحيل ولا importer في النظام الجديد.
 
 ```text
-# لم يُنفَّذ. يتطلب موافقة منفصلة.
-product/  →  archive/legacy-project/product/
+product/  →  archive/legacy-project/product/  (2026-10-16 — أثر تاريخي، خارج المعمارية)
 ```
-
-ممنوع التنفيذ ضمن أي مهمة Historical Reference.

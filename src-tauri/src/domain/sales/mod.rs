@@ -1,0 +1,790 @@
+//! Sales domain (Sales V1): invoice references, sale failures, calendar math.
+//!
+//! Cash-only sales recorded atomically with stock deduction and cost
+//! consumption. A sale is an immutable document: nothing here edits one, and
+//! cancellation arrives as a separate reversal sale, never as a rewrite.
+//!
+//! Money stays integer piastres (`ADR-010`) with the same checked, never
+//! clamped, arithmetic as `money::Piastres`.
+
+use std::fmt;
+
+/// What a sale operation can refuse, as its own vocabulary.
+///
+/// Kept apart from `DomainError` (identity) and `CostError` (costing) on
+/// purpose, exactly as `StockServiceError` keeps its vocabularies apart: a
+/// sale refusal is neither an authentication failure nor an arithmetic one,
+/// and collapsing them would send an operator to the wrong place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SaleError {
+    /// The sale carries no lines.
+    Empty,
+    /// The product is archived and off sale.
+    ProductArchived,
+    /// No sale carries the id a caller named.
+    NotFound,
+    /// A line names a product id that is not an identifier at all.
+    ///
+    /// Kept apart from `NotFound`: a malformed product id has nothing to do with
+    /// invoices, and reporting it as «لا توجد عملية بيع» sent the operator looking
+    /// for a document that was never missing.
+    InvalidProductId,
+    /// A confirmed total no longer matches the authoritative prices.
+    ///
+    /// Raised when the operator confirmed a total and, by the time the sale
+    /// commits, a price on the same lines has changed. The sale is refused
+    /// rather than silently committed at the new price: the operator must see
+    /// the new figure and confirm again.
+    PriceChanged,
+    /// The product's disposition cannot be sold in V1 (`serialized`).
+    DispositionNotSupported,
+    /// The product has no selling price set.
+    PriceNotSet,
+    /// A line quantity is zero, negative, or otherwise unusable.
+    InvalidQuantity,
+    /// The invoice reference collided or the daily sequence is exhausted.
+    ReferenceConflict,
+    /// The sale was already cancelled.
+    AlreadyCancelled,
+    /// Restored stock disagrees with the original consumption basis.
+    ReversalInconsistent,
+    /// The database is busy; the attempt may be retried.
+    ///
+    /// Retryable, and deliberately distinct from every business refusal: a
+    /// busy device is not a wrong request.
+    Busy,
+    /// The sale already carries a customer link or snapshot; linking again
+    /// would rewrite which customer the document belongs to.
+    CustomerAlreadyLinked,
+    /// Only a live `sale` document takes a customer. Reversals mirror their
+    /// original and take none.
+    LinkNotAllowed,
+    /// A warranty date is not a day that exists, or is not written as
+    /// `YYYY-MM-DD`.
+    WarrantyDateInvalid,
+    /// A warranty range ends before it starts.
+    WarrantyRangeInvalid,
+    /// A sale payment list is empty when payments were explicitly supplied.
+    PaymentMissing,
+    /// The payment method code is not one of the six supported methods.
+    PaymentMethodInvalid,
+    /// The payment method has been disabled by the owner in Settings.
+    PaymentMethodDisabled,
+    /// A payment row has a non-positive (or overflowing) amount.
+    PaymentAmountInvalid,
+    /// The sum of payment rows does not match the sale's authoritative total.
+    PaymentTotalMismatch,
+    /// The payment reference exceeds 120 characters.
+    PaymentReferenceInvalid,
+    /// An instalment (`install`) payment was submitted without naming the provider.
+    InstallmentProviderRequired,
+    /// A credit (`credit` / آجل) payment was submitted without a linked customer.
+    CreditRequiresCustomer,
+    /// A line or invoice discount is negative or exceeds the gross amount (`ADR-021`).
+    DiscountInvalid,
+    /// A surcharge is negative, or larger than one invoice may carry (`0037`).
+    SurchargeInvalid,
+    /// A return request carries no return lines (`ADR-026`).
+    ReturnEmpty,
+    /// A return request names a `sale_line_id` that does not belong to the sale (`ADR-026`).
+    ReturnLineNotFound,
+    /// A return request asks to return more units than remain on the line (`ADR-026`).
+    ReturnQuantityExceedsRemaining,
+    /// A return line's condition is neither `'intact'` nor `'damaged'` (`ADR-026`).
+    ReturnConditionInvalid,
+    /// A return request has an empty or overly long reason (`ADR-026`).
+    ReturnReasonRequired,
+    /// A payment named a wallet that does not receive that method, or named none at all and a
+    /// method that no wallet receives (`ADR-041`).
+    PaymentWalletInvalid,
+}
+
+impl SaleError {
+    /// Stable machine code, cross-checked against the frontend's message table.
+    pub fn code(&self) -> &'static str {
+        match self {
+            SaleError::Empty => "SALE_EMPTY",
+            SaleError::ProductArchived => "SALE_PRODUCT_ARCHIVED",
+            SaleError::NotFound => "SALE_NOT_FOUND",
+            SaleError::InvalidProductId => "SALE_INVALID_PRODUCT_ID",
+            SaleError::PriceChanged => "SALE_PRICE_CHANGED",
+            SaleError::DispositionNotSupported => "SALE_DISPOSITION_NOT_SUPPORTED",
+            SaleError::PriceNotSet => "SALE_PRICE_NOT_SET",
+            SaleError::InvalidQuantity => "SALE_INVALID_QUANTITY",
+            SaleError::ReferenceConflict => "SALE_REFERENCE_CONFLICT",
+            SaleError::AlreadyCancelled => "SALE_ALREADY_CANCELLED",
+            SaleError::ReversalInconsistent => "SALE_REVERSAL_INCONSISTENT",
+            SaleError::Busy => "SALE_BUSY",
+            SaleError::CustomerAlreadyLinked => "SALE_CUSTOMER_ALREADY_LINKED",
+            SaleError::LinkNotAllowed => "SALE_LINK_NOT_ALLOWED",
+            SaleError::WarrantyDateInvalid => "SALE_WARRANTY_DATE_INVALID",
+            SaleError::WarrantyRangeInvalid => "SALE_WARRANTY_RANGE_INVALID",
+            SaleError::PaymentMissing => "SALE_PAYMENT_MISSING",
+            SaleError::PaymentMethodInvalid => "SALE_PAYMENT_METHOD_INVALID",
+            SaleError::PaymentMethodDisabled => "SALE_PAYMENT_METHOD_DISABLED",
+            SaleError::PaymentAmountInvalid => "SALE_PAYMENT_AMOUNT_INVALID",
+            SaleError::PaymentTotalMismatch => "SALE_PAYMENT_TOTAL_MISMATCH",
+            SaleError::PaymentReferenceInvalid => "SALE_PAYMENT_REFERENCE_INVALID",
+            SaleError::InstallmentProviderRequired => "SALE_INSTALLMENT_PROVIDER_REQUIRED",
+            SaleError::CreditRequiresCustomer => "SALE_CREDIT_REQUIRES_CUSTOMER",
+            SaleError::DiscountInvalid => "SALE_DISCOUNT_INVALID",
+            SaleError::SurchargeInvalid => "SALE_SURCHARGE_INVALID",
+            SaleError::ReturnEmpty => "SALE_RETURN_EMPTY",
+            SaleError::ReturnLineNotFound => "SALE_RETURN_LINE_NOT_FOUND",
+            SaleError::ReturnQuantityExceedsRemaining => "SALE_RETURN_QUANTITY_EXCEEDS_REMAINING",
+            SaleError::ReturnConditionInvalid => "SALE_RETURN_CONDITION_INVALID",
+            SaleError::ReturnReasonRequired => "SALE_RETURN_REASON_REQUIRED",
+            SaleError::PaymentWalletInvalid => "SALE_PAYMENT_WALLET_INVALID",
+        }
+    }
+}
+
+impl fmt::Display for SaleError {
+    /// Developer-facing only; the operator reads the Arabic message the frontend
+    /// holds, indexed by `code()`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaleError::Empty => write!(f, "a sale must carry at least one line"),
+            SaleError::ProductArchived => write!(f, "the product is archived and off sale"),
+            SaleError::NotFound => write!(f, "no sale with this id"),
+            SaleError::InvalidProductId => {
+                write!(f, "a line names a product id that is not an identifier")
+            }
+            SaleError::PriceChanged => {
+                write!(f, "a confirmed price changed before the sale could commit")
+            }
+            SaleError::DispositionNotSupported => {
+                write!(f, "this product disposition cannot be sold in V1")
+            }
+            SaleError::PriceNotSet => write!(f, "the product has no selling price set"),
+            SaleError::InvalidQuantity => write!(f, "the line quantity is not usable"),
+            SaleError::ReferenceConflict => {
+                write!(f, "the invoice reference collided or the daily sequence is exhausted")
+            }
+            SaleError::AlreadyCancelled => write!(f, "the sale was already cancelled"),
+            SaleError::ReversalInconsistent => {
+                write!(f, "restored stock disagrees with the original consumption basis")
+            }
+            SaleError::Busy => write!(f, "the database is busy; the attempt may be retried"),
+            SaleError::CustomerAlreadyLinked => {
+                write!(f, "the sale already carries a customer")
+            }
+            SaleError::LinkNotAllowed => {
+                write!(f, "only a live sale document takes a customer")
+            }
+            SaleError::WarrantyDateInvalid => {
+                write!(f, "a warranty date must be a real day written as YYYY-MM-DD")
+            }
+            SaleError::WarrantyRangeInvalid => {
+                write!(f, "a warranty cannot end before it starts")
+            }
+            SaleError::PaymentMissing => {
+                write!(f, "a sale must carry at least one payment row")
+            }
+            SaleError::PaymentMethodInvalid => {
+                write!(f, "unknown payment method")
+            }
+            SaleError::PaymentMethodDisabled => {
+                write!(f, "this payment method is disabled in settings")
+            }
+            SaleError::PaymentAmountInvalid => {
+                write!(f, "payment amount must be positive")
+            }
+            SaleError::PaymentTotalMismatch => {
+                write!(f, "sum of payment rows does not equal the sale total")
+            }
+            SaleError::PaymentReferenceInvalid => {
+                write!(f, "payment reference exceeds maximum length")
+            }
+            SaleError::PaymentWalletInvalid => {
+                write!(f, "the wallet named for this payment does not receive that method")
+            }
+            SaleError::InstallmentProviderRequired => {
+                write!(f, "instalment payment requires a provider name")
+            }
+            SaleError::CreditRequiresCustomer => {
+                write!(f, "credit sale requires a linked customer")
+            }
+            SaleError::SurchargeInvalid => write!(
+                f,
+                "a surcharge must be non-negative and no more than one invoice carries"
+            ),
+            SaleError::DiscountInvalid => {
+                write!(f, "discount must be non-negative and not exceed the subtotal")
+            }
+            SaleError::ReturnEmpty => {
+                write!(f, "a return must carry at least one returned line")
+            }
+            SaleError::ReturnLineNotFound => {
+                write!(f, "the returned line does not belong to this sale")
+            }
+            SaleError::ReturnQuantityExceedsRemaining => {
+                write!(f, "the returned quantity exceeds what remains on the sale line")
+            }
+            SaleError::ReturnConditionInvalid => {
+                write!(f, "the return condition must be intact or damaged")
+            }
+            SaleError::ReturnReasonRequired => {
+                write!(f, "a non-empty return reason up to 200 characters is required")
+            }
+        }
+    }
+}
+
+/// Validate a line discount against the line's gross total (`quantity * unit_price_minor`),
+/// returning the net line total (`ADR-021` §2.3).
+pub fn validate_line_discount(
+    gross_line_minor: i64,
+    line_discount_minor: i64,
+) -> Result<i64, SaleError> {
+    if line_discount_minor < 0 || line_discount_minor > gross_line_minor {
+        return Err(SaleError::DiscountInvalid);
+    }
+    gross_line_minor
+        .checked_sub(line_discount_minor)
+        .ok_or(SaleError::DiscountInvalid)
+}
+
+/// Validate an invoice-level discount against the sum of net line totals,
+/// returning the final invoice total (`ADR-021` §2.3).
+pub fn validate_invoice_discount(
+    lines_net_subtotal_minor: i64,
+    invoice_discount_minor: i64,
+) -> Result<i64, SaleError> {
+    if invoice_discount_minor < 0 || invoice_discount_minor > lines_net_subtotal_minor {
+        return Err(SaleError::DiscountInvalid);
+    }
+    lines_net_subtotal_minor
+        .checked_sub(invoice_discount_minor)
+        .ok_or(SaleError::DiscountInvalid)
+}
+
+/// The largest surcharge one invoice may carry: 1,000,000 EGP.
+///
+/// A ceiling, not a business rule about delivery fees: it is the same order as
+/// the most expensive item the shop sells, and it exists so a mistyped digit is
+/// refused instead of turning a 500-pound sale into a 5-million-pound one.
+pub const MAX_SURCHARGE_MINOR: i64 = 100_000_000;
+
+/// Validate the amount added above the lines' net total (`0037`).
+pub fn validate_surcharge(surcharge_minor: i64) -> Result<i64, SaleError> {
+    if surcharge_minor < 0 || surcharge_minor > MAX_SURCHARGE_MINOR {
+        return Err(SaleError::SurchargeInvalid);
+    }
+    Ok(surcharge_minor)
+}
+
+/// Whether the total discount (`sum(line_discounts) + invoice_discount`) exceeds
+/// the shop's seller discount limit percentage (`0..=100`), requiring owner PIN
+/// approval (`ADR-021` §2.3).
+///
+/// Exact integer math in `i128`: `total_discount_minor * 100 > gross_subtotal_minor * limit_pct`.
+pub fn discount_exceeds_limit(
+    gross_subtotal_minor: i64,
+    total_discount_minor: i64,
+    limit_pct: u8,
+) -> bool {
+    if total_discount_minor <= 0 {
+        return false;
+    }
+    if gross_subtotal_minor <= 0 {
+        return true;
+    }
+    (i128::from(total_discount_minor) * 100)
+        > (i128::from(gross_subtotal_minor) * i128::from(limit_pct))
+}
+
+/// Supported invoice payment methods (`ADR-020` §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentMethod {
+    Cash,
+    Vf,
+    Instapay,
+    Card,
+    Install,
+    Credit,
+}
+
+impl PaymentMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PaymentMethod::Cash => "cash",
+            PaymentMethod::Vf => "vf",
+            PaymentMethod::Instapay => "instapay",
+            PaymentMethod::Card => "card",
+            PaymentMethod::Install => "install",
+            PaymentMethod::Credit => "credit",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        match raw.trim() {
+            "cash" => Ok(PaymentMethod::Cash),
+            "vf" => Ok(PaymentMethod::Vf),
+            "instapay" => Ok(PaymentMethod::Instapay),
+            "card" => Ok(PaymentMethod::Card),
+            "install" => Ok(PaymentMethod::Install),
+            "credit" => Ok(PaymentMethod::Credit),
+            _ => Err(SaleError::PaymentMethodInvalid),
+        }
+    }
+}
+
+/// Raw payment row supplied by the caller (`ADR-020` §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SalePaymentInput {
+    pub method: String,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+    /// The shop wallet the money was collected into. `None` means "whatever number is first for
+    /// this method", which is the only answer a shop with one number can give (`ADR-041`).
+    pub wallet_id: Option<String>,
+}
+
+/// Validated payment row ready to be persisted on a sale (`ADR-020` §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedSalePayment {
+    pub method: PaymentMethod,
+    pub amount_minor: i64,
+    pub reference: Option<String>,
+    /// Trimmed and blanked like the reference; the wallet itself is checked where the database
+    /// can be asked, in `services::sales` (`ADR-041`).
+    pub wallet_id: Option<String>,
+}
+
+/// Maximum characters allowed in a payment reference (`0021_sale_payments_and_customer_ledger.sql`).
+pub const MAX_PAYMENT_REFERENCE_LEN: usize = 120;
+
+/// Validate the payment rows for a sale against `total_minor`, `enabled_pay_methods`,
+/// and whether a live customer is linked to the sale (`has_customer`).
+pub fn validate_sale_payments(
+    raw_payments: &[SalePaymentInput],
+    total_minor: i64,
+    enabled_pay_methods: &str,
+    has_customer: bool,
+) -> Result<Vec<ValidatedSalePayment>, SaleError> {
+    if raw_payments.is_empty() {
+        return Err(SaleError::PaymentMissing);
+    }
+
+    let mut out = Vec::with_capacity(raw_payments.len());
+    let mut sum_minor: i64 = 0;
+
+    for raw in raw_payments {
+        let method = PaymentMethod::parse(&raw.method)?;
+        let is_enabled = method == PaymentMethod::Cash
+            || enabled_pay_methods
+                .split(',')
+                .any(|m| m.trim() == method.as_str());
+        if !is_enabled {
+            return Err(SaleError::PaymentMethodDisabled);
+        }
+
+        if total_minor == 0 {
+            if raw_payments.len() != 1 || raw.amount_minor != 0 || method == PaymentMethod::Credit {
+                return Err(SaleError::PaymentAmountInvalid);
+            }
+        } else if raw.amount_minor <= 0 {
+            return Err(SaleError::PaymentAmountInvalid);
+        }
+
+        let reference = match raw.reference.as_deref() {
+            None => None,
+            Some(s) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else if trimmed.chars().count() > MAX_PAYMENT_REFERENCE_LEN {
+                    return Err(SaleError::PaymentReferenceInvalid);
+                } else {
+                    Some(trimmed.to_owned())
+                }
+            }
+        };
+
+        if method == PaymentMethod::Install && reference.is_none() {
+            return Err(SaleError::InstallmentProviderRequired);
+        }
+        if method == PaymentMethod::Credit && !has_customer {
+            return Err(SaleError::CreditRequiresCustomer);
+        }
+
+        sum_minor = sum_minor
+            .checked_add(raw.amount_minor)
+            .ok_or(SaleError::PaymentAmountInvalid)?;
+
+        let wallet_id = raw
+            .wallet_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
+        out.push(ValidatedSalePayment {
+            method,
+            amount_minor: raw.amount_minor,
+            reference,
+            wallet_id,
+        });
+    }
+
+    if sum_minor != total_minor {
+        return Err(SaleError::PaymentTotalMismatch);
+    }
+
+    Ok(out)
+}
+
+impl std::error::Error for SaleError {}
+
+/// Split Unix-epoch milliseconds into `(year, month, day)`, UTC.
+///
+/// Integer arithmetic only (Howard Hinnant's civil-from-days): no date library
+/// exists in this crate, and adding one for a single conversion would be a new
+/// dependency on an offline POS for no reason. `div_euclid` keeps pre-epoch
+/// values correct rather than implementation-defined.
+pub fn civil_ymd_from_millis(millis: i64) -> (i32, u32, u32) {
+    let days = millis.div_euclid(86_400_000);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    (year as i32, m as u32, d as u32)
+}
+
+/// Build an invoice reference from its parts.
+///
+/// An empty prefix is the documented device default
+/// (`domain::settings`, "bare sequence numbers"), so it yields no leading
+/// dash: `20261012-0001` rather than `-20261012-0001`. The prefix is used
+/// verbatim — it is the operator's identifier, and inventing a normal form
+/// for it would change what the shop recognises.
+pub fn format_invoice_reference(prefix: &str, year: i32, month: u32, day: u32, seq: u32) -> String {
+    let date = format!("{year:04}{month:02}{day:02}");
+    if prefix.is_empty() {
+        format!("{date}-{seq:04}")
+    } else {
+        format!("{prefix}-{date}-{seq:04}")
+    }
+}
+
+/// A calendar day an operator entered as a warranty boundary (decisions D4, D8).
+///
+/// Ten ASCII characters, `YYYY-MM-DD`, and nothing else. This is the one date in
+/// the schema that is deliberately NOT epoch milliseconds: "covered until 15
+/// March" must mean the same day on every device, in every timezone, whatever the
+/// clock says — and an instant would make the last day of a warranty depend on
+/// both.
+///
+/// # Why the text is the value
+///
+/// ISO days sort lexicographically in chronological order, which is what lets the
+/// table enforce `warranty_end >= warranty_start` with a plain comparison and no
+/// date arithmetic. `Ord` is therefore derived and means what it looks like it
+/// means; `tests/unit` proves text order and date order agree.
+///
+/// The day is computed rather than accepted, so 30 February is refused instead of
+/// stored.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WarrantyDate(String);
+
+impl WarrantyDate {
+    /// Parse and validate `YYYY-MM-DD`.
+    ///
+    /// Exactly ten ASCII characters with dashes in the fourth and seventh
+    /// positions, digits elsewhere, a month of 1..=12 and a day that exists in
+    /// that month of that year. Everything else — an unpadded `2026-3-5`,
+    /// `15-03-2026`, a full ISO instant, a localised digit, surrounding spaces —
+    /// is [`SaleError::WarrantyDateInvalid`].
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        let bytes = raw.as_bytes();
+        let shaped = bytes.len() == 10
+            && bytes[4] == b'-'
+            && bytes[7] == b'-'
+            && [0, 1, 2, 3, 5, 6, 8, 9]
+                .iter()
+                .all(|index| bytes[*index].is_ascii_digit());
+        if !shaped {
+            return Err(SaleError::WarrantyDateInvalid);
+        }
+        // Safe to slice: the shape check proved bytes 0-3, 5-6 and 8-9 are ASCII,
+        // so every boundary below falls on a character boundary.
+        let year: u32 = raw[0..4].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        let month: u32 = raw[5..7].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        let day: u32 = raw[8..10].parse().map_err(|_| SaleError::WarrantyDateInvalid)?;
+        if year == 0 || !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+            return Err(SaleError::WarrantyDateInvalid);
+        }
+        Ok(Self(raw.to_owned()))
+    }
+
+    /// The stored text, exactly as the operator's day is written.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// This date's text together with the end the operator gave, checked against
+    /// each other.
+    ///
+    /// The same day is a valid one-day warranty; an end nobody stated stays `None`
+    /// rather than being filled in. A range that runs backwards is
+    /// [`SaleError::WarrantyRangeInvalid`] — the operator must see and fix it, not
+    /// have it stored as written.
+    pub fn checked_end(&self, end: Option<WarrantyDate>) -> Result<Option<String>, SaleError> {
+        match end {
+            Some(end) if end.0 < self.0 => Err(SaleError::WarrantyRangeInvalid),
+            Some(end) => Ok(Some(end.0)),
+            None => Ok(None),
+        }
+    }
+}
+
+impl fmt::Display for WarrantyDate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Days in a month, with the full Gregorian leap rule: divisible by 4, except
+/// centuries, except every 400th year.
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+/// Condition of a returned item (`ADR-026`, `PLAN.md` §10):
+/// - `Intact`: returns to sellable stock (`stock_levels` + `stock_movements`) at original line cost.
+/// - `Damaged`: goes to `damaged_stock` («مخزون تالف») at original line cost and never returns to sellable stock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReturnCondition {
+    Intact,
+    Damaged,
+}
+
+impl ReturnCondition {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ReturnCondition::Intact => "intact",
+            ReturnCondition::Damaged => "damaged",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, SaleError> {
+        match raw.trim() {
+            "intact" => Ok(ReturnCondition::Intact),
+            "damaged" => Ok(ReturnCondition::Damaged),
+            _ => Err(SaleError::ReturnConditionInvalid),
+        }
+    }
+}
+
+/// Caller input for one line in a partial or full return (`ADR-026`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaleReturnLineInput {
+    pub sale_line_id: String,
+    pub quantity: i64,
+    pub condition: String,
+}
+
+/// Computed amounts for returning `quantity` units from an original `sale_line` (`ADR-026` §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialLineReturnCalc {
+    pub quantity: i64,
+    pub unit_selling_price_minor: i64,
+    pub discount_minor: i64,
+    pub line_total_minor: i64,
+    pub unit_cost_minor: i64,
+    pub line_cost_minor: i64,
+}
+
+/// Maximum characters allowed in a return reason (`0025_partial_returns_and_damaged_stock.sql`).
+pub const MAX_RETURN_REASON_LEN: usize = 200;
+
+/// Validate and trim a return reason (`1..=200` characters).
+pub fn validate_return_reason(raw: &str) -> Result<String, SaleError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_RETURN_REASON_LEN {
+        return Err(SaleError::ReturnReasonRequired);
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Compute the exact price, line discount, net line total, and original cost snapshot
+/// for returning `return_qty` units of an original `sale_line` (`ADR-026` §3, `D7`).
+///
+/// When `return_qty == remaining_qty`, the returned discount and cost take the exact
+/// remaining unreturned balances so multiple partial returns always sum to 100% of
+/// the original line's cost and net total with zero rounding drift.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_partial_line_return(
+    orig_quantity: i64,
+    unit_selling_price_minor: i64,
+    orig_discount_minor: i64,
+    orig_unit_cost_minor: Option<i64>,
+    orig_line_cost_minor: i64,
+    already_returned_qty: i64,
+    already_returned_discount_minor: i64,
+    already_returned_cost_minor: i64,
+    return_qty: i64,
+) -> Result<PartialLineReturnCalc, SaleError> {
+    if orig_quantity <= 0 || return_qty <= 0 {
+        return Err(SaleError::InvalidQuantity);
+    }
+    let remaining_qty = orig_quantity.saturating_sub(already_returned_qty);
+    if remaining_qty <= 0 || return_qty > remaining_qty {
+        return Err(SaleError::ReturnQuantityExceedsRemaining);
+    }
+
+    let remaining_discount = orig_discount_minor
+        .saturating_sub(already_returned_discount_minor)
+        .max(0);
+    let discount_minor = if return_qty == remaining_qty {
+        remaining_discount
+    } else {
+        let prorated = ((i128::from(orig_discount_minor) * i128::from(return_qty))
+            / i128::from(orig_quantity)) as i64;
+        prorated.min(remaining_discount).max(0)
+    };
+
+    let gross_minor = return_qty
+        .checked_mul(unit_selling_price_minor)
+        .ok_or(SaleError::InvalidQuantity)?;
+    let line_total_minor = gross_minor
+        .checked_sub(discount_minor)
+        .ok_or(SaleError::DiscountInvalid)?;
+
+    let remaining_cost = orig_line_cost_minor
+        .saturating_sub(already_returned_cost_minor)
+        .max(0);
+    let line_cost_minor = if return_qty == remaining_qty {
+        remaining_cost
+    } else {
+        let prorated = ((i128::from(orig_line_cost_minor) * i128::from(return_qty))
+            / i128::from(orig_quantity)) as i64;
+        prorated.min(remaining_cost).max(0)
+    };
+
+    let unit_cost_minor = match orig_unit_cost_minor {
+        Some(uc) if uc >= 0 => uc,
+        _ => line_cost_minor / return_qty,
+    };
+
+    Ok(PartialLineReturnCalc {
+        quantity: return_qty,
+        unit_selling_price_minor,
+        discount_minor,
+        line_total_minor,
+        unit_cost_minor,
+        line_cost_minor,
+    })
+}
+
+/// Compute `(refund_minor, prorated_invoice_discount_minor)` for a return batch (`ADR-026` §3).
+///
+/// `orig_surcharge_minor` is the money added above the lines' net total (`0037`).
+/// It is not a discount, so it is removed before the invoice discount is read:
+/// without that, an invoice carrying both a discount and a surcharge would look
+/// less discounted than it was, and a partial return would refund the customer
+/// the difference. A full return still refunds the whole `orig_sale_total_minor`,
+/// surcharge included — the shop collected it and is giving the sale back.
+pub fn compute_return_refund_minor(
+    orig_sale_total_minor: i64,
+    orig_surcharge_minor: i64,
+    orig_lines_net_subtotal_minor: i64,
+    already_returned_lines_net_minor: i64,
+    already_refunded_total_minor: i64,
+    this_return_lines_net_minor: i64,
+) -> (i64, i64) {
+    let remaining_lines_net = orig_lines_net_subtotal_minor
+        .saturating_sub(already_returned_lines_net_minor)
+        .max(0);
+    let lines_net_of_total = orig_sale_total_minor
+        .saturating_sub(orig_surcharge_minor)
+        .max(0);
+    let orig_invoice_discount = orig_lines_net_subtotal_minor
+        .saturating_sub(lines_net_of_total)
+        .max(0);
+
+    if this_return_lines_net_minor >= remaining_lines_net {
+        let refund_minor = orig_sale_total_minor
+            .saturating_sub(already_refunded_total_minor)
+            .max(0);
+        let inv_disc_share = this_return_lines_net_minor
+            .saturating_sub(refund_minor)
+            .max(0);
+        (refund_minor, inv_disc_share)
+    } else {
+        let inv_disc_share = if orig_lines_net_subtotal_minor > 0 {
+            ((i128::from(orig_invoice_discount) * i128::from(this_return_lines_net_minor))
+                / i128::from(orig_lines_net_subtotal_minor)) as i64
+        } else {
+            0
+        };
+        let refund_minor = this_return_lines_net_minor
+            .saturating_sub(inv_disc_share)
+            .max(0);
+        (refund_minor, inv_disc_share)
+    }
+}
+
+/// Allocate `refund_minor` across the original sale's payment methods by default (`PLAN.md` §10).
+pub fn allocate_default_refund_payments(
+    remaining_by_method: &[(PaymentMethod, i64, Option<String>, Option<String>)],
+    fallback_method: PaymentMethod,
+    refund_minor: i64,
+) -> Vec<ValidatedSalePayment> {
+    if refund_minor <= 0 {
+        return vec![ValidatedSalePayment {
+            method: fallback_method,
+            amount_minor: 0,
+            reference: None,
+            wallet_id: None,
+        }];
+    }
+
+    let mut out: Vec<ValidatedSalePayment> = Vec::new();
+    let mut left = refund_minor;
+
+    for (method, avail, reference, wallet_id) in remaining_by_method {
+        if left <= 0 {
+            break;
+        }
+        let take = left.min((*avail).max(0));
+        if take > 0 {
+            out.push(ValidatedSalePayment {
+                method: *method,
+                amount_minor: take,
+                reference: reference.clone(),
+                // A refund leaves by the number that took the money (`ADR-041`).
+                wallet_id: wallet_id.clone(),
+            });
+            left -= take;
+        }
+    }
+
+    if left > 0 {
+        if let Some(first) = out.first_mut() {
+            first.amount_minor += left;
+        } else {
+            out.push(ValidatedSalePayment {
+                method: fallback_method,
+                amount_minor: left,
+                reference: None,
+                wallet_id: None,
+            });
+        }
+    }
+
+    out
+}

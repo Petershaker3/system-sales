@@ -1,0 +1,77 @@
+// Static snapshots of every screen in both looks × both themes, for the impeccable design detector.
+// Needs the preview server (serve.py) on 127.0.0.1:4173 (or MOCKUP_URL). Output: /tmp/snap/<look>-<theme>-<screen>.html
+// (scripts removed, <base> pointing at the server so the real CSS and fonts load). Review flow: docs/ui/REDESIGN.md
+//   node snapshots.mjs && sh detect-snapshots.sh
+import fs from 'node:fs';
+import { launch, URL } from './launch.mjs';
+
+const OUT = process.env.SNAP_DIR || '/tmp/snap';
+fs.rmSync(OUT, { recursive: true, force: true }); fs.mkdirSync(OUT, { recursive: true });
+const b = await launch(); const p = await b.newPage();
+await p.setViewport({ width: 1366, height: 768 });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const key = async (k) => { await p.keyboard.press(k); await sleep(140); };
+const nav = (v) => p.evaluate((id) => document.querySelector(`.nav-btn[data-v="${id}"]`).click(), v);
+const saved = [];
+async function save(name) {
+  await sleep(160);
+  const html = await p.evaluate((base) => {
+    const d = document.documentElement.cloneNode(true);
+    d.querySelectorAll('script').forEach((s) => s.remove());
+    const tag = document.createElement('base'); tag.href = base; d.querySelector('head').prepend(tag);
+    return `<!doctype html>\n${d.outerHTML}`;
+  }, URL);
+  fs.writeFileSync(`${OUT}/${name}.html`, html); saved.push(name);
+}
+
+for (const look of ['plate', 'box']) {
+  for (const theme of ['light', 'dark']) {
+    const t = `${look}-${theme}`;
+    await p.goto(URL, { waitUntil: 'networkidle0' });
+    await p.evaluate((lk, th) => { localStorage.clear(); localStorage.setItem('mshop.mockup.settings.v1', JSON.stringify({ look: lk, theme: th })); }, look, theme);
+    await p.reload({ waitUntil: 'networkidle0' }); await p.evaluate(() => document.fonts.ready);
+    await save(`${t}-pos-empty`);
+    await p.evaluate(() => { const pick = (id) => document.querySelector(`.tile[data-id="${id}"]`).click(); pick('a2'); pick('a1'); });
+    await p.focus('#q'); await p.keyboard.type('a16', { delay: 10 }); await sleep(160); await key('Enter');
+    await save(`${t}-pos-cart`);
+    await key('F12'); await save(`${t}-pay`);
+    await key('Enter'); await sleep(200); await save(`${t}-done`); await key('Escape');
+    await key('F9'); await save(`${t}-services`); await key('Escape');
+    await p.evaluate(() => document.querySelector('[data-act="shiftClose"]').click()); await save(`${t}-shift`); await key('Escape');
+    // الرسايل بتختفي بعد ثواني: قبل باقي الشاشات بنشيل رسايل البيع اللي فاتت (زي ما الوقت يعدّي)، عشان ما تتحسبش على تصميم الصفحة
+    await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove()));
+    for (const v of ['repairs', 'inventory', 'dashboard', 'mobile']) { await nav(v); await sleep(200); await save(`${t}-${v}`); }
+    await p.evaluate(() => { S.rep = { tab: 'month', month: monthStart(new Date()) }; S.view = 'dashboard'; render(); }); await sleep(200); await save(`${t}-reports-month`);
+    await p.evaluate(() => { S.rep.month = new Date(new Date().getFullYear(), new Date().getMonth() - 7, 1); render(); }); await sleep(200); await save(`${t}-reports-month-past`);
+    await p.evaluate(() => { S.rep = null; });
+    await p.evaluate(() => { S.inv.tab = 'short'; S.view = 'inventory'; render(); }); await sleep(150); await save(`${t}-inventory-short`);
+    await p.evaluate(() => { S.inv.tab = 'items'; render(); });
+    await p.evaluate(() => { S.view = 'inventory'; render(); ACT.recvOpen(); rcAdd('a7'); const l = S.modal.lines[0]; Object.assign(l, { qty: 20, qtyT: '20', cost: 85, costT: '85' }); rcAdd('p1'); ACT.rcPhone({ i: '1' }); ACT.rcPhone({ i: '1' }); rcImei(1, '123456789012345'); S.modal.supplier = 'النور للتوزيع'; render(); });
+    await sleep(150); await p.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove())); await save(`${t}-receive`);
+    await p.evaluate(() => { S.modal.confirmClose = true; closeModal(); });
+    // صنف جديد (موبايل وتفرعات)، واختيار النوع في البيع، والمحافظ (docs/ui/STORE-CATALOG-WALLETS.md)
+    await p.evaluate(() => { rcOpen({ mode: 'opening' }); openNewItem({ kind: 'phone' }); Object.assign(S.modal, { brand: 'Samsung', model: 'Galaxy A07', rom: '64GB', ram: '4GB', colors: ['أسود', 'أزرق'], price: '5200', cost: '4800' }); render(); }); await sleep(150); await save(`${t}-new-phone`);
+    await p.evaluate(() => { S.modal.saved = true; closeModal(); openNewItem({ kind: 'item' }); Object.assign(S.modal, { cat: 'cases', name: 'جراب شفاف مقوى', varOn: true, price: '130', dims: [{ label: 'الموبايل', vals: ['Galaxy A16', 'Redmi 14C'], q: '' }, { label: 'اللون', vals: ['شفاف', 'أسود'], q: '' }], rows: { 'Galaxy A16|شفاف': { qty: '6' } } }); render(); }); await sleep(150); await save(`${t}-new-variants`);
+    await p.evaluate(() => { S.modal.saved = true; closeModal(); S.modal.confirmClose = true; closeModal(); S.view = 'pos'; S.cat = 'cases'; render(); openVariantPicker('f1'); }); await sleep(150); await save(`${t}-variant-picker`);
+    await p.evaluate(() => { S.modal = null; S.cat = 'top'; render(); }); await nav('wallets'); await sleep(200); await save(`${t}-wallets`);
+    await p.evaluate(() => { openServices(); S.modal.op = 'withdraw'; S.modal.amount = '2000'; render(); }); await sleep(150); await save(`${t}-wallet-withdraw`);
+    await p.evaluate(() => { S.modal = null; render(); ACT.walMove(); }); await sleep(150); await save(`${t}-wallet-move`);
+    await p.evaluate(() => { S.modal = null; render(); });
+    await nav('sales'); await sleep(200); await save(`${t}-sales`);
+    await p.evaluate(() => document.querySelector('[data-act="svView"][data-id="cat"]').click()); await save(`${t}-sales-cat`);
+    await p.evaluate(() => { ACT.svRange({ id: 'month' }); svShift(-1); salesState().view = 'day'; render(); }); await sleep(150); await save(`${t}-sales-days`);
+    await nav('settings'); await sleep(150);
+    for (const tab of ['shop', 'look', 'catalog', 'pay', 'receipt', 'devices']) {
+      await p.evaluate((id) => document.querySelector(`.s-nav [data-id="${id}"]`).click(), tab); await save(`${t}-settings-${tab}`);
+    }
+    await p.evaluate(() => ACT.lock()); await save(`${t}-lock`);
+    // أول يوم في محل فاضي: خطوات التسجيل في المخزن
+    await p.goto(URL + (URL.includes('?') ? '&' : '?') + 'fresh=1', { waitUntil: 'networkidle0' }); await p.evaluate(() => document.fonts.ready);
+    await nav('inventory'); await sleep(200); await save(`${t}-store-first-day`);
+  }
+}
+await b.close();
+fs.writeFileSync(`${OUT}/index.txt`, saved.map((n) => `${n}.html`).join('\n') + '\n');
+console.log(`snapshots: ${saved.length} in ${OUT}`);
+console.log('ERRORS:', errs.length ? errs.join(' | ') : 'none');
