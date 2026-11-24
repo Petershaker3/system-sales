@@ -123,3 +123,12 @@ run. No Rust toolchain was found locally; static.rust-lang.org is unreachable,
 and the GitHub Rust 1.98.1 release query did not provide a toolchain. No CI or
 release workflow was triggered. The remaining recovery, durable persistence,
 platform and independent audit work is open.
+
+**Verification at application/test commit `0b05a51a27d44dc62afa33b5744c87d9d03d0ce4`:**
+TypeScript typecheck, 298 frontend unit tests, production frontend build, five
+focused mocked-demo browser checks, three Python SQLite experiments, and
+`git diff --check HEAD^ HEAD` passed. The browser test does not run Rust or a
+real database. The build emitted the existing dynamic-import and large-chunk
+warnings. Rust compilation, SQLx fresh/upgrade tests, real transaction-to-UI
+end-to-end tests, payment/inventory reconciliation and platform tests were not
+run and remain unverified. This verification note is documentation only.
