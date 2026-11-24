@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { reportAvailability, type ReportAvailabilityInput } from './report-availability.ts';
-const ok: ReportAvailabilityInput = { base: 'ready', auxiliary: 'ready', historyLength: 0, historyLimit: 5000, salesCostsAvailable: true, repairHardwareProfit: 0, repairSoftwareProfit: 0 };
+const ok: ReportAvailabilityInput = { base: 'ready', auxiliary: 'ready', historyLength: 0, historyLimit: 5000, salesCostsAvailable: true, hasReturnsOrCancellations: false, repairHardwareProfit: 0, repairSoftwareProfit: 0 };
 test('real zero values remain valid', () => assert.equal(reportAvailability(ok), 'ready'));
 test('failed, missing and redacted data cannot be trusted as zero', () => {
-  for (const changes of [{ base: 'failed' as const }, { auxiliary: 'failed' as const }, { salesCostsAvailable: false }, { repairHardwareProfit: null }, { repairSoftwareProfit: undefined }]) {
+  for (const changes of [{ base: 'failed' as const }, { auxiliary: 'failed' as const }, { salesCostsAvailable: false }, { hasReturnsOrCancellations: true }, { repairHardwareProfit: null }, { repairSoftwareProfit: undefined }]) {
     assert.equal(reportAvailability({ ...ok, ...changes }), 'incomplete');
   }
 });
@@ -24,4 +24,8 @@ test('a rejected source retains its identity and original error', async () => {
     assert.deepEqual(sourceErrorParts(err), { source: 'المحافظ', cause: reason });
     return true;
   });
+});
+
+test('returns and cancellations cannot be represented by the current sale-only report', () => {
+  assert.equal(reportAvailability({ ...ok, hasReturnsOrCancellations: true }), 'incomplete');
 });

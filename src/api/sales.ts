@@ -471,6 +471,8 @@ export interface SaleHistoryEntry {
   readonly costTotalMinor?: number;
   readonly profitMinor?: number;
   readonly alreadyRefundedMinor: number;
+  /** Absent on older backends; zero-value returns still increment this count. */
+  readonly returnCount?: number;
   readonly isCancelled: boolean;
   readonly lines: readonly SaleHistoryLine[];
   readonly payments: readonly SaleHistoryPayment[];

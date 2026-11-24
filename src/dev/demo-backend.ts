@@ -3023,6 +3023,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
             }
           : {}),
         alreadyRefundedMinor,
+        returnCount: prevReturns.length,
         isCancelled: s.isCancelled,
         lines: lineDtos,
         payments: s.payments.map((p) => ({

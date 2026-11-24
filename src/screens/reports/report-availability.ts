@@ -8,12 +8,13 @@ export interface ReportAvailabilityInput {
   historyLength: number;
   historyLimit: number;
   salesCostsAvailable: boolean;
+  hasReturnsOrCancellations: boolean;
   repairHardwareProfit: number | null | undefined;
   repairSoftwareProfit: number | null | undefined;
 }
 export function reportAvailability(input: ReportAvailabilityInput): 'loading' | 'incomplete' | 'ready' {
   if (input.base === 'loading' || input.auxiliary === 'loading') return 'loading';
-  if (input.base !== 'ready' || input.auxiliary !== 'ready' || input.historyLength >= input.historyLimit || !input.salesCostsAvailable ||
+  if (input.base !== 'ready' || input.auxiliary !== 'ready' || input.historyLength >= input.historyLimit || !input.salesCostsAvailable || input.hasReturnsOrCancellations ||
       input.repairHardwareProfit == null || input.repairSoftwareProfit == null) return 'incomplete';
   return 'ready';
 }

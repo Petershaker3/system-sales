@@ -779,6 +779,7 @@ pub struct SaleHistoryEntryDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profit_minor: Option<i64>,
     pub already_refunded_minor: i64,
+    pub return_count: i64,
     pub is_cancelled: bool,
     pub lines: Vec<SaleHistoryLineDto>,
     pub payments: Vec<SaleHistoryPaymentDto>,
@@ -809,6 +810,7 @@ pub async fn list_sales_history(
             cost_total_minor: r.cost_total_minor,
             profit_minor: r.profit_minor,
             already_refunded_minor: r.already_refunded_minor,
+            return_count: r.return_count,
             is_cancelled: r.is_cancelled,
             lines: r
                 .lines

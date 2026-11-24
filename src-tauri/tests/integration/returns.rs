@@ -205,6 +205,14 @@ async fn partial_return_requires_owner_pin_and_restores_intact_stock_at_original
     assert_eq!(ret1.refund_minor, 20_000);
     assert_eq!(ret1.cost_returned_minor, 12_000);
     assert_eq!(ret1.damaged_cost_minor, 0);
+    // Return count must be separate from refunded money, including zero-refund
+    // events; consumers must not infer event presence from the monetary sum.
+    let history = sales::list_sales_history(&pool, tokens.as_ref(), None)
+        .await
+        .expect("history after return");
+    let returned = history.iter().find(|row| row.sale_id == sale.sale_id).unwrap();
+    assert_eq!(returned.return_count, 1);
+    assert_eq!(returned.already_refunded_minor, ret1.refund_minor);
 
     // Check stock position: 10 received - 3 sold + 1 returned intact = 8 in stock @ 96,000 minor.
     let mut conn = pool.acquire().await.expect("conn");
@@ -458,6 +466,7 @@ async fn sales_history_filters_seller_to_own_sales_without_cost_and_shows_all_to
         .expect("seller sale in manager history");
     assert_eq!(m_seller_row.seller_name, "Youssef");
     assert_eq!(m_seller_row.total_minor, 40_000);
+    assert_eq!(m_seller_row.return_count, 0);
     assert_eq!(m_seller_row.cost_total_minor, Some(24_000));
     assert_eq!(m_seller_row.profit_minor, Some(16_000));
     assert_eq!(m_seller_row.lines[0].line_cost_minor, Some(24_000));

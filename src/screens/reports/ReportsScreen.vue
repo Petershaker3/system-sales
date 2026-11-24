@@ -113,12 +113,14 @@ let monthRequest = 0;
 const dayAvailability = computed(() => reportAvailability({
   base: baseState.value, auxiliary: dayState.value, historyLength: history.value.length,
   historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  hasReturnsOrCancellations: history.value.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0),
   repairHardwareProfit: todayRepairs.value?.hardware.netProfitMinor,
   repairSoftwareProfit: todayRepairs.value?.software.netProfitMinor,
 }));
 const monthAvailability = computed(() => reportAvailability({
   base: baseState.value, auxiliary: monthState.value, historyLength: history.value.length,
   historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  hasReturnsOrCancellations: history.value.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0),
   repairHardwareProfit: monthRepairs.value?.hardware.netProfitMinor,
   repairSoftwareProfit: monthRepairs.value?.software.netProfitMinor,
 }));
@@ -871,6 +873,7 @@ onBeforeUnmount(() => {
       <p v-if="activeAvailability === 'loading'">بيتحمّل التقرير…</p>
       <template v-else>
         <p>التقرير غير مكتمل؛ تعذّر تحميل مصدر، أو بيانات التكلفة غير متاحة، أو سجل المبيعات بلغ حد التحميل. الأرقام مش معروضة كصفر.</p>
+        <p v-if="history.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0)">سجل المبيعات يحتوي على مرتجعات أو إلغاءات، أو بيانات المرتجعات غير متاحة؛ التقرير الحالي لا يحسب أثرها حسب تاريخ الحركة، لذلك لا يمكن الاعتماد على أرقامه.</p>
         <p v-if="reportError">{{ reportError }}</p>
         <button type="button" class="btn" @click="loadAll">حاول تاني</button>
       </template>

@@ -698,6 +698,8 @@ pub struct SaleHistoryRow {
     pub cost_total_minor: Option<i64>,
     pub profit_minor: Option<i64>,
     pub already_refunded_minor: i64,
+    /// Count even zero-value returns: refunded money alone cannot reveal them.
+    pub return_count: i64,
     pub is_cancelled: bool,
     pub lines: Vec<SaleHistoryLineRow>,
     pub payments: Vec<SaleHistoryPaymentRow>,
@@ -1115,6 +1117,7 @@ pub async fn list_sales_history(
                 s.discount_minor AS discount_minor,
                 s.surcharge_minor AS surcharge_minor,
                 COALESCE((SELECT SUM(sr.refund_minor) FROM sale_returns sr WHERE sr.original_sale_id = s.id), 0) AS already_refunded_minor,
+                (SELECT COUNT(*) FROM sale_returns sr WHERE sr.original_sale_id = s.id) AS return_count,
                 CASE WHEN EXISTS (SELECT 1 FROM sale_reversals rev WHERE rev.original_sale_id = s.id) THEN 1 ELSE 0 END AS is_cancelled
          FROM sales s
          LEFT JOIN users usr ON usr.id = s.sold_by
@@ -1236,6 +1239,7 @@ pub async fn list_sales_history(
             cost_total_minor: Some(cost_total_minor),
             profit_minor: Some(total_minor - cost_total_minor),
             already_refunded_minor,
+            return_count: srow.get("return_count"),
             is_cancelled,
             lines,
             payments,
