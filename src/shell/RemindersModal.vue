@@ -109,7 +109,8 @@ function done(entry: Reminder): void {
         الميعاد والتكرار اختياري — من غير ميعاد بتفضل ملاحظة في القايمة.
       </p>
 
-      <p v-if="list.length === 0" class="muted" data-reminders-empty style="margin: 6px 0 0">
+      <p class="muted hint">التذكيرات على الجهاز ده فقط؛ نسخة المحل الاحتياطية لا تشملها ولا تنقلها للموبايل.</p>
+      <p v-if="list.length === 0 && !remindersStorageError" class="muted" data-reminders-empty style="margin: 6px 0 0">
         مفيش تذكيرات — ضيف أول واحدة فوق.
       </p>
       <div v-else class="reminder-list">

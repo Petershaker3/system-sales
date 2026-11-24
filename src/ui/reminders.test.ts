@@ -56,22 +56,22 @@ test('a reminder needs words, and only words', () => {
   assert.equal(reminderProblem('أدفع النت'), '');
 });
 
-test('reminders round-trip through storage; garbage yields an empty wall', () => {
+test('reminders round-trip without silently repairing or dropping corrupt data', () => {
   assert.deepEqual(parseReminders(serializeReminders([rent, net, note])), [rent, net, note]);
   assert.deepEqual(parseReminders(null), []);
-  assert.deepEqual(parseReminders('مش JSON'), []);
-  assert.deepEqual(parseReminders('{"text":"x"}'), [], 'an object is not a list');
-  assert.deepEqual(parseReminders('[{"id":"a"}]'), [], 'a line without words is not a reminder');
-  assert.deepEqual(
-    parseReminders('[{"id":"a","text":"إيجار","dueDate":"31/12/2026","repeat":"yearly","createdAtMs":-4}]'),
-    [{ id: 'a', text: 'إيجار', dueDate: null, repeat: 'none', createdAtMs: 0 }],
-    'a bad date is no date, an unknown repeat is no repeat, a negative time is zero',
-  );
-  const many: Reminder[] = [];
-  for (let i = 0; i < MAX_REMINDERS + 10; i += 1) many.push({ ...note, id: `rm-${i}` });
-  const parsed = parseReminders(serializeReminders(many));
-  assert.equal(parsed.length, MAX_REMINDERS);
-  assert.equal(parsed[0]!.id, 'rm-10', 'when the wall is full the oldest notes give way');
+  assert.throws(() => parseReminders('مش JSON'));
+  assert.throws(() => parseReminders('{"text":"x"}'));
+  assert.throws(() => parseReminders('[{"id":"a"}]'));
+  for (const broken of [
+    { ...rent, repeat: 'yearly' }, { ...rent, dueDate: '2026-02-30' },
+    { ...rent, dueDate: '31/12/2026' }, { ...rent, createdAtMs: -4 },
+    { ...rent, text: '' }, { ...rent, id: '' },
+  ]) assert.throws(() => parseReminders(JSON.stringify([broken])));
+  assert.throws(() => parseReminders(JSON.stringify([rent, rent])));
+  const many = Array.from({ length: MAX_REMINDERS + 10 }, (_, i) => ({ ...note, id: `rm-${i}` }));
+  assert.deepEqual(parseReminders(serializeReminders(many)), many);
+  const future = { ...rent, futureField: 'preserve' };
+  assert.deepEqual(parseReminders(JSON.stringify([future])), [future]);
 });
 
 test('due is today or earlier, and a note has no due', () => {

@@ -32,6 +32,7 @@ import {
 } from '../../ui/format';
 import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
+import { reportAvailability, reportSource, sourceErrorParts, type SourceState } from './report-availability';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
 import {
@@ -102,7 +103,26 @@ const shortagesData = ref<ShortagesOverview | null>(null);
 const posProducts = ref<readonly PosProduct[]>([]);
 const allUnits = ref<readonly ProductUnit[]>([]);
 const showWaSummaryPreview = ref(false);
-const loading = ref(false);
+const HISTORY_LIMIT = 5000;
+const baseState = ref<SourceState>('loading');
+const dayState = ref<SourceState>('loading');
+const monthState = ref<SourceState>('loading');
+const reportError = ref('');
+let dayRequest = 0;
+let monthRequest = 0;
+const dayAvailability = computed(() => reportAvailability({
+  base: baseState.value, auxiliary: dayState.value, historyLength: history.value.length,
+  historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  repairHardwareProfit: todayRepairs.value?.hardware.netProfitMinor,
+  repairSoftwareProfit: todayRepairs.value?.software.netProfitMinor,
+}));
+const monthAvailability = computed(() => reportAvailability({
+  base: baseState.value, auxiliary: monthState.value, historyLength: history.value.length,
+  historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  repairHardwareProfit: monthRepairs.value?.hardware.netProfitMinor,
+  repairSoftwareProfit: monthRepairs.value?.software.netProfitMinor,
+}));
+const activeAvailability = computed(() => activeTab.value === 'today' ? dayAvailability.value : monthAvailability.value);
 
 function categoryNameById(id: string, fallback = ''): string {
   if (id === 'svc') return 'خدمات وصيانة';
@@ -503,6 +523,7 @@ const dailyWhatsAppSummaryText = computed(() =>
 );
 
 async function sendDailySummaryWhatsApp(): Promise<void> {
+  if (dayAvailability.value !== 'ready') return;
   showWaSummaryPreview.value = true;
   const msg = dailyWhatsAppSummaryText.value;
   try {
@@ -609,14 +630,26 @@ function onKeydown(e: KeyboardEvent): void {
 async function loadDayAuxiliary(day: Date): Promise<void> {
   const fromMs = dayStart(day).getTime();
   const toMs = addDays(dayStart(day), 1).getTime() - 1;
-  const [wOv, rOv, eOv] = await Promise.all([
-    walletsOverview(fromMs, fromMs, toMs).catch(() => null),
-    repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
-    expensesOverview(fromMs, toMs).catch(() => null),
-  ]);
-  todayWallets.value = wOv;
-  todayRepairs.value = rOv;
-  todayExpenses.value = eOv;
+  const request = ++dayRequest;
+  dayState.value = 'loading';
+  showWaSummaryPreview.value = false;
+  try {
+    const [wOv, rOv, eOv] = await Promise.all([
+      reportSource('المحافظ والخدمات', walletsOverview(fromMs, fromMs, toMs)),
+      reportSource('الصيانة', repairsOverview({ fromTs: fromMs, toTs: toMs })),
+      reportSource('المصاريف', expensesOverview(fromMs, toMs)),
+    ]);
+    if (request !== dayRequest) return;
+    todayWallets.value = wOv;
+    todayRepairs.value = rOv;
+    todayExpenses.value = eOv;
+    dayState.value = 'ready';
+  } catch (error) {
+    if (request !== dayRequest) return;
+    dayState.value = 'failed';
+    const failure = sourceErrorParts(error);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
+  }
 }
 
 /**
@@ -646,18 +679,30 @@ async function loadMonthAuxiliary(monthDate: Date): Promise<void> {
   const fromMs = monthStart(monthDate).getTime();
   const toMs = addDays(monthEnd(monthDate), 1).getTime() - 1;
   const todayStartMs = dayStart(nowDate.value).getTime();
-  const [wOv, rOv, eOv] = await Promise.all([
-    walletsOverview(todayStartMs, fromMs, toMs).catch(() => null),
-    repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
-    expensesOverview(fromMs, toMs).catch(() => null),
-  ]);
-  monthWallets.value = wOv;
-  monthRepairs.value = rOv;
-  monthExpenses.value = eOv;
+  const request = ++monthRequest;
+  monthState.value = 'loading';
+  try {
+    const [wOv, rOv, eOv] = await Promise.all([
+      reportSource('المحافظ والخدمات', walletsOverview(todayStartMs, fromMs, toMs)),
+      reportSource('الصيانة', repairsOverview({ fromTs: fromMs, toTs: toMs })),
+      reportSource('المصاريف', expensesOverview(fromMs, toMs)),
+    ]);
+    if (request !== monthRequest) return;
+    monthWallets.value = wOv;
+    monthRepairs.value = rOv;
+    monthExpenses.value = eOv;
+    monthState.value = 'ready';
+  } catch (error) {
+    if (request !== monthRequest) return;
+    monthState.value = 'failed';
+    const failure = sourceErrorParts(error);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
+  }
 }
 
 async function loadAll(): Promise<void> {
-  loading.value = true;
+  baseState.value = 'loading';
+  reportError.value = '';
   nowDate.value = new Date();
   try {
     const [
@@ -669,13 +714,13 @@ async function loadAll(): Promise<void> {
       posCat,
       unitsList,
     ] = await Promise.all([
-      listSalesHistory(5000),
-      listCategories().catch(() => [] as Category[]),
-      listUsers().catch(() => [] as UserSummary[]),
-      currentShiftSummary().catch(() => null),
-      shortagesOverview().catch(() => null),
-      posCatalog().catch(() => ({ products: [], categories: [], brands: [], units: [] })),
-      listAllProductUnits().catch(() => [] as ProductUnit[]),
+      reportSource('المبيعات', listSalesHistory(HISTORY_LIMIT)),
+      reportSource('التصنيفات', listCategories()),
+      reportSource('المستخدمين', listUsers()),
+      reportSource('الوردية', currentShiftSummary()),
+      reportSource('النواقص', shortagesOverview()),
+      reportSource('الأصناف', posCatalog()),
+      reportSource('وحدات المخزون', listAllProductUnits()),
     ]);
     history.value = salesData;
     categories.value = catsData;
@@ -686,10 +731,11 @@ async function loadAll(): Promise<void> {
     posProducts.value = posCat.products;
     allUnits.value = unitsList;
     await loadMonthAuxiliary(selectedMonth.value);
+    baseState.value = 'ready';
   } catch (err) {
-    toast(describeError(err), 'err');
-  } finally {
-    loading.value = false;
+    baseState.value = 'failed';
+    const failure = sourceErrorParts(err);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
   }
 }
 
@@ -698,6 +744,7 @@ watch(selectedMonth, (next) => {
 });
 
 function exportCsv(): void {
+  if (monthAvailability.value !== 'ready') return;
   const R = monthRep.value;
   const lines = [
     ['الشهر', fmtMonth(R.from)],
@@ -727,6 +774,7 @@ function exportCsv(): void {
 }
 
 function printReport(): void {
+  if (activeAvailability.value !== 'ready') return;
   if (
     typeof window !== 'undefined' &&
     typeof window.print === 'function' &&
@@ -806,21 +854,31 @@ onBeforeUnmount(() => {
         type="button"
         class="btn primary"
         data-reports-wa-summary
+        :disabled="dayAvailability !== 'ready'"
         @click="sendDailySummaryWhatsApp"
       >
         <Icon name="message-circle" /> ملخص اليوم واتساب للمالك
       </button>
-      <button type="button" class="btn" data-reports-export @click="exportCsv">
+      <button type="button" class="btn" data-reports-export :disabled="monthAvailability !== 'ready'" @click="exportCsv">
         <Icon name="download" /> تصدير Excel
       </button>
-      <button type="button" class="btn" data-reports-print @click="printReport">
+      <button type="button" class="btn" data-reports-print :disabled="activeAvailability !== 'ready'" @click="printReport">
         <Icon name="printer" /> طباعة
       </button>
     </div>
 
+    <div v-if="activeAvailability !== 'ready'" class="card" role="alert" data-reports-incomplete>
+      <p v-if="activeAvailability === 'loading'">بيتحمّل التقرير…</p>
+      <template v-else>
+        <p>التقرير غير مكتمل؛ تعذّر تحميل مصدر، أو بيانات التكلفة غير متاحة، أو سجل المبيعات بلغ حد التحميل. الأرقام مش معروضة كصفر.</p>
+        <p v-if="reportError">{{ reportError }}</p>
+        <button type="button" class="btn" @click="loadAll">حاول تاني</button>
+      </template>
+    </div>
+    <template v-if="activeAvailability === 'ready'">
     <!-- معاينة رسالة ملخص اليوم واتساب للمالك -->
     <div
-      v-if="showWaSummaryPreview"
+      v-if="showWaSummaryPreview && dayAvailability === 'ready'"
       class="card"
       data-reports-wa-preview
       style="border-color: var(--ok)"
@@ -1933,6 +1991,7 @@ onBeforeUnmount(() => {
           </table>
         </div>
       </div>
+    </template>
     </template>
   </div>
 </template>

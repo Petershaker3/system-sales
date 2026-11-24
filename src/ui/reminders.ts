@@ -25,7 +25,7 @@ export interface Reminder {
 
 export const REMINDERS_KEY = 'mshop.reminders.v1';
 
-/** A wall of 50 is plenty; beyond it the oldest notes give way. */
+/** Adding stops at 50; existing notes are never silently discarded. */
 export const MAX_REMINDERS = 50;
 
 const REPEATS: readonly ReminderRepeat[] = ['none', 'weekly', 'monthly'];
@@ -78,44 +78,42 @@ export function dueCount(list: readonly Reminder[], today: string): number {
   return list.filter((entry) => isDue(entry, today)).length;
 }
 
-function asReminder(value: unknown, fallbackId: string): Reminder | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const raw = value as Record<string, unknown>;
-  const rawId = raw['id'];
-  const rawText = raw['text'];
-  const rawDue = raw['dueDate'];
-  const rawRepeat = raw['repeat'];
-  const rawCreated = raw['createdAtMs'];
-  const id = typeof rawId === 'string' && rawId.trim() !== '' ? rawId.trim() : fallbackId;
-  const text = typeof rawText === 'string' ? rawText.trim().slice(0, 200) : '';
-  if (text === '') return null;
-  const dueDate = typeof rawDue === 'string' && ISO_DATE.test(rawDue) ? rawDue : null;
-  const repeat: ReminderRepeat = REPEATS.includes(rawRepeat as ReminderRepeat)
-    ? (rawRepeat as ReminderRepeat)
-    : 'none';
-  const createdAtMs =
-    typeof rawCreated === 'number' && Number.isFinite(rawCreated) && rawCreated >= 0
-      ? rawCreated
-      : 0;
-  return { id, text, dueDate, repeat, createdAtMs };
+/** Strictly read the existing on-device format. Bad data is never normalized
+ * into a different record and then written over the original. */
+export function parseReminders(raw: string | null): Reminder[] {
+  if (raw === null || raw === '') return [];
+  const value: unknown = JSON.parse(raw);
+  if (!Array.isArray(value)) throw new Error('invalid reminders');
+  const ids = new Set<string>();
+  return value.map((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) throw new Error('invalid reminder');
+    const row = entry as Record<string, unknown>;
+    const id = row['id'];
+    const text = row['text'];
+    const date = row['dueDate'];
+    const repeat = row['repeat'];
+    const created = row['createdAtMs'];
+    if (typeof id !== 'string' || !id.trim() || ids.has(id) ||
+        typeof text !== 'string' || !text.trim() || text.length > 200 ||
+        !(date === null || (typeof date === 'string' && isCalendarDate(date))) ||
+        !REPEATS.includes(repeat as ReminderRepeat) ||
+        typeof created !== 'number' || !Number.isFinite(created) || created < 0) {
+      throw new Error('invalid reminder');
+    }
+    ids.add(id);
+    // Preserve additional fields from future versions rather than stripping them.
+    return entry as Reminder;
+  });
 }
 
-/** Read the stored reminders. Anything unreadable is treated as an empty list. */
-export function parseReminders(raw: string | null): Reminder[] {
-  if (raw === null || raw.trim() === '') return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const out: Reminder[] = [];
-  parsed.forEach((entry, index) => {
-    const reminder = asReminder(entry, `rm-${index}`);
-    if (reminder !== null && out.every((kept) => kept.id !== reminder.id)) out.push(reminder);
-  });
-  return out.slice(-MAX_REMINDERS);
+export function isCalendarDate(value: string): boolean {
+  const parts = ISO_DATE.exec(value);
+  if (!parts) return false;
+  const y = Number(parts[1]), m = Number(parts[2]), d = Number(parts[3]);
+  if (y < 1 || m < 1 || m > 12 || d < 1) return false;
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return d <= (days[m - 1] ?? 0);
 }
 
 export function serializeReminders(list: readonly Reminder[]): string {
@@ -186,11 +184,7 @@ function readReminders(): Reminder[] {
     if (typeof window === 'undefined') return [];
     const raw = window.localStorage.getItem(REMINDERS_KEY);
     if (raw === null || raw === '') return [];
-    const stored: unknown = JSON.parse(raw);
-    if (!Array.isArray(stored) || stored.length > MAX_REMINDERS) throw new Error('invalid reminders');
-    const parsed = parseReminders(raw);
-    if (parsed.length !== stored.length) throw new Error('invalid reminders');
-    return parsed;
+    return parseReminders(raw);
   } catch {
     readFailed = true;
     remindersStorageError.value = 'تعذّرت قراءة التذكيرات المحفوظة. لم يتم تغييرها؛ افحص التخزين وأعد فتح التطبيق.';
@@ -223,10 +217,11 @@ export function repeatLabel(repeat: ReminderRepeat): string {
 }
 
 export function pushReminder(text: string, dueDate: string | null, repeat: ReminderRepeat): string | null {
+  if (reminderProblem(text) || (dueDate !== null && !isCalendarDate(dueDate))) throw new Error('invalid reminder');
   const entry: Reminder = {
     id: `rm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     text: text.trim().slice(0, 200),
-    dueDate: dueDate !== null && ISO_DATE.test(dueDate) ? dueDate : null,
+    dueDate,
     repeat: dueDate === null ? 'none' : repeat,
     createdAtMs: Date.now(),
   };

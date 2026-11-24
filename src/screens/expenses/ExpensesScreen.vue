@@ -23,7 +23,7 @@ import {
 import type { Session } from '../../api/identity';
 import { appearance, setAppearance } from '../../ui/appearance';
 import { dg, money, moneyInputValue, parseMoney } from '../../ui/format';
-import { addFixedExpense, fixedExpenseSourceAvailable, FIXED_EXPENSES_KEY, parseFixedExpenses, type FixedExpense } from './fixed-expenses';
+import { addFixedExpense, updateFixedExpense, removeFixedExpense, fixedExpenseSourceAvailable, FIXED_EXPENSES_KEY, parseFixedExpenses, type FixedExpense } from './fixed-expenses';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import {
@@ -62,6 +62,7 @@ const noteText = ref('');
 const chosenPaidFrom = ref<PaidFrom>('outside');
 const fixedExpenses = ref<FixedExpense[]>([]);
 const fixedStorageError = ref('');
+const editingFixedId = ref<string | null>(null);
 let fixedReadFailed = false;
 
 const openShiftId = computed<string | null>(() => overview.value?.openShiftId ?? null);
@@ -218,18 +219,35 @@ function pinCurrentExpense(): void {
     if (saveFixed(next)) toast('اتحفظ البند على الجهاز', 'ok');
   } catch { toast('القايمة ممتلئة؛ شيل بند قبل إضافة غيره', 'err'); }
 }
-function fillFixed(entry: FixedExpense): void {
+function fillFixed(entry: FixedExpense): boolean {
   if (!fixedExpenseSourceAvailable(entry, openShiftId.value)) {
     toast('البند من الدرج؛ افتح وردية قبل استخدامه، أو اكتب المصروف يدوياً من مصدر آخر', 'err');
-    return;
+    return false;
   }
   category.value = entry.category;
   amountText.value = entry.amountMinor === null ? '' : moneyInputValue(entry.amountMinor);
   noteText.value = entry.note ?? '';
   chosenPaidFrom.value = entry.paidFrom;
   toast('راجع البند والمصدر ثم سجّل المصروف', 'info');
+  return true;
 }
-function removeFixed(id: string): void { saveFixed(fixedExpenses.value.filter(entry => entry.id !== id)); }
+function selectFixed(entry: FixedExpense): void { if (fillFixed(entry)) editingFixedId.value = null; }
+function editFixed(entry: FixedExpense): void { if (fillFixed(entry)) editingFixedId.value = entry.id; }
+function updateFixed(): void {
+  const old = fixedExpenses.value.find(x => x.id === editingFixedId.value);
+  if (!old) { editingFixedId.value = null; return; }
+  if (old.paidFrom === 'drawer' && openShiftId.value === null) { toast('الوردية اتقفلت؛ افتح وردية قبل تعديل البند المحفوظ من الدرج', 'err'); return; }
+  const label = category.value.trim();
+  const amount = amountText.value.trim() === '' ? null : parseMoney(amountText.value);
+  if (!label || (amountText.value.trim() !== '' && (amount === null || amount <= 0))) { toast('راجع اسم البند والمبلغ', 'err'); return; }
+  try {
+    const next = updateFixedExpense(fixedExpenses.value, { ...old, category: label, amountMinor: amount, note: noteText.value.trim() || null, paidFrom: paidFrom.value });
+    if (saveFixed(next)) { editingFixedId.value = null; toast('اتعدّل البند المحفوظ', 'ok'); }
+  } catch { toast('البند ده مثبّت بالفعل', 'err'); }
+}
+function removeFixed(id: string): void {
+  if (saveFixed(removeFixedExpense(fixedExpenses.value, id)) && editingFixedId.value === id) editingFixedId.value = null;
+}
 
 function fmtDay(ms: number): string {
   const date = new Date(ms);
@@ -419,13 +437,16 @@ onMounted(() => {
           {{ saving ? 'بيتسجل…' : 'سجّل المصروف' }}
         </button>
         <button type="button" class="btn ghost" data-fixed-expenses-pin @click="pinCurrentExpense">ثبّت البند الحالي</button>
+        <button v-if="editingFixedId" type="button" class="btn" data-fixed-expenses-update @click="updateFixed">احفظ تعديل البند</button>
+        <button v-if="editingFixedId" type="button" class="btn ghost" @click="editingFixedId = null">إلغاء تعديل البند</button>
         <p v-if="fixedStorageError" role="alert" class="danger-t">{{ fixedStorageError }}</p>
         <div data-fixed-expenses>
           <h3>البنود الثابتة</h3>
-          <p class="muted">محفوظة على الجهاز فقط. اختيار البند يملأ النموذج ولا يسجّل حركة تلقائياً.</p>
-          <p v-if="fixedExpenses.length === 0" class="muted">مفيش بنود مثبّتة.</p>
+          <p class="muted">محفوظة على الجهاز فقط ولا تشملها نسخة المحل الاحتياطية. اختيار البند يملأ النموذج ولا يسجّل حركة تلقائياً.</p>
+          <p v-if="fixedExpenses.length === 0 && !fixedStorageError" class="muted">مفيش بنود مثبّتة.</p>
           <div v-for="entry in fixedExpenses" :key="entry.id" class="row" style="gap: 8px; margin: 6px 0" :data-fixed-expense="entry.id">
-            <button type="button" class="btn sm" @click="fillFixed(entry)">{{ entry.category }} · {{ entry.amountMinor === null ? 'المبلغ اختياري' : money(entry.amountMinor) }} · {{ paidFromLabel(entry.paidFrom) }}</button>
+            <button type="button" class="btn sm" @click="selectFixed(entry)">{{ entry.category }} · {{ entry.amountMinor === null ? 'المبلغ اختياري' : money(entry.amountMinor) }} · {{ paidFromLabel(entry.paidFrom) }}</button>
+            <button type="button" class="btn sm ghost" :data-fixed-expense-edit="entry.id" @click="editFixed(entry)">تعديل</button>
             <button type="button" class="icon-btn sm" aria-label="شيل التثبيت" @click="removeFixed(entry.id)"><Icon name="x" /></button>
           </div>
         </div>

@@ -27,7 +27,7 @@ export function parseFixedExpenses(raw: string | null): FixedExpense[] {
         !(row['note'] === null || typeof row['note'] === 'string') ||
         !(row['paidFrom'] === 'drawer' || row['paidFrom'] === 'outside')) throw new Error('invalid fixed expense');
     ids.add(row['id']);
-    return { id: row['id'], category: row['category'], amountMinor: row['amountMinor'] as number | null, note: row['note'] as string | null, paidFrom: row['paidFrom'] };
+    return v as FixedExpense; // Preserve unknown fields from a newer version.
   });
 }
 
@@ -39,4 +39,14 @@ export function addFixedExpense(list: readonly FixedExpense[], entry: FixedExpen
 
 export function fixedExpenseSourceAvailable(entry: FixedExpense, openShiftId: string | null): boolean {
   return entry.paidFrom !== 'drawer' || openShiftId !== null;
+}
+
+/** Replace only the chosen template, retaining its identity and future fields. */
+export function updateFixedExpense(list: readonly FixedExpense[], entry: FixedExpense): FixedExpense[] {
+  if (!list.some(x => x.id === entry.id)) throw new Error('fixed expense not found');
+  if (list.some(x => x.id !== entry.id && x.category === entry.category && x.amountMinor === entry.amountMinor && x.note === entry.note && x.paidFrom === entry.paidFrom)) throw new Error('duplicate fixed expense');
+  return list.map(x => x.id === entry.id ? { ...x, ...entry } : x);
+}
+export function removeFixedExpense(list: readonly FixedExpense[], id: string): FixedExpense[] {
+  return list.filter(x => x.id !== id);
 }
