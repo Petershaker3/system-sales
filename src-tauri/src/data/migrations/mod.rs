@@ -193,3 +193,6 @@ pub const SALE_SURCHARGE: &str = include_str!("0037_sale_surcharge.sql");
 
 /// Period lookup for append-only full-cancellation events (0038).
 pub const SALE_REVERSAL_PERIOD_INDEX: &str = include_str!("0038_sale_reversal_period_index.sql");
+
+/// Explicit original-payment links for new refund rows (0039).
+pub const REFUND_PAYMENT_ALLOCATIONS: &str = include_str!("0039_refund_payment_allocations.sql");

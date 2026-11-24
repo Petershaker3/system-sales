@@ -132,3 +132,50 @@ real database. The build emitted the existing dynamic-import and large-chunk
 warnings. Rust compilation, SQLx fresh/upgrade tests, real transaction-to-UI
 end-to-end tests, payment/inventory reconciliation and platform tests were not
 run and remain unverified. This verification note is documentation only.
+
+### Refund allocation correction — implemented, Rust verification blocked
+
+Migration `0039` adds an append-only allocation table linking a positive
+reversal payment to an exact original payment and amount. SQLite checks the
+linked sale/reversal documents, matching method and recorded wallet, and
+remaining capacity on both sides. No existing payment, invoice or movement is
+rewritten and there is no automatic historical backfill. Return/exchange
+transactions under `BEGIN IMMEDIATE` now consume remaining original payment
+rows in payment order, write a separate reversal payment and allocation for each
+slice, and link cancellation payments one-for-one. Explicit requested sources
+are accepted only when they match original source and available amount. A
+missing wallet on a historical electronic payment, a prior positive reversal
+without complete links, or insufficient matching original amounts refuses the
+operation rather than choosing a current primary wallet. This intentionally
+restricts previously accepted cross-source custom refunds and historical
+returns until there is a reviewed reconciliation mechanism. Zero-value
+reversals retain a zero payment row but have no positive allocation. Inspection
+also refuses an unallocated historical reversal rather than presenting guessed
+per-payment balances. The UI has a distinct source-unverifiable error.
+
+**Source identity limits:** `sale_payments.wallet_id` was backfilled by migration
+`0030` using the then-unique method mapping; subsequent rows explicitly name a
+wallet when recorded. NULL for electronic payments is not safely recoverable
+from today's primary wallet. Cash payments carry no drawer identity or shift id,
+so the database cannot prove which of multiple drawers funded an old or new
+cash payment; a timestamp-based shift aggregate is not a drawer identity. The
+repository has a single-open-shift model, not a represented multi-drawer ledger.
+Neither a new allocation link nor a matching cash method proves a drawer. No
+actual shop database was available for a historical-record audit.
+
+The additive table does not itself make historic records trustworthy; a
+positive pre-0039 reversal remains unlinked, and returns/inspection for that
+invoice are deliberately unavailable pending an evidence-based repair workflow.
+Likewise, financial report guard remains in place. Inventory code still restores
+intact returns to stock via movement rows at original line cost and records
+damaged items separately; full profit, cost-method changes, wallet balances,
+customer credit, cash drawer provenance and remaining report metrics are not
+fully reconciled. SQL triggers and synthetic fixtures are not a substitute for
+service transaction testing. Rust tests for repeated same-method wallets,
+cancellation links, and unlinked history have been added but have not run.
+
+**Toolchain status:** no local cargo/rustc/rustup; pinned distribution remains
+unreachable from the sandbox's authorized network, and no independent
+non-release runner has been made available. Do not ship or rely on these Rust
+changes as verified before compiling, running SQLx fresh and populated upgrade
+tests, and executing full transaction reconciliation with the pinned toolchain.

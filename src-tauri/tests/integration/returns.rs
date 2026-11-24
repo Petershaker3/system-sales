@@ -545,3 +545,49 @@ async fn event_reporting_requires_manager_and_valid_period() {
     assert_eq!((empty.sale_count, empty.return_count, empty.cancellation_count), (0, 0, 0));
     let _ = seller;
 }
+
+#[tokio::test]
+async fn repeated_returns_allocate_each_original_payment_even_with_same_method_wallets() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    sqlx::query("INSERT INTO wallets(id,name,pay_method,created_at) VALUES('vf-second','Second VF','vf',0)")
+        .execute(&pool).await.expect("second wallet");
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 3, warranty_start: None, warranty_end: None, imei: None }];
+    let pay = [
+        SalePaymentInput { method: "vf".into(), amount_minor: 10_000, reference: None, wallet_id: Some("vf".into()) },
+        SalePaymentInput { method: "vf".into(), amount_minor: 30_000, reference: None, wallet_id: Some("vf-second".into()) },
+        SalePaymentInput { method: "cash".into(), amount_minor: 20_000, reference: None, wallet_id: None },
+    ];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(60_000), Some(&pay), None, 0, &[0]).await.expect("split sale");
+    let info = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("inspect");
+    let line = info.lines[0].line_id.clone();
+    for _ in 0..3 {
+        approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+        sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput {
+            sale_line_id: line.clone(), quantity: 1, condition: "intact".into(),
+        }], "fixture", None).await.expect("return");
+    }
+    let sums: Vec<(String, Option<String>, i64)> = sqlx::query_as(
+        "SELECT op.method,op.wallet_id,SUM(a.amount_minor) FROM refund_payment_allocations a JOIN sale_payments op ON op.id=a.original_payment_id WHERE op.sale_id=?1 GROUP BY op.id ORDER BY op.payment_no"
+    ).bind(&sale.sale_id).fetch_all(&pool).await.expect("allocation totals");
+    assert_eq!(sums, vec![("vf".into(), Some("vf".into()), 10_000), ("vf".into(), Some("vf-second".into()), 30_000), ("cash".into(), None, 20_000)]);
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    let duplicate = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput {
+        sale_line_id: line, quantity: 1, condition: "intact".into(),
+    }], "duplicate", None).await.expect_err("cannot return more than sold");
+    assert_eq!(duplicate.code(), "SALE_RETURN_QUANTITY_EXCEEDS_REMAINING");
+}
+
+#[tokio::test]
+async fn unlinked_legacy_refund_is_not_attributed_to_an_original_payment() {
+    let (pool, tokens, _, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("sale");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) SELECT 'legacy-reversal','legacy-reversal',occurred_at,sold_by,'reversal',id,1000,0 FROM sales WHERE id=?1")
+        .bind(&sale.sale_id).execute(&pool).await.expect("legacy reversal");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('legacy-payment','legacy-reversal',1,'cash',1000,1)")
+        .execute(&pool).await.expect("legacy payment");
+    let error = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect_err("unknown historical allocation must fail closed");
+    assert_eq!(error.code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&pool).await.expect("links");
+    assert_eq!(count, 0, "never manufacture historical links");
+}

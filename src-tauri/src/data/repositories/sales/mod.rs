@@ -1296,3 +1296,38 @@ pub async fn financial_event_totals(
         inconsistent_cancellation_count: row.try_get("inconsistent_cancellation_count")?,
     })
 }
+
+/// True when a previous positive reversal payment lacks complete explicit
+/// allocation links. Never guess how an old refund was split across payments.
+pub async fn has_unallocated_refund_payments(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sales s WHERE s.kind='reversal' AND s.reverses_sale_id=?1
+         AND (s.total_minor <> COALESCE((SELECT SUM(p.amount_minor) FROM sale_payments p WHERE p.sale_id=s.id),0)
+           OR EXISTS (SELECT 1 FROM sale_payments p WHERE p.sale_id=s.id AND p.amount_minor <>
+             COALESCE((SELECT SUM(a.amount_minor) FROM refund_payment_allocations a WHERE a.reversal_payment_id=p.id),0)))",
+    ).bind(original_sale_id).fetch_one(&mut *conn).await?;
+    Ok(count != 0)
+}
+
+pub async fn allocated_refund_for_payment(
+    conn: &mut SqliteConnection,
+    original_payment_id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COALESCE(SUM(amount_minor),0) FROM refund_payment_allocations WHERE original_payment_id=?1")
+        .bind(original_payment_id).fetch_one(&mut *conn).await
+}
+
+pub async fn insert_refund_payment_allocation(
+    conn: &mut SqliteConnection,
+    reversal_payment_id: &str,
+    original_payment_id: &str,
+    amount_minor: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO refund_payment_allocations(reversal_payment_id,original_payment_id,amount_minor) VALUES(?1,?2,?3)")
+        .bind(reversal_payment_id).bind(original_payment_id).bind(amount_minor)
+        .execute(&mut *conn).await?;
+    Ok(())
+}

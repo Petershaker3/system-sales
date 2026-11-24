@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 38)
+        self.assertEqual(len(paths), 39)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,18 +46,47 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-1]:
+            for path in migrations[:-2]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            prior.executescript(migrations[-1].read_text(encoding='utf-8'))
+            for path in migrations[-2:]:
+                prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
             self.assertEqual(prior.execute('PRAGMA foreign_key_check').fetchall(), [])
             self.assertTrue(any(row[1] == 'idx_sale_reversals_occurred_at' for row in prior.execute("PRAGMA index_list('sale_reversals')")))
         finally:
             prior.close()
+
+    def test_explicit_refund_links_enforce_source_and_original_capacity(self):
+        self.db.execute("INSERT INTO wallets(id,name,pay_method,created_at) VALUES('vf2','Second','vf',0)")
+        self.sale('sale', 10, 10000, 5000)
+        self.sale('return1', 20, 6000, 3000, 'reversal', 'sale')
+        self.sale('return2', 30, 4000, 2000, 'reversal', 'sale')
+        self.sale('legacy', 40, 1, 0, 'reversal', 'sale')
+        self.db.executemany("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES(?,?,?,?,?,?,?)", [
+            ('a','sale',1,'vf','vf',3000,10), ('b','sale',2,'vf','vf2',4000,10),
+            ('c','sale',3,'cash',None,3000,10),
+            ('r1a','return1',1,'vf','vf',3000,20), ('r1b','return1',2,'vf','vf2',3000,20),
+            ('r2b','return2',1,'vf','vf2',1000,30), ('r2c','return2',2,'cash',None,3000,30),
+            ('old','legacy',1,'cash',None,1,40),
+        ])
+        for row in [('r1a','a',3000), ('r1b','b',3000), ('r2b','b',1000), ('r2c','c',3000)]:
+            self.db.execute('INSERT INTO refund_payment_allocations VALUES(?,?,?)', row)
+        self.assertEqual(self.db.execute('SELECT original_payment_id,SUM(amount_minor) FROM refund_payment_allocations GROUP BY original_payment_id ORDER BY original_payment_id').fetchall(), [('a',3000),('b',4000),('c',3000)])
+        # Even with the same method, a different wallet is not the source.
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('r1b','a',1)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('old','c',1)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('r1a','a',1)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE refund_payment_allocations SET amount_minor=1")
+        # The historical unlinked row remains visible as unknown, not backfilled.
+        self.assertEqual(self.db.execute("SELECT p.id FROM sale_payments p JOIN sales s ON s.id=p.sale_id WHERE s.kind='reversal' AND s.reverses_sale_id='sale' AND p.amount_minor > COALESCE((SELECT SUM(a.amount_minor) FROM refund_payment_allocations a WHERE a.reversal_payment_id=p.id),0)").fetchall(), [('old',)])
 
     def test_ledger_event_totals_do_not_multiply_split_returns_or_hide_zero_refunds(self):
         # 5002 sale documents plus a later exchange sale. Both refunds refer to

@@ -163,6 +163,7 @@ export const ErrorCode = {
   SALE_REFERENCE_CONFLICT: 'SALE_REFERENCE_CONFLICT',
   SALE_ALREADY_CANCELLED: 'SALE_ALREADY_CANCELLED',
   SALE_REVERSAL_INCONSISTENT: 'SALE_REVERSAL_INCONSISTENT',
+  SALE_REFUND_SOURCE_UNVERIFIABLE: 'SALE_REFUND_SOURCE_UNVERIFIABLE',
   SALE_BUSY: 'SALE_BUSY',
   SALE_CUSTOMER_ALREADY_LINKED: 'SALE_CUSTOMER_ALREADY_LINKED',
   SALE_LINK_NOT_ALLOWED: 'SALE_LINK_NOT_ALLOWED',
@@ -496,6 +497,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SALE_REFERENCE_CONFLICT]:
     'تعذّر توليد رقم الفاتورة لهذا اليوم. راجع إعداد بادئة الفاتورة.',
   [ErrorCode.SALE_ALREADY_CANCELLED]: 'تم إلغاء عملية البيع هذه من قبل.',
+  [ErrorCode.SALE_REFUND_SOURCE_UNVERIFIABLE]:
+    'تعذّر التحقق من مصدر المرتجع أو ربط المرتجعات القديمة بالدفع الأصلي. لم تُسجّل حركة؛ راجع المسؤول الفني.',
   [ErrorCode.SALE_REVERSAL_INCONSISTENT]:
     'تعذّر إلغاء العملية: المخزن أو طريقة التكلفة تغيّرا منذ البيع. كلّم المسؤول الفني عن الجهاز.',
   [ErrorCode.SALE_BUSY]:

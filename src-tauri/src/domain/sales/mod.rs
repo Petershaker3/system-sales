@@ -97,6 +97,8 @@ pub enum SaleError {
     /// A payment named a wallet that does not receive that method, or named none at all and a
     /// method that no wallet receives (`ADR-041`).
     PaymentWalletInvalid,
+    /// The original refund source cannot be proved or has insufficient funds.
+    RefundSourceUnverifiable,
 }
 
 impl SaleError {
@@ -135,6 +137,7 @@ impl SaleError {
             SaleError::ReturnConditionInvalid => "SALE_RETURN_CONDITION_INVALID",
             SaleError::ReturnReasonRequired => "SALE_RETURN_REASON_REQUIRED",
             SaleError::PaymentWalletInvalid => "SALE_PAYMENT_WALLET_INVALID",
+            SaleError::RefundSourceUnverifiable => "SALE_REFUND_SOURCE_UNVERIFIABLE",
         }
     }
 }
@@ -196,6 +199,7 @@ impl fmt::Display for SaleError {
             SaleError::PaymentReferenceInvalid => {
                 write!(f, "payment reference exceeds maximum length")
             }
+            SaleError::RefundSourceUnverifiable => write!(f, "refund source cannot be verified against the original payments"),
             SaleError::PaymentWalletInvalid => {
                 write!(f, "the wallet named for this payment does not receive that method")
             }
