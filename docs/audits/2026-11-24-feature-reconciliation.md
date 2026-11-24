@@ -179,3 +179,12 @@ unreachable from the sandbox's authorized network, and no independent
 non-release runner has been made available. Do not ship or rely on these Rust
 changes as verified before compiling, running SQLx fresh and populated upgrade
 tests, and executing full transaction reconciliation with the pinned toolchain.
+
+**Verification at application/test commit `7e09fe5f2a6491ead871ebbf9d1ee567b24e7311`:**
+frontend typecheck, 298 frontend unit tests, frontend build, four synthetic
+Python SQLite tests (including source-match/over-allocation trigger checks and a
+populated migration from schema 0037) and `git diff --check HEAD^ HEAD` passed.
+The build retained dynamic-import and chunk-size warnings. Rust compilation,
+SQLx migrations and all new Rust transaction tests were **not run**. Python
+executes database SQL only; it does not execute the Rust allocation algorithm.
+This note is documentation-only.
