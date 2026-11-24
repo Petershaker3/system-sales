@@ -22,7 +22,8 @@ import {
 } from '../../api/expenses';
 import type { Session } from '../../api/identity';
 import { appearance, setAppearance } from '../../ui/appearance';
-import { dg, money, parseMoney } from '../../ui/format';
+import { dg, money, moneyInputValue, parseMoney } from '../../ui/format';
+import { addFixedExpense, fixedExpenseSourceAvailable, FIXED_EXPENSES_KEY, parseFixedExpenses, type FixedExpense } from './fixed-expenses';
 import Icon from '../../ui/Icon.vue';
 import { toast } from '../../ui/toast';
 import {
@@ -59,6 +60,9 @@ const category = ref('');
 const amountText = ref('');
 const noteText = ref('');
 const chosenPaidFrom = ref<PaidFrom>('outside');
+const fixedExpenses = ref<FixedExpense[]>([]);
+const fixedStorageError = ref('');
+let fixedReadFailed = false;
 
 const openShiftId = computed<string | null>(() => overview.value?.openShiftId ?? null);
 const rows = computed<readonly ExpenseRow[]>(() => overview.value?.rows ?? []);
@@ -187,6 +191,46 @@ async function submitExpense(): Promise<void> {
   }
 }
 
+// Templates are device-local and compatible with the divergent branch's key.
+// They never post money: selection only fills the existing, validated form.
+function loadFixed(): void {
+  try { fixedExpenses.value = parseFixedExpenses(window.localStorage.getItem(FIXED_EXPENSES_KEY)); }
+  catch { fixedReadFailed = true; fixedStorageError.value = 'تعذّرت قراءة البنود الثابتة. لم يتم تغيير البيانات المحفوظة.'; }
+}
+function saveFixed(next: FixedExpense[]): boolean {
+  if (fixedReadFailed) return false;
+  try {
+    window.localStorage.setItem(FIXED_EXPENSES_KEY, JSON.stringify(next));
+    fixedExpenses.value = next;
+    fixedStorageError.value = '';
+    return true;
+  } catch { fixedStorageError.value = 'تعذّر حفظ البنود الثابتة؛ لم يتم حفظ التغيير.'; return false; }
+}
+function pinCurrentExpense(): void {
+  const label = category.value.trim();
+  if (!label) { toast('اكتب اسم البند الأول', 'err'); return; }
+  const amount = amountText.value.trim() === '' ? null : parseMoney(amountText.value);
+  if (amountText.value.trim() !== '' && (amount === null || amount <= 0)) { toast('اكتب المبلغ بشكل صحيح', 'err'); return; }
+  const entry: FixedExpense = { id: `fx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, category: label, amountMinor: amount, note: noteText.value.trim() || null, paidFrom: paidFrom.value };
+  try {
+    const next = addFixedExpense(fixedExpenses.value, entry);
+    if (next.length === fixedExpenses.value.length) { toast('البند مثبّت بالفعل', 'info'); return; }
+    if (saveFixed(next)) toast('اتحفظ البند على الجهاز', 'ok');
+  } catch { toast('القايمة ممتلئة؛ شيل بند قبل إضافة غيره', 'err'); }
+}
+function fillFixed(entry: FixedExpense): void {
+  if (!fixedExpenseSourceAvailable(entry, openShiftId.value)) {
+    toast('البند من الدرج؛ افتح وردية قبل استخدامه، أو اكتب المصروف يدوياً من مصدر آخر', 'err');
+    return;
+  }
+  category.value = entry.category;
+  amountText.value = entry.amountMinor === null ? '' : moneyInputValue(entry.amountMinor);
+  noteText.value = entry.note ?? '';
+  chosenPaidFrom.value = entry.paidFrom;
+  toast('راجع البند والمصدر ثم سجّل المصروف', 'info');
+}
+function removeFixed(id: string): void { saveFixed(fixedExpenses.value.filter(entry => entry.id !== id)); }
+
 function fmtDay(ms: number): string {
   const date = new Date(ms);
   const day = String(date.getDate()).padStart(2, '0');
@@ -198,6 +242,7 @@ function fmtDay(ms: number): string {
 }
 
 onMounted(() => {
+  loadFixed();
   void load();
 });
 </script>
@@ -373,6 +418,17 @@ onMounted(() => {
           <Icon name="plus" />
           {{ saving ? 'بيتسجل…' : 'سجّل المصروف' }}
         </button>
+        <button type="button" class="btn ghost" data-fixed-expenses-pin @click="pinCurrentExpense">ثبّت البند الحالي</button>
+        <p v-if="fixedStorageError" role="alert" class="danger-t">{{ fixedStorageError }}</p>
+        <div data-fixed-expenses>
+          <h3>البنود الثابتة</h3>
+          <p class="muted">محفوظة على الجهاز فقط. اختيار البند يملأ النموذج ولا يسجّل حركة تلقائياً.</p>
+          <p v-if="fixedExpenses.length === 0" class="muted">مفيش بنود مثبّتة.</p>
+          <div v-for="entry in fixedExpenses" :key="entry.id" class="row" style="gap: 8px; margin: 6px 0" :data-fixed-expense="entry.id">
+            <button type="button" class="btn sm" @click="fillFixed(entry)">{{ entry.category }} · {{ entry.amountMinor === null ? 'المبلغ اختياري' : money(entry.amountMinor) }} · {{ paidFromLabel(entry.paidFrom) }}</button>
+            <button type="button" class="icon-btn sm" aria-label="شيل التثبيت" @click="removeFixed(entry.id)"><Icon name="x" /></button>
+          </div>
+        </div>
         <p class="muted" style="margin: 10px 0 0; font-size: 0.82rem">
           المصروف بيتسجل مرة واحدة ومابيتعدّلش — لو غلطت سجّل الحركة الصح واكتب في الملاحظة إنها
           تصحيح للغلطة.
