@@ -190,3 +190,6 @@ pub const REPAIR_PARTS: &str = include_str!("0036_repair_parts.sql");
 /// `discount_minor`, which keeps meaning «what came off the lines» (owner,
 /// 2026-11-09). Purely additive; every existing sale starts at 0.
 pub const SALE_SURCHARGE: &str = include_str!("0037_sale_surcharge.sql");
+
+/// Period lookup for append-only full-cancellation events (0038).
+pub const SALE_REVERSAL_PERIOD_INDEX: &str = include_str!("0038_sale_reversal_period_index.sql");

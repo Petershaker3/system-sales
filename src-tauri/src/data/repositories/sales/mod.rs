@@ -1248,3 +1248,50 @@ pub async fn list_sales_history(
 
     Ok(out)
 }
+
+/// Raw sales events in a half-open UTC millisecond interval. This deliberately
+/// does not calculate profit or identify payment sources: returns, damaged
+/// stock, expenses, wallets, and repairs must first be reconciled across their
+/// own ledgers. Caller must enforce permission and validate the interval.
+/// A single SQLite statement reads a single snapshot and keeps the separate
+/// event streams from multiplying one another. SQLite reports integer SUM
+/// overflow as an error rather than returning an approximate floating amount.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinancialEventTotals {
+    pub sale_count: i64,
+    pub sale_total_minor: i64,
+    pub sale_cost_minor: i64,
+    pub return_count: i64,
+    pub refund_minor: i64,
+    pub intact_cost_minor: i64,
+    pub damaged_cost_minor: i64,
+    pub cancellation_count: i64,
+    pub cancelled_total_minor: i64,
+    pub cancelled_cost_minor: i64,
+    pub inconsistent_cancellation_count: i64,
+}
+
+pub async fn financial_event_totals(
+    conn: &mut SqliteConnection,
+    from_ms: i64,
+    to_ms_exclusive: i64,
+) -> Result<FinancialEventTotals, sqlx::Error> {
+    let row = sqlx::query(include_str!("financial_events.sql"))
+        .bind(from_ms)
+        .bind(to_ms_exclusive)
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(FinancialEventTotals {
+        sale_count: row.try_get("sale_count")?,
+        sale_total_minor: row.try_get("sale_total_minor")?,
+        sale_cost_minor: row.try_get("sale_cost_minor")?,
+        return_count: row.try_get("return_count")?,
+        refund_minor: row.try_get("refund_minor")?,
+        intact_cost_minor: row.try_get("intact_cost_minor")?,
+        damaged_cost_minor: row.try_get("damaged_cost_minor")?,
+        cancellation_count: row.try_get("cancellation_count")?,
+        cancelled_total_minor: row.try_get("cancelled_total_minor")?,
+        cancelled_cost_minor: row.try_get("cancelled_cost_minor")?,
+        inconsistent_cancellation_count: row.try_get("inconsistent_cancellation_count")?,
+    })
+}

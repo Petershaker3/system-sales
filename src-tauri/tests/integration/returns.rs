@@ -499,3 +499,32 @@ async fn sales_history_filters_seller_to_own_sales_without_cost_and_shows_all_to
     assert_eq!(s_row.lines[0].line_cost_minor, None);
     assert_eq!(s_row.lines[0].line_profit_minor, None);
 }
+
+/// Raw event aggregation preserves sale and reversal periods without joining a
+/// many-return sale into the sales sum. It is not a full profit report.
+#[tokio::test]
+async fn financial_event_totals_include_over_5000_sales_without_multiplying_returns() {
+    let (pool, _) = fresh().await;
+    let created = bootstrap::create_first_manager(&pool, "Fixture", PASSWORD)
+        .await
+        .expect("manager");
+    let actor = created.user_id.as_str();
+    let mut conn = pool.acquire().await.expect("connection");
+    for i in 0..5002 {
+        let id = format!("fixture-sale-{i}");
+        sqlx::query("INSERT INTO sales (id, reference, occurred_at, sold_by, kind, total_minor, cost_total_minor) VALUES (?1, ?1, 100, ?2, 'sale', 10000, 6000)")
+            .bind(&id).bind(&actor).execute(&mut *conn).await.expect("fixture sale");
+    }
+    for (id, amount, cost) in [("fixture-return-1", 1000_i64, 600_i64), ("fixture-return-0", 0_i64, 0_i64)] {
+        sqlx::query("INSERT INTO sales (id, reference, occurred_at, sold_by, kind, reverses_sale_id, total_minor, cost_total_minor) VALUES (?1, ?1, 200, ?2, 'reversal', 'fixture-sale-0', ?3, ?4)")
+            .bind(id).bind(&actor).bind(amount).bind(cost).execute(&mut *conn).await.expect("return document");
+        sqlx::query("INSERT INTO sale_returns (id, original_sale_id, return_sale_id, refund_minor, cost_returned_minor, damaged_cost_minor, reason, actor_id, approved_by, occurred_at) VALUES (?1, 'fixture-sale-0', ?1, ?2, ?3, 0, 'fixture', ?4, ?4, 200)")
+            .bind(id).bind(amount).bind(cost).bind(&actor).execute(&mut *conn).await.expect("return event");
+    }
+    let first = sales_repo::financial_event_totals(&mut conn, 0, 150).await.expect("first period");
+    assert_eq!((first.sale_count, first.sale_total_minor, first.sale_cost_minor), (5002, 50_020_000, 30_012_000));
+    assert_eq!(first.return_count, 0);
+    let second = sales_repo::financial_event_totals(&mut conn, 150, 250).await.expect("second period");
+    assert_eq!((second.return_count, second.refund_minor, second.intact_cost_minor), (2, 1000, 600));
+    assert_eq!(second.sale_count, 0);
+}

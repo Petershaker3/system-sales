@@ -56,3 +56,26 @@ On exact implementation commit `0e4d48381e72e1b578d8f06fcc8407dd1b943cec`: `npm 
 **Remaining:** production reporting must aggregate bounded period events in SQLite, including cancellations, returns (intact vs damaged), sale-level and line-level discounts/surcharges, wallet fees, expenses and source attribution without cross-join duplication. It must reconcile category/phone breakdowns and relevant business-day boundaries, use indexes and a consistent snapshot, enforce permissions, and have real integration, historical-migration, >5,000-event and financial reconciliation tests. Current report guards and the experiment do not meet that requirement. Full policy/semantics must be derived from established records rather than invented from this fixture.
 
 **Verification on `625a3f2fa7af75c767ae7552e93e30df6d609a9a`:** frontend typecheck and production build passed (same large chunk / ineffective dynamic import warnings); 298 frontend unit tests passed, zero skipped. Focused browser demo regression passed all four scenarios, including a zero-value return. Python SQLite reconciliation experiment passed both tests, including 5,002 sales and all 37 migrations on an empty database. `git diff --check HEAD^ HEAD` passed. Rust code and integration assertions were **not compiled or executed**: no Rust toolchain is installed. Platform builds, encrypted backup/restore, populated database upgrades and financial reconciliation are **not tested**. No CI, release, or publication was triggered. This is not production-ready and the requested complete-history database report remains unimplemented.
+
+### Event-period foundation (work in progress, not a replacement report)
+
+An additive `0038` index and an internal sales-repository query now aggregate
+original sales, return events and cancellation events independently by each
+record's UTC timestamp, in half-open periods. They deliberately expose separate
+amount/cost components instead of inventing a profit or payment-source policy.
+The cancellation aggregation reports inconsistent linked snapshots rather than
+silently treating those as verified. No existing report uses this query; the
+return/cancellation and incomplete-history guards remain in force. Service/API
+permission checks, period/timezone validation, payment-ledger reconciliation,
+other report sources, full profit policy, migration upgrades, and UI integration
+remain unfinished. The query does not yet validate every possible malformed
+return/reversal linkage or independently reconcile wallet and drawer balances.
+
+Python SQLite executes the exact repository SQL over synthetic periods with
+5,002 original sales, partial, zero-value, full and damaged returns, an exchange,
+a cancellation, split payment rows, and duplicate-link constraint attempts.
+This checks component totals and indexed query plans, not production service
+transactions, source balances or profits. The new Rust integration test is
+unexecuted. Cargo/rustc/rustup were absent, and a direct attempt to reach the
+pinned toolchain distribution at static.rust-lang.org failed with SSL connection
+error in this network environment. No platform or backup-restore claims follow.
