@@ -41,6 +41,7 @@ try {
 
   await page.evaluate(() => {
     const original = window.__TAURI_INTERNALS__.invoke;
+    window.__reconciliationOriginalInvoke = original;
     window.__TAURI_INTERNALS__.invoke = (cmd, ...args) => cmd === 'expenses_overview' ? Promise.reject({ code: 'LOCAL_STORAGE_UNAVAILABLE' }) : original(cmd, ...args);
   });
   await clickText('.rail .nav-btn', 'التقارير');
@@ -51,6 +52,21 @@ try {
   assert.equal(await page.$eval('[data-reports-export]', el => el.disabled), true);
   assert.match(await page.$eval('[data-reports-incomplete]', el => el.textContent), /المصاريف/);
   console.log('PASS failed expense source hides report and disables exports');
+  await clickText('.rail .nav-btn', 'المصاريف');
+  await page.evaluate(() => {
+    const original = window.__reconciliationOriginalInvoke;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, ...args) => {
+      const value = await original(cmd, ...args);
+      if (cmd !== 'list_sales_history') return value;
+      if (value.length === 0) throw new Error('fixture needs sales');
+      return value.map((sale, index) => index === 0 ? { ...sale, returnCount: 1, alreadyRefundedMinor: 0, isCancelled: false } : sale);
+    };
+  });
+  await clickText('.rail .nav-btn', 'التقارير');
+  await page.waitForSelector('[data-reports-incomplete] button');
+  assert.match(await page.$eval('[data-reports-incomplete]', el => el.textContent), /مرتجعات/);
+  assert.equal(await page.$('[data-day-net]'), null, 'zero refund return must not show a trusted total');
+  console.log('PASS zero-value return hides incomplete report');
   await page.click('[data-open-reminders]');
   await page.type('[data-reminder-text]', 'تذكير اختبار');
   await page.click('[data-reminder-add]');
