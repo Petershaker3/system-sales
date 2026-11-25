@@ -154,6 +154,7 @@ pub const CUSTOMER_PAYMENT_RECORDED: &str = "customer_payment_recorded";
 pub const SHIFT_OPENED: &str = "shift_opened";
 pub const SHIFT_CASH_COUNTED: &str = "shift_cash_counted";
 pub const SALE_WALLET_REVIEWED: &str = "sale_wallet_reviewed";
+pub const REFUND_ALLOCATION_REPAIRED: &str = "refund_allocation_repaired";
 pub const EXPENSE_RECORDED: &str = "expense_recorded";
 pub const CASH_MOVEMENT_RECORDED: &str = "cash_movement_recorded";
 pub const SHIFT_CLOSED: &str = "shift_closed";

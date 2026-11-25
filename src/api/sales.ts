@@ -554,3 +554,36 @@ export interface WalletReviewEvent {
 export function walletReviewHistory(paymentId: string): Promise<WalletReviewEvent[]> {
   return invoke('wallet_review_history', { paymentId });
 }
+
+export interface RefundRepairPayment {
+  readonly paymentId: string;
+  readonly saleId: string;
+  readonly kind: 'sale' | 'reversal';
+  readonly method: string;
+  readonly recordedWalletId: string | null;
+  readonly effectiveWalletId: string | null;
+  readonly amountMinor: number;
+  readonly allocatedMinor: number;
+  readonly occurredAt: number;
+}
+export interface RefundRepairEvent {
+  readonly requestId: string;
+  readonly reversalPaymentId: string;
+  readonly originalPaymentId: string;
+  readonly amountMinor: number;
+  readonly reason: string;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
+export interface RefundRepairCase {
+  readonly payments: RefundRepairPayment[];
+  readonly repairs: RefundRepairEvent[];
+  readonly unresolved: boolean;
+}
+export function refundRepairCase(saleId: string): Promise<RefundRepairCase> {
+  return invoke('refund_repair_case', { saleId });
+}
+export function repairRefundAllocation(reversalPaymentId: string, originalPaymentId: string, amountMinor: number, reason: string, evidence: string, requestId: string): Promise<void> {
+  return invoke('repair_refund_allocation', { reversalPaymentId, originalPaymentId, amountMinor, reason, evidence, requestId });
+}

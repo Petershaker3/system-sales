@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 46)
+        self.assertEqual(len(paths), 47)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,12 +46,12 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-9]:
+            for path in migrations[:-10]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            for path in migrations[-9:]:
+            for path in migrations[-10:]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
@@ -114,6 +114,26 @@ class LedgerReconciliation(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("DELETE FROM sale_wallet_reviews")
         self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), ('vf',))
+
+    def test_refund_repair_shares_capacity_with_normal_links(self):
+        self.sale('s', 1, 1000, 0)
+        self.sale('r', 2, 600, 0, 'reversal', 's')
+        self.db.executemany("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES(?,?,?,?,?,?)", [
+            ('a','s',1,'cash',500,1),('b','s',2,'cash',500,1),('refund','r',1,'cash',600,2)])
+        self.db.execute("INSERT INTO refund_payment_allocations VALUES('refund','a',100)")
+        repair = "INSERT INTO refund_allocation_repairs VALUES(?,?,?,?,?,?,?,?)"
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(repair, ('too-big','refund','a',401,'reason','receipt','u',3))
+        self.db.execute(repair, ('one','refund','a',200,'reason','receipt','u',3))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('refund','b',301)")
+        self.db.execute(repair, ('two','refund','b',300,'reason','receipt','u',4))
+        self.assertEqual(self.db.execute("SELECT SUM(amount_minor) FROM refund_allocation_effective WHERE reversal_payment_id='refund'").fetchone(), (600,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(repair, ('three','refund','b',1,'reason','receipt','u',5))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE refund_allocation_repairs SET amount_minor=1")
+        self.assertEqual(self.db.execute("SELECT amount_minor FROM sale_payments WHERE id='refund'").fetchone(), (600,))
 
     def test_reviewed_unknown_source_allows_only_reviewed_wallet_refund(self):
         self.sale('s', 1, 100, 50)

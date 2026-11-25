@@ -217,3 +217,6 @@ pub const EFFECTIVE_WALLET_ATTRIBUTION: &str = include_str!("0045_effective_wall
 
 /// Prevent evidence reviews from contradicting existing refund allocations (0046).
 pub const REVIEW_EXISTING_ALLOCATIONS: &str = include_str!("0046_review_existing_allocations.sql");
+
+/// Evidence-backed, append-only links for historical refund allocations (0047).
+pub const REFUND_ALLOCATION_REPAIRS: &str = include_str!("0047_refund_allocation_repairs.sql");

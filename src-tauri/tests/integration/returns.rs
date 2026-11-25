@@ -789,3 +789,43 @@ async fn simultaneous_conflicting_reviews_and_identical_retries_are_serialized()
     assert_eq!(count, 1);
     assert!(sales::review_historical_wallet(&pool, &tokens, "old-payment", wallet, "confirm", "changed", "evidence", request).await.is_err());
 }
+
+#[tokio::test]
+async fn historical_refund_repair_is_evidenced_bounded_and_preserves_payments() {
+    let (pool, tokens, manager, seller, _, _) = setup_shop_for_returns().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    let mut conn = pool.acquire().await.expect("fixture");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',1000,0)").bind(manager.as_str()).execute(&mut *conn).await.expect("sale");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('old-return','old-return',2,?1,'reversal','old-sale',600,0)").bind(manager.as_str()).execute(&mut *conn).await.expect("return");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('original-a','old-sale',1,'cash',500,1),('original-b','old-sale',2,'cash',500,1),('old-refund','old-return',1,'cash',600,2)").execute(&mut *conn).await.expect("payments");
+    sqlx::query("INSERT INTO refund_payment_allocations VALUES('old-refund','original-a',100)").execute(&mut *conn).await.expect("partial allocation");
+    drop(conn);
+    let before = sales::refund_repair_case(&pool, tokens.as_ref(), "old-sale").await.expect("inspect");
+    assert!(before.unresolved);
+    assert_eq!(before.payments.iter().find(|p| p.payment_id=="old-refund").expect("refund").allocated_minor, 100);
+    assert!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 500, "reason", "evidence", "too-much").await.is_err());
+    assert!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 200, "reason", "", "no-evidence").await.is_err());
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller");
+    assert_eq!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 200, "reason", "evidence", "unauthorized").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    sqlx::query("CREATE TRIGGER fail_repair_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='refund_allocation_repaired' BEGIN SELECT RAISE(ABORT,'fixture'); END;").execute(&pool).await.expect("fixture");
+    assert!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 200, "reason", "receipt", "rollback").await.is_err());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_allocation_repairs").fetch_one(&pool).await.expect("count");
+    assert_eq!(count, 0);
+    sqlx::query("DROP TRIGGER fail_repair_audit").execute(&pool).await.expect("fixture");
+    sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 200, "reason", "receipt", "r1").await.expect("partial");
+    sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-a", 200, "reason", "receipt", "r1").await.expect("idempotent");
+    assert!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-b", 200, "reason", "receipt", "r1").await.is_err());
+    assert!(sales::refund_repair_case(&pool, tokens.as_ref(), "old-sale").await.expect("case").unresolved);
+    sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-b", 300, "reason", "receipt two", "r2").await.expect("remainder");
+    let after = sales::refund_repair_case(&pool, tokens.as_ref(), "old-sale").await.expect("case");
+    assert!(!after.unresolved); assert_eq!(after.repairs.len(), 2);
+    assert_eq!(after.payments.iter().find(|p| p.payment_id=="old-refund").expect("refund").allocated_minor, 600);
+    assert!(sales::repair_refund_allocation(&pool, tokens.as_ref(), "old-refund", "original-b", 1, "reason", "receipt", "excess").await.is_err());
+    assert!(sqlx::query("DELETE FROM refund_allocation_repairs").execute(&pool).await.is_err());
+    let amount: i64 = sqlx::query_scalar("SELECT amount_minor FROM sale_payments WHERE id='old-refund'").fetch_one(&pool).await.expect("original refund");
+    assert_eq!(amount, 600);
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(sales_repo::allocated_refund_for_payment(&mut conn, "original-a").await.expect("used"), 300);
+    assert_eq!(sales_repo::allocated_refund_for_payment(&mut conn, "original-b").await.expect("used"), 300);
+}

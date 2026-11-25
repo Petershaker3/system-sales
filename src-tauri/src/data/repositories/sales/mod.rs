@@ -1311,7 +1311,7 @@ pub async fn has_unallocated_refund_payments(
         "SELECT COUNT(*) FROM sales s WHERE s.kind='reversal' AND s.reverses_sale_id=?1
          AND (s.total_minor <> COALESCE((SELECT SUM(p.amount_minor) FROM sale_payments p WHERE p.sale_id=s.id),0)
            OR EXISTS (SELECT 1 FROM sale_payments p WHERE p.sale_id=s.id AND p.amount_minor <>
-             COALESCE((SELECT SUM(a.amount_minor) FROM refund_payment_allocations a WHERE a.reversal_payment_id=p.id),0)))",
+             COALESCE((SELECT SUM(a.amount_minor) FROM refund_allocation_effective a WHERE a.reversal_payment_id=p.id),0)))",
     ).bind(original_sale_id).fetch_one(&mut *conn).await?;
     Ok(count != 0)
 }
@@ -1320,7 +1320,7 @@ pub async fn allocated_refund_for_payment(
     conn: &mut SqliteConnection,
     original_payment_id: &str,
 ) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT COALESCE(SUM(amount_minor),0) FROM refund_payment_allocations WHERE original_payment_id=?1")
+    sqlx::query_scalar("SELECT COALESCE(SUM(amount_minor),0) FROM refund_allocation_effective WHERE original_payment_id=?1")
         .bind(original_payment_id).fetch_one(&mut *conn).await
 }
 
@@ -1406,4 +1406,52 @@ pub async fn wallet_review_history(conn: &mut SqliteConnection, payment_id: &str
       FROM sale_wallet_reviews r JOIN sale_payments p ON p.id=r.payment_id
       WHERE r.payment_id=?1 ORDER BY r.sequence")
         .bind(payment_id).fetch_all(&mut *conn).await
+}
+
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundAllocationRepairPayment {
+    pub payment_id: String,
+    pub sale_id: String,
+    pub kind: String,
+    pub method: String,
+    pub recorded_wallet_id: Option<String>,
+    pub effective_wallet_id: Option<String>,
+    pub amount_minor: i64,
+    pub allocated_minor: i64,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundAllocationRepairEvent {
+    pub request_id: String,
+    pub reversal_payment_id: String,
+    pub original_payment_id: String,
+    pub amount_minor: i64,
+    pub reason: String,
+    pub evidence: String,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn refund_repair_payments(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<RefundAllocationRepairPayment>, sqlx::Error> {
+    sqlx::query_as("SELECT p.id payment_id,p.sale_id,s.kind,p.method,p.wallet_id recorded_wallet_id, e.wallet_id effective_wallet_id,p.amount_minor,p.occurred_at, COALESCE((SELECT SUM(a.amount_minor) FROM refund_allocation_effective a WHERE (s.kind='sale' AND a.original_payment_id=p.id) OR (s.kind='reversal' AND a.reversal_payment_id=p.id)),0) allocated_minor FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id WHERE (s.id=?1 AND s.kind='sale') OR (s.reverses_sale_id=?1 AND s.kind='reversal') ORDER BY s.occurred_at,s.id,p.payment_no")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn refund_repair_history(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<RefundAllocationRepairEvent>, sqlx::Error> {
+    sqlx::query_as("SELECT r.request_id,r.reversal_payment_id,r.original_payment_id,r.amount_minor,r.reason,r.evidence,r.actor_id,r.occurred_at FROM refund_allocation_repairs r JOIN sale_payments p ON p.id=r.original_payment_id WHERE p.sale_id=?1 ORDER BY r.occurred_at,r.request_id")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn refund_repair_request_matches(conn: &mut SqliteConnection, request_id: &str, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT reversal_payment_id,original_payment_id,amount_minor,reason,evidence,actor_id FROM refund_allocation_repairs WHERE request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("reversal_payment_id") == reversal && r.get::<String,_>("original_payment_id") == original && r.get::<i64,_>("amount_minor") == amount && r.get::<String,_>("reason") == reason && r.get::<String,_>("evidence") == evidence && r.get::<String,_>("actor_id") == actor))
+}
+
+pub async fn append_refund_repair(conn: &mut SqliteConnection, request_id: &str, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, actor: &str, now: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO refund_allocation_repairs(request_id,reversal_payment_id,original_payment_id,amount_minor,reason,evidence,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)").bind(request_id).bind(reversal).bind(original).bind(amount).bind(reason).bind(evidence).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
 }

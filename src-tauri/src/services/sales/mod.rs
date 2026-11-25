@@ -2882,3 +2882,45 @@ pub async fn wallet_review_history(pool: &SqlitePool, tokens: &dyn SecureTokenSt
     let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
     sales_repo::wallet_review_history(&mut conn, payment_id).await.map_err(|_| DomainError::StorageUnavailable.into())
 }
+
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundRepairCase {
+    pub payments: Vec<sales_repo::RefundAllocationRepairPayment>,
+    pub repairs: Vec<sales_repo::RefundAllocationRepairEvent>,
+    pub unresolved: bool,
+}
+
+/// Evidence and capacity inspection is restricted to managers. An incomplete
+/// reversal remains unresolved even when one wallet has been reviewed.
+pub async fn refund_repair_case(pool: &SqlitePool, tokens: &dyn SecureTokenStore, sale_id: &str) -> Result<RefundRepairCase, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let payments = sales_repo::refund_repair_payments(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let repairs = sales_repo::refund_repair_history(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let unresolved = sales_repo::has_unallocated_refund_payments(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(RefundRepairCase { payments, repairs, unresolved })
+}
+
+/// An evidence-backed link never moves funds. Serializing the capacity check,
+/// repair and audit ensures a retry or concurrent manager cannot overallocate.
+pub async fn repair_refund_allocation(pool: &SqlitePool, tokens: &dyn SecureTokenStore, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, request_id: &str) -> Result<(), SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let reason = reason.trim(); let evidence = evidence.trim(); let request_id = request_id.trim();
+    if reversal.trim().is_empty() || original.trim().is_empty() || amount <= 0 || reason.is_empty() || reason.chars().count()>300 || evidence.is_empty() || evidence.chars().count()>1000 || request_id.is_empty() || request_id.chars().count()>120 { return Err(SaleError::RefundSourceUnverifiable.into()); }
+    let actor = session.user_id(); let now = Timestamp::now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
+    match sales_repo::refund_repair_request_matches(&mut tx, request_id, reversal, original, amount, reason, evidence, &actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(SaleError::RefundSourceUnverifiable.into()), None => {}
+    }
+    sales_repo::append_refund_repair(&mut tx, request_id, reversal, original, amount, reason, evidence, &actor.as_str(), now.as_millis()).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => SaleServiceError::from(SaleError::RefundSourceUnverifiable), other => map_busy(other),
+    })?;
+    audit::append(&mut tx, actor, audit::event::REFUND_ALLOCATION_REPAIRED, now, Some(serde_json::json!({"request_id":request_id,"reversal_payment_id":reversal,"original_payment_id":original,"amount_minor":amount}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}

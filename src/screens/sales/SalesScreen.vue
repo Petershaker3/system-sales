@@ -37,6 +37,7 @@ import Modal from '../../ui/Modal.vue';
 import ReturnModal from '../pos/ReturnModal.vue';
 import EditSaleModal from './EditSaleModal.vue';
 import WalletReview from './WalletReview.vue';
+import RefundRepair from './RefundRepair.vue';
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { toast } from '../../ui/toast';
 import {
@@ -1268,6 +1269,7 @@ onBeforeUnmount(() => {
       @close="closeInvoiceModal"
     >
       <WalletReview v-if="isOwner" :sale-id="selectedSale.saleId" />
+      <RefundRepair v-if="isOwner" :sale-id="selectedSale.saleId" />
       <div class="stack" data-sales-detail-modal>
         <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 8px">
           <div class="sv-cust">

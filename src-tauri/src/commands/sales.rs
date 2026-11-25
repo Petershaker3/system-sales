@@ -871,3 +871,13 @@ pub async fn review_historical_wallet(ctx: Ctx<'_>, payment_id: String, wallet_i
 pub async fn wallet_review_history(ctx: Ctx<'_>, payment_id: String) -> Result<Vec<crate::data::repositories::sales::WalletReviewEvent>, SalesCommandError> {
     use_cases::wallet_review_history(&ctx.pool, ctx.tokens.as_ref(), &payment_id).await.map_err(Into::into)
 }
+
+
+#[tauri::command]
+pub async fn refund_repair_case(ctx: Ctx<'_>, sale_id: String) -> Result<use_cases::RefundRepairCase, SalesCommandError> {
+    use_cases::refund_repair_case(&ctx.pool, ctx.tokens.as_ref(), &sale_id).await.map_err(Into::into)
+}
+#[tauri::command]
+pub async fn repair_refund_allocation(ctx: Ctx<'_>, reversal_payment_id: String, original_payment_id: String, amount_minor: i64, reason: String, evidence: String, request_id: String) -> Result<(), SalesCommandError> {
+    use_cases::repair_refund_allocation(&ctx.pool, ctx.tokens.as_ref(), &reversal_payment_id, &original_payment_id, amount_minor, &reason, &evidence, &request_id).await.map_err(Into::into)
+}
