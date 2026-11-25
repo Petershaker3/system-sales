@@ -471,3 +471,12 @@ async fn an_outside_expense_needs_no_shift_and_never_moves_expected_cash() {
     assert_eq!(future.count, 0);
     assert_eq!(future.total_minor, 0);
 }
+
+#[tokio::test]
+async fn shift_transport_explicitly_marks_legacy_cash_total_unreconciled() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    let summary = shift_service::open_shift(&pool, tokens.as_ref(), 1000).await.expect("open shift");
+    let dto = mobile_shop_system_lib::commands::shift::ShiftTotalsDto::from(summary.totals);
+    let encoded = serde_json::to_value(dto).expect("serialize totals");
+    assert_eq!(encoded["cashReconciled"], false);
+}

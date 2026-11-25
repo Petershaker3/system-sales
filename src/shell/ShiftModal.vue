@@ -45,18 +45,8 @@ const emit = defineEmits<{
 const busy = ref(false);
 
 // --- Open shift form state (when no shift is open) ---
-const defaultOpeningEgp = computed(() => {
-  const prevMinor = props.shiftState.lastClosedShift?.countedCashMinor;
-  if (typeof prevMinor === 'number' && prevMinor >= 0) {
-    return moneyInputValue(prevMinor);
-  }
-  return '1000';
-});
-
-const openingCashText = ref(defaultOpeningEgp.value);
-watch(defaultOpeningEgp, (v) => {
-  openingCashText.value = v;
-});
+// The opening and counted cash must be physically entered; a forecast is not a count.
+const openingCashText = ref('');
 
 const nextShiftNumber = computed(() => {
   const prevNo = props.shiftState.lastClosedShift?.shiftNumber ?? 0;
@@ -78,15 +68,8 @@ const denomCounts = reactive<Record<string, string>>({
 const countedCashText = ref('');
 const closeNote = ref('');
 
-watch(
-  () => props.shiftState.openShift?.totals.expectedCashMinor,
-  (expectedMinor) => {
-    if (typeof expectedMinor === 'number' && countedCashText.value === '') {
-      countedCashText.value = moneyInputValue(expectedMinor);
-    }
-  },
-  { immediate: true }
-);
+const acknowledgeUnreconciled = ref(false);
+watch(() => props.shiftState.openShift?.shift.id, () => { countedCashText.value = ''; acknowledgeUnreconciled.value = false; });
 
 function onDenomInput(): void {
   const numericCounts: Record<string, number> = {};
@@ -107,26 +90,15 @@ function onDenomInput(): void {
   }
 }
 
-function clearDenomsAndMatchExpected(): void {
-  for (const d of EGYPTIAN_DENOMS) {
-    denomCounts[String(d)] = '';
-  }
-  const expMinor = props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
-  countedCashText.value = moneyInputValue(expMinor);
-}
-
-const countedCashMinor = computed<number>(() => {
+const countedCashMinor = computed<number | null>(() => {
   const parsed = parseMoney(countedCashText.value);
-  if (parsed !== null && parsed >= 0) return parsed;
-  return props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
+  return parsed !== null && parsed >= 0 ? parsed : null;
 });
-
-const differenceMinor = computed<number>(() => {
-  const exp = props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
-  return countedCashMinor.value - exp;
+const differenceMinor = computed<number | null>(() => {
+  if (countedCashMinor.value === null || !props.shiftState.openShift) return null;
+  return countedCashMinor.value - props.shiftState.openShift.totals.expectedCashMinor;
 });
-
-const diffInfo = computed(() => shiftDifferenceState(differenceMinor.value));
+const diffInfo = computed(() => differenceMinor.value === null ? null : shiftDifferenceState(differenceMinor.value));
 
 const canCloseShift = computed<boolean>(() => {
   return (
@@ -160,7 +132,7 @@ async function submitOpenShift(): Promise<void> {
 
 function sendWhatsAppReport(): void {
   const open = props.shiftState.openShift;
-  if (!open) return;
+  if (!open || countedCashMinor.value === null) { toast('عدّ النقدية واكتب المعدود أولاً', 'err'); return; }
   const sent = sendShiftReportViaWhatsApp(
     open,
     appearance.shopName,
@@ -173,6 +145,7 @@ function sendWhatsAppReport(): void {
 
 async function submitCloseShift(): Promise<void> {
   if (busy.value || !props.shiftState.openShift) return;
+  if (!acknowledgeUnreconciled.value) { toast('راجع تنبيه عدم مطابقة مصادر النقدية أولاً', 'err'); return; }
   if (!canCloseShift.value) {
     toast('تقفيل الوردية للمالك بس أو يتفعّل من الإعدادات', 'err');
     return;
@@ -209,7 +182,7 @@ async function submitCloseShift(): Promise<void> {
     "
     :sub="
       shiftState.openShift
-        ? `مفتوحة من ${fmtTime(new Date(shiftState.openShift.shift.openedAt))} — عدّ الفئات وطابق الدرج في أقل من 3 دقايق`
+        ? `مفتوحة من ${fmtTime(new Date(shiftState.openShift.shift.openedAt))} — عدّ النقدية؛ تقدير الدرج غير مُراجَع`
         : 'اكتب رصيد الفكة والنقدية الموجودة في الدرج لبداية الوردية'
     "
     :size="shiftState.openShift ? 'wide' : 'md'"
@@ -291,6 +264,9 @@ async function submitCloseShift(): Promise<void> {
 
     <!-- Close current open shift -->
     <div v-else data-close-shift-view>
+      <div class="note" role="alert" data-shift-unreconciled style="margin-bottom: 12px; border-color: var(--warn)">
+        تنبيه: حساب الوردية تقديري من توقيت الحركات، وليس رصيد درج تمت مطابقة مصادره. الإغلاق لا يثبت سلامة الأرصدة أو الربح؛ راجع السجلات وعدّ النقدية فعلياً.
+      </div>
       <div
         v-if="!canCloseShift"
         class="note"
@@ -320,7 +296,7 @@ async function submitCloseShift(): Promise<void> {
             padding: 14px;
           "
         >
-          <div class="lbl" style="margin-bottom: 8px">حسب الدفاتر — حركة النقدية بالدرج</div>
+          <div class="lbl" style="margin-bottom: 8px">تقدير حركة النقدية حسب توقيت الحركات — غير مُراجَع</div>
           <table class="tbl" style="width: 100%; font-size: 13.5px">
             <tbody>
               <tr>
@@ -379,7 +355,7 @@ async function submitCloseShift(): Promise<void> {
                 </td>
               </tr>
               <tr style="font-weight: 800; font-size: 15px; border-top: 2px solid var(--border)">
-                <td>= المتوقع في الدرج</td>
+                <td>= تقدير غير مُراجَع</td>
                 <td class="num" style="text-align: end" data-shift-expected-cash>
                   {{ money(shiftState.openShift.totals.expectedCashMinor) }}
                 </td>
@@ -429,7 +405,7 @@ async function submitCloseShift(): Promise<void> {
                 </td>
               </tr>
               <tr v-if="session.role === 'manager'" style="font-weight: 700">
-                <td>صافي الربح بعد المصروفات</td>
+                <td>ربح تقديري غير مُراجَع</td>
                 <td class="num" style="text-align: end" data-shift-net-profit>
                   {{ money(shiftState.openShift.totals.netProfitMinor) }}
                 </td>
@@ -442,14 +418,7 @@ async function submitCloseShift(): Promise<void> {
         <div>
           <div class="row" style="justify-content: space-between; margin-bottom: 8px">
             <label class="lbl" style="margin: 0">عدّ الفئات المصرية (اختياري يحسبلك الإجمالي)</label>
-            <button
-              type="button"
-              class="btn sm"
-              data-shift-match-expected
-              @click="clearDenomsAndMatchExpected"
-            >
-              مطابق للمتوقع
-            </button>
+
           </div>
 
           <div
@@ -507,6 +476,7 @@ async function submitCloseShift(): Promise<void> {
 
           <div
             class="row"
+            v-if="diffInfo"
             data-shift-diff-banner
             :data-shift-diff-state="diffInfo.state"
             style="
@@ -519,7 +489,7 @@ async function submitCloseShift(): Promise<void> {
               border: 1px solid var(--border);
             "
           >
-            <span>الفرق (المعدود − المتوقع):</span>
+            <span>الفرق عن التقدير غير المُراجَع:</span>
             <span data-shift-diff-label>{{ diffInfo.label }}</span>
           </div>
 
@@ -550,9 +520,13 @@ async function submitCloseShift(): Promise<void> {
         </button>
       </template>
       <template v-else>
+        <label style="display: flex; align-items: center; gap: 6px" data-shift-ack-unreconciled>
+          <input v-model="acknowledgeUnreconciled" type="checkbox" /> أفهم أن التقدير غير مُراجَع
+        </label>
         <button
           type="button"
           class="btn"
+          :disabled="countedCashMinor === null"
           data-shift-wa-send
           @click="sendWhatsAppReport"
         >
@@ -561,7 +535,7 @@ async function submitCloseShift(): Promise<void> {
         <button
           type="button"
           class="btn primary"
-          :disabled="busy || !canCloseShift"
+          :disabled="busy || !canCloseShift || !acknowledgeUnreconciled || countedCashMinor === null"
           data-close-shift-submit
           @click="submitCloseShift"
         >

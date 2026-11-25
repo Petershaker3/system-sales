@@ -24,6 +24,8 @@ export interface ShiftRecord {
 }
 
 export interface ShiftTotals {
+  /** Missing or false means timestamp-derived and not financially reconciled. */
+  readonly cashReconciled?: boolean;
   readonly openingCashMinor: number;
   readonly cashSalesMinor: number;
   readonly vfSalesMinor: number;

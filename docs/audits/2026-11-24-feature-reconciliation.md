@@ -250,3 +250,33 @@ allocation-writer concurrency test. It does not cover multiple physical drawers,
 all cash transaction writers, two concurrent POS refund approvals, verified
 shop data, complete inventory/profit reconciliation, or device compatibility.
 The current drawer balances and the full financial report remain unreconciled.
+
+### Interim shift safety — not a cash lifecycle implementation
+
+Source mapping continues to show an incomplete money model: sale/refund
+payments, customer debt payments, wallet operations and repair deposits/
+settlements have no cash drawer identity. Drawer expenses and cash movements
+link to a shift, not a physical drawer. Opening/closing are shift snapshots;
+wallet transfers have `via` rather than a drawer identity, and voids and repair
+status are mutable. No existing writer has been migrated to a unified drawer
+ledger, no source identities have been guessed, and no balance reconciliation
+has been proven. In particular, the existing `close_shift` backend still stores
+its timestamp-derived expected cash and difference; API clients can call it
+without the UI acknowledgement. The safety work below is not a backend close
+block, not a verified accounting control, and must not be described as one.
+
+To avoid presenting the old arithmetic as a verified count, the shift command
+now exposes `cashReconciled: false`; the shift UI labels its figures
+unreconciled, requires the operator to enter a physical cash count and
+acknowledge the warning before using the UI close button, and no longer copies
+expected cash into the count. Opening cash is also explicitly entered. The
+WhatsApp shift text warns of unreconciled cash and suppresses the unverified
+profit; the owner report and mobile view no longer present the estimated drawer
+balance as verified. These measures do not resolve missing sources or make
+historical or future shift closes auditable. Existing report guards remain.
+
+The focused demo regression covers the blank count and acknowledgement, using a
+mocked backend only. The broader demo smoke was attempted and progressed through
+the updated shift checks, then failed at the guarded report screen because it
+expected the old `[data-reports-day-rating]` element. It did not complete; the
+underlying report-guard behavior needs a separately updated full smoke test.

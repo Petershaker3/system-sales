@@ -90,6 +90,17 @@ try {
   assert.match(await page.$eval('[data-reports-incomplete]', el => el.textContent), /مرتجعات/);
   assert.equal(await page.$('[data-day-net]'), null, 'zero refund return must not show a trusted total');
   console.log('PASS zero-value return hides incomplete report');
+  await page.click('[data-open-shift-modal]');
+  await page.waitForSelector('[data-close-shift-view]');
+  assert.equal(await page.$eval('[data-shift-counted-input]', el => el.value), '', 'count must not be invented from estimate');
+  assert.ok(await page.$('[data-shift-unreconciled]'));
+  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true);
+  await page.type('[data-shift-counted-input]', '0');
+  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true, 'warning must be acknowledged');
+  await page.click('[data-shift-ack-unreconciled] input');
+  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), false);
+  await page.keyboard.press('Escape');
+  console.log('PASS explicit counted cash and unreconciled acknowledgement');
   await page.click('[data-open-reminders]');
   await page.type('[data-reminder-text]', 'تذكير اختبار');
   await page.click('[data-reminder-add]');

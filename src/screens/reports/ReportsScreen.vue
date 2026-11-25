@@ -485,10 +485,6 @@ const todayRatingLine = computed(() => {
   return `صافي النهارده ${money(r.netMinor)} بعد ${money(todayExpensesMinor.value)} مصاريف`;
 });
 
-const expectedDrawerCashMinor = computed(
-  () => shiftState.value?.openShift?.totals.expectedCashMinor ?? 0,
-);
-
 const currentShiftNumber = computed(
   () =>
     shiftState.value?.openShift?.shift.shiftNumber ??
@@ -542,7 +538,7 @@ const dailyWhatsAppSummaryText = computed(() =>
     hardwareRevenueMinor: todayHardwareRevenueMinor.value,
     softwareRevenueMinor: todaySoftwareRevenueMinor.value,
     walletFeesMinor: todayServicesFeeMinor.value,
-    expectedDrawerCashMinor: expectedDrawerCashMinor.value,
+    expectedDrawerCashMinor: null,
     alerts: smartAlerts.value,
   }),
 );
@@ -1097,8 +1093,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="card kpi" data-reports-today-kpi="drawer">
-          <div class="label">المفروض في الدرج</div>
-          <div class="value num">{{ money(expectedDrawerCashMinor) }}</div>
+          <div class="label">رصيد الدرج</div>
+          <div class="value">غير متاح لحين مطابقة مصادر النقدية</div>
           <div class="sub muted">وردية #{{ num(currentShiftNumber) }}</div>
         </div>
       </div>

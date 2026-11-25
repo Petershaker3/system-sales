@@ -60,7 +60,7 @@ export interface DailyWhatsAppSummaryInput {
   readonly hardwareRevenueMinor: number;
   readonly softwareRevenueMinor: number;
   readonly walletFeesMinor: number;
-  readonly expectedDrawerCashMinor: number;
+  readonly expectedDrawerCashMinor: number | null;
   readonly alerts: SmartAlertsBundle;
 }
 
@@ -318,7 +318,9 @@ export function formatDailyWhatsAppSummary(
     `• فلوس الصيانة لوحدها: ${money(input.hardwareRevenueMinor)}`,
     `• فلوس السوفت وير لوحدها: ${money(input.softwareRevenueMinor)}`,
     `• عمولات المحافظ والخدمات: ${money(input.walletFeesMinor)}`,
-    `• المفروض في الدرج (وردية #${num(input.shiftNumber)}): ${money(input.expectedDrawerCashMinor)}`,
+    input.expectedDrawerCashMinor === null
+      ? '• رصيد الدرج غير متاح لحين مطابقة مصادر النقدية'
+      : `• المفروض في الدرج (وردية #${num(input.shiftNumber)}): ${money(input.expectedDrawerCashMinor)}`,
   ];
 
   const { shortages, overdueRepairs, stagnantProducts, totalStagnantCostMinor } =

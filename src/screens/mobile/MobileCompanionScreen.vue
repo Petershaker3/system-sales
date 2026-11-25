@@ -226,8 +226,8 @@ const remoteSnapshot = computed(() =>
     profitMinor: salesSnapshot.value.profitMinor ?? 0,
     hardwareRevenueMinor: repairsData.value?.hardware.totalRevenueMinor ?? 0,
     softwareRevenueMinor: repairsData.value?.software.totalRevenueMinor ?? 0,
-    expectedDrawerCashMinor:
-      shiftData.value?.openShift?.totals.expectedCashMinor ?? null,
+    // The legacy timestamp-derived shift estimate is not a verified drawer balance.
+    expectedDrawerCashMinor: null,
     shiftNumber: shiftData.value?.openShift?.shift.shiftNumber ?? null,
   }),
 );

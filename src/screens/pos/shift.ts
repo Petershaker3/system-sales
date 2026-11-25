@@ -46,18 +46,18 @@ export function shiftDifferenceState(differenceMinor: number): ShiftDifferenceIn
   if (differenceMinor === 0) {
     return {
       state: 'exact',
-      label: 'مظبوط — الدرج مطابق بالملليم',
+      label: 'يساوي التقدير غير المُراجَع',
     };
   }
   if (differenceMinor < 0) {
     return {
       state: 'shortage',
-      label: `عجز ${egp(Math.abs(differenceMinor))}`,
+      label: `أقل من التقدير غير المُراجَع ${egp(Math.abs(differenceMinor))}`,
     };
   }
   return {
     state: 'overage',
-    label: `زيادة ${egp(differenceMinor)}`,
+    label: `أعلى من التقدير غير المُراجَع ${egp(differenceMinor)}`,
   };
 }
 
@@ -73,6 +73,7 @@ export function formatShiftWhatsAppReport(
   const diff = shiftDifferenceState(diffMinor);
   const lines: string[] = [
     `*تقرير تقفيل الوردية #${shift.shiftNumber} — ${shopName.trim() || 'موبايل ستور'}*`,
+    `تنبيه: التقدير غير مُراجَع ومصادر النقدية لم تُطابق؛ لا يُعد إقفالاً مالياً معتمداً.`,
     `رصيد بداية الوردية: ${egp(t.openingCashMinor)}`,
     `+ مبيعات كاش: ${egp(t.cashSalesMinor)}`,
   ];
@@ -116,7 +117,7 @@ export function formatShiftWhatsAppReport(
   if (t.servicesCount > 0 || t.servicesFeeMinor > 0) {
     lines.push(`عمولات الخدمات (${t.servicesCount} عملية): ${egp(t.servicesFeeMinor)}`);
   }
-  lines.push(`صافي الربح بعد المصروفات: ${egp(t.netProfitMinor)}`);
+  lines.push(`الربح غير متاح لحين مطابقة المصادر والتكاليف.`);
 
   const cleanNote = closeNote?.trim();
   if (cleanNote) {

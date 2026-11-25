@@ -1676,14 +1676,15 @@ await sleep(150);
 await page.click('[data-open-shift-modal]');
 await page.waitForSelector('[data-close-shift-view]', { timeout: 3000 });
 await sleep(150);
-await page.click('[data-shift-match-expected]');
+check('Shift count starts blank and requires acknowledgement', (await page.$eval('[data-shift-counted-input]', el => el.value)) === '' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)) && (await count('[data-shift-unreconciled]')) === 1);
+await page.type('[data-shift-counted-input]', '0');
 await sleep(100);
 const diffState = await page.$eval('[data-shift-diff-banner]', (el) => el.getAttribute('data-shift-diff-state'));
 const diffLabel = await text('[data-shift-diff-label]');
 check(
-  'Shift close modal reconciles opening cash + cash sales + customer cash - expenses - owner draw with zero difference («مظبوط»)',
-  diffState === 'exact' &&
-    diffLabel.includes('مظبوط') &&
+  'Shift close labels its difference as an unreconciled estimate',
+  Boolean(diffState) &&
+    diffLabel.includes('غير المُراجَع') &&
     (await text('[data-shift-expenses]')).includes('50') &&
     (await text('[data-shift-owner-draw]')).includes('200'),
   `${diffState}: ${diffLabel}`
@@ -1697,14 +1698,14 @@ check(
   'Sending shift report on WhatsApp builds Arabic shift summary for the owner phone',
   Boolean(lastShiftWa) &&
     lastShiftWa.shiftNumber === 1 &&
-    lastShiftWa.differenceMinor === 0 &&
     lastShiftWa.url.startsWith('https://wa.me/201288887777?text=') &&
     lastShiftWa.text.includes('تقرير تقفيل الوردية #1') &&
-    lastShiftWa.text.includes('مظبوط'),
+    lastShiftWa.text.includes('غير مُراجَع'),
   lastShiftWa?.url
 );
 await shot('40-shift-close-reconciliation');
 
+await page.click('[data-shift-ack-unreconciled] input');
 await page.click('[data-close-shift-submit]');
 await page.waitForSelector('[data-close-shift-view]', { hidden: true, timeout: 3000 });
 await sleep(200);
@@ -1718,11 +1719,13 @@ await page.click('[data-open-shift-modal]');
 await page.waitForSelector('[data-open-shift-view]', { timeout: 3000 });
 await sleep(150);
 check(
-  'Open Shift modal pre-fills previous closed shift counted cash and lists recent closed shifts',
+  'Open Shift modal requires an explicit opening count and lists recent closed shifts',
+  (await page.$eval('[data-open-shift-cash]', el => el.value)) === '' &&
   (await count('[data-last-closed-shift-hint]')) === 1 &&
     (await count('[data-recent-closed-shifts]')) === 1
 );
 await shot('41-open-next-shift');
+await page.type('[data-open-shift-cash]', '0');
 await page.click('[data-open-shift-submit]');
 await page.waitForSelector('[data-open-shift-view]', { hidden: true, timeout: 3000 });
 await sleep(200);

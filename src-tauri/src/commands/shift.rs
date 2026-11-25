@@ -66,6 +66,9 @@ impl From<ShiftRecord> for ShiftRecordDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShiftTotalsDto {
+    /// Legacy timestamp-based calculation is not a verified drawer ledger.
+    /// A future reconciler may set this only after every source is identified.
+    pub cash_reconciled: bool,
     pub opening_cash_minor: i64,
     pub cash_sales_minor: i64,
     pub vf_sales_minor: i64,
@@ -93,6 +96,7 @@ pub struct ShiftTotalsDto {
 impl From<ShiftTotals> for ShiftTotalsDto {
     fn from(t: ShiftTotals) -> Self {
         Self {
+            cash_reconciled: false,
             opening_cash_minor: t.opening_cash_minor,
             cash_sales_minor: t.cash_sales_minor,
             vf_sales_minor: t.vf_sales_minor,
