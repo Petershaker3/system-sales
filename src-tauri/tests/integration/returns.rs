@@ -829,3 +829,56 @@ async fn historical_refund_repair_is_evidenced_bounded_and_preserves_payments() 
     assert_eq!(sales_repo::allocated_refund_for_payment(&mut conn, "original-a").await.expect("used"), 300);
     assert_eq!(sales_repo::allocated_refund_for_payment(&mut conn, "original-b").await.expect("used"), 300);
 }
+
+#[tokio::test]
+async fn evidenced_repair_unblocks_only_the_remaining_refund_capacity() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 2, warranty_start: None, warranty_end: None, imei: None }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(40_000), None, None, 0, &[0]).await.expect("sale");
+    let line = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("inspection").lines[0].line_id.clone();
+    let input = [SaleReturnLineInput { sale_line_id: line.clone(), quantity: 1, condition: "intact".into() }];
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    let first = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &input, "first", None).await.expect("first return");
+    let original: String = sqlx::query_scalar("SELECT id FROM sale_payments WHERE sale_id=?1").bind(&sale.sale_id).fetch_one(&pool).await.expect("original");
+    let refund: String = sqlx::query_scalar("SELECT id FROM sale_payments WHERE sale_id=?1").bind(&first.return_sale_id).fetch_one(&pool).await.expect("refund");
+    // Test-only emulation of a historical unlinked refund; never done in production.
+    let mut conn = pool.acquire().await.expect("fixture");
+    sqlx::query("DROP TRIGGER refund_allocations_no_delete").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DELETE FROM refund_payment_allocations WHERE reversal_payment_id=?1").bind(&refund).execute(&mut *conn).await.expect("fixture");
+    sqlx::query("CREATE TRIGGER refund_allocations_no_delete BEFORE DELETE ON refund_payment_allocations BEGIN SELECT RAISE(ABORT,'refund allocations are append-only'); END;").execute(&mut *conn).await.expect("restore trigger");
+    drop(conn);
+    assert!(sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.is_err());
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    sales::repair_refund_allocation(&pool, tokens.as_ref(), &refund, &original, 10_000, "first part", "receipt", "part").await.expect("part");
+    assert!(sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.is_err(), "partial evidence stays unresolved");
+    sales::repair_refund_allocation(&pool, tokens.as_ref(), &refund, &original, 10_000, "second part", "receipt", "remaining").await.expect("rest");
+    assert_eq!(sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("resolved").payments[0].remaining_minor, 20_000);
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve again");
+    let second = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &input, "second", None).await.expect("remaining return");
+    assert_eq!(second.refund_minor, 20_000);
+    let allocated: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM refund_allocation_effective WHERE original_payment_id=?1").bind(&original).fetch_one(&pool).await.expect("effective total");
+    assert_eq!(allocated, 40_000);
+}
+
+#[tokio::test]
+async fn concurrent_historical_repair_and_normal_refund_share_the_same_capacity() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("repair-race.db")).await.expect("database");
+    sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','fixture',0,0)").execute(&pool).await.expect("user");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('s','s',1,'u','sale',NULL,100,0),('r1','r1',2,'u','reversal','s',100,0),('r2','r2',2,'u','reversal','s',100,0)").execute(&pool).await.expect("sales");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('p','s',1,'cash',100,1),('p1','r1',1,'cash',100,2),('p2','r2',1,'cash',100,2)").execute(&pool).await.expect("payments");
+    async fn repair(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        sqlx::query("INSERT INTO refund_allocation_repairs VALUES('req','p1','p',100,'reason','evidence','u',3)").execute(&mut *tx).await?;
+        tx.commit().await
+    }
+    async fn allocate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        sqlx::query("INSERT INTO refund_payment_allocations VALUES('p2','p',100)").execute(&mut *tx).await?;
+        tx.commit().await
+    }
+    let (a,b) = tokio::join!(repair(&pool), allocate(&pool));
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let total: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM refund_allocation_effective WHERE original_payment_id='p'").fetch_one(&pool).await.expect("sum");
+    assert_eq!(total, 100);
+}

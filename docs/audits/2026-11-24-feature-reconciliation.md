@@ -518,3 +518,24 @@ their own event periods. This is not a reconciliation or an as-of audit report.
 Review tests exercise competing requests, retries, and wallet period estimates.
 The ledger, verified reconciliation, complete reports, and live database-to-UI
 validation remain incomplete; do not remove the existing guards.
+
+### Historical refund allocation repairs (0047)
+
+A manager can inspect an invoice's original payments, reversal payments and
+linked amounts, and append an evidence-backed repair for a specific original
+payment and recorded refund. The immutable repair is not a new payout. Both
+normal allocations and repairs consume the same source and reversal capacity;
+SQLite triggers reject mismatched methods, wallets, unproven electronic sources,
+and over-allocation. The Rust service serializes writes and commits evidence,
+actor, request identity and audit atomically. Repeated identical requests are
+idempotent; a reused request with different content is refused. A partially
+linked or malformed reversal remains explicitly unresolved and prevents further
+refund allocation. An electronic wallet review does not allocate a refund.
+
+This requires documentary evidence of both the actual original source and the
+specific historical payout allocation; the database cannot verify the evidence
+itself. The present mechanism records a positive assertion and cannot reverse an
+erroneous repair. A manager must not use it for ambiguous amounts; a
+compensating correction mechanism and policy for disputed payout sources remain
+open. The manager UI is new and has not been tested against a live Tauri
+application. This change does not introduce a drawer ledger or reconciliation.
