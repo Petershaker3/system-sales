@@ -395,9 +395,11 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("shop.db");
     let pool = db::open(&path).await.expect("current schema");
-    sqlx::query("DROP TRIGGER sale_payments_wallet_matches_method").execute(&pool).await.expect("remove v40 trigger in fixture");
+    let mut fixture_conn = pool.acquire().await.expect("fixture connection");
+    sqlx::query("DROP TRIGGER sale_payments_wallet_matches_method").execute(&mut *fixture_conn).await.expect("remove v40 trigger in fixture");
     sqlx::query("CREATE TRIGGER sale_payments_wallet_matches_method BEFORE INSERT ON sale_payments WHEN NEW.wallet_id IS NOT NULL AND COALESCE((SELECT w.pay_method FROM wallets w WHERE w.id=NEW.wallet_id),'') <> NEW.method BEGIN SELECT RAISE(ABORT, 'sale_payments.wallet_id must name a wallet that receives this method'); END;")
-        .execute(&pool).await.expect("restore v38 trigger in fixture");
+        .execute(&mut *fixture_conn).await.expect("restore v38 trigger in fixture");
+    drop(fixture_conn);
     sqlx::query("DROP TABLE refund_payment_allocations").execute(&pool).await.expect("remove v39 table in test fixture");
     sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (39,40)").execute(&pool).await.expect("rewind fixture ledger");
     sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)")
