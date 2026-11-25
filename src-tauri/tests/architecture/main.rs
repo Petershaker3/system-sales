@@ -3506,7 +3506,8 @@ fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_
     for required in [
         "pub async fn list_payment_wallets",
         "pub async fn primary_payment_wallet",
-        "sp.wallet_id = ?1",
+        "sale_effective_wallet_attribution",
+        "COALESCE(e.wallet_id,sp.wallet_id)",
     ] {
         assert!(
             repo.contains(required),
