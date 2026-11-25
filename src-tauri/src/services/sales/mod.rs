@@ -862,7 +862,7 @@ pub async fn cancel_sale(
 
     for payment in &original_payments {
         if (payment.method == "vf" || payment.method == "instapay") && payment.amount_minor > 0
-            && !sales_repo::wallet_source_is_recorded(&mut tx, &payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            && !sales_repo::wallet_source_is_recorded(&mut *tx, &payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
             return Err(SaleError::RefundSourceUnverifiable.into());
         }
     }
@@ -1657,7 +1657,7 @@ async fn execute_return_core_in_tx(
     for (i, _, _) in &allocations {
         let p = &orig_payments[*i];
         if (p.method == "vf" || p.method == "instapay") &&
-            !sales_repo::wallet_source_is_recorded(&mut tx, &p.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            !sales_repo::wallet_source_is_recorded(&mut *tx, &p.id).await.map_err(|_| DomainError::StorageUnavailable)? {
             return Err(SaleError::RefundSourceUnverifiable.into());
         }
     }
@@ -1696,6 +1696,10 @@ async fn execute_return_core_in_tx(
     let mut reversed_credit_minor: i64 = 0;
     if refund_minor == 0 {
         let original_payment = orig_payments.first().ok_or(SaleError::RefundSourceUnverifiable)?;
+        if (original_payment.method == "vf" || original_payment.method == "instapay") &&
+            !sales_repo::wallet_source_is_recorded(&mut *tx, &original_payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
+        }
         sales_repo::insert_sale_payment(&mut *tx, &SalePaymentRecord {
             id: Uuid::now_v7().to_string(), sale_id: return_sale_id.clone(), payment_no: 1,
             method: original_payment.method.clone(), wallet_id: original_payment.wallet_id.clone(),

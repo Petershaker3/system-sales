@@ -183,7 +183,7 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
                 method: "vf".to_owned(),
                 amount_minor: 20_000,
                 reference: Some("VF-900".to_owned()),
-                wallet_id: None,
+                wallet_id: Some("vf".to_owned()),
             },
             SalePaymentInput {
                 method: "credit".to_owned(),

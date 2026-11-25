@@ -3504,6 +3504,10 @@ check(
   (await count('[data-wallet-choice]')) === 2,
   `choices=${await count('[data-wallet-choice]')}`
 );
+await page.click('#confirm-pay-btn');
+await sleep(200);
+check('Electronic sale refuses a missing explicit wallet rather than selecting a primary',
+  (await count('[data-wallet-choice]')) === 2 && (await text('.modal')).includes('اختار رقم المحفظة'));
 const numberButtons = await page.$$('[data-wallet-choice]');
 if (numberButtons[1]) await numberButtons[1].click();
 await sleep(200);

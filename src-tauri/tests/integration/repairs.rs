@@ -369,7 +369,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             amount_minor: 400_00,
             method: "vf".to_owned(),
             note: Some("سداد جزء من الآجل فودافون كاش".to_owned()),
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         },
     )
     .await
@@ -417,7 +417,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(14),
             note: None,
-            pay_wallet_id: None,
+            pay_wallet_id: Some("vf".to_owned()),
         },
     )
     .await

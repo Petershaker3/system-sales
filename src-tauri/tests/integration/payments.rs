@@ -164,7 +164,7 @@ async fn split_sale_between_cash_and_wallet_reconciles_drawer_and_cancellation_r
                 method: "vf".to_string(),
                 amount_minor: 400_00,
                 reference: Some("VF-9988".to_string()),
-                wallet_id: None,
+                wallet_id: Some("vf".to_string()),
             },
         ]),
         None,
@@ -325,7 +325,7 @@ async fn credit_sale_requires_customer_updates_customer_balance_and_accepts_repa
             amount_minor: 200_00,
             method: "instapay".to_string(),
             note: Some("دفعة تحت الحساب".to_string()),
-            wallet_id: None,
+            wallet_id: Some("ip".to_string()),
         },
     )
     .await
