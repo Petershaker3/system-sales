@@ -88,6 +88,33 @@ class LedgerReconciliation(unittest.TestCase):
         # The historical unlinked row remains visible as unknown, not backfilled.
         self.assertEqual(self.db.execute("SELECT p.id FROM sale_payments p JOIN sales s ON s.id=p.sale_id WHERE s.kind='reversal' AND s.reverses_sale_id='sale' AND p.amount_minor > COALESCE((SELECT SUM(a.amount_minor) FROM refund_payment_allocations a WHERE a.reversal_payment_id=p.id),0)").fetchall(), [('old',)])
 
+    def test_historical_wallet_review_is_append_only_and_refund_guarded(self):
+        self.sale('s', 1, 100, 50)
+        self.sale('r', 2, 100, 50, 'reversal', 's')
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('p','s',1,'vf','vf',100,1)")
+        # Simulate a pre-0043 payment, without pretending that its wallet was proven.
+        self.db.execute('DROP TRIGGER sale_wallet_provenance_no_delete')
+        self.db.execute('DELETE FROM sale_wallet_provenance')
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('r','r',1,'vf','vf',100,2)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('r','p',100)")
+        review = "INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES(?,?,?,?,?,?,?,?)"
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(review, ('p','ip','confirm','reason','evidence','u',3,'wrong'))
+        self.db.execute(review, ('p','vf','confirm','reason','statement','u',3,'confirm'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(review, ('p','vf','confirm','reason','statement','u',3,'duplicate'))
+        self.db.execute(review, ('p','vf','revoke','reason','statement','u',4,'revoke'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO refund_payment_allocations VALUES('r','p',100)")
+        self.db.execute(review, ('p','vf','confirm','reason','statement','u',5,'again'))
+        self.db.execute("INSERT INTO refund_payment_allocations VALUES('r','p',100)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(review, ('p','vf','revoke','reason','statement','u',6,'used'))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("DELETE FROM sale_wallet_reviews")
+        self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), ('vf',))
+
     def test_only_original_reversal_can_use_a_reconfigured_wallet(self):
         self.sale('s', 1, 100, 50)
         self.sale('r', 2, 100, 50, 'reversal', 's')

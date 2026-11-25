@@ -933,6 +933,15 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
         .bind(&actor).execute(&pool).await.expect("sale");
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('payment','sale',1,'vf',100,'vf',4)")
         .execute(&pool).await.expect("payment with provenance");
+    // Test-only simulation of a payment that existed before provenance migration.
+    let mut conn = pool.acquire().await.expect("fixture connection");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',100,0)").bind(&actor).execute(&mut *conn).await.expect("old sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('old-p','old-sale',1,'vf',100,'vf',1)").execute(&mut *conn).await.expect("old payment");
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&mut *conn).await.expect("fixture drop trigger");
+    sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='old-p'").execute(&mut *conn).await.expect("fixture legacy payment");
+    sqlx::query("CREATE TRIGGER sale_wallet_provenance_no_delete BEFORE DELETE ON sale_wallet_provenance BEGIN SELECT RAISE(ABORT, 'wallet provenance is immutable'); END;").execute(&mut *conn).await.expect("restore trigger");
+    sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('old-p','vf','confirm','statement reviewed','reference 123',?1,10,'backup-review')").bind(&actor).execute(&mut *conn).await.expect("review");
+    drop(conn);
     let path = dir.path().join("financial.msb");
     backup::create_backup(&pool, dir.path(), &path, BACKUP_PASSWORD).await.expect("encrypted backup");
     pool.close().await;
@@ -945,6 +954,9 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     assert_eq!(count, 95);
     let wallet: String = sqlx::query_scalar("SELECT wallet_id FROM sale_wallet_provenance WHERE payment_id='payment'").fetch_one(&restored).await.expect("provenance");
     assert_eq!(wallet, "vf");
+    let review: (String, String, String) = sqlx::query_as("SELECT action,reason,evidence FROM sale_wallet_reviews WHERE payment_id='old-p'").fetch_one(&restored).await.expect("review survives restore");
+    assert_eq!(review, ("confirm".into(), "statement reviewed".into(), "reference 123".into()));
+    assert!(sqlx::query("DELETE FROM sale_wallet_reviews WHERE payment_id='old-p'").execute(&restored).await.is_err());
     assert!(sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='payment'").execute(&restored).await.is_err(), "append-only trigger survives restore");
     let integrity: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&restored).await.expect("integrity");
     assert_eq!(integrity, "ok");

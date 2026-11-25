@@ -666,7 +666,8 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     let review_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_wallet_reviews").fetch_one(&pool).await.expect("reviews");
     assert_eq!(review_count, 1);
     sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "revoke", "wrong statement", "reference corrected", "request-b").await.expect("revoke");
-    assert!(sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "not yet proven").await.is_err());
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve cancellation");
+    assert_eq!(sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "not yet proven").await.expect_err("revoked is unresolved").code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
     sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reviewed again", "statement reference 456", "request-c").await.expect("confirm again");
     let original: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original payment");
     assert_eq!(original.as_deref(), Some("vf"));

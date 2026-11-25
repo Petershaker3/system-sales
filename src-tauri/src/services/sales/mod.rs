@@ -2864,7 +2864,10 @@ pub async fn review_historical_wallet(
         None => {}
     }
     sales_repo::append_wallet_review(&mut tx, payment_id, wallet_id, action, reason, evidence, &actor.as_str(), now.as_millis(), request_id).await
-        .map_err(|_| SaleError::RefundSourceUnverifiable)?;
+        .map_err(|error| match error {
+            sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => SaleServiceError::from(SaleError::RefundSourceUnverifiable),
+            other => map_busy(other),
+        })?;
     audit::append(&mut tx, actor, audit::event::SALE_WALLET_REVIEWED, now,
         Some(serde_json::json!({"payment_id": payment_id, "wallet_id": wallet_id, "action": action, "request_id": request_id}).to_string()))
         .await.map_err(|_| DomainError::StorageUnavailable)?;

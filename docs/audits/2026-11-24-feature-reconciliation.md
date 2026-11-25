@@ -444,3 +444,24 @@ balance regardless of any caller-provided estimate. The return/cancellation
 guard remains unchanged. These warnings do not make the underlying report
 calculations complete, and no full screen/API review or real database-to-UI test
 has yet been proved.
+
+### Historical wallet review (0044)
+
+Migration 0044 adds manager-only evidence confirmations and compensating
+revocations for the **same wallet ID already recorded** on an older electronic
+sale payment. This is a review of independent evidence, not a claim that the
+recorded ID was inherently reliable. Review rows carry reason, evidence
+reference, actor, timestamp and request ID; are immutable; and commit with an
+audit entry. The backend and allocation trigger accept an active review, while
+preventing withdrawal once a refund uses it. Identical requests are replayable;
+changed requests cannot reuse the same identity. The sales invoice UI exposes
+this manager review and warns against choosing without evidence.
+
+**Limits:** a missing wallet or evidence that points to a different wallet is
+not resolvable by this implementation. A used review cannot yet be corrected
+with a compensating financial posting. Historical returns and cancellations
+remain blocked if source evidence is unresolved; the actual payment method for
+an unresolved refund is an open business-policy decision. No drawer identity,
+unified financial ledger, reconciliation, complete event-period reporting or
+real Tauri database-to-UI proof has been added by this change. The report guard
+remains. Do not describe this as full provenance resolution or cash lifecycle.
