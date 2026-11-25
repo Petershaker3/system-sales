@@ -1676,7 +1676,7 @@ await sleep(150);
 await page.click('[data-open-shift-modal]');
 await page.waitForSelector('[data-close-shift-view]', { timeout: 3000 });
 await sleep(150);
-check('Shift count starts blank and requires acknowledgement', (await page.$eval('[data-shift-counted-input]', el => el.value)) === '' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)) && (await count('[data-shift-unreconciled]')) === 1);
+check('Shift count starts blank and closing is blocked', (await page.$eval('[data-shift-counted-input]', el => el.value)) === '' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)) && (await count('[data-shift-unreconciled]')) === 1);
 await page.type('[data-shift-counted-input]', '0');
 await sleep(100);
 const diffState = await page.$eval('[data-shift-diff-banner]', (el) => el.getAttribute('data-shift-diff-state'));
@@ -1705,34 +1705,24 @@ check(
 );
 await shot('40-shift-close-reconciliation');
 
-await page.click('[data-shift-ack-unreconciled] input');
-await page.click('[data-close-shift-submit]');
-await page.waitForSelector('[data-close-shift-view]', { hidden: true, timeout: 3000 });
+// The prior lifecycle assertion expected an unreconciled shift to close and a
+// second shift to open. That policy is now explicitly blocked by the service.
+await page.click('[data-shift-record-count]');
+await page.waitForFunction(() => document.querySelector('[data-shift-count-state]')?.textContent.includes('آخر عدّ'));
+const directClose = await page.evaluate(async () => {
+  try { await window.__TAURI_INTERNALS__.invoke('close_shift', { countedCashMinor: 0, closeNote: 'fixture' }); return 'unexpected success'; }
+  catch (e) { return e.code; }
+});
+check('A physical count does not close an unreconciled shift, even through direct invocation',
+  directClose === 'SHIFT_CASH_UNRECONCILED' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)));
+await page.keyboard.press('Escape');
 await sleep(200);
-check(
-  'After closing Shift #1, topbar shows no open shift and offers «فتح وردية»',
-  (await text('[data-topbar-shift-status]')).includes('مفيش وردية مفتوحة') &&
-    (await text('[data-open-shift-modal]')).includes('فتح وردية')
-);
-
-await page.click('[data-open-shift-modal]');
-await page.waitForSelector('[data-open-shift-view]', { timeout: 3000 });
-await sleep(150);
-check(
-  'Open Shift modal requires an explicit opening count and lists recent closed shifts',
-  (await page.$eval('[data-open-shift-cash]', el => el.value)) === '' &&
-  (await count('[data-last-closed-shift-hint]')) === 1 &&
-    (await count('[data-recent-closed-shifts]')) === 1
-);
-await shot('41-open-next-shift');
-await page.type('[data-open-shift-cash]', '0');
-await page.click('[data-open-shift-submit]');
-await page.waitForSelector('[data-open-shift-view]', { hidden: true, timeout: 3000 });
-await sleep(200);
-check(
-  'Opening the next shift starts Shift #2 in the topbar',
-  (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة')
-);
+const nextOpen = await page.evaluate(async () => {
+  try { await window.__TAURI_INTERNALS__.invoke('open_shift', { openingCashMinor: 0 }); return 'unexpected success'; }
+  catch (e) { return e.code; }
+});
+check('An unreconciled open shift prevents a second shift',
+  nextOpen === 'SHIFT_ALREADY_OPEN' && (await text('[data-topbar-shift-status]')).includes('وردية #1 مفتوحة'));
 
 // --- Plan item 1.10 (ADR-025): Quick Services (F9), Wallets screen, and Wallets/Commission settings ---
 await clickText('.rail .nav-btn', 'البيع');
@@ -2869,7 +2859,24 @@ check(
   // --- Phase 2 Item 2.5: Monthly Reports & Evaluation (ADR-035) ------------
   await clickText('.rail .nav-btn', 'التقارير');
   await page.waitForSelector('[data-reports-screen]', { timeout: 3000 });
-  await sleep(250);
+  await page.waitForSelector('[data-reports-incomplete] button', { timeout: 5000 });
+  const guardText = await text('[data-reports-incomplete]');
+  check('Reports refuse actual demo history with returns or cancellations',
+    guardText.includes('مرتجعات') && (await count('[data-reports-day-rating]')) === 0 &&
+    (await page.$eval('[data-reports-export]', el => el.disabled)), guardText.replace(/\s+/g, ' '));
+  // Separately exercise the existing report UI against a deliberately reduced
+  // no-reversal fixture. This is not a complete-history financial report.
+  await page.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__smokeOriginalInvoke = original;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, ...args) => {
+      const result = await original(cmd, ...args);
+      return cmd === 'list_sales_history' ? result.filter(s => !s.isCancelled && s.returnCount === 0 && s.alreadyRefundedMinor === 0) : result;
+    };
+  });
+  await page.click('[data-reports-incomplete] button');
+  await page.waitForSelector('[data-reports-day-rating]', { timeout: 5000 });
+  check('Isolated no-reversal report fixture is used only for UI rendering', (await count('[data-reports-incomplete]')) === 0);
 
   check(
     'Owner opens «التقارير» on the «النهارده» tab with 6 KPI cards (net profit is its own), 7-day bars, and separate repair/software revenue',
@@ -2935,7 +2942,7 @@ check(
     waSummaryBody.includes('ملخص اليوم') &&
       waSummaryBody.includes('فلوس الصيانة لوحدها') &&
       waSummaryBody.includes('فلوس السوفت وير لوحدها') &&
-      waSummaryBody.includes('المفروض في الدرج') &&
+      waSummaryBody.includes('رصيد الدرج غير متاح') &&
       waSummaryBody.includes('التنبيهات الذكية') &&
       (await text('#toasts')).includes('اتبعت ملخص اليوم على واتساب المالك'),
     waSummaryBody.slice(0, 120)
@@ -2990,6 +2997,8 @@ check(
     (await text('.topbar h1')) === 'المبيعات' &&
       (await count('[data-sales-inv-row]')) >= 1
   );
+
+  await page.evaluate(() => { window.__TAURI_INTERNALS__.invoke = window.__smokeOriginalInvoke; });
 
   // --- Phase 3 Item 3.2 (ADR-037): LAN Companion Server & Mobile Helper -----
   await clickText('.rail .nav-btn', 'الموبايل');
@@ -3144,10 +3153,10 @@ await shot('62d-companion-tryout-inbox');
   await sleep(200);
   const remoteSummaryTxt = await text('[data-mobile-remote-summary]');
   check(
-    'Switching Mobile Companion to «من برّه المحل (للمالك)» displays separate repair & software money and drawer cash',
+    'Remote owner view separates repair and software and withholds the unreconciled drawer balance',
     remoteSummaryTxt.includes('فلوس الصيانة لوحدها') &&
       remoteSummaryTxt.includes('فلوس السوفت وير لوحدها') &&
-      remoteSummaryTxt.includes('المفروض في الدرج'),
+      remoteSummaryTxt.includes('رصيد الدرج غير متاح') && !remoteSummaryTxt.includes('المفروض في الدرج'),
     remoteSummaryTxt
   );
   await shot('63-mobile-remote-owner');

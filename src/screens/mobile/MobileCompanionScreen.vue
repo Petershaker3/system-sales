@@ -779,6 +779,7 @@ onUnmounted(() => {
                   <span>المفروض في الدرج</span>
                   <b class="num">{{ money(remoteSnapshot.expectedDrawerCashMinor) }}</b>
                 </div>
+                <div v-else class="r" data-mobile-drawer-unreconciled>رصيد الدرج غير متاح حتى مطابقة مصادر النقدية.</div>
               </div>
 
               <div

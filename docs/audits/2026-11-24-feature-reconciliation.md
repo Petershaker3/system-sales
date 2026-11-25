@@ -309,3 +309,21 @@ No per-drawer identity, transactional cash posting, transfers or reconciliation
 ledger has been implemented. Until those exist, the single-open-shift shop
 cannot start a later shift via the normal workflow. Do not call this a complete
 cash lifecycle or production-ready substitute.
+
+Broad demo investigation: the initial missing KPI/day-rating failure was the
+intentional return/cancellation guard, confirmed against the actual demo history
+(the warning explicitly names returns/cancellations). The smoke now asserts that
+real guard and disabled export, then separately exercises the existing report UI
+with a deliberately filtered no-reversal fixture; it restores the original demo
+invoker afterwards. This fixture is **not** evidence of correct reporting on
+complete histories. The previously expected mobile drawer figure was also
+unreconciled; the remote view now explicitly says it is unavailable. With these
+updates the broad mock demo completed **323/323** checks locally; the earlier
+run after the first smoke update completed 322/323 and exposed that stale mobile
+expectation. Focused mock checks: 6/6 passed. Local typecheck, 298 unit tests,
+production frontend build and five supplementary raw SQLite tests passed on the
+backend safety code, with typecheck and broad smoke rerun after the mobile fix.
+Rust/SQLx non-release run 45525179849 tests code SHA
+`7e57343731fd0d76cc358d4b700ff036d5c64b69`; consult its actual conclusion before
+claiming it passed. Local Rust toolchain and platform/device verification remain
+unavailable.
