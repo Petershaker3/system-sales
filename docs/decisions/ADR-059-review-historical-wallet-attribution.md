@@ -54,3 +54,26 @@ posted refund still need a compensating financial ledger and remain blocked.
 This resolves neither the physical payment source for an unresolved refund nor
 cash drawer identity. Unreviewed cases remain blocked and the report guard
 remains in place.
+
+## Audit clarification: review transitions and event periods
+
+The manager-only history API exposes the original recorded wallet separately
+from the effective proven attribution immediately before and after each event.
+These transitions are derived from the immutable payment and the ordered,
+append-only review chain: a confirmation changes unresolved to its named wallet;
+a revocation changes that wallet back to unresolved. The historical field is
+not itself proof. Reviews are evidence-based attestations, not financial
+postings, and after an allocation uses a confirmation it cannot be revoked.
+Concurrent conflicting confirmations serialize at `BEGIN IMMEDIATE`, and a
+repeated request succeeds only for the same actor and identical payload.
+
+Wallet lifetime and period estimates apply the current effective attribution to
+the original sale's event time, not the later review time. Thus a review can
+change a historical wallet-period estimate. The original sale remains untouched;
+a query is **not** an as-of-review-time audit report. Before confirmation the
+estimate may still include the legacy recorded wallet, which is unverified and
+must not be called a reconciled balance. Refund payments remain in the period
+in which the reversal occurred. Linked old refund allocations to another wallet
+prevent a confirmation. An old reversal with no allocation remains unresolved:
+the system does not infer a link, and further returns on that sale remain
+blocked even if an individual original wallet has since been reviewed.

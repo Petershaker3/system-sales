@@ -484,3 +484,37 @@ Unresolved payment sources remain blocked: no physical payment destination is
 inferred and no decision has been made for paying a refund from a different
 source. Full drawer ledger, reconciliation, complete history reporting, and
 real database-to-UI validation are still outstanding. The report guard remains.
+
+### Refund payout policy investigation
+
+`ADR-026` §6 describes returning by the original payment method by default and
+allows selecting a refund method; `ADR-041` §6 says an electronic refund uses the
+same wallet that received the original. The return modal offers a method and
+wallet selection, but the current service requires allocation to an actual
+original payment and the effective proven wallet. These sources do **not**
+establish how to physically pay an electronic refund when that original
+wallet is unknown. The method selector is not authorization to invent a
+historical source or silently post the refund against an arbitrary wallet.
+The open decision is whether a separately authorized payout from a specified
+cash drawer, wallet, or other source is allowed, and what approval, evidence,
+customer receipt, and compensating financial postings should accompany it.
+Choosing a different source changes real drawer/wallet cash, can create a
+liability or require settlement, and must not rewrite the original receipt.
+Until a policy and compensating ledger exist the unresolved case remains
+blocked. Proven sources continue to use their original source, but an old
+unallocated reversal on the same sale also blocks further refunds because its
+allocation capacity cannot safely be determined.
+
+### Provenance audit follow-up
+
+The immutable original, append-only manager review and allocation triggers
+were examined along with service authorization and wallet period queries.
+The review-history API now explicitly exposes the original recorded wallet
+and the effective proven wallet before and after every event. This is derived
+from immutable history; it does not certify the evidence. Wallet period
+estimates use the original sale's period and today's review status, so later
+reviews can restate historical estimates. Existing refund postings remain in
+their own event periods. This is not a reconciliation or an as-of audit report.
+Review tests exercise competing requests, retries, and wallet period estimates.
+The ledger, verified reconciliation, complete reports, and live database-to-UI
+validation remain incomplete; do not remove the existing guards.
