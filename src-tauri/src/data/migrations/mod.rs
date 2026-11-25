@@ -211,3 +211,6 @@ pub const SALE_WALLET_PROVENANCE: &str = include_str!("0043_wallet_payment_prove
 
 /// Append-only review of a historical recorded wallet (0044).
 pub const SALE_WALLET_EVIDENCE_REVIEW: &str = include_str!("0044_wallet_evidence_review.sql");
+
+/// Evidence-based effective wallet attribution without rewriting old payments (0045).
+pub const EFFECTIVE_WALLET_ATTRIBUTION: &str = include_str!("0045_effective_wallet_attribution.sql");

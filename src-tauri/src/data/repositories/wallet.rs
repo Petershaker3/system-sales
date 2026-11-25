@@ -259,7 +259,8 @@ pub async fn compute_wallet_balance_minor(
         ), 0)
         FROM sale_payments sp
         INNER JOIN sales s ON s.id = sp.sale_id
-        WHERE sp.wallet_id = ?1",
+        LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=sp.id
+        WHERE (CASE WHEN s.kind='sale' THEN COALESCE(e.wallet_id,sp.wallet_id) ELSE sp.wallet_id END) = ?1",
     )
     .bind(wid)
     .fetch_one(&mut *conn)
@@ -331,7 +332,8 @@ pub async fn compute_wallet_period_stats(
         ), 0)
         FROM sale_payments sp
         INNER JOIN sales s ON s.id = sp.sale_id
-        WHERE sp.wallet_id = ?1
+        LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=sp.id
+        WHERE (CASE WHEN s.kind='sale' THEN COALESCE(e.wallet_id,sp.wallet_id) ELSE sp.wallet_id END) = ?1
           AND s.occurred_at >= ?2
           AND s.occurred_at <= ?3",
     )

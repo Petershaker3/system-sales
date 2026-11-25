@@ -524,6 +524,7 @@ export interface WalletReviewCase {
   readonly recordedWalletName: string | null;
   readonly occurredAt: number;
   readonly reviewAction: 'confirm' | 'revoke' | null;
+  readonly reviewWalletId: string | null;
   readonly reviewReason: string | null;
   readonly reviewEvidence: string | null;
   readonly reviewActorId: string | null;

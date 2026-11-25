@@ -3592,7 +3592,7 @@ fn every_money_flow_names_its_wallet_number() {
     // order and no method match that could count the same money for two numbers.
     let repo = code_only(WALLET_REPOSITORY);
     for required in [
-        "WHERE sp.wallet_id = ?1",
+        "sale_effective_wallet_attribution",
         "WHERE kind = 'payment' AND wallet_id = ?1",
         "WHERE status = 'delivered' AND pay_wallet_id = ?1",
     ] {

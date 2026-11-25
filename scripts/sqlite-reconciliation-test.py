@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 44)
+        self.assertEqual(len(paths), 45)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,12 +46,12 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-7]:
+            for path in migrations[:-8]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            for path in migrations[-7:]:
+            for path in migrations[-8:]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
@@ -100,7 +100,7 @@ class LedgerReconciliation(unittest.TestCase):
             self.db.execute("INSERT INTO refund_payment_allocations VALUES('r','p',100)")
         review = "INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES(?,?,?,?,?,?,?,?)"
         with self.assertRaises(sqlite3.IntegrityError):
-            self.db.execute(review, ('p','ip','confirm','reason','evidence','u',3,'wrong'))
+            self.db.execute(review, ('p','unknown-wallet','confirm','reason','evidence','u',3,'wrong'))
         self.db.execute(review, ('p','vf','confirm','reason','statement','u',3,'confirm'))
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute(review, ('p','vf','confirm','reason','statement','u',3,'duplicate'))

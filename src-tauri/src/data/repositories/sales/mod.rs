@@ -502,10 +502,14 @@ pub async fn list_sale_payments(
     sale_id: &str,
 ) -> Result<Vec<SalePaymentRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, sale_id, payment_no, method, wallet_id, amount_minor, reference, occurred_at
-         FROM sale_payments
-         WHERE sale_id = ?1
-         ORDER BY payment_no",
+        "SELECT p.id, p.sale_id, p.payment_no, p.method,
+                CASE WHEN s.kind='sale' AND p.method IN ('vf','instapay')
+                  THEN COALESCE(e.wallet_id,p.wallet_id) ELSE p.wallet_id END AS wallet_id,
+                p.amount_minor, p.reference, p.occurred_at
+         FROM sale_payments p JOIN sales s ON s.id=p.sale_id
+         LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id
+         WHERE p.sale_id = ?1
+         ORDER BY p.payment_no",
     )
     .bind(sale_id)
     .fetch_all(&mut *conn)
@@ -1335,7 +1339,7 @@ pub async fn insert_refund_payment_allocation(
 /// Only a recorded post-provenance wallet may be used as a refund source.
 /// Existing rows are intentionally not inferred or backfilled.
 pub async fn wallet_source_is_recorded(conn: &mut SqliteConnection, payment_id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_payments p WHERE p.id=?1 AND (EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id AND v.wallet_id=p.wallet_id) OR EXISTS(SELECT 1 FROM sale_wallet_reviews r WHERE r.payment_id=p.id AND r.wallet_id=p.wallet_id AND r.action='confirm' AND r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id))))")
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_effective_wallet_attribution WHERE payment_id=?1 AND wallet_id IS NOT NULL)")
         .bind(payment_id).fetch_one(&mut *conn).await
 }
 
@@ -1351,6 +1355,7 @@ pub struct WalletReviewCase {
     pub recorded_wallet_name: Option<String>,
     pub occurred_at: i64,
     pub review_action: Option<String>,
+    pub review_wallet_id: Option<String>,
     pub review_reason: Option<String>,
     pub review_evidence: Option<String>,
     pub review_actor_id: Option<String>,
@@ -1358,7 +1363,7 @@ pub struct WalletReviewCase {
 }
 
 pub async fn wallet_review_cases(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<WalletReviewCase>, sqlx::Error> {
-    sqlx::query_as::<_, WalletReviewCase>("SELECT p.id payment_id,p.sale_id,s.reference sale_reference,p.method,p.amount_minor,p.wallet_id recorded_wallet_id,w.name recorded_wallet_name,p.occurred_at,r.action review_action,r.reason review_reason,r.evidence review_evidence,r.actor_id review_actor_id,r.occurred_at review_occurred_at FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN wallets w ON w.id=p.wallet_id LEFT JOIN sale_wallet_reviews r ON r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id) WHERE p.sale_id=?1 AND s.kind='sale' AND p.method IN ('vf','instapay') AND NOT EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id) ORDER BY p.payment_no")
+    sqlx::query_as::<_, WalletReviewCase>("SELECT p.id payment_id,p.sale_id,s.reference sale_reference,p.method,p.amount_minor,p.wallet_id recorded_wallet_id,w.name recorded_wallet_name,p.occurred_at,r.action review_action,r.wallet_id review_wallet_id,r.reason review_reason,r.evidence review_evidence,r.actor_id review_actor_id,r.occurred_at review_occurred_at FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN wallets w ON w.id=p.wallet_id LEFT JOIN sale_wallet_reviews r ON r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id) WHERE p.sale_id=?1 AND s.kind='sale' AND p.method IN ('vf','instapay') AND NOT EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id) ORDER BY p.payment_no")
         .bind(sale_id).fetch_all(&mut *conn).await
 }
 

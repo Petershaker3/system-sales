@@ -2830,8 +2830,8 @@ pub async fn financial_event_totals(
         .await.map_err(|_| DomainError::StorageUnavailable.into())
 }
 
-/// Managers can review a historical electronic payment's recorded wallet.
-/// A conflicting or absent historical wallet is deliberately not guessed.
+/// Managers may inspect historical electronic payments and prior review events.
+/// A recorded wallet without evidence is deliberately not treated as proven.
 pub async fn wallet_review_cases(pool: &SqlitePool, tokens: &dyn SecureTokenStore, sale_id: &str) -> Result<Vec<sales_repo::WalletReviewCase>, SaleServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }

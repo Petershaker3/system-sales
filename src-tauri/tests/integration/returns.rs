@@ -651,7 +651,7 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     assert_eq!(cases.len(), 1);
     let pid = &cases[0].payment_id;
     assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "", "evidence", "invalid").await.is_err());
-    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "confirm", "reason", "evidence", "wrong-wallet").await.is_err());
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "missing-wallet", "confirm", "reason", "evidence", "wrong-wallet").await.is_err());
     auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller login");
     assert_eq!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reason", "statement", "seller").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
     auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
@@ -686,4 +686,33 @@ async fn electronic_sale_rejects_missing_wallet_without_writes() {
     assert_eq!(error.code(), "SALE_PAYMENT_WALLET_INVALID");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales").fetch_one(&pool).await.expect("sales");
     assert_eq!(n, 0);
+}
+
+#[tokio::test]
+async fn reviewed_wallet_can_differ_from_legacy_value_without_rewriting_original() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let payment = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: Some("vf".into()) }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payment), None, 0, &[0]).await.expect("sale");
+    let line = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("inspect").lines[0].line_id.clone();
+    // Simulate old unproven data without modifying the original sale payment.
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&pool).await.expect("fixture");
+    sqlx::query("DELETE FROM sale_wallet_provenance").execute(&pool).await.expect("fixture");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    let cases = sales::wallet_review_cases(&pool, tokens.as_ref(), &sale.sale_id).await.expect("cases");
+    let pid = &cases[0].payment_id;
+    // The current method on ip differs; an independently evidenced historical
+    // destination must not be rewritten or rejected by today's wallet settings.
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "confirm", "verified statement", "bank statement ref 456", "different-wallet").await.expect("review");
+    let raw: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original");
+    assert_eq!(raw.as_deref(), Some("vf"));
+    let effective: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_effective_wallet_attribution WHERE payment_id=?1").bind(pid).fetch_one(&pool).await.expect("effective");
+    assert_eq!(effective.as_deref(), Some("ip"));
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    let returned = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line, quantity: 1, condition: "intact".into() }], "refund", None).await.expect("return against reviewed wallet");
+    let wallet: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(returned.return_sale_id).fetch_one(&pool).await.expect("refund wallet");
+    assert_eq!(wallet.as_deref(), Some("ip"));
+    let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations WHERE original_payment_id=?1").bind(pid).fetch_one(&pool).await.expect("links");
+    assert_eq!(links, 1);
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "revoke", "change", "evidence", "after-use").await.is_err());
 }
