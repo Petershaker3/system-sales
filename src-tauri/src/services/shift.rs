@@ -624,7 +624,8 @@ pub async fn close_shift(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     let expected_cash_minor = totals.expected_cash_minor;
-    let difference_minor = counted_cash.as_minor() - expected_cash_minor;
+    let difference_minor = counted_cash.as_minor().checked_sub(expected_cash_minor)
+        .ok_or(DomainError::StorageUnavailable)?;
 
     let count = repo::ShiftCashCount {
         id: uuid::Uuid::now_v7().to_string(), shift_id: open_shift.id.as_str().to_owned(),

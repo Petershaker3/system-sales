@@ -327,3 +327,42 @@ Rust/SQLx non-release run 45525179849 tests code SHA
 `7e57343731fd0d76cc358d4b700ff036d5c64b69`; consult its actual conclusion before
 claiming it passed. Local Rust toolchain and platform/device verification remain
 unavailable.
+
+### Operational closure and explicit handover (supersedes the blanket-close block above)
+
+The non-release workflow passed for `0f8bb48e110dc8914f1f3e078d5084c8f52d5f2a`
+(run 45526247712). The operational model now allows an authorized operator to
+close a specific open shift with an explicitly supplied nonnegative physical
+count. The count, audit entries and close share an immediate SQLite transaction;
+failed audit writes roll the whole close back. A stale close request must name
+its shift and cannot close a later shift. This is not financial reconciliation.
+The legacy schema requires storing the timestamp-based expected value and its
+arithmetic difference; they are estimates, not verified balances. Shift record
+DTOs suppress both values and carry `cashReconciled: false`, while live totals
+remain flagged unreconciled and visible only as estimates.
+
+A subsequent opening requires an independently entered observation, not a
+prefill. Migration 0042 preserves the new opening, actor, previous shift/count
+when known, and arithmetic handover difference, all unresolved; there is no
+implicit settlement, adjustment or verified drawer identity. Historical shift
+identities and drawer sources are not inferred. A numerical difference between
+observations does not establish that they concern the same physical drawer.
+Opening/closing remains subject to existing seller authorization. Existing
+closed records remain immutable. All unresolved balances continue to be blocked
+from the financial report guard, which has not been removed.
+
+On `04d163400fa485e4fbe1f50f4c7ab58e49efef0a`, local 298 unit tests,
+typecheck, build, 6 focused mock checks, 5 SQLite experiments and 325/325 broad
+mock-demo checks passed; the subsequent stale-request guard has also passed
+local typecheck and focused mock checks. These mock checks are not a substitute
+for real device tests. GitHub non-release runs 45527743833 (04d1634) and
+45528165063 (54a951f) must be checked for their actual conclusions.
+
+**Still incomplete:** this is not the requested durable drawer ledger. New cash
+writers are not universally bound to a configured immutable drawer identity,
+transfers and reversals have no unified posting model, and no complete
+reconciliation or discrepancy-resolution policy exists. The handover record
+has no history UI/API beyond the immediate opening comparison yet. Transaction
+idempotency across sales, expenses, wallets, repairs and transfers, actual Tauri
+direct-command execution, upgraded real backups and device behavior remain
+unverified. Do not promote or describe this as a complete cash lifecycle.

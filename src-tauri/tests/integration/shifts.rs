@@ -474,3 +474,22 @@ async fn failed_close_audit_rolls_back_count_and_operational_close() {
     assert!(state.open_shift.is_some());
     assert!(state.last_closed_shift.is_none());
 }
+
+#[tokio::test]
+async fn concurrent_close_requests_cannot_close_twice() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("close.db")).await.expect("db");
+    let tokens = InMemoryTokenStore::new();
+    let owner = bootstrap::create_first_manager(&pool, "Peter", PASSWORD).await.expect("owner").user_id;
+    auth::login(&pool, &tokens, owner, PASSWORD).await.expect("login");
+    let opened = shift_service::open_shift(&pool, &tokens, 100).await.expect("open");
+    let id = opened.shift.id.as_str().to_owned();
+    let (a, b) = tokio::join!(
+        shift_service::close_shift(&pool, &tokens, &id, 100, None),
+        shift_service::close_shift(&pool, &tokens, &id, 100, None)
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts WHERE shift_id=?")
+        .bind(&id).fetch_one(&pool).await.expect("counts");
+    assert_eq!(n, 1, "close retries do not create duplicate count observations");
+}
