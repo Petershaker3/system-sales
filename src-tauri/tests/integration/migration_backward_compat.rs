@@ -244,7 +244,7 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
         ledger(&pool).await,
         vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
         ],
         "the pending migrations must be applied, not the whole chain re-run"
     );
@@ -299,7 +299,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 39, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 40, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 
@@ -395,8 +395,11 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("shop.db");
     let pool = db::open(&path).await.expect("current schema");
+    sqlx::query("DROP TRIGGER sale_payments_wallet_matches_method").execute(&pool).await.expect("remove v40 trigger in fixture");
+    sqlx::raw_sql("CREATE TRIGGER sale_payments_wallet_matches_method BEFORE INSERT ON sale_payments WHEN NEW.wallet_id IS NOT NULL AND COALESCE((SELECT w.pay_method FROM wallets w WHERE w.id=NEW.wallet_id),'') <> NEW.method BEGIN SELECT RAISE(ABORT, 'sale_payments.wallet_id must name a wallet that receives this method'); END;")
+        .execute(&pool).await.expect("restore v38 trigger in fixture");
     sqlx::query("DROP TABLE refund_payment_allocations").execute(&pool).await.expect("remove v39 table in test fixture");
-    sqlx::query("DELETE FROM _sqlx_migrations WHERE version=39").execute(&pool).await.expect("rewind fixture ledger");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (39,40)").execute(&pool).await.expect("rewind fixture ledger");
     sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)")
         .execute(&pool).await.expect("user");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('legacy-sale','legacy-sale',100,'legacy-user','sale',1000,600)")
@@ -406,8 +409,8 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('original','legacy-sale',1,'cash',1000,100),('refund','legacy-return',1,'cash',300,200)")
         .execute(&pool).await.expect("payments");
     pool.close().await;
-    let upgraded = db::open(&path).await.expect("SQLx upgrade to v39");
-    assert_eq!(ledger(&upgraded).await.last().copied(), Some(39));
+    let upgraded = db::open(&path).await.expect("SQLx upgrade to v40");
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(40));
     let payments: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM sale_payments WHERE id IN ('original','refund')").fetch_one(&upgraded).await.expect("payments preserved");
     assert_eq!(payments, 1300);
     let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&upgraded).await.expect("links");

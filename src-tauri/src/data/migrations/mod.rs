@@ -196,3 +196,6 @@ pub const SALE_REVERSAL_PERIOD_INDEX: &str = include_str!("0038_sale_reversal_pe
 
 /// Explicit original-payment links for new refund rows (0039).
 pub const REFUND_PAYMENT_ALLOCATIONS: &str = include_str!("0039_refund_payment_allocations.sql");
+
+/// Preserve the recorded wallet of a reversal after its configuration changes (0040).
+pub const PRESERVE_REFUND_WALLET: &str = include_str!("0040_preserve_refund_wallet.sql");

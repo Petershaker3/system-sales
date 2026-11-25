@@ -614,3 +614,17 @@ async fn concurrent_allocation_writers_cannot_refund_one_payment_twice() {
         .fetch_one(&pool).await.expect("allocation totals");
     assert_eq!((count, total), (1, 100));
 }
+
+#[tokio::test]
+async fn refund_retains_original_wallet_after_its_payment_method_changes() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let payments = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: Some("vf".into()) }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payments), None, 0, &[0]).await.expect("sale");
+    let line = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("inspect").lines[0].line_id.clone();
+    sqlx::query("UPDATE wallets SET pay_method=NULL WHERE id='vf'").execute(&pool).await.expect("wallet no longer receives new vf sales");
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    let returned = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line, quantity: 1, condition: "intact".into() }], "fixture", None).await.expect("refund retains original wallet");
+    let wallet: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(&returned.return_sale_id).fetch_one(&pool).await.expect("refund wallet");
+    assert_eq!(wallet.as_deref(), Some("vf"));
+}
