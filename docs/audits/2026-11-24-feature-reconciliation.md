@@ -605,3 +605,11 @@ over timestamp inference, including when two shifts touch the same millisecond.
 For older operations without captured postings, timestamps remain a fallback
 estimate, not proof of a drawer assignment. This does not resolve other missing
 sources or turn the estimate into a reconciled balance.
+
+### Captured repair cash in shift estimates
+
+Where receipt/refund postings exist, shift estimates use their immutable event
+shift rather than the repair ticket's current status. A later cancellation no
+longer deletes a captured receipt from the earlier shift. Legacy and mixed
+payouts without capture still remain unresolved; non-cash repair and profit
+summaries remain status-based and are not complete event-period reporting.

@@ -427,8 +427,8 @@ pub async fn compute_shift_totals(
 
     let rep_row = sqlx::query(
         "SELECT
-            COALESCE(SUM(CASE WHEN status != 'cancelled' AND created_at >= ?1 AND created_at <= ?2 AND deposit_minor > 0 THEN deposit_minor ELSE 0 END), 0) AS deposit_cash_minor,
-            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'cash' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_cash_minor,
+            COALESCE(SUM(CASE WHEN status != 'cancelled' AND created_at >= ?1 AND created_at <= ?2 AND deposit_minor > 0 AND NOT EXISTS (SELECT 1 FROM cash_source_postings p WHERE p.source_kind='repair_deposit' AND p.source_id=repairs.id) THEN deposit_minor ELSE 0 END), 0) AS deposit_cash_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'cash' AND NOT EXISTS (SELECT 1 FROM cash_source_postings p WHERE p.source_kind='repair_delivery' AND p.source_id=repairs.id) THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_cash_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'vf' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_vf_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'instapay' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_instapay_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'card' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_card_minor,
@@ -449,6 +449,12 @@ pub async fn compute_shift_totals(
     let rep_deliv_count: i64 = rep_row.try_get("deliv_count")?;
     let rep_deliv_profit: i64 = rep_row.try_get("deliv_profit_minor")?;
 
+    // Captured repair receipts and proven cash refunds are immutable events.
+    // Their shift identity remains valid even after the ticket is cancelled.
+    // Old tickets without these postings still use the incomplete legacy estimate.
+    let repair_cash_events: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(signed_minor),0) FROM cash_source_postings WHERE shift_id=?1 AND source_kind IN ('repair_deposit','repair_delivery','repair_cash_refund')")
+        .bind(shift.id.as_str()).fetch_one(&mut *conn).await?;
+
     // Transfers are physical outflows from the assigned drawer, not owner
     // withdrawals and not income to the shop. The paired destination posting
     // belongs to a different drawer and must not cancel the source outflow.
@@ -468,7 +474,7 @@ pub async fn compute_shift_totals(
         customer_cash_in_minor,
         (services_count_raw + rep_deliv_count).max(0) as u64,
         services_fee_minor + rep_deliv_profit,
-        services_cash_in_minor + rep_deposit_cash + rep_deliv_cash,
+        services_cash_in_minor + rep_deposit_cash + rep_deliv_cash + repair_cash_events,
         services_cash_out_minor,
         wallet_drawer_net_minor,
         cash_in_minor,

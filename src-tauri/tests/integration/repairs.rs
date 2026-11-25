@@ -642,6 +642,14 @@ async fn cash_repair_receipts_and_wholly_cash_cancellation_keep_event_shifts() {
     repair_service::cancel_repair(&pool, tokens.as_ref(), &ticket.id, Some("refund")).await.expect("cancel");
     let refund: (String,String,i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("refund posting");
     assert_eq!(refund, (second.shift.id.as_str().to_owned(),"r2".into(),-200));
+    let current = shift_service::current_shift_summary(&pool,tokens.as_ref()).await.expect("current").open_shift.expect("open").totals;
+    assert_eq!(current.services_cash_in_minor,-200, "refund belongs to its own shift");
+    assert_eq!(current.expected_cash_minor,0);
+    let mut conn = pool.acquire().await.expect("connection");
+    let closed = mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn,first.shift.id.as_str()).await.expect("read").expect("first shift");
+    let past = mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn,&closed).await.expect("totals");
+    assert_eq!(past.services_cash_in_minor,200, "later cancellation must not erase receipts");
+    assert_eq!(past.expected_cash_minor,200);
 }
 
 #[tokio::test]
