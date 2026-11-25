@@ -188,3 +188,65 @@ The build retained dynamic-import and chunk-size warnings. Rust compilation,
 SQLx migrations and all new Rust transaction tests were **not run**. Python
 executes database SQL only; it does not execute the Rust allocation algorithm.
 This note is documentation-only.
+
+### Drawer-source investigation and non-release Rust verification
+
+The real shift implementation has **one open shift**, not a drawer catalogue,
+default-drawer setting, drawer ids, or a multiple-drawer ledger. Opening cash is
+stored on `shifts`; drawer expenses and manual cash movements carry `shift_id`.
+Sale/refund cash payments carry neither drawer nor shift id. Cash customer-debt
+payments are in `customer_ledger`, wallet/service operations in `wallet_ops`,
+and repair deposits/deliveries in mutable `repairs`; these also lack drawer ids.
+Shift closing computes an expected balance from a mixture of explicitly linked
+shift rows and timestamp ranges, inclusive at both ends. Wallet operations
+filter `voided_at IS NULL`, and repair totals use current status; those sources
+require event-history review before claiming historical reconciliation. This is
+source inspection, not a test on an actual shop database. No historical drawer
+identity was fabricated. Existing shift balances remain timestamp-derived and
+**must not be treated as reconciled**; disabling or replacing that closing path
+requires an integrated change across all of these writers and its user-facing
+workflow, not just a new sale column. Multi-drawer source capture, transfers,
+opening/closing, unresolved-source reporting, and end-to-end balances remain
+unimplemented. The provisional report guard remains enabled.
+
+Full cancellation's `restore_line` sums original sale movement quantity/cost,
+links its stock reversal movements, collapses legacy FIFO to moving average,
+and restores unit states in the transaction. Partial returns compute original
+line-based prorated costs, post intact stock movements or damaged-stock records.
+These observations are not a verified complete profit calculation.
+
+A branch-scoped read-only GitHub workflow was added so the pinned Rust compiler
+and SQLx tests run without publication. The release-capable CI workflow's push
+trigger is temporarily excluded for this one recovery branch; its exception and
+branch-specific verification workflow must be reconsidered before any promotion.
+No release workflow, tag movement or publication was triggered. Run
+`45515207863` succeeded for `6655f37eae482be8706b9dc52bda23a6195eefa5`, including
+`cargo test --locked --no-fail-fast` and frontend build. Run `45516196387`
+succeeded for `51b1f14e7f5ad72b5db8f3359e4b531612aef798`, adding a populated
+SQLx upgrade fixture. Run `45516257456` succeeded for
+`afa2f3f816517e9f564dd3d15484b7a92378b824`, adding a two-writer database-level
+allocation-capacity test. These are not device tests or a two-session POS refund
+test. Logs hosted on results-receiver.actions.githubusercontent.com could not be
+downloaded from this sandbox; the GitHub job statuses and steps are accessible.
+
+Migration `0040` permits reversal to the exact previously recorded wallet even
+if that wallet no longer receives new payments of the old method; new sales
+still require a currently eligible wallet. The Python SQLite fixture passed,
+but Rust run `45517602266` at `e15ed462a6e29cc00992a939c8a253fd19690bae`
+failed, followed by diagnostic run `45518498514` at
+`feca3893f0268f3bd7e69f950ce2059780addc0f`; the populated-v38 upgrade test was
+reported failed. Diagnosis and a passing current-SHA Rust run remain necessary.
+
+**Follow-up:** diagnostic run `45519429207` identified the failing fixture's
+trigger recreation. Run `45520289515` still failed after an initial attempt;
+recreating the fixture trigger on the same acquired SQLite connection fixed it.
+Non-release run `45521201988` then **passed** frontend build and all
+`cargo test --locked --no-fail-fast` tests at exact SHA
+`f54bbe167173e1e7683cf6651e6f13ddcba233bd`:
+https://github.com/Petershaker3/system-sales/actions/runs/45521201988.
+This covers the existing fresh migration tests, the synthetic populated v38
+SQLx upgrade, the new historical-wallet refund service case, and the
+allocation-writer concurrency test. It does not cover multiple physical drawers,
+all cash transaction writers, two concurrent POS refund approvals, verified
+shop data, complete inventory/profit reconciliation, or device compatibility.
+The current drawer balances and the full financial report remain unreconciled.
