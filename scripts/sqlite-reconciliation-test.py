@@ -115,6 +115,20 @@ class LedgerReconciliation(unittest.TestCase):
             self.db.execute("DELETE FROM sale_wallet_reviews")
         self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), ('vf',))
 
+    def test_reviewed_unknown_source_allows_only_reviewed_wallet_refund(self):
+        self.sale('s', 1, 100, 50)
+        self.sale('r', 2, 100, 50, 'reversal', 's')
+        # Fixture payment predates explicit wallet provenance.
+        self.db.execute('DROP TRIGGER sale_wallet_provenance_on_insert')
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('p','s',1,'vf',NULL,100,1)")
+        self.db.execute("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','ip','confirm','review','statement reference','u',2,'review')")
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('refund','r',1,'vf','ip',100,2)")
+        self.db.execute("INSERT INTO refund_payment_allocations VALUES('refund','p',100)")
+        self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), (None,))
+        self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_effective_wallet_attribution WHERE payment_id='p'").fetchone(), ('ip',))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','ip','revoke','reason','evidence','u',3,'revoke')")
+
     def test_review_cannot_contradict_existing_allocated_refund(self):
         self.sale('s', 1, 100, 50)
         self.sale('r', 2, 100, 50, 'reversal', 's')

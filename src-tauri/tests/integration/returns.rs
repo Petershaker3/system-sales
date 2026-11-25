@@ -719,3 +719,29 @@ async fn reviewed_wallet_can_differ_from_legacy_value_without_rewriting_original
     assert_eq!(links, 1);
     assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "revoke", "change", "evidence", "after-use").await.is_err());
 }
+
+#[tokio::test]
+async fn reviewed_missing_historical_wallet_can_be_cancelled_without_rewriting_source() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let payment = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: Some("vf".into()) }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payment), None, 0, &[0]).await.expect("sale");
+    // This test-only fixture emulates an old payment with no wallet id.
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&pool).await.expect("fixture");
+    sqlx::query("DELETE FROM sale_wallet_provenance").execute(&pool).await.expect("fixture");
+    sqlx::query("DROP TRIGGER sale_payments_no_update").execute(&pool).await.expect("fixture");
+    sqlx::query("UPDATE sale_payments SET wallet_id=NULL WHERE sale_id=?1").bind(&sale.sale_id).execute(&pool).await.expect("fixture");
+    sqlx::query("CREATE TRIGGER sale_payments_no_update BEFORE UPDATE ON sale_payments BEGIN SELECT RAISE(ABORT, 'sale_payments is append-only'); END;").execute(&pool).await.expect("restore trigger");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    let cases = sales::wallet_review_cases(&pool, tokens.as_ref(), &sale.sale_id).await.expect("cases");
+    assert!(cases[0].recorded_wallet_id.is_none());
+    let pid = &cases[0].payment_id;
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    assert_eq!(sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "source unknown").await.expect_err("refused").code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "confirm", "reviewed", "bank evidence", "missing-wallet-review").await.expect("review");
+    let reversal = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "resolved source").await.expect("cancel");
+    let original: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original");
+    assert!(original.is_none(), "the original source stays unknown in the original row");
+    let refund: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(reversal.sale_id).fetch_one(&pool).await.expect("refund");
+    assert_eq!(refund.as_deref(), Some("ip"));
+}
