@@ -913,3 +913,41 @@ async fn usb_manual_copy_and_pin_approved_saved_backup_restore_round_trip() {
     reopened.close().await;
 }
 
+
+#[tokio::test]
+async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provenance() {
+    let dir = TempDir::new().expect("temp dir");
+    let pool = shop_with_data(dir.path()).await;
+    let actor: String = sqlx::query_scalar("SELECT id FROM users LIMIT 1").fetch_one(&pool).await.expect("actor");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s1',1,'open',100,?1,1)")
+        .bind(&actor).execute(&pool).await.expect("shift");
+    sqlx::query("INSERT INTO shift_cash_counts(id,shift_id,amount_minor,counted_by,counted_at) VALUES('count','s1',95,?1,2)")
+        .bind(&actor).execute(&pool).await.expect("count");
+    sqlx::query("UPDATE shifts SET status='closed',expected_cash_minor=100,counted_cash_minor=95,difference_minor=-5,closed_by=?1,closed_at=2 WHERE id='s1'")
+        .bind(&actor).execute(&pool).await.expect("operational close");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s2',2,'open',90,?1,3)")
+        .bind(&actor).execute(&pool).await.expect("next shift");
+    sqlx::query("INSERT INTO shift_opening_observations(shift_id,previous_shift_id,opening_minor,previous_count_minor,handover_difference_minor,observed_by,observed_at) VALUES('s2','s1',90,95,-5,?1,3)")
+        .bind(&actor).execute(&pool).await.expect("handover");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('sale','sale',4,?1,'sale',100,0)")
+        .bind(&actor).execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('payment','sale',1,'vf',100,'vf',4)")
+        .execute(&pool).await.expect("payment with provenance");
+    let path = dir.path().join("financial.msb");
+    backup::create_backup(&pool, dir.path(), &path, BACKUP_PASSWORD).await.expect("encrypted backup");
+    pool.close().await;
+    backup::restore_backup(dir.path(), &path, BACKUP_PASSWORD).expect("restore");
+    let restored = db::open(&dir.path().join("shop.db")).await.expect("reopen");
+    let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor,previous_count_minor,handover_difference_minor,reconciliation_status FROM shift_opening_observations WHERE shift_id='s2'")
+        .fetch_one(&restored).await.expect("handover");
+    assert_eq!(handover, (90, 95, -5, "unreconciled".to_owned()));
+    let count: i64 = sqlx::query_scalar("SELECT amount_minor FROM shift_cash_counts WHERE id='count'").fetch_one(&restored).await.expect("count");
+    assert_eq!(count, 95);
+    let wallet: String = sqlx::query_scalar("SELECT wallet_id FROM sale_wallet_provenance WHERE payment_id='payment'").fetch_one(&restored).await.expect("provenance");
+    assert_eq!(wallet, "vf");
+    assert!(sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='payment'").execute(&restored).await.is_err(), "append-only trigger survives restore");
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&restored).await.expect("integrity");
+    assert_eq!(integrity, "ok");
+    let fk: Vec<String> = sqlx::query_scalar("PRAGMA foreign_key_check").fetch_all(&restored).await.expect("foreign keys");
+    assert!(fk.is_empty());
+}
