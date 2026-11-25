@@ -238,11 +238,11 @@ async function submitOperationalClose(): Promise<void> {
         >
           <Icon name="info" />
           <span>
-            الوردية اللي فاتت (#{{ shiftState.lastClosedShift.shiftNumber }}) اتقفلت على معدود
-            <b v-if="shiftState.lastClosedShift.countedCashMinor !== null" class="num">{{ money(shiftState.lastClosedShift.countedCashMinor) }}</b><b v-else>غير متاح</b>؛ المطابقة معلّقة. عدّ النقدية مجدداً ولا تعتبر المعدود السابق رصيداً مؤكداً.
+            الوردية اللي فاتت (#{{ shiftState.lastClosedShift.shiftNumber }}) سُجل لها مبلغ إغلاق
+            <b v-if="shiftState.lastClosedShift.countedCashMinor !== null" class="num">{{ money(shiftState.lastClosedShift.countedCashMinor) }}</b><b v-else>غير متاح</b>؛ مصدر العدّ القديم قد لا يكون مثبتاً والمطابقة معلّقة. عدّ النقدية مجدداً ولا تعتبر الرقم السابق رصيداً مؤكداً.
           </span>
           <span v-if="parseMoney(openingCashText) !== null && shiftState.lastClosedShift.countedCashMinor !== null" data-shift-handover-difference>
-            الفرق بين العدّ الجديد والسابق: {{ money((parseMoney(openingCashText) ?? 0) - shiftState.lastClosedShift.countedCashMinor) }} — فرق تسليم غير مُطابَق.
+            الفرق بين العدّ الجديد والمبلغ السابق (قد يختلف مصدرهما): {{ money((parseMoney(openingCashText) ?? 0) - shiftState.lastClosedShift.countedCashMinor) }} — فرق تسليم غير مُطابَق.
           </span>
         </div>
 

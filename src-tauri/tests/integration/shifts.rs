@@ -493,3 +493,14 @@ async fn concurrent_close_requests_cannot_close_twice() {
         .bind(&id).fetch_one(&pool).await.expect("counts");
     assert_eq!(n, 1, "close retries do not create duplicate count observations");
 }
+
+#[tokio::test]
+async fn legacy_close_value_is_not_promoted_to_a_proven_physical_count() {
+    let (pool, tokens, owner, _, _) = setup_shop().await;
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,expected_cash_minor,counted_cash_minor,difference_minor,opened_by,opened_at,closed_by,closed_at) VALUES('legacy',1,'closed',100,100,100,0,?1,1,?1,2)")
+        .bind(owner.as_str()).execute(&pool).await.expect("legacy close");
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 75).await.expect("fresh count");
+    let row: (Option<String>, Option<i64>, Option<i64>, String) = sqlx::query_as("SELECT previous_shift_id, previous_count_minor, handover_difference_minor, reconciliation_status FROM shift_opening_observations WHERE shift_id=?")
+        .bind(opened.shift.id.as_str()).fetch_one(&pool).await.expect("handover");
+    assert_eq!(row, (Some("legacy".to_owned()), None, None, "unreconciled".to_owned()));
+}

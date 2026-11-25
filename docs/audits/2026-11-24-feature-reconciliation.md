@@ -366,3 +366,10 @@ has no history UI/API beyond the immediate opening comparison yet. Transaction
 idempotency across sales, expenses, wallets, repairs and transfers, actual Tauri
 direct-command execution, upgraded real backups and device behavior remain
 unverified. Do not promote or describe this as a complete cash lifecycle.
+
+The handover lookup additionally distinguishes a proven new closing observation
+from legacy `counted_cash_minor`: earlier UI versions could prefill an estimate,
+so legacy values are not promoted to physical-count evidence. Their shift link
+is retained and the prior-count/difference fields remain unknown. The opening
+screen warns that old amounts may have unverified provenance and that compared
+observations may not identify the same drawer.

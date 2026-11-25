@@ -622,7 +622,13 @@ pub async fn latest_cash_count(conn: &mut SqliteConnection, shift_id: &str) -> R
 pub async fn insert_opening_observation(
     conn: &mut SqliteConnection, shift: &ShiftRecord, previous: Option<&ShiftRecord>,
 ) -> Result<(), sqlx::Error> {
-    let previous_count = previous.and_then(|s| s.counted_cash.map(|v| v.as_minor()));
+    // Older closes predate physical-count observations and may have accepted a
+    // prefilled estimate. Retain the prior shift link but do not elevate that
+    // historical value into a proven physical count.
+    let previous_count: Option<i64> = if let Some(prior) = previous {
+        sqlx::query_scalar("SELECT c.amount_minor FROM shift_cash_counts c JOIN shifts s ON s.id=c.shift_id WHERE s.id=?1 AND c.counted_at=s.closed_at AND c.counted_by=s.closed_by AND c.amount_minor=s.counted_cash_minor ORDER BY c.id DESC LIMIT 1")
+            .bind(prior.id.as_str()).fetch_optional(&mut *conn).await?
+    } else { None };
     let difference = previous_count.map(|v| shift.opening_cash.as_minor() - v);
     sqlx::query("INSERT INTO shift_opening_observations(shift_id,previous_shift_id,opening_minor,previous_count_minor,handover_difference_minor,observed_by,observed_at) VALUES(?1,?2,?3,?4,?5,?6,?7)")
         .bind(shift.id.as_str()).bind(previous.map(|s| s.id.as_str())).bind(shift.opening_cash.as_minor())
