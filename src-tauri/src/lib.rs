@@ -158,6 +158,8 @@ pub fn run() {
             commands::shift::expenses_overview,
             commands::shift::record_cash_movement,
             commands::shift::close_shift,
+            commands::shift::record_shift_cash_count,
+            commands::shift::latest_shift_cash_count,
             commands::wallet::wallets_overview,
             commands::wallet::record_wallet_op,
             commands::wallet::record_service_op,

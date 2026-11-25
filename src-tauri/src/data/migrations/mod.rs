@@ -199,3 +199,6 @@ pub const REFUND_PAYMENT_ALLOCATIONS: &str = include_str!("0039_refund_payment_a
 
 /// Preserve the recorded wallet of a reversal after its configuration changes (0040).
 pub const PRESERVE_REFUND_WALLET: &str = include_str!("0040_preserve_refund_wallet.sql");
+
+/// Physical shift counts, not reconciled drawer balances (0041).
+pub const SHIFT_CASH_COUNTS: &str = include_str!("0041_shift_cash_counts.sql");

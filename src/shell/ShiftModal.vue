@@ -7,7 +7,9 @@ import { computed, reactive, ref, watch } from 'vue';
 import { describeError } from '../api/errors';
 import type { Session } from '../api/identity';
 import {
-  closeShift,
+  recordShiftCashCount,
+  latestShiftCashCount,
+  type ShiftCashCount,
   openShift,
   type CurrentShiftState,
   type ShiftSummary,
@@ -68,8 +70,20 @@ const denomCounts = reactive<Record<string, string>>({
 const countedCashText = ref('');
 const closeNote = ref('');
 
-const acknowledgeUnreconciled = ref(false);
-watch(() => props.shiftState.openShift?.shift.id, () => { countedCashText.value = ''; acknowledgeUnreconciled.value = false; });
+const savedCount = ref<ShiftCashCount | null>(null);
+const countLoadFailed = ref(false);
+let countRequest = 0;
+watch(() => props.shiftState.openShift?.shift.id, async (id) => {
+  const request = ++countRequest;
+  countedCashText.value = '';
+  savedCount.value = null;
+  countLoadFailed.value = false;
+  if (!id) return;
+  try {
+    const count = await latestShiftCashCount();
+    if (request === countRequest && count?.shiftId === id) savedCount.value = count;
+  } catch { if (request === countRequest) countLoadFailed.value = true; }
+}, { immediate: true });
 
 function onDenomInput(): void {
   const numericCounts: Record<string, number> = {};
@@ -143,34 +157,21 @@ function sendWhatsAppReport(): void {
   toast(`تقرير الوردية للمالك: ${sent.note}`, 'ok');
 }
 
-async function submitCloseShift(): Promise<void> {
+async function submitCashCount(): Promise<void> {
   if (busy.value || !props.shiftState.openShift) return;
-  if (!acknowledgeUnreconciled.value) { toast('راجع تنبيه عدم مطابقة مصادر النقدية أولاً', 'err'); return; }
-  if (!canCloseShift.value) {
-    toast('تقفيل الوردية للمالك بس أو يتفعّل من الإعدادات', 'err');
-    return;
-  }
-  const minor = parseMoney(countedCashText.value);
-  if (minor === null || minor < 0) {
-    toast('اكتب المعدود الفعلي في الدرج بشكل صحيح', 'err');
-    return;
-  }
+  const minor = countedCashMinor.value;
+  if (minor === null) { toast('اكتب المعدود الفعلي في الدرج بشكل صحيح', 'err'); return; }
   busy.value = true;
   try {
-    const closed = await closeShift(minor, closeNote.value.trim() || null);
-    const diff = shiftDifferenceState(closed.shift.differenceMinor ?? 0);
-    toast(
-      `تم تقفيل الوردية #${closed.shift.shiftNumber} (${diff.label})`,
-      'ok'
-    );
-    emit('changed');
-    emit('close');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  } finally {
-    busy.value = false;
-  }
+    const count = await recordShiftCashCount(minor);
+    if (count.shiftId !== props.shiftState.openShift?.shift.id) throw new Error('SHIFT_CHANGED');
+    savedCount.value = count;
+    countLoadFailed.value = false;
+    toast('تم تسجيل العدّ فقط؛ الوردية لا تزال مفتوحة وغير مطابقة', 'ok');
+  } catch (err) { toast(describeError(err), 'err'); }
+  finally { busy.value = false; }
 }
+
 </script>
 
 <template>
@@ -265,8 +266,11 @@ async function submitCloseShift(): Promise<void> {
     <!-- Close current open shift -->
     <div v-else data-close-shift-view>
       <div class="note" role="alert" data-shift-unreconciled style="margin-bottom: 12px; border-color: var(--warn)">
-        تنبيه: حساب الوردية تقديري من توقيت الحركات، وليس رصيد درج تمت مطابقة مصادره. الإغلاق لا يثبت سلامة الأرصدة أو الربح؛ راجع السجلات وعدّ النقدية فعلياً.
+        لا يمكن إغلاق الوردية حتى تُطابق مصادر النقدية من دفتر معتمد. حساب الوردية الحالي تقديري؛ يمكن تسجيل العدّ فقط دون إغلاق.
       </div>
+      <p v-if="countLoadFailed" role="alert" data-shift-count-failed>تعذّر تحميل آخر عدّ؛ لا نفترض أنه صفر أو غير موجود.</p>
+      <p v-else-if="savedCount" data-shift-count-state>آخر عدّ مسجّل: {{ money(savedCount.amountMinor) }} — غير مُطابَق، والوردية لا تزال مفتوحة.</p>
+      <p v-else data-shift-count-state>لم يُسجّل عدّ لهذه الوردية؛ مصادر النقدية غير مُطابَقة.</p>
       <div
         v-if="!canCloseShift"
         class="note"
@@ -275,7 +279,7 @@ async function submitCloseShift(): Promise<void> {
       >
         <Icon name="lock-keyhole" />
         <span>
-          تقفيل الوردية للمالك بس. تقدر تراجع أرقام الدرج وتبعت التقرير واتساب، أو المالك يفعّل السماح للبيّاع من الإعدادات.
+تقفيل الوردية للمالك بس أو لمن سمح له المالك، لكن الإغلاق متوقف حالياً للجميع حتى تتم المطابقة.
         </span>
       </div>
 
@@ -520,9 +524,6 @@ async function submitCloseShift(): Promise<void> {
         </button>
       </template>
       <template v-else>
-        <label style="display: flex; align-items: center; gap: 6px" data-shift-ack-unreconciled>
-          <input v-model="acknowledgeUnreconciled" type="checkbox" /> أفهم أن التقدير غير مُراجَع
-        </label>
         <button
           type="button"
           class="btn"
@@ -535,12 +536,13 @@ async function submitCloseShift(): Promise<void> {
         <button
           type="button"
           class="btn primary"
-          :disabled="busy || !canCloseShift || !acknowledgeUnreconciled || countedCashMinor === null"
-          data-close-shift-submit
-          @click="submitCloseShift"
+          :disabled="busy || countedCashMinor === null"
+          data-shift-record-count
+          @click="submitCashCount"
         >
-          <Icon name="check" /> تقفيل الوردية #{{ shiftState.openShift.shift.shiftNumber }}
+          <Icon name="check" /> تسجيل العدّ فقط
         </button>
+        <button type="button" class="btn" disabled data-close-shift-submit title="الإغلاق متوقف حتى مطابقة مصادر النقدية">إغلاق الوردية غير متاح</button>
       </template>
     </template>
   </Modal>

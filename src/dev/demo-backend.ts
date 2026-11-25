@@ -1011,6 +1011,7 @@ const shifts: DemoShift[] = [
     closedAt: null,
   },
 ];
+const demoShiftCounts: Array<{ id: string; shiftId: string; amountMinor: number; countedBy: string; countedAt: number }> = [];
 const expenses: DemoExpense[] = [];
 const cashMovements: DemoCashMovement[] = [];
 
@@ -4858,30 +4859,27 @@ const handlers: Record<string, (args: Args) => unknown> = {
     });
     return buildDemoShiftSummary(open);
   },
+  latest_shift_cash_count: () => {
+    requireUser();
+    const open = shifts.find((s) => s.status === 'open');
+    return open ? [...demoShiftCounts].reverse().find((c) => c.shiftId === open.id) ?? null : null;
+  },
+  record_shift_cash_count: (args) => {
+    const user = requireUser();
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const amount = args?.['amountMinor'];
+    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
+    const count = { id: newProductId(), shiftId: open.id, amountMinor: amount as number, countedBy: user.id, countedAt: now() };
+    demoShiftCounts.push(count);
+    return count;
+  },
   close_shift: (args) => {
     const user = requireUser();
-    if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') {
-      fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
-    }
-    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
-    const countedCashMinor = numArg(args, 'countedCashMinor');
-    if (countedCashMinor < 0) fail('SHIFT_COUNTED_CASH_INVALID');
-    const closeNote = str(args, 'closeNote').trim() || null;
-    const closedAt = Math.max(now(), open.openedAt);
-    open.closedAt = closedAt;
-    const summaryBeforeClose = buildDemoShiftSummary(open);
-    const expectedCashMinor = summaryBeforeClose.totals.expectedCashMinor;
-    const differenceMinor = countedCashMinor - expectedCashMinor;
-    open.status = 'closed';
-    open.expectedCashMinor = expectedCashMinor;
-    open.countedCashMinor = countedCashMinor;
-    open.differenceMinor = differenceMinor;
-    open.closeNote = closeNote;
-    open.closedBy = user.id;
-    if (appearance.backupOnShift === 'on') {
-      recordDemoBackup('shift_close', `تقفيل وردية #${open.shiftNumber}`);
-    }
-    return buildDemoShiftSummary(open);
+    if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
+    const amount = args?.['countedCashMinor'];
+    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
+    if (!shifts.some((s) => s.status === 'open')) fail('SHIFT_NOT_OPEN');
+    fail('SHIFT_CASH_UNRECONCILED');
   },
 
   // shop wallets and services ledger (Plan item 1.10, ADR-025)

@@ -592,3 +592,27 @@ fn row_to_cash_movement(row: sqlx::sqlite::SqliteRow) -> Result<CashMovementReco
         created_at: Timestamp::from_millis(created_at_raw),
     })
 }
+
+/// A physical count is an observation, not a reconciled balance.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShiftCashCount {
+    pub id: String,
+    pub shift_id: String,
+    pub amount_minor: i64,
+    pub counted_by: String,
+    pub counted_at: i64,
+}
+
+pub async fn insert_cash_count(conn: &mut SqliteConnection, count: &ShiftCashCount) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO shift_cash_counts(id,shift_id,amount_minor,counted_by,counted_at) VALUES(?1,?2,?3,?4,?5)")
+        .bind(&count.id).bind(&count.shift_id).bind(count.amount_minor).bind(&count.counted_by).bind(count.counted_at)
+        .execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn latest_cash_count(conn: &mut SqliteConnection, shift_id: &str) -> Result<Option<ShiftCashCount>, sqlx::Error> {
+    let row = sqlx::query("SELECT id,shift_id,amount_minor,counted_by,counted_at FROM shift_cash_counts WHERE shift_id=?1 ORDER BY counted_at DESC,id DESC LIMIT 1")
+        .bind(shift_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| ShiftCashCount { id: r.get("id"), shift_id: r.get("shift_id"), amount_minor: r.get("amount_minor"), counted_by: r.get("counted_by"), counted_at: r.get("counted_at") }))
+}

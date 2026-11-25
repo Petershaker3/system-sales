@@ -116,3 +116,18 @@ export function closeShift(
 ): Promise<ShiftSummary> {
   return invoke<ShiftSummary>('close_shift', { countedCashMinor, closeNote });
 }
+
+/** A physical observation, not a verified drawer balance or shift closing. */
+export interface ShiftCashCount {
+  readonly id: string;
+  readonly shiftId: string;
+  readonly amountMinor: number;
+  readonly countedBy: string;
+  readonly countedAt: number;
+}
+export function recordShiftCashCount(amountMinor: number): Promise<ShiftCashCount> {
+  return invoke<ShiftCashCount>('record_shift_cash_count', { amountMinor });
+}
+export function latestShiftCashCount(): Promise<ShiftCashCount | null> {
+  return invoke<ShiftCashCount | null>('latest_shift_cash_count');
+}

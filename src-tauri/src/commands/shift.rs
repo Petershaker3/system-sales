@@ -418,3 +418,14 @@ pub async fn close_shift(
     }
     Ok(summary.into())
 }
+
+/// Store a physical observation; this does not reconcile or close a shift.
+#[tauri::command]
+pub async fn record_shift_cash_count(ctx: Ctx<'_>, amount_minor: i64) -> Result<crate::data::repositories::shift::ShiftCashCount, ShiftCommandError> {
+    use_cases::record_shift_cash_count(&ctx.pool, ctx.tokens.as_ref(), amount_minor).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn latest_shift_cash_count(ctx: Ctx<'_>) -> Result<Option<crate::data::repositories::shift::ShiftCashCount>, ShiftCommandError> {
+    use_cases::latest_shift_cash_count(&ctx.pool, ctx.tokens.as_ref()).await.map_err(Into::into)
+}

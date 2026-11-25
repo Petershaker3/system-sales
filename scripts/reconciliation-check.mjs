@@ -96,11 +96,16 @@ try {
   assert.ok(await page.$('[data-shift-unreconciled]'));
   assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true);
   await page.type('[data-shift-counted-input]', '0');
-  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true, 'warning must be acknowledged');
-  await page.click('[data-shift-ack-unreconciled] input');
-  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), false);
+  await page.click('[data-shift-record-count]');
+  await page.waitForFunction(() => document.querySelector('[data-shift-count-state]')?.textContent.includes('آخر عدّ'));
+  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true, 'count is not reconciliation');
+  const direct = await page.evaluate(async () => {
+    try { await window.__TAURI_INTERNALS__.invoke('close_shift', { countedCashMinor: 0, closeNote: 'test' }); return 'unexpected success'; }
+    catch (e) { return e.code; }
+  });
+  assert.equal(direct, 'SHIFT_CASH_UNRECONCILED');
   await page.keyboard.press('Escape');
-  console.log('PASS explicit counted cash and unreconciled acknowledgement');
+  console.log('PASS count observation persists and direct unreconciled close is refused by demo');
   await page.click('[data-open-reminders]');
   await page.type('[data-reminder-text]', 'تذكير اختبار');
   await page.click('[data-reminder-add]');

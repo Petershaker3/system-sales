@@ -289,3 +289,23 @@ unit tests passed; six focused demo browser checks passed. The broad mocked demo
 smoke did not complete: it failed on a guarded report screen after its updated
 shift checks passed. No real drawer balance, device, or full cash lifecycle was
 verified. Documentation added after this tested commit does not change code.
+
+### Backend fail-closed shift close and physical-count observations
+
+`close_shift` now validates authorization, count and note, locks SQLite with
+`BEGIN IMMEDIATE`, and refuses with `SHIFT_CASH_UNRECONCILED` before writing
+any close when sources have not been reconciled. The current implementation has
+no trusted reconciliation path, so **all new shift closes are blocked**, even
+when a discrepancy note is supplied. This is an intentional operational
+restriction; there is no approved policy for closing with unresolved sources.
+Existing closed shifts and their historical figures are not rewritten.
+
+Additive migration `0041` stores append-only physical count observations tied to
+the open shift and actor, with an audit event in the same transaction. Counts
+are not postings, opening balances, proof of a drawer identity, or proof of a
+reconciled closing balance. The frontend and demo expose count-only operation;
+reopening the modal can read the latest count, while closing stays unavailable.
+No per-drawer identity, transactional cash posting, transfers or reconciliation
+ledger has been implemented. Until those exist, the single-open-shift shop
+cannot start a later shift via the normal workflow. Do not call this a complete
+cash lifecycle or production-ready substitute.

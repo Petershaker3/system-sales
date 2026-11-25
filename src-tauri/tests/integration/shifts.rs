@@ -269,7 +269,7 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
 }
 
 #[tokio::test]
-async fn seller_shift_close_permission_and_sequential_shift_lifecycle_work_end_to_end() {
+async fn seller_permission_and_unreconciled_close_are_enforced() {
     let (pool, tokens, manager_uid, seller_uid, _product_id) = setup_shop().await;
 
     // Seller logs in and opens Shift #1 with 1,000 EGP (100_000 minor).
@@ -295,65 +295,24 @@ async fn seller_shift_close_permission_and_sequential_shift_lifecycle_work_end_t
         .await
         .expect("enable seller_can_close_shift");
 
-    // Seller logs back in and closes Shift #1 with counted cash 990 EGP (99_000 minor -> -10 EGP shortage).
-    auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD)
-        .await
-        .expect("seller login");
-    let closed = shift_service::close_shift(
-        &pool,
-        tokens.as_ref(),
-        99_000,
-        Some("عجز 10 ج فكة"),
-    )
-    .await
-    .expect("seller closes shift #1");
-
-    assert_eq!(closed.shift.shift_number, 1);
-    assert_eq!(closed.shift.status.as_str(), "closed");
-    assert_eq!(closed.shift.expected_cash_minor, Some(100_000));
-    assert_eq!(
-        closed.shift.counted_cash.map(|c| c.as_minor()),
-        Some(99_000)
-    );
-    assert_eq!(closed.shift.difference_minor, Some(-1_000));
-    assert_eq!(
-        closed.shift.close_note.as_ref().map(|n| n.as_str()),
-        Some("عجز 10 ج فكة")
-    );
-
-    // Current shift state now shows `open_shift = None` and `last_closed_shift = Some(#1)`.
-    let state = shift_service::current_shift_summary(&pool, tokens.as_ref())
-        .await
-        .expect("current_shift_summary after close");
-    assert!(state.open_shift.is_none());
-    assert_eq!(
-        state
-            .last_closed_shift
-            .as_ref()
-            .and_then(|s| s.counted_cash.map(|c| c.as_minor())),
-        Some(99_000)
-    );
-
-    // Opening the next shift creates Shift #2.
-    let shift2 = shift_service::open_shift(&pool, tokens.as_ref(), 99_000)
-        .await
-        .expect("open shift #2");
-    assert_eq!(shift2.shift.shift_number, 2);
-
-    // Audit trail recorded all events.
+    // Even an authorized operator and a documented difference cannot turn an
+    // unverified time-window estimate into a reconciled drawer close.
+    auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD).await.expect("seller login");
+    let invalid = shift_service::close_shift(&pool, tokens.as_ref(), -1, None).await.expect_err("negative count refused");
+    assert_eq!(invalid.code(), "SHIFT_COUNTED_CASH_INVALID");
+    let count = shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 99_000).await.expect("record count");
+    assert_eq!(count.amount_minor, 99_000);
+    let latest = shift_service::latest_shift_cash_count(&pool, tokens.as_ref()).await.expect("read count").expect("exists");
+    assert_eq!(latest.id, count.id);
+    let refused = shift_service::close_shift(&pool, tokens.as_ref(), 99_000, Some("عجز 10 ج فكة")).await.expect_err("discrepancy note is not a reconciliation policy");
+    assert_eq!(refused.code(), "SHIFT_CASH_UNRECONCILED");
+    let state = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("state");
+    assert_eq!(state.open_shift.expect("still open").shift.status.as_str(), "open");
+    assert!(state.last_closed_shift.is_none());
     let mut conn = pool.acquire().await.expect("conn");
-    assert_eq!(
-        audit::count_by_type(&mut conn, audit::event::SHIFT_OPENED)
-            .await
-            .expect("count shift_opened"),
-        2
-    );
-    assert_eq!(
-        audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED)
-            .await
-            .expect("count shift_closed"),
-        1
-    );
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CASH_COUNTED).await.expect("count audit"), 1);
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED).await.expect("close audit"), 0);
+
 }
 
 /// One list of expenses, two sources (`ADR-043`).
@@ -479,4 +438,15 @@ async fn shift_transport_explicitly_marks_legacy_cash_total_unreconciled() {
     let dto = mobile_shop_system_lib::commands::shift::ShiftTotalsDto::from(summary.totals);
     let encoded = serde_json::to_value(dto).expect("serialize totals");
     assert_eq!(encoded["cashReconciled"], false);
+}
+
+#[tokio::test]
+async fn failed_count_audit_rolls_back_the_physical_observation() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("open shift");
+    sqlx::raw_sql("CREATE TRIGGER fail_shift_count_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='shift_cash_counted' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
+        .execute(&pool).await.expect("failure injection");
+    assert!(shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 500).await.is_err());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("count rows");
+    assert_eq!(n, 0, "count and audit must commit together");
 }
