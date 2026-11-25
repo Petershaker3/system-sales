@@ -94,18 +94,20 @@ try {
   await page.waitForSelector('[data-close-shift-view]');
   assert.equal(await page.$eval('[data-shift-counted-input]', el => el.value), '', 'count must not be invented from estimate');
   assert.ok(await page.$('[data-shift-unreconciled]'));
-  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true);
+  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true, 'count is required');
   await page.type('[data-shift-counted-input]', '0');
   await page.click('[data-shift-record-count]');
   await page.waitForFunction(() => document.querySelector('[data-shift-count-state]')?.textContent.includes('آخر عدّ'));
-  assert.equal(await page.$eval('[data-close-shift-submit]', el => el.disabled), true, 'count is not reconciliation');
-  const direct = await page.evaluate(async () => {
-    try { await window.__TAURI_INTERNALS__.invoke('close_shift', { countedCashMinor: 0, closeNote: 'test' }); return 'unexpected success'; }
-    catch (e) { return e.code; }
-  });
-  assert.equal(direct, 'SHIFT_CASH_UNRECONCILED');
-  await page.keyboard.press('Escape');
-  console.log('PASS count observation persists and direct unreconciled close is refused by demo');
+  await page.click('[data-close-shift-submit]');
+  await page.waitForSelector('[data-close-shift-view]', { hidden: true });
+  await page.click('[data-open-shift-modal]');
+  await page.waitForSelector('[data-open-shift-view]');
+  assert.equal(await page.$eval('[data-open-shift-cash]', el => el.value), '');
+  await page.type('[data-open-shift-cash]', '1');
+  assert.ok((await page.$eval('[data-shift-handover-difference]', el => el.textContent)).includes('غير مُطابَق'));
+  await page.click('[data-open-shift-submit]');
+  await page.waitForSelector('[data-open-shift-view]', { hidden: true });
+  console.log('PASS operational close and independently counted unreconciled handover');
   await page.click('[data-open-reminders]');
   await page.type('[data-reminder-text]', 'تذكير اختبار');
   await page.click('[data-reminder-add]');

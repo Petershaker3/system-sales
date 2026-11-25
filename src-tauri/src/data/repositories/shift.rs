@@ -616,3 +616,17 @@ pub async fn latest_cash_count(conn: &mut SqliteConnection, shift_id: &str) -> R
         .bind(shift_id).fetch_optional(&mut *conn).await?;
     Ok(row.map(|r| ShiftCashCount { id: r.get("id"), shift_id: r.get("shift_id"), amount_minor: r.get("amount_minor"), counted_by: r.get("counted_by"), counted_at: r.get("counted_at") }))
 }
+
+/// Record the observed opening and (when known) the previous physical count.
+/// A difference here is an unresolved handover observation, not an adjustment.
+pub async fn insert_opening_observation(
+    conn: &mut SqliteConnection, shift: &ShiftRecord, previous: Option<&ShiftRecord>,
+) -> Result<(), sqlx::Error> {
+    let previous_count = previous.and_then(|s| s.counted_cash.map(|v| v.as_minor()));
+    let difference = previous_count.map(|v| shift.opening_cash.as_minor() - v);
+    sqlx::query("INSERT INTO shift_opening_observations(shift_id,previous_shift_id,opening_minor,previous_count_minor,handover_difference_minor,observed_by,observed_at) VALUES(?1,?2,?3,?4,?5,?6,?7)")
+        .bind(shift.id.as_str()).bind(previous.map(|s| s.id.as_str())).bind(shift.opening_cash.as_minor())
+        .bind(previous_count).bind(difference).bind(shift.opened_by.as_str()).bind(shift.opened_at.as_millis())
+        .execute(&mut *conn).await?;
+    Ok(())
+}

@@ -7,6 +7,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { describeError } from '../api/errors';
 import type { Session } from '../api/identity';
 import {
+  closeShift,
   recordShiftCashCount,
   latestShiftCashCount,
   type ShiftCashCount,
@@ -172,6 +173,18 @@ async function submitCashCount(): Promise<void> {
   finally { busy.value = false; }
 }
 
+async function submitOperationalClose(): Promise<void> {
+  if (busy.value || !canCloseShift.value || countedCashMinor.value === null) return;
+  busy.value = true;
+  try {
+    await closeShift(countedCashMinor.value, closeNote.value.trim() || null);
+    toast('تم إغلاق الوردية تشغيلياً وتسجيل العدّ؛ المطابقة المالية لا تزال معلّقة', 'ok');
+    emit('changed');
+    emit('close');
+  } catch (err) { toast(describeError(err), 'err'); }
+  finally { busy.value = false; }
+}
+
 </script>
 
 <template>
@@ -226,7 +239,10 @@ async function submitCashCount(): Promise<void> {
           <Icon name="info" />
           <span>
             الوردية اللي فاتت (#{{ shiftState.lastClosedShift.shiftNumber }}) اتقفلت على معدود
-            <b class="num">{{ money(shiftState.lastClosedShift.countedCashMinor ?? 0) }}</b>
+            <b v-if="shiftState.lastClosedShift.countedCashMinor !== null" class="num">{{ money(shiftState.lastClosedShift.countedCashMinor) }}</b><b v-else>غير متاح</b>؛ المطابقة معلّقة. عدّ النقدية مجدداً ولا تعتبر المعدود السابق رصيداً مؤكداً.
+          </span>
+          <span v-if="parseMoney(openingCashText) !== null && shiftState.lastClosedShift.countedCashMinor !== null" data-shift-handover-difference>
+            الفرق بين العدّ الجديد والسابق: {{ money((parseMoney(openingCashText) ?? 0) - shiftState.lastClosedShift.countedCashMinor) }} — فرق تسليم غير مُطابَق.
           </span>
         </div>
 
@@ -254,8 +270,8 @@ async function submitCashCount(): Promise<void> {
                 <small v-if="s.closeNote" class="muted"> — {{ s.closeNote }}</small>
               </span>
               <span class="num">
-                معدود: <b>{{ money(s.countedCashMinor ?? 0) }}</b>
-                ({{ shiftDifferenceState(s.differenceMinor ?? 0).label }})
+                معدود: <b v-if="s.countedCashMinor !== null">{{ money(s.countedCashMinor) }}</b><b v-else>غير متاح</b>
+                (المطابقة معلّقة)
               </span>
             </div>
           </div>
@@ -266,7 +282,7 @@ async function submitCashCount(): Promise<void> {
     <!-- Close current open shift -->
     <div v-else data-close-shift-view>
       <div class="note" role="alert" data-shift-unreconciled style="margin-bottom: 12px; border-color: var(--warn)">
-        لا يمكن إغلاق الوردية حتى تُطابق مصادر النقدية من دفتر معتمد. حساب الوردية الحالي تقديري؛ يمكن تسجيل العدّ فقط دون إغلاق.
+        الإغلاق تشغيلي فقط بعد عدّ النقدية. مصادر النقدية غير مُطابَقة والفرق تقديري، وتظل المراجعة معلّقة للوردية التالية.
       </div>
       <p v-if="countLoadFailed" role="alert" data-shift-count-failed>تعذّر تحميل آخر عدّ؛ لا نفترض أنه صفر أو غير موجود.</p>
       <p v-else-if="savedCount" data-shift-count-state>آخر عدّ مسجّل: {{ money(savedCount.amountMinor) }} — غير مُطابَق، والوردية لا تزال مفتوحة.</p>
@@ -279,7 +295,7 @@ async function submitCashCount(): Promise<void> {
       >
         <Icon name="lock-keyhole" />
         <span>
-تقفيل الوردية للمالك بس أو لمن سمح له المالك، لكن الإغلاق متوقف حالياً للجميع حتى تتم المطابقة.
+تقفيل الوردية للمالك أو لمن سمح له المالك فقط؛ الإغلاق تشغيلي وليس مطابقة مالية.
         </span>
       </div>
 
@@ -542,7 +558,7 @@ async function submitCashCount(): Promise<void> {
         >
           <Icon name="check" /> تسجيل العدّ فقط
         </button>
-        <button type="button" class="btn" disabled data-close-shift-submit title="الإغلاق متوقف حتى مطابقة مصادر النقدية">إغلاق الوردية غير متاح</button>
+        <button type="button" class="btn" :disabled="busy || !canCloseShift || countedCashMinor === null" data-close-shift-submit @click="submitOperationalClose">إغلاق تشغيلي (غير مُطابَق)</button>
       </template>
     </template>
   </Modal>

@@ -1705,24 +1705,22 @@ check(
 );
 await shot('40-shift-close-reconciliation');
 
-// The prior lifecycle assertion expected an unreconciled shift to close and a
-// second shift to open. That policy is now explicitly blocked by the service.
+// A counted close ends operations, not the outstanding reconciliation.
 await page.click('[data-shift-record-count]');
 await page.waitForFunction(() => document.querySelector('[data-shift-count-state]')?.textContent.includes('آخر عدّ'));
-const directClose = await page.evaluate(async () => {
-  try { await window.__TAURI_INTERNALS__.invoke('close_shift', { countedCashMinor: 0, closeNote: 'fixture' }); return 'unexpected success'; }
-  catch (e) { return e.code; }
-});
-check('A physical count does not close an unreconciled shift, even through direct invocation',
-  directClose === 'SHIFT_CASH_UNRECONCILED' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)));
-await page.keyboard.press('Escape');
-await sleep(200);
-const nextOpen = await page.evaluate(async () => {
-  try { await window.__TAURI_INTERNALS__.invoke('open_shift', { openingCashMinor: 0 }); return 'unexpected success'; }
-  catch (e) { return e.code; }
-});
-check('An unreconciled open shift prevents a second shift',
-  nextOpen === 'SHIFT_ALREADY_OPEN' && (await text('[data-topbar-shift-status]')).includes('وردية #1 مفتوحة'));
+await page.click('[data-close-shift-submit]');
+await page.waitForSelector('[data-close-shift-view]', { hidden: true, timeout: 3000 });
+check('Operational close releases the shift without asserting financial reconciliation',
+  (await text('[data-topbar-shift-status]')).includes('مفيش وردية مفتوحة'));
+await page.click('[data-open-shift-modal]');
+await page.waitForSelector('[data-open-shift-view]');
+check('Next opening requires a fresh physical observation',
+  (await page.$eval('[data-open-shift-cash]', el => el.value)) === '' && (await text('[data-last-closed-shift-hint]')).includes('المطابقة معلّقة'));
+await page.type('[data-open-shift-cash]', '1');
+check('Handover difference is explicitly unresolved', (await text('[data-shift-handover-difference]')).includes('غير مُطابَق'));
+await page.click('[data-open-shift-submit]');
+await page.waitForSelector('[data-open-shift-view]', { hidden: true });
+check('Next shift opens from its own count', (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة'));
 
 // --- Plan item 1.10 (ADR-025): Quick Services (F9), Wallets screen, and Wallets/Commission settings ---
 await clickText('.rail .nav-btn', 'البيع');

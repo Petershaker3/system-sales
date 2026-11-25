@@ -202,3 +202,6 @@ pub const PRESERVE_REFUND_WALLET: &str = include_str!("0040_preserve_refund_wall
 
 /// Physical shift counts, not reconciled drawer balances (0041).
 pub const SHIFT_CASH_COUNTS: &str = include_str!("0041_shift_cash_counts.sql");
+
+/// Unreconciled opening and prior count observations (0042).
+pub const SHIFT_HANDOVER: &str = include_str!("0042_shift_handover.sql");

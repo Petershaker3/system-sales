@@ -137,7 +137,7 @@ pub async fn open_shift(
     let now = Timestamp::now();
 
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -171,6 +171,11 @@ pub async fn open_shift(
     repo::insert_open_shift(&mut tx, &shift)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // The new opening is a fresh physical observation. A previous counted
+    // close is retained for handover comparison, never silently inherited.
+    let previous = repo::find_last_closed_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    repo::insert_opening_observation(&mut tx, &shift, previous.as_ref()).await.map_err(|_| DomainError::StorageUnavailable)?;
 
     audit::append(
         &mut tx,
@@ -574,24 +579,113 @@ pub async fn latest_shift_cash_count(
     repo::latest_cash_count(&mut conn, shift.id.as_str()).await.map_err(|_| DomainError::StorageUnavailable.into())
 }
 
-/// The previous closing calculation used time-window estimates with unproven
-/// drawer sources. A physical count (even with a note) does not reconcile it.
-/// Until an authoritative drawer ledger and discrepancy policy exist, no API
-/// caller may persist a closed shift using this estimate.
+/// Close operations with a physical observation, never a financial reconciliation.
+/// The legacy schema requires an estimate and estimated difference; both remain
+/// unverified and are never exposed as reconciled balances.
 pub async fn close_shift(
-    pool: &SqlitePool, tokens: &dyn SecureTokenStore,
-    counted_cash_minor: i64, close_note: Option<&str>,
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    counted_cash_minor: i64,
+    close_note: Option<&str>,
 ) -> Result<ShiftSummary, ShiftServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::Sell)?;
-    validate_counted_cash(counted_cash_minor)?;
-    ShiftCloseNote::parse_optional(close_note)?;
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+
+    let counted_cash = validate_counted_cash(counted_cash_minor)?;
+    let close_note = ShiftCloseNote::parse_optional(close_note)?;
+    let actor = session.user_id();
+    let now = Timestamp::now();
+
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
     if session.role() != Role::Manager {
-        let appearance = settings_repo::load_appearance(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
-        if appearance.seller_can_close_shift != "on" { return Err(ShiftError::SellerCannotCloseShift.into()); }
+        let appearance = settings_repo::load_appearance(&mut tx)
+            .await
+            .map_err(|_| DomainError::StorageUnavailable)?;
+        if appearance.seller_can_close_shift != "on" {
+            return Err(ShiftError::SellerCannotCloseShift.into());
+        }
     }
-    repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?
+
+    let mut open_shift = repo::find_open_shift(&mut tx)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(ShiftError::NotOpen)?;
-    Err(ShiftError::CashUnreconciled.into())
+
+    let closed_at = Timestamp::from_millis(now.as_millis().max(open_shift.opened_at.as_millis()));
+    open_shift.closed_at = Some(closed_at);
+
+    let totals = repo::compute_shift_totals(&mut tx, &open_shift)
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let expected_cash_minor = totals.expected_cash_minor;
+    let difference_minor = counted_cash.as_minor() - expected_cash_minor;
+
+    let count = repo::ShiftCashCount {
+        id: uuid::Uuid::now_v7().to_string(), shift_id: open_shift.id.as_str().to_owned(),
+        amount_minor: counted_cash.as_minor(), counted_by: actor.as_str(), counted_at: closed_at.as_millis(),
+    };
+    repo::insert_cash_count(&mut tx, &count).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx, actor, audit::event::SHIFT_CASH_COUNTED, closed_at,
+        Some(serde_json::json!({"shift_id": count.shift_id.as_str(), "count_id": count.id.as_str(), "amount_minor": count.amount_minor, "reconciled": false}).to_string()))
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+
+    repo::close_shift_row(
+        &mut tx,
+        open_shift.id.as_str(),
+        expected_cash_minor,
+        counted_cash.as_minor(),
+        difference_minor,
+        close_note.as_ref().map(|n| n.as_str()),
+        &actor,
+        closed_at,
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    audit::append(
+        &mut tx,
+        actor,
+        audit::event::SHIFT_CLOSED,
+        closed_at,
+        Some(
+            serde_json::json!({
+                "shift_id": open_shift.id.as_str(),
+                "shift_number": open_shift.shift_number,
+                "reconciliation_status": "unreconciled",
+                "expected_cash_minor": expected_cash_minor,
+                "counted_cash_minor": counted_cash.as_minor(),
+                "difference_minor": difference_minor,
+                "close_note": close_note.as_ref().map(|n| n.as_str()),
+            })
+            .to_string(),
+        ),
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    let closed_shift = repo::find_by_id(&mut tx, open_shift.id.as_str())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(DomainError::StorageUnavailable)?;
+    let expenses = repo::list_expenses_for_shift(&mut tx, closed_shift.id.as_str())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    let cash_movements = repo::list_cash_movements_for_shift(&mut tx, closed_shift.id.as_str())
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    tx.commit()
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+
+    Ok(ShiftSummary {
+        shift: closed_shift,
+        totals,
+        expenses,
+        cash_movements,
+    })
 }

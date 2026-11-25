@@ -304,14 +304,21 @@ async fn seller_permission_and_unreconciled_close_are_enforced() {
     assert_eq!(count.amount_minor, 99_000);
     let latest = shift_service::latest_shift_cash_count(&pool, tokens.as_ref()).await.expect("read count").expect("exists");
     assert_eq!(latest.id, count.id);
-    let refused = shift_service::close_shift(&pool, tokens.as_ref(), 99_000, Some("عجز 10 ج فكة")).await.expect_err("discrepancy note is not a reconciliation policy");
-    assert_eq!(refused.code(), "SHIFT_CASH_UNRECONCILED");
-    let state = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("state");
-    assert_eq!(state.open_shift.expect("still open").shift.status.as_str(), "open");
-    assert!(state.last_closed_shift.is_none());
+    let closed = shift_service::close_shift(&pool, tokens.as_ref(), 99_000, Some("عجز 10 ج فكة")).await.expect("operational close");
+    assert_eq!(closed.shift.status.as_str(), "closed");
+    assert_eq!(closed.shift.counted_cash.unwrap().as_minor(), 99_000);
+    let dto: mobile_shop_system_lib::commands::shift::ShiftRecordDto = closed.shift.into();
+    assert!(!dto.cash_reconciled);
+    assert!(dto.expected_cash_minor.is_none() && dto.difference_minor.is_none());
+    let next = shift_service::open_shift(&pool, tokens.as_ref(), 98_000).await.expect("fresh opening count");
+    assert_eq!(next.shift.shift_number, 2);
     let mut conn = pool.acquire().await.expect("conn");
-    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CASH_COUNTED).await.expect("count audit"), 1);
-    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED).await.expect("close audit"), 0);
+    let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor, previous_count_minor, handover_difference_minor, reconciliation_status FROM shift_opening_observations WHERE shift_id = ?")
+        .bind(next.shift.id.as_str()).fetch_one(&mut *conn).await.expect("handover");
+    assert_eq!(handover, (98_000, 99_000, -1_000, "unreconciled".to_owned()));
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CASH_COUNTED).await.expect("count audit"), 2);
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED).await.expect("close audit"), 1);
+
 
 }
 
@@ -449,4 +456,18 @@ async fn failed_count_audit_rolls_back_the_physical_observation() {
     assert!(shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 500).await.is_err());
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("count rows");
     assert_eq!(n, 0, "count and audit must commit together");
+}
+
+#[tokio::test]
+async fn failed_close_audit_rolls_back_count_and_operational_close() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    shift_service::open_shift(&pool, tokens.as_ref(), 100).await.expect("open shift");
+    sqlx::raw_sql("CREATE TRIGGER fail_shift_close_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='shift_closed' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
+        .execute(&pool).await.expect("failure injection");
+    assert!(shift_service::close_shift(&pool, tokens.as_ref(), 101, None).await.is_err());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("counts");
+    assert_eq!(n, 0);
+    let state = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("state");
+    assert!(state.open_shift.is_some());
+    assert!(state.last_closed_shift.is_none());
 }

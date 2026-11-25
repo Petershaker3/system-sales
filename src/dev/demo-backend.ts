@@ -4878,8 +4878,18 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
     const amount = args?.['countedCashMinor'];
     if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
-    if (!shifts.some((s) => s.status === 'open')) fail('SHIFT_NOT_OPEN');
-    fail('SHIFT_CASH_UNRECONCILED');
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const summary = buildDemoShiftSummary(open);
+    const closedAt = now();
+    demoShiftCounts.push({ id: newProductId(), shiftId: open.id, amountMinor: amount as number, countedBy: user.id, countedAt: closedAt });
+    open.status = 'closed';
+    open.countedCashMinor = amount as number;
+    open.expectedCashMinor = null;
+    open.differenceMinor = null;
+    open.closedBy = user.id;
+    open.closedAt = closedAt;
+    open.closeNote = typeof args?.['closeNote'] === 'string' ? args['closeNote'] : null;
+    return { ...summary, shift: { ...open, cashReconciled: false } };
   },
 
   // shop wallets and services ledger (Plan item 1.10, ADR-025)
