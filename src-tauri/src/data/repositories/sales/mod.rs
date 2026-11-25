@@ -1331,3 +1331,10 @@ pub async fn insert_refund_payment_allocation(
         .execute(&mut *conn).await?;
     Ok(())
 }
+
+/// Only a recorded post-provenance wallet may be used as a refund source.
+/// Existing rows are intentionally not inferred or backfilled.
+pub async fn wallet_source_is_recorded(conn: &mut SqliteConnection, payment_id: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_wallet_provenance v JOIN sale_payments p ON p.id=v.payment_id AND p.wallet_id=v.wallet_id WHERE p.id=?1)")
+        .bind(payment_id).fetch_one(&mut *conn).await
+}

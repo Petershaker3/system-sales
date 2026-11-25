@@ -233,7 +233,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
     .await
     .expect("topup et from drawer");
 
-    // 9. Sale paid via Vodafone Cash (`vf`, 200 EGP) automatically increases `vf` wallet balance!
+    // 9. Sale explicitly paid to Vodafone Cash (`vf`, 200 EGP) increases that wallet balance.
     sales::record_sale_with_payments(
         &pool,
         tokens.as_ref(),
@@ -249,7 +249,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         }]),
         None,
     )
@@ -460,7 +460,7 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         }]),
         None,
     )
@@ -483,7 +483,7 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
     assert_eq!(
         first_now.balance_minor - vf.balance_minor,
         20_000,
-        "the primary number of the method is where the sale's money went"
+        "the explicitly selected wallet is where the sale money went"
     );
     assert_eq!(
         second_now.balance_minor, 0,

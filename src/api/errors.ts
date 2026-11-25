@@ -543,7 +543,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SALE_RETURN_REASON_REQUIRED]:
     'اكتب سبب المرتجع قبل الحفظ.',
   [ErrorCode.SALE_PAYMENT_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:
@@ -603,7 +603,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
     'طريقة تحصيل الآجل غير مسموحة.',
   [ErrorCode.CUSTOMER_PAYMENT_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
   [ErrorCode.CUSTOMER_NOTE_INVALID]:
     'الملاحظة طويلة زيادة عن اللزوم.',
 
@@ -706,7 +706,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.REPAIR_PAY_METHOD_INVALID]:
     'طريقة التحصيل غير صحيحة.',
   [ErrorCode.REPAIR_PAY_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
   // الموبايل والكمبيوتر: أربع حالات تخص اللي ماسك الموبايل في إيده (`ADR-042`).
   [ErrorCode.COMPANION_NO_HOST]:
     'الموبايل لسه ما عرفش عنوان الكمبيوتر — امسح باركود الربط اللي على الكمبيوتر الأول.',

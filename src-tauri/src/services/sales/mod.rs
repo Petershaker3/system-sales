@@ -56,9 +56,8 @@ pub enum SalePayeeError {
 /// The shop wallet the money of one payment lands in (`ADR-040`, `ADR-041`).
 ///
 /// `chosen` is the number the operator named at the till. When nobody named
-/// one, sale creation uses the current primary for the method. Refunds do not
-/// call this resolver: they copy the original payment's recorded wallet instead,
-/// and refuse an unknown electronic source rather than guessing a primary.
+/// one, electronic payment is rejected. Refunds copy only a source with
+/// recorded provenance; older backfilled wallet identifiers remain unknown.
 async fn sale_payee_wallet_id(
     conn: &mut sqlx::SqliteConnection,
     method: PaymentMethod,
@@ -861,6 +860,13 @@ pub async fn cancel_sale(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
+    for payment in &original_payments {
+        if (payment.method == "vf" || payment.method == "instapay") && payment.amount_minor > 0
+            && !sales_repo::wallet_source_is_recorded(&mut tx, &payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
+        }
+    }
+
     let snapshot = settings_repo::load_snapshot(&mut *tx)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
@@ -1646,12 +1652,15 @@ async fn execute_return_core_in_tx(
         }
         if left != 0 { return Err(SaleError::RefundSourceUnverifiable.into()); }
     }
-    // A legacy electronic payment without a wallet id is unknown, not the
-    // wallet currently marked primary. Never route that refund by inference.
-    if allocations.iter().any(|(i, _, _)| {
+    // A non-null wallet on old payments may have been guessed by migration
+    // 0030. Require explicit provenance for each electronic allocation.
+    for (i, _, _) in &allocations {
         let p = &orig_payments[*i];
-        (p.method == "vf" || p.method == "instapay") && p.wallet_id.is_none()
-    }) { return Err(SaleError::RefundSourceUnverifiable.into()); }
+        if (p.method == "vf" || p.method == "instapay") &&
+            !sales_repo::wallet_source_is_recorded(&mut tx, &p.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
+        }
+    }
 
     let return_reference = next_reference(&mut *tx, prefix, now).await?;
     let return_sale_id = Uuid::now_v7().to_string();

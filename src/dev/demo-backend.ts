@@ -1427,7 +1427,7 @@ function demoResolvePaymentWalletId(
     if (chosen) fail(code);
     return null;
   }
-  if (!chosen) return demoSalePayeeWalletId(method);
+  if (!chosen) fail(code);
   const w = demoWallets.find((x) => x.id === chosen);
   if (w === undefined || w.payMethod !== method) fail(code);
   return w === undefined ? null : w.id;

@@ -205,3 +205,6 @@ pub const SHIFT_CASH_COUNTS: &str = include_str!("0041_shift_cash_counts.sql");
 
 /// Unreconciled opening and prior count observations (0042).
 pub const SHIFT_HANDOVER: &str = include_str!("0042_shift_handover.sql");
+
+/// Explicit provenance for new sale wallet allocations (0043).
+pub const SALE_WALLET_PROVENANCE: &str = include_str!("0043_wallet_payment_provenance.sql");

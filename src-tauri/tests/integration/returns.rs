@@ -628,3 +628,34 @@ async fn refund_retains_original_wallet_after_its_payment_method_changes() {
     let wallet: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(&returned.return_sale_id).fetch_one(&pool).await.expect("refund wallet");
     assert_eq!(wallet.as_deref(), Some("vf"));
 }
+
+#[tokio::test]
+async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() {
+    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let payment = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: Some("vf".into()) }];
+    let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payment), None, 0, &[0]).await.expect("new sale");
+    let line = sales::inspect_sale_for_return(&pool, tokens.as_ref(), &sale.sale_id).await.expect("inspect").lines[0].line_id.clone();
+    // Simulate pre-0043 history, where wallet_id could have been backfilled.
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&pool).await.expect("fixture only");
+    sqlx::query("DELETE FROM sale_wallet_provenance").execute(&pool).await.expect("fixture only");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
+    approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
+    let err = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line, quantity: 1, condition: "intact".into() }], "unknown wallet", None).await.expect_err("do not guess refund wallet");
+    assert_eq!(err.code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
+    let err = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "unknown wallet").await.expect_err("do not guess cancellation wallet");
+    assert_eq!(err.code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales WHERE reverses_sale_id=?1").bind(&sale.sale_id).fetch_one(&pool).await.expect("reversals");
+    assert_eq!(n, 0, "both failures roll back the reversal");
+}
+
+#[tokio::test]
+async fn electronic_sale_rejects_missing_wallet_without_writes() {
+    let (pool, tokens, _, _, product, _) = setup_shop_for_returns().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    let payment = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: None }];
+    let error = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payment), None, 0, &[0]).await.expect_err("wallet must be selected");
+    assert_eq!(error.code(), "SALE_PAYMENT_WALLET_INVALID");
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales").fetch_one(&pool).await.expect("sales");
+    assert_eq!(n, 0);
+}
