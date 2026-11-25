@@ -20,3 +20,7 @@ Status: **in progress, not a reconciled ledger**. This plan is not evidence of c
 6. Verify fresh and populated upgrades, no source-row mutation, failure rollback, authorization, concurrency, idempotency, overflow, cross-shift events, multi-drawer transfers, encrypted backup/restore and physical counts. Run Rust/SQLx integration plus frontend tests and the safe non-release workflow at the exact final SHA. Finally exercise the real SQLite → Rust → Tauri commands → Vue path, including a populated upgraded database and end-to-end close/handover/report; mocked demo is not proof. Document any environment or device limitations without claiming Windows/Android coverage.
 
 No promotion, release, branch deletion, history rewrite or change to the pre-existing archive deletion is authorized.
+
+## Implementation notes: 0052
+
+The manager can record an append-only, idempotent physical observation for any configured drawer, including zero and times outside an open shift. A contemporaneous open shift is context, not an assertion that the drawer belongs to that shift. The observation is audited, does not create a posting and does not establish an expected balance, discrepancy or reconciliation. New records do not assign old shift counts to drawers. The API exposes the latest 100 observations and the UI labels them as unverified; source coverage and count-to-count reconciliation are still required.

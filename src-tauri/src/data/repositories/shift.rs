@@ -714,3 +714,31 @@ pub async fn insert_drawer_transfer(conn: &mut SqliteConnection, request: &str, 
         .bind(request).bind(shift).bind(from).bind(to).bind(amount).bind(reason).bind(actor).bind(now).execute(&mut *conn).await?;
     Ok(())
 }
+
+/// A physical observation only; no completeness or reconciliation is implied.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawerPhysicalCount {
+    pub request_id: String,
+    pub drawer_id: String,
+    pub shift_id: Option<String>,
+    pub amount_minor: i64,
+    pub counted_by: String,
+    pub counted_at: i64,
+}
+
+pub async fn drawer_physical_count_by_request(conn: &mut SqliteConnection, request: &str) -> Result<Option<DrawerPhysicalCount>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at FROM cash_drawer_physical_counts WHERE request_id=?1")
+        .bind(request).fetch_optional(&mut *conn).await
+}
+
+pub async fn insert_drawer_physical_count(conn: &mut SqliteConnection, count: &DrawerPhysicalCount) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_physical_counts(request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at) VALUES(?1,?2,?3,?4,?5,?6)")
+        .bind(&count.request_id).bind(&count.drawer_id).bind(&count.shift_id).bind(count.amount_minor).bind(&count.counted_by).bind(count.counted_at).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn recent_drawer_physical_counts(conn: &mut SqliteConnection) -> Result<Vec<DrawerPhysicalCount>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at FROM cash_drawer_physical_counts ORDER BY rowid DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
+}

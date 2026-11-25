@@ -232,3 +232,6 @@ pub const REPAIR_CASH_EVENTS: &str = include_str!("0050_repair_cash_events.sql")
 
 /// Atomic source-linked transfers between explicitly configured drawers (0051).
 pub const DRAWER_TRANSFERS: &str = include_str!("0051_drawer_transfers.sql");
+
+/// Explicit, append-only physical counts for individual drawers (0052).
+pub const DRAWER_PHYSICAL_COUNTS: &str = include_str!("0052_drawer_physical_counts.sql");

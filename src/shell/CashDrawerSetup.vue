@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { cashPostingPreview, configureDrawer, transferDrawerCash, type CashPostingPreview } from '../api/shift';
+import { cashPostingPreview, configureDrawer, transferDrawerCash, recordDrawerPhysicalCount, type CashPostingPreview } from '../api/shift';
 import { describeError } from '../api/errors';
 import { fmtLong, money, moneyUnitWord, parseMoney } from '../ui/format';
 
@@ -22,6 +22,20 @@ async function transfer(): Promise<void> {
     await transferDrawerCash(props.shiftId, destination.value, parsed, transferReason.value, transferRequest.value);
     emit('changed');
     destination.value = ''; amount.value = ''; transferReason.value = ''; confirmed.value = false;
+    await load();
+  } catch (err) { error.value = describeError(err); }
+  finally { busy.value = false; }
+}
+const countDrawer = ref(''); const countAmount = ref(''); const countConfirmed = ref(false);
+const countRequest = ref<string | null>(null);
+watch([countDrawer, countAmount, countConfirmed], () => { countRequest.value = null; });
+async function saveCount(): Promise<void> {
+  const parsed = parseMoney(countAmount.value);
+  if (busy.value || !countDrawer.value || parsed === null || !countConfirmed.value) return;
+  countRequest.value ??= crypto.randomUUID(); busy.value = true; error.value = '';
+  try {
+    await recordDrawerPhysicalCount(countDrawer.value, parsed, countRequest.value);
+    countDrawer.value = ''; countAmount.value = ''; countConfirmed.value = false;
     await load();
   } catch (err) { error.value = describeError(err); }
   finally { busy.value = false; }
@@ -67,6 +81,15 @@ async function save(): Promise<void> {
         <label>سبب النقل <input v-model="transferReason" maxlength="300" /></label>
         <label><input v-model="confirmed" type="checkbox" /> عدّيت النقدية ونقلتها فعلاً وأفهم أن الرصيد لم يُطابق</label>
         <button type="button" class="btn" :disabled="busy || !destination || !parseMoney(amount) || !transferReason.trim() || !confirmed" @click="transfer">تسجيل النقل</button>
+      </div>
+      <div v-if="preview.drawers.length" class="stack" data-drawer-physical-count>
+        <p>تسجيل جرد فعلي لدرج معين. الجرد ليس حركة مالية ولا يحدد عجزاً أو زيادة قبل اكتمال المطابقة.</p>
+        <label>الدرج <select v-model="countDrawer"><option value="">اختار</option><option v-for="d in preview.drawers" :key="d.id" :value="d.id">{{ d.name }}</option></select></label>
+        <label>المعدود فعلياً ({{ moneyUnitWord() }}) <input v-model="countAmount" inputmode="decimal" /></label>
+        <label><input v-model="countConfirmed" type="checkbox" /> عدّيت هذا الدرج فعلياً</label>
+        <button type="button" class="btn" :disabled="busy || !countDrawer || parseMoney(countAmount) === null || !countConfirmed" @click="saveCount">تسجيل الجرد</button>
+        <ul><li v-for="c in preview.recentCounts" :key="c.requestId">{{ preview.drawers.find(d => d.id === c.drawerId)?.name ?? 'درج غير معروف' }} — {{ money(c.amountMinor) }} — {{ c.countedBy }} — {{ fmtLong(new Date(c.countedAt)) }} — جرد فقط، غير مُطابق</li></ul>
+        <p v-if="preview.recentCounts.length === 100">المعروض آخر 100 جرد فقط.</p>
       </div>
       <ul>
         <li v-for="p in preview.recentPostings" :key="p.sourceKind + p.sourceId">{{ p.sourceKind }} / {{ p.sourceId }} — {{ money(p.signedMinor) }} — {{ preview.drawers.find(d => d.id === p.drawerId)?.name ?? 'الدرج غير معروف' }} — {{ p.actorId }} — {{ fmtLong(new Date(p.occurredAt)) }}</li>

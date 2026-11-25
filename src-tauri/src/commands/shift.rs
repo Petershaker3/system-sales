@@ -450,3 +450,8 @@ pub async fn configure_drawer(ctx: Ctx<'_>, drawer_id: String, name: String, req
 pub async fn transfer_drawer_cash(ctx: Ctx<'_>, shift_id: String, to_drawer_id: String, amount_minor: i64, reason: String, request_id: String) -> Result<(), ShiftCommandError> {
     use_cases::transfer_drawer_cash(&ctx.pool, ctx.tokens.as_ref(), &shift_id, &to_drawer_id, amount_minor, &reason, &request_id).await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn record_drawer_physical_count(ctx: Ctx<'_>, drawer_id: String, amount_minor: i64, request_id: String) -> Result<crate::data::repositories::shift::DrawerPhysicalCount, ShiftCommandError> {
+    use_cases::record_drawer_physical_count(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, amount_minor, &request_id).await.map_err(Into::into)
+}

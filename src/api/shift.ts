@@ -151,9 +151,18 @@ export interface CashSourcePosting {
   readonly actorId: string;
   readonly occurredAt: number;
 }
+export interface DrawerPhysicalCount {
+  readonly requestId: string;
+  readonly drawerId: string;
+  readonly shiftId: string | null;
+  readonly amountMinor: number;
+  readonly countedBy: string;
+  readonly countedAt: number;
+}
 export interface CashPostingPreview {
   readonly drawers: CashDrawerIdentity[];
   readonly recentPostings: CashSourcePosting[];
+  readonly recentCounts: DrawerPhysicalCount[];
   readonly complete: false;
 }
 export function cashPostingPreview(): Promise<CashPostingPreview> {
@@ -165,4 +174,8 @@ export function configureDrawer(drawerId: string, name: string, requestId: strin
 
 export function transferDrawerCash(shiftId: string, toDrawerId: string, amountMinor: number, reason: string, requestId: string): Promise<void> {
   return invoke('transfer_drawer_cash', { shiftId, toDrawerId, amountMinor, reason, requestId });
+}
+
+export function recordDrawerPhysicalCount(drawerId: string, amountMinor: number, requestId: string): Promise<DrawerPhysicalCount> {
+  return invoke('record_drawer_physical_count', { drawerId, amountMinor, requestId });
 }

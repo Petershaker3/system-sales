@@ -699,6 +699,7 @@ pub async fn close_shift(
 pub struct CashPostingPreview {
     pub drawers: Vec<repo::CashDrawerIdentity>,
     pub recent_postings: Vec<repo::CashSourcePosting>,
+    pub recent_counts: Vec<repo::DrawerPhysicalCount>,
     /// This is an incomplete source projection, not a drawer balance.
     pub complete: bool,
 }
@@ -711,8 +712,9 @@ pub async fn cash_posting_preview(pool: &SqlitePool, tokens: &dyn SecureTokenSto
     let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
     let drawers = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     let recent_postings = repo::recent_cash_source_postings(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let recent_counts = repo::recent_drawer_physical_counts(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
-    Ok(CashPostingPreview { drawers, recent_postings, complete: false })
+    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, complete: false })
 }
 
 /// Create an immutable drawer identity if necessary and explicitly configure it
@@ -765,4 +767,29 @@ pub async fn transfer_drawer_cash(pool: &SqlitePool, tokens: &dyn SecureTokenSto
     audit::append(&mut tx,actor,audit::event::CASH_DRAWER_TRANSFERRED,now,Some(serde_json::json!({"request_id":request_id,"shift_id":shift_id,"from_drawer_id":from,"to_drawer_id":to_id,"amount_minor":amount_minor}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
     Ok(())
+}
+
+
+/// A manager records the cash physically counted in one named drawer. A retry
+/// repeats the original observation; it never creates a posting or an adjustment.
+pub async fn record_drawer_physical_count(pool: &SqlitePool, tokens: &dyn SecureTokenStore, drawer_id: &str, amount_minor: i64, request_id: &str) -> Result<repo::DrawerPhysicalCount, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role()!=Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let drawer_id=drawer_id.trim(); let request_id=request_id.trim();
+    if drawer_id.is_empty() || drawer_id.chars().count()>80 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let amount=validate_counted_cash(amount_minor)?;
+    let actor=session.user_id();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(existing)=repo::drawer_physical_count_by_request(&mut tx,request_id).await.map_err(|_| DomainError::StorageUnavailable)? {
+        if existing.drawer_id==drawer_id && existing.amount_minor==amount.as_minor() && existing.counted_by==actor.as_str() { return Ok(existing); }
+        return Err(ShiftError::InvalidDrawer.into());
+    }
+    if !repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.iter().any(|d|d.id==drawer_id) { return Err(ShiftError::InvalidDrawer.into()); }
+    let shift=repo::open_shift_id(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let now=Timestamp::now();
+    let count=repo::DrawerPhysicalCount { request_id:request_id.to_owned(), drawer_id:drawer_id.to_owned(), shift_id:shift, amount_minor:amount.as_minor(), counted_by:actor.as_str(), counted_at:now.as_millis() };
+    repo::insert_drawer_physical_count(&mut tx,&count).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_PHYSICAL_COUNTED,now,Some(serde_json::json!({"request_id":request_id,"drawer_id":drawer_id,"shift_id":count.shift_id.as_deref(),"amount_minor":amount_minor,"reconciled":false}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(count)
 }

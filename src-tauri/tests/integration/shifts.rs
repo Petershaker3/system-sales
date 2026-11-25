@@ -600,3 +600,33 @@ async fn captured_cash_sales_and_customer_payments_use_shift_identity_at_shared_
         assert_eq!((totals.cash_sales_minor,totals.customer_cash_in_minor),(cash,collection),"{id}");
     }
 }
+
+#[tokio::test]
+async fn drawer_counts_are_separate_immutable_observations_with_idempotent_retries() {
+    let (pool,tokens,manager,seller,_) = setup_shop().await;
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"count-a","A","count-config-a").await.expect("drawer A");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"count-b","B","count-config-b").await.expect("drawer B");
+    let a=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",0,"count-1").await.expect("zero is a physical count");
+    assert!(a.shift_id.is_none());
+    let retry=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",0,"count-1").await.expect("retry");
+    assert_eq!(a.counted_at,retry.counted_at);
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",1,"count-1").await.is_err());
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"missing",0,"count-missing").await.is_err());
+    let opened=shift_service::open_shift(&pool,tokens.as_ref(),10).await.expect("shift");
+    let b=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-b",123,"count-2").await.expect("count B");
+    assert_eq!(b.shift_id.as_deref(),Some(opened.shift.id.as_str()));
+    let preview=shift_service::cash_posting_preview(&pool,tokens.as_ref()).await.expect("preview");
+    assert_eq!(preview.recent_counts.len(),2);
+    assert!(preview.recent_postings.is_empty(),"a count is not a cash movement");
+    assert!(!preview.complete);
+    assert!(sqlx::query("UPDATE cash_drawer_physical_counts SET amount_minor=999 WHERE request_id='count-1'").execute(&pool).await.is_err());
+    assert!(sqlx::query("DELETE FROM cash_drawer_physical_counts WHERE request_id='count-1'").execute(&pool).await.is_err());
+    sqlx::query("CREATE TRIGGER reject_count_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='cash_drawer_physical_counted' BEGIN SELECT RAISE(ABORT,'injected'); END").execute(&pool).await.expect("inject");
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",10,"count-failed").await.is_err());
+    let n:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_drawer_physical_counts WHERE request_id='count-failed'").fetch_one(&pool).await.expect("count");
+    assert_eq!(n,0,"audit failure rolls back the observation");
+    sqlx::query("DROP TRIGGER reject_count_audit").execute(&pool).await.expect("drop trigger");
+    auth::login(&pool,tokens.as_ref(),seller,PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",10,"count-denied").await.expect_err("denied").code(),"PERMISSION_DENIED");
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
+}
