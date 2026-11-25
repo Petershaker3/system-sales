@@ -621,3 +621,40 @@ async fn undoing_a_delivered_ticket_takes_its_money_back_out_of_the_drawer() {
         .expect_err("a second undo must be refused");
     assert_eq!(second.code(), "REPAIR_ALREADY_CANCELLED");
 }
+
+#[tokio::test]
+async fn cash_repair_receipts_and_wholly_cash_cancellation_keep_event_shifts() {
+    let (pool, tokens, manager, _, _) = setup_shop_for_repairs().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "r1", "First", "r1-setup").await.expect("drawer");
+    let first = shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("shift");
+    let ticket = repair_service::create_repair(&pool, tokens.as_ref(), CreateRepairInput {
+        service_kind: "hardware".into(), customer_name: "".into(), customer_phone: "".into(), device_name: "phone".into(), imei: None, device_lock: None, issue: "screen".into(), accessories: None, due_label: None,
+        estimated_price_minor: 200, parts_cost_minor: None, part_name: None, part_supplier: None, deposit_minor: 50, pay_method: Some("cash".into()), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None, deliver_now: false,
+    }).await.expect("deposit");
+    repair_service::deliver_repair(&pool, tokens.as_ref(), DeliverRepairInput { id: ticket.id.clone(), final_price_minor: 200, parts_cost_minor: None, pay_method: "cash".into(), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None }).await.expect("delivery");
+    let receipts: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id=?1 ORDER BY source_kind").bind(&ticket.id).fetch_all(&pool).await.expect("receipts");
+    assert_eq!(receipts, vec![("repair_delivery".into(),150),("repair_deposit".into(),50)]);
+    shift_service::close_shift(&pool, tokens.as_ref(), first.shift.id.as_str(), 200, None).await.expect("close");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "r2", "Second", "r2-setup").await.expect("second drawer");
+    let second = shift_service::open_shift(&pool, tokens.as_ref(), 200).await.expect("second shift");
+    owner_approves(&pool, tokens.as_ref()).await;
+    repair_service::cancel_repair(&pool, tokens.as_ref(), &ticket.id, Some("refund")).await.expect("cancel");
+    let refund: (String,String,i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("refund posting");
+    assert_eq!(refund, (second.shift.id.as_str().to_owned(),"r2".into(),-200));
+}
+
+#[tokio::test]
+async fn mixed_repair_cancellation_does_not_invent_a_cash_payout() {
+    let (pool, tokens, manager, _, _) = setup_shop_for_repairs().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    let ticket = repair_service::create_repair(&pool, tokens.as_ref(), CreateRepairInput {
+        service_kind: "hardware".into(), customer_name: "".into(), customer_phone: "".into(), device_name: "phone".into(), imei: None, device_lock: None, issue: "screen".into(), accessories: None, due_label: None,
+        estimated_price_minor: 200, parts_cost_minor: None, part_name: None, part_supplier: None, deposit_minor: 50, pay_method: Some("cash".into()), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None, deliver_now: false,
+    }).await.expect("deposit");
+    repair_service::deliver_repair(&pool, tokens.as_ref(), DeliverRepairInput { id: ticket.id.clone(), final_price_minor: 200, parts_cost_minor: None, pay_method: "vf".into(), pay_wallet_id: Some("vf".into()), technician_name: None, warranty_days: None, note: None }).await.expect("delivery");
+    owner_approves(&pool, tokens.as_ref()).await;
+    repair_service::cancel_repair(&pool, tokens.as_ref(), &ticket.id, None).await.expect("cancel");
+    let events: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id=?1 ORDER BY source_kind").bind(&ticket.id).fetch_all(&pool).await.expect("events");
+    assert_eq!(events, vec![("repair_deposit".into(),50)], "mixed refund source remains unknown");
+}

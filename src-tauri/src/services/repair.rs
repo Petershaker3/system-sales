@@ -438,6 +438,10 @@ pub async fn deliver_repair(
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
 
+    // Recorded in the same transaction as delivery; no historic source is inferred.
+    repair_repo::capture_cash_delivery(&mut tx, rid.as_str(), &actor.as_str())
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+
     if let Some(wallet_id) = pay_wallet_id.as_deref() {
         repair_repo::set_pay_wallet(&mut tx, rid.as_str(), Some(wallet_id))
             .await
@@ -527,6 +531,11 @@ pub async fn cancel_repair(
     let cancelled = repair_repo::mark_cancelled(&mut tx, rid.as_str(), clean_note.as_deref())
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // Only known, wholly cash collections may be reflected as a cash refund.
+    // Mixed or legacy sources remain explicit gaps in the partial projection.
+    repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),

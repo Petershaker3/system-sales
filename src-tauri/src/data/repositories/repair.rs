@@ -617,3 +617,20 @@ impl From<sqlx::Error> for RepairError {
         RepairError::NotFound
     }
 }
+
+/// Append a cash settlement at delivery time using the existing repair row.
+/// The actor is the delivering session, not the creator of the ticket.
+pub async fn capture_cash_delivery(conn: &mut SqliteConnection, id: &str, actor: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_source_postings(source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at) SELECT 'repair_delivery',r.id,sh.id,sd.drawer_id,r.final_price_minor-r.deposit_minor,?2,r.delivered_at FROM repairs r LEFT JOIN shifts sh ON sh.status='open' AND r.delivered_at>=sh.opened_at LEFT JOIN shift_drawers sd ON sd.shift_id=sh.id WHERE r.id=?1 AND r.status='delivered' AND r.pay_method='cash' AND r.final_price_minor>r.deposit_minor")
+        .bind(id).bind(actor).execute(&mut *conn).await?;
+    Ok(())
+}
+
+/// Capture a refund only when every collected piastre is already represented
+/// by known cash receipt postings. Mixed or historical sources remain outside
+/// this partial projection rather than being falsely identified as cash.
+pub async fn capture_proven_cash_refund(conn: &mut SqliteConnection, id: &str, refund_minor: i64, actor: &str, occurred_at: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_source_postings(source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at) SELECT 'repair_cash_refund',r.id,sh.id,sd.drawer_id,-?2,?3,?4 FROM repairs r LEFT JOIN shifts sh ON sh.status='open' AND ?4>=sh.opened_at LEFT JOIN shift_drawers sd ON sd.shift_id=sh.id WHERE r.id=?1 AND r.status='cancelled' AND r.pay_method='cash' AND ?2>0 AND ?2=(SELECT COALESCE(SUM(p.signed_minor),0) FROM cash_source_postings p WHERE p.source_id=r.id AND p.source_kind IN ('repair_deposit','repair_delivery'))")
+        .bind(id).bind(refund_minor).bind(actor).bind(occurred_at).execute(&mut *conn).await?;
+    Ok(())
+}

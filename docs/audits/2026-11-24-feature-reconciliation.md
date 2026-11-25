@@ -575,3 +575,14 @@ original posting. A void for an operation predating this capture remains
 outside the projection; no historical cash flow is inferred. These events do
 not make the projection complete: repair cash, transfers, reconciliation,
 opening balance and historical gaps remain. Do not expose a trusted balance.
+
+### Repair cash event capture (0050)
+
+New cash intake deposits and immediate cash deliveries are captured when the
+repair is created. A later cash settlement is captured with the actor at
+actual delivery time. Cancellation appends a cash outflow only when all of the
+recorded collection is present as cash events and equals the amount the
+existing cancellation says it returns. Mixed-method cancellations, ambiguous
+API deposits, and historical receipts that predate capture remain outside the
+partial projection; no payout source is guessed. This is not a reconciliation,
+and financial reporting and balance guards remain unchanged.

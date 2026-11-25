@@ -226,3 +226,6 @@ pub const CASH_POSTING_FOUNDATION: &str = include_str!("0048_cash_posting_founda
 
 /// Wallet/service cash flows and compensating void events (0049).
 pub const WALLET_CASH_EVENTS: &str = include_str!("0049_wallet_cash_events.sql");
+
+/// Repair cash receipts and evidence-preserving cancellation postings (0050).
+pub const REPAIR_CASH_EVENTS: &str = include_str!("0050_repair_cash_events.sql");
