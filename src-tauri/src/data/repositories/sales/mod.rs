@@ -1335,6 +1335,40 @@ pub async fn insert_refund_payment_allocation(
 /// Only a recorded post-provenance wallet may be used as a refund source.
 /// Existing rows are intentionally not inferred or backfilled.
 pub async fn wallet_source_is_recorded(conn: &mut SqliteConnection, payment_id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_wallet_provenance v JOIN sale_payments p ON p.id=v.payment_id AND p.wallet_id=v.wallet_id WHERE p.id=?1)")
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_payments p WHERE p.id=?1 AND (EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id AND v.wallet_id=p.wallet_id) OR EXISTS(SELECT 1 FROM sale_wallet_reviews r WHERE r.payment_id=p.id AND r.wallet_id=p.wallet_id AND r.action='confirm' AND r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id))))")
         .bind(payment_id).fetch_one(&mut *conn).await
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletReviewCase {
+    pub payment_id: String,
+    pub sale_id: String,
+    pub sale_reference: String,
+    pub method: String,
+    pub amount_minor: i64,
+    pub recorded_wallet_id: Option<String>,
+    pub recorded_wallet_name: Option<String>,
+    pub occurred_at: i64,
+    pub review_action: Option<String>,
+    pub review_reason: Option<String>,
+    pub review_evidence: Option<String>,
+    pub review_actor_id: Option<String>,
+    pub review_occurred_at: Option<i64>,
+}
+
+pub async fn wallet_review_cases(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<WalletReviewCase>, sqlx::Error> {
+    sqlx::query_as::<_, WalletReviewCase>("SELECT p.id payment_id,p.sale_id,s.reference sale_reference,p.method,p.amount_minor,p.wallet_id recorded_wallet_id,w.name recorded_wallet_name,p.occurred_at,r.action review_action,r.reason review_reason,r.evidence review_evidence,r.actor_id review_actor_id,r.occurred_at review_occurred_at FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN wallets w ON w.id=p.wallet_id LEFT JOIN sale_wallet_reviews r ON r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id) WHERE p.sale_id=?1 AND s.kind='sale' AND p.method IN ('vf','instapay') AND NOT EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id) ORDER BY p.payment_no")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn append_wallet_review(conn: &mut SqliteConnection, payment_id: &str, wallet_id: &str, action: &str, reason: &str, evidence: &str, actor: &str, now: i64, request_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(payment_id).bind(wallet_id).bind(action).bind(reason).bind(evidence).bind(actor).bind(now).bind(request_id).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn wallet_review_request_matches(conn: &mut SqliteConnection, request_id: &str, payment_id: &str, wallet_id: &str, action: &str, reason: &str, evidence: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT payment_id,wallet_id,action,reason,evidence,actor_id FROM sale_wallet_reviews WHERE request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("payment_id") == payment_id && r.get::<String,_>("wallet_id") == wallet_id && r.get::<String,_>("action") == action && r.get::<String,_>("reason") == reason && r.get::<String,_>("evidence") == evidence && r.get::<String,_>("actor_id") == actor))
 }

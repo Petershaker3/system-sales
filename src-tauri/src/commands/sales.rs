@@ -856,3 +856,13 @@ pub async fn sales_financial_event_totals(
     use_cases::financial_event_totals(&ctx.pool, ctx.tokens.as_ref(), from_ms, to_ms_exclusive)
         .await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn wallet_review_cases(ctx: Ctx<'_>, sale_id: String) -> Result<Vec<crate::data::repositories::sales::WalletReviewCase>, SalesCommandError> {
+    use_cases::wallet_review_cases(&ctx.pool, ctx.tokens.as_ref(), &sale_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn review_historical_wallet(ctx: Ctx<'_>, payment_id: String, wallet_id: String, action: String, reason: String, evidence: String, request_id: String) -> Result<(), SalesCommandError> {
+    use_cases::review_historical_wallet(&ctx.pool, ctx.tokens.as_ref(), &payment_id, &wallet_id, &action, &reason, &evidence, &request_id).await.map_err(Into::into)
+}

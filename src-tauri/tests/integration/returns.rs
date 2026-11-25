@@ -631,7 +631,7 @@ async fn refund_retains_original_wallet_after_its_payment_method_changes() {
 
 #[tokio::test]
 async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() {
-    let (pool, tokens, manager, _, product, _) = setup_shop_for_returns().await;
+    let (pool, tokens, manager, seller, product, _) = setup_shop_for_returns().await;
     let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
     let payment = [SalePaymentInput { method: "vf".into(), amount_minor: 20_000, reference: None, wallet_id: Some("vf".into()) }];
     let sale = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), Some(&payment), None, 0, &[0]).await.expect("new sale");
@@ -641,12 +641,39 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     sqlx::query("DELETE FROM sale_wallet_provenance").execute(&pool).await.expect("fixture only");
     auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
     approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
-    let err = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line, quantity: 1, condition: "intact".into() }], "unknown wallet", None).await.expect_err("do not guess refund wallet");
+    let err = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line.clone(), quantity: 1, condition: "intact".into() }], "unknown wallet", None).await.expect_err("do not guess refund wallet");
     assert_eq!(err.code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
     let err = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "unknown wallet").await.expect_err("do not guess cancellation wallet");
     assert_eq!(err.code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales WHERE reverses_sale_id=?1").bind(&sale.sale_id).fetch_one(&pool).await.expect("reversals");
     assert_eq!(n, 0, "both failures roll back the reversal");
+    let cases = sales::wallet_review_cases(&pool, tokens.as_ref(), &sale.sale_id).await.expect("manager review cases");
+    assert_eq!(cases.len(), 1);
+    let pid = &cases[0].payment_id;
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "", "evidence", "invalid").await.is_err());
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "ip", "confirm", "reason", "evidence", "wrong-wallet").await.is_err());
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller login");
+    assert_eq!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reason", "statement", "seller").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
+    sqlx::raw_sql("CREATE TRIGGER fail_review_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='sale_wallet_reviewed' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").execute(&pool).await.expect("inject audit failure");
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "bank statement", "statement reference 123", "failed").await.is_err());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_wallet_reviews").fetch_one(&pool).await.expect("review count");
+    assert_eq!(n, 0, "audit failure rolls back review");
+    sqlx::query("DROP TRIGGER fail_review_audit").execute(&pool).await.expect("remove failure");
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "bank statement", "statement reference 123", "request-a").await.expect("confirm");
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "bank statement", "statement reference 123", "request-a").await.expect("identical retry");
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "changed", "statement reference 123", "request-a").await.is_err());
+    let review_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_wallet_reviews").fetch_one(&pool).await.expect("reviews");
+    assert_eq!(review_count, 1);
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "revoke", "wrong statement", "reference corrected", "request-b").await.expect("revoke");
+    assert!(sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "not yet proven").await.is_err());
+    sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reviewed again", "statement reference 456", "request-c").await.expect("confirm again");
+    let original: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original payment");
+    assert_eq!(original.as_deref(), Some("vf"));
+    let reversed = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "cancel with reviewed source").await.expect("cancel");
+    let wallet: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(reversed.sale_id).fetch_one(&pool).await.expect("refund wallet");
+    assert_eq!(wallet.as_deref(), Some("vf"));
+    assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "revoke", "reason", "evidence", "request-d").await.is_err(), "used attribution cannot be silently undone");
 }
 
 #[tokio::test]

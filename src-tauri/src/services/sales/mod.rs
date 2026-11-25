@@ -2829,3 +2829,45 @@ pub async fn financial_event_totals(
     sales_repo::financial_event_totals(&mut conn, from_ms, to_ms_exclusive)
         .await.map_err(|_| DomainError::StorageUnavailable.into())
 }
+
+/// Managers can review a historical electronic payment's recorded wallet.
+/// A conflicting or absent historical wallet is deliberately not guessed.
+pub async fn wallet_review_cases(pool: &SqlitePool, tokens: &dyn SecureTokenStore, sale_id: &str) -> Result<Vec<sales_repo::WalletReviewCase>, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::wallet_review_cases(&mut conn, sale_id).await.map_err(|_| DomainError::StorageUnavailable.into())
+}
+
+/// Append a confirmation or compensating revocation, with evidence and actor.
+/// A request id may be replayed only with an identical payload by the same actor.
+pub async fn review_historical_wallet(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore, payment_id: &str, wallet_id: &str,
+    action: &str, reason: &str, evidence: &str, request_id: &str,
+) -> Result<(), SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let reason = reason.trim();
+    let evidence = evidence.trim();
+    let request_id = request_id.trim();
+    if !matches!(action, "confirm" | "revoke") || payment_id.trim().is_empty() || wallet_id.trim().is_empty()
+        || reason.is_empty() || reason.chars().count() > 300 || evidence.is_empty() || evidence.chars().count() > 1000
+        || request_id.is_empty() || request_id.chars().count() > 120 {
+        return Err(SaleError::RefundSourceUnverifiable.into());
+    }
+    let actor = session.user_id();
+    let now = Timestamp::now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
+    match sales_repo::wallet_review_request_matches(&mut tx, request_id, payment_id, wallet_id, action, reason, evidence, &actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()),
+        Some(false) => return Err(SaleError::RefundSourceUnverifiable.into()),
+        None => {}
+    }
+    sales_repo::append_wallet_review(&mut tx, payment_id, wallet_id, action, reason, evidence, &actor.as_str(), now.as_millis(), request_id).await
+        .map_err(|_| SaleError::RefundSourceUnverifiable)?;
+    audit::append(&mut tx, actor, audit::event::SALE_WALLET_REVIEWED, now,
+        Some(serde_json::json!({"payment_id": payment_id, "wallet_id": wallet_id, "action": action, "request_id": request_id}).to_string()))
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}

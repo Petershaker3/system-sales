@@ -512,3 +512,26 @@ export async function salesFinancialEvents(fromMs: number, toMsExclusive: number
   if (result.inconsistentCancellationCount !== 0) throw new Error('SALES_REPORT_INCONSISTENT_CANCELLATION');
   return result;
 }
+
+/** Historical electronic payments; a recorded wallet is not proof of receipt. */
+export interface WalletReviewCase {
+  readonly paymentId: string;
+  readonly saleId: string;
+  readonly saleReference: string;
+  readonly method: string;
+  readonly amountMinor: number;
+  readonly recordedWalletId: string | null;
+  readonly recordedWalletName: string | null;
+  readonly occurredAt: number;
+  readonly reviewAction: 'confirm' | 'revoke' | null;
+  readonly reviewReason: string | null;
+  readonly reviewEvidence: string | null;
+  readonly reviewActorId: string | null;
+  readonly reviewOccurredAt: number | null;
+}
+export function walletReviewCases(saleId: string): Promise<WalletReviewCase[]> {
+  return invoke('wallet_review_cases', { saleId });
+}
+export function reviewHistoricalWallet(paymentId: string, walletId: string, action: 'confirm' | 'revoke', reason: string, evidence: string, requestId: string): Promise<void> {
+  return invoke('review_historical_wallet', { paymentId, walletId, action, reason, evidence, requestId });
+}

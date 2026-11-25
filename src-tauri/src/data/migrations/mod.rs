@@ -208,3 +208,6 @@ pub const SHIFT_HANDOVER: &str = include_str!("0042_shift_handover.sql");
 
 /// Explicit provenance for new sale wallet allocations (0043).
 pub const SALE_WALLET_PROVENANCE: &str = include_str!("0043_wallet_payment_provenance.sql");
+
+/// Append-only review of a historical recorded wallet (0044).
+pub const SALE_WALLET_EVIDENCE_REVIEW: &str = include_str!("0044_wallet_evidence_review.sql");
