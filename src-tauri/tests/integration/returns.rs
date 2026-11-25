@@ -672,6 +672,8 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reviewed again", "statement reference 456", "request-c").await.expect("confirm again");
     let history = sales::wallet_review_history(&pool, tokens.as_ref(), pid).await.expect("review history");
     assert_eq!(history.iter().map(|e| e.action.as_str()).collect::<Vec<_>>(), vec!["confirm", "revoke", "confirm"]);
+    assert_eq!(history.iter().map(|e| (e.previous_wallet_id.as_deref(), e.resulting_wallet_id.as_deref())).collect::<Vec<_>>(), vec![(None, Some("vf")), (Some("vf"), None), (None, Some("vf"))]);
+    assert!(history.iter().all(|e| e.recorded_wallet_id.as_deref() == Some("vf")));
     let original: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original payment");
     assert_eq!(original.as_deref(), Some("vf"));
     let reversed = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "cancel with reviewed source").await.expect("cancel");
@@ -711,6 +713,19 @@ async fn reviewed_wallet_can_differ_from_legacy_value_without_rewriting_original
     assert_eq!(raw.as_deref(), Some("vf"));
     let effective: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_effective_wallet_attribution WHERE payment_id=?1").bind(pid).fetch_one(&pool).await.expect("effective");
     assert_eq!(effective.as_deref(), Some("ip"));
+    // Both lifetime and period views move the original event, not the review date.
+    let event_time: i64 = sqlx::query_scalar("SELECT occurred_at FROM sales WHERE id=?1").bind(&sale.sale_id).fetch_one(&pool).await.expect("sale time");
+    let mut conn = pool.acquire().await.expect("connection");
+    let vf = mobile_shop_system_lib::data::repositories::wallet::find_wallet_by_id(&mut conn, "vf").await.expect("wallet").expect("vf");
+    let ip = mobile_shop_system_lib::data::repositories::wallet::find_wallet_by_id(&mut conn, "ip").await.expect("wallet").expect("ip");
+    let vf_period = mobile_shop_system_lib::data::repositories::wallet::compute_wallet_period_stats(&mut conn, &vf, event_time, event_time).await.expect("vf stats");
+    let ip_period = mobile_shop_system_lib::data::repositories::wallet::compute_wallet_period_stats(&mut conn, &ip, event_time, event_time).await.expect("ip stats");
+    assert_eq!((vf_period.sales_in_minor, ip_period.sales_in_minor), (0, 20_000));
+    let vf_balance = mobile_shop_system_lib::data::repositories::wallet::compute_wallet_balance_minor(&mut conn, &vf).await.expect("vf balance");
+    let ip_balance = mobile_shop_system_lib::data::repositories::wallet::compute_wallet_balance_minor(&mut conn, &ip).await.expect("ip balance");
+    assert_eq!(vf_balance, vf.opening_balance_minor);
+    assert_eq!(ip_balance, ip.opening_balance_minor + 20_000);
+    drop(conn);
     approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve");
     let returned = sales::record_sale_return(&pool, tokens.as_ref(), &sale.sale_id, &[SaleReturnLineInput { sale_line_id: line, quantity: 1, condition: "intact".into() }], "refund", None).await.expect("return against reviewed wallet");
     let wallet: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(returned.return_sale_id).fetch_one(&pool).await.expect("refund wallet");
@@ -744,4 +759,33 @@ async fn reviewed_missing_historical_wallet_can_be_cancelled_without_rewriting_s
     assert!(original.is_none(), "the original source stays unknown in the original row");
     let refund: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE sale_id=?1").bind(reversal.sale_id).fetch_one(&pool).await.expect("refund");
     assert_eq!(refund.as_deref(), Some("ip"));
+}
+
+#[tokio::test]
+async fn simultaneous_conflicting_reviews_and_identical_retries_are_serialized() {
+    let dir = tempfile::tempdir().expect("temp directory");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("reviews.db")).await.expect("file database");
+    let tokens = InMemoryTokenStore::new();
+    let manager = bootstrap::create_first_manager(&pool, "Owner", PASSWORD).await.expect("owner").user_id;
+    auth::login(&pool, &tokens, manager, PASSWORD).await.expect("login");
+    let mut conn = pool.acquire().await.expect("connection");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,?1,'sale',100,0)").bind(manager.as_str()).execute(&mut *conn).await.expect("old sale");
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_on_insert").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('old-payment','old',1,'vf','vf',100,100)").execute(&mut *conn).await.expect("old payment");
+    sqlx::query("CREATE TRIGGER sale_wallet_provenance_on_insert AFTER INSERT ON sale_payments WHEN NEW.wallet_id IS NOT NULL AND NEW.method IN ('vf','instapay') AND (SELECT kind FROM sales WHERE id=NEW.sale_id) = 'sale' BEGIN INSERT INTO sale_wallet_provenance(payment_id,wallet_id,kind) VALUES(NEW.id,NEW.wallet_id,'recorded_on_sale'); END;").execute(&mut *conn).await.expect("restore trigger");
+    drop(conn);
+    let (a, b) = tokio::join!(
+        sales::review_historical_wallet(&pool, &tokens, "old-payment", "vf", "confirm", "reason", "evidence", "request-a"),
+        sales::review_historical_wallet(&pool, &tokens, "old-payment", "ip", "confirm", "reason", "evidence", "request-b")
+    );
+    assert_ne!(a.is_ok(), b.is_ok(), "exactly one conflicting confirmation wins");
+    let (wallet, request) = if a.is_ok() { ("vf", "request-a") } else { ("ip", "request-b") };
+    let (retry_a, retry_b) = tokio::join!(
+        sales::review_historical_wallet(&pool, &tokens, "old-payment", wallet, "confirm", "reason", "evidence", request),
+        sales::review_historical_wallet(&pool, &tokens, "old-payment", wallet, "confirm", "reason", "evidence", request)
+    );
+    assert!(retry_a.is_ok() && retry_b.is_ok());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_wallet_reviews WHERE payment_id='old-payment'").fetch_one(&pool).await.expect("count");
+    assert_eq!(count, 1);
+    assert!(sales::review_historical_wallet(&pool, &tokens, "old-payment", wallet, "confirm", "changed", "evidence", request).await.is_err());
 }

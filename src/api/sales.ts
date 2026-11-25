@@ -547,6 +547,9 @@ export interface WalletReviewEvent {
   readonly actorId: string;
   readonly occurredAt: number;
   readonly requestId: string;
+  readonly recordedWalletId: string | null;
+  readonly previousWalletId: string | null;
+  readonly resultingWalletId: string | null;
 }
 export function walletReviewHistory(paymentId: string): Promise<WalletReviewEvent[]> {
   return invoke('wallet_review_history', { paymentId });

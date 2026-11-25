@@ -1390,8 +1390,20 @@ pub struct WalletReviewEvent {
     pub actor_id: String,
     pub occurred_at: i64,
     pub request_id: String,
+    /// Historical payment field is not necessarily verified and is never rewritten.
+    pub recorded_wallet_id: Option<String>,
+    /// Effective proven attribution immediately before and after this event.
+    pub previous_wallet_id: Option<String>,
+    pub resulting_wallet_id: Option<String>,
 }
 pub async fn wallet_review_history(conn: &mut SqliteConnection, payment_id: &str) -> Result<Vec<WalletReviewEvent>, sqlx::Error> {
-    sqlx::query_as::<_, WalletReviewEvent>("SELECT sequence,payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id FROM sale_wallet_reviews WHERE payment_id=?1 ORDER BY sequence")
+    sqlx::query_as::<_, WalletReviewEvent>("SELECT r.sequence,r.payment_id,r.wallet_id,r.action,r.reason,r.evidence,r.actor_id,r.occurred_at,r.request_id,
+      p.wallet_id recorded_wallet_id,
+      (SELECT CASE WHEN previous.action='confirm' THEN previous.wallet_id ELSE NULL END
+       FROM sale_wallet_reviews previous WHERE previous.payment_id=r.payment_id AND previous.sequence<r.sequence
+       ORDER BY previous.sequence DESC LIMIT 1) previous_wallet_id,
+      CASE WHEN r.action='confirm' THEN r.wallet_id ELSE NULL END resulting_wallet_id
+      FROM sale_wallet_reviews r JOIN sale_payments p ON p.id=r.payment_id
+      WHERE r.payment_id=?1 ORDER BY r.sequence")
         .bind(payment_id).fetch_all(&mut *conn).await
 }

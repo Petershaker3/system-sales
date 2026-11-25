@@ -62,7 +62,7 @@ async function submit(item: WalletReviewCase): Promise<void> {
       <p v-else>المصدر غير مثبت<span v-if="item.reviewAction === 'revoke'">؛ آخر مراجعة أُلغيت: {{ item.reviewReason }} — {{ item.reviewEvidence }}</span>.</p>
       <button type="button" class="btn" :disabled="busy" @click="showHistory(item)">عرض سجل المراجعات</button>
       <ul v-if="historyPaymentId === item.paymentId && history" data-wallet-review-history>
-        <li v-for="event in history" :key="event.sequence">{{ event.action === 'confirm' ? 'تأكيد' : 'إلغاء' }} — {{ event.walletId }} — {{ event.reason }} — {{ event.evidence }} — {{ event.actorId }} — {{ fmtLong(new Date(event.occurredAt)) }}</li>
+        <li v-for="event in history" :key="event.sequence">{{ event.action === 'confirm' ? 'تأكيد' : 'إلغاء' }} — المصدر المثبت قبل القرار: {{ event.previousWalletId ?? 'غير مثبت' }} ← بعد القرار: {{ event.resultingWalletId ?? 'غير مثبت' }} — المسجل الأصلي: {{ event.recordedWalletId ?? 'غير معروف' }} — {{ event.reason }} — {{ event.evidence }} — {{ event.actorId }} — {{ fmtLong(new Date(event.occurredAt)) }}</li>
       </ul>
       <button type="button" class="btn" :disabled="busy" @click="target = item.paymentId; selectedWalletId = ''">{{ item.reviewAction === 'confirm' ? 'إلغاء التأكيد بسجل تعويضي' : 'مراجعة وتحديد المحفظة بالدليل' }}</button>
       <div v-if="target === item.paymentId" class="stack">
