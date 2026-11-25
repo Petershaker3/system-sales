@@ -374,3 +374,56 @@ so legacy values are not promoted to physical-count evidence. Their shift link
 is retained and the prior-count/difference fields remain unknown. The opening
 screen warns that old amounts may have unverified provenance and that compared
 observations may not identify the same drawer.
+
+### Wallet provenance and explicit selection (migration 0043)
+
+The requested baseline `66ed5d8ca0cb854ad81a893abde11e44c36bbf78` passed
+non-release run 45528531952. Migration 0030 could fill a historical sale's
+wallet ID using the wallet configured for a payment method at migration time.
+A non-null value therefore does not prove the original receiving wallet.
+Migration 0043 does **not** backfill provenance. It records evidence for new
+sale wallet payments and protects it against updates/deletion; a database
+allocation trigger also refuses an electronic refund without matching evidence.
+The shared Rust resolver requires an explicitly supplied eligible wallet for
+new sale, debt-payment and repair electronic payments rather than silently
+choosing a primary. The wallet selector now offers even a single eligible
+wallet, with an explicit choice. Sales cancellation and return refuse an
+unknown electronic source before committing; the existing original-payment
+allocation and wallet checks remain in place.
+
+This is intentionally conservative: **all electronic sale payments already in a
+shop at the 0043 upgrade lack this new evidence**, including some that may in
+fact have been selected correctly. They cannot currently be returned/cancelled
+through these paths until an auditable evidence-based resolution is implemented;
+there is no unsafe automatic backfill or override. This is an operational
+limitation, not proof that all old wallet records are wrong. Existing customer
+and repair history can likewise contain inferred attribution and has not been
+retroactively verified. The demo backend is only a mock and its historical data
+and refund logic do not establish database-level provenance.
+
+Trace map for further ledger implementation: sale and exchange receipts and
+reversals live in `sales`/`sale_payments`, with `refund_payment_allocations` for
+new linked reversals; customer settlement is in `customer_ledger`; repair
+receipt and settlement are recorded in repair rows; drawer expenses and manual
+movements use `expenses` and `cash_movements` linked to a shift; wallet services
+and top-up/unload/void use `wallet_ops`; shifts and the two observation tables
+record operational handover. Several writers still use time-window association
+and/or deferred transactions and do not record a physical drawer identity.
+There is no common cash movement/idempotency ledger and no complete reconciliation
+or resolution model. In particular, a cash refund's original drawer remains
+unknown: the new electronic provenance must not be mistaken for completion of
+cash drawer attribution, profit reporting, multi-drawer transfers or end-to-end
+reconciliation. The existing report guard remains unchanged.
+
+Non-release run 45530379999 at `ff9f2531dec3a6a8cd4dc9aa63640cc5acc87467`
+failed Rust compilation (`E0596`, reborrow of an already borrowed transaction).
+The reborrow was corrected at `4b02bdbdd8dfc1fc380cfa16a588eac8d5b386f0` and
+fixtures exercising real wallet selection were updated; consult the later run
+before asserting Rust success. Local typecheck, 298 unit tests, production
+build, five raw SQLite experiments and six focused mock checks passed for the
+wallet changes. A broad mock demo run including a missing-wallet rejection
+completed 326/326 checks on the 4b02bdb changes. These browser checks use a mock
+backend, not a real Tauri/SQLite UI. A new encrypted backup/restore test covers
+shift counts, handover and wallet provenance and checks restored integrity and
+append-only enforcement; its result requires the non-release CI run on or
+after `977aac61830a2aaa54d1a39bb6b081f61fca0c22`.
