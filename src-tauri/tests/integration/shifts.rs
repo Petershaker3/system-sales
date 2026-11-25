@@ -574,3 +574,29 @@ async fn drawer_transfer_is_atomic_authorized_and_idempotent() {
     auth::login(&pool,tokens.as_ref(),_cashier,PASSWORD).await.expect("cashier");
     assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",10,"unauthorized","transfer-4").await.is_err());
 }
+
+#[tokio::test]
+async fn captured_cash_sales_and_customer_payments_use_shift_identity_at_shared_boundary() {
+    let (pool, _tokens, manager, _, _) = setup_shop().await;
+    let actor = manager.as_str();
+    sqlx::query("INSERT INTO cash_drawers VALUES('boundary-till','Till',?1,0)").bind(&actor).execute(&pool).await.expect("drawer");
+    sqlx::query("INSERT INTO cash_drawer_default VALUES(1,'boundary-till',?1,0)").bind(&actor).execute(&pool).await.expect("default");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('boundary-first',1,'open',0,?1,10)").bind(&actor).execute(&pool).await.expect("first");
+    sqlx::query("UPDATE shifts SET status='closed',expected_cash_minor=0,counted_cash_minor=0,difference_minor=0,closed_by=?1,closed_at=20 WHERE id='boundary-first'").bind(&actor).execute(&pool).await.expect("close");
+    // A captured posting made with no open shift remains unassigned even when
+    // its timestamp happens to equal both adjacent shifts' boundary.
+    sqlx::query("INSERT INTO customers(id,name,created_by,created_at,updated_at) VALUES('boundary-customer','Customer',?1,1,1)").bind(&actor).execute(&pool).await.expect("customer");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('outside-sale','outside-sale',20,?1,'sale',30,0)").bind(&actor).execute(&pool).await.expect("outside sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('outside-payment','outside-sale',1,'cash',30,20)").execute(&pool).await.expect("outside payment");
+    sqlx::query("INSERT INTO customer_ledger(id,customer_id,kind,amount_minor,method,actor_id,occurred_at) VALUES('outside-customer','boundary-customer','payment',-40,'cash',?1,20)").bind(&actor).execute(&pool).await.expect("outside collection");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('boundary-second',2,'open',0,?1,20)").bind(&actor).execute(&pool).await.expect("second");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('boundary-sale','boundary-sale',20,?1,'sale',100,0)").bind(&actor).execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('boundary-payment','boundary-sale',1,'cash',100,20)").execute(&pool).await.expect("payment");
+    sqlx::query("INSERT INTO customer_ledger(id,customer_id,kind,amount_minor,method,actor_id,occurred_at) VALUES('boundary-collection','boundary-customer','payment',-50,'cash',?1,20)").bind(&actor).execute(&pool).await.expect("collection");
+    let mut conn=pool.acquire().await.expect("connection");
+    for (id, cash, collection) in [("boundary-first",0,0),("boundary-second",100,50)] {
+        let shift=mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn,id).await.expect("read").expect("shift");
+        let totals=mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn,&shift).await.expect("totals");
+        assert_eq!((totals.cash_sales_minor,totals.customer_cash_in_minor),(cash,collection),"{id}");
+    }
+}

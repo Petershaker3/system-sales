@@ -319,10 +319,13 @@ pub async fn compute_shift_totals(
             COALESCE(SUM(CASE WHEN sp.method = 'credit' THEN (CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END) ELSE 0 END), 0) AS credit_minor
          FROM sale_payments sp
          INNER JOIN sales s ON s.id = sp.sale_id
-         WHERE s.occurred_at >= ?1 AND s.occurred_at <= ?2",
+         LEFT JOIN cash_source_postings p ON p.source_kind='sale_payment' AND p.source_id=sp.id
+         WHERE (sp.method='cash' AND p.source_id IS NOT NULL AND p.shift_id=?3)
+            OR ((sp.method<>'cash' OR p.source_id IS NULL) AND s.occurred_at >= ?1 AND s.occurred_at <= ?2)",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 
@@ -352,15 +355,16 @@ pub async fn compute_shift_totals(
     let sales_count = net_count.max(0) as u64;
 
     let customer_cash_in_minor: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(-amount_minor), 0)
-         FROM customer_ledger
-         WHERE kind = 'payment'
-           AND method = 'cash'
-           AND occurred_at >= ?1
-           AND occurred_at <= ?2",
+        "SELECT COALESCE(SUM(-c.amount_minor), 0)
+         FROM customer_ledger c
+         LEFT JOIN cash_source_postings p ON p.source_kind='customer_payment' AND p.source_id=c.id
+         WHERE c.kind='payment' AND c.method='cash'
+           AND ((p.source_id IS NOT NULL AND p.shift_id=?3)
+             OR (p.source_id IS NULL AND c.occurred_at >= ?1 AND c.occurred_at <= ?2))",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 
