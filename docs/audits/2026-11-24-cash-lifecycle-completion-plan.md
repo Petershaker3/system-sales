@@ -35,3 +35,14 @@ records, expressly not as cash movements or a calculated shortage. Historic
 cancellations are not backfilled, and no resolution workflow has yet been
 implemented. Absence of newly captured gaps therefore does not establish full
 coverage. Rollback and backup fixtures cover the new record.
+
+## Physical payout confirmation review
+
+A cash receipt proves how money came in, not how it left. The repair undo UI now
+allows an explicit statement that the entire refund has already been physically
+paid in cash; the server also requires all recorded collection to be proven
+cash before creating that cash outflow. Without both, the payout stays an
+unresolved event. Existing callers that omit the confirmation default to false;
+manager approval still applies and mixed/legacy payouts are not guessed. Older
+cash refund postings made before this correction remain historical claims, not
+independent proof of payout, and must be considered during reconciliation.

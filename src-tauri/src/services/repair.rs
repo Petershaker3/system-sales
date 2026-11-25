@@ -470,15 +470,27 @@ pub async fn deliver_repair(
 
 /// Undo a repair or software ticket and give back the money it collected (`ADR-046`).
 ///
-/// Works on every stage, delivered included: the ticket leaves `delivered` or
-/// keeps its deposit, which is what removes its money from the drawer, the
-/// wallet balance and the day's revenue. Needs the owner's approval; a second
-/// undo is refused with `REPAIR_ALREADY_CANCELLED` so nobody refunds twice.
+/// Works on every stage, delivered included. Status changes alone do not prove
+/// a physical refund. This compatibility entry point leaves the payout source
+/// unresolved; a second undo is refused so nobody refunds twice.
 pub async fn cancel_repair(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
     id: &str,
     note: Option<&str>,
+) -> Result<RepairTicket, RepairServiceError> {
+    cancel_repair_with_cash_confirmation(pool, tokens, id, note, false).await
+}
+
+/// An affirmative operator statement that the entire refund was physically paid
+/// in cash is required in addition to evidence of wholly cash receipts. Without
+/// both, retain an unresolved payout instead of inventing a cash outflow.
+pub async fn cancel_repair_with_cash_confirmation(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    id: &str,
+    note: Option<&str>,
+    cash_payout_confirmed: bool,
 ) -> Result<RepairTicket, RepairServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::Sell)?;
@@ -534,8 +546,10 @@ pub async fn cancel_repair(
 
     // Only known, wholly cash collections may be reflected as a cash refund.
     // Mixed or legacy sources remain explicit gaps in the partial projection.
-    let captured_cash = repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
-        .await.map_err(|_| DomainError::StorageUnavailable)?;
+    let captured_cash = if cash_payout_confirmed {
+        repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+            .await.map_err(|_| DomainError::StorageUnavailable)?
+    } else { false };
     if refunded_minor > 0 && !captured_cash {
         repair_repo::record_uncertain_repair_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
             .await.map_err(|_| DomainError::StorageUnavailable)?;
@@ -547,6 +561,7 @@ pub async fn cancel_repair(
         "service_kind": cancelled.service_kind,
         "was_status": existing.status.as_str(),
         "refunded_minor": refunded_minor,
+        "cash_payout_confirmed": cash_payout_confirmed,
         "cash_payout_attributed": captured_cash,
         "payout_source_unresolved": refunded_minor > 0 && !captured_cash,
         "pay_method": existing.pay_method.as_str(),

@@ -519,6 +519,7 @@ async function saveDetailChanges(): Promise<void> {
 // undid what, when, and how much went back.
 const undoTarget = ref<RepairTicket | null>(null);
 const undoReason = ref('');
+const undoCashConfirmed = ref(false);
 const undoSubmitting = ref(false);
 
 /** What the customer gets back if this ticket is undone, in money. */
@@ -531,6 +532,7 @@ const undoRefundMinor = computed<number>(() => {
 function askUndo(ticket: RepairTicket): void {
   undoTarget.value = ticket;
   undoReason.value = '';
+  undoCashConfirmed.value = false;
   errorBanner.value = '';
   detailTarget.value = null;
 }
@@ -542,15 +544,14 @@ async function confirmUndo(): Promise<void> {
   try {
     const refund = undoRefundMinor.value;
     const outcome = await withOwnerApproval(
-      () => cancelRepair(ticket.id, undoReason.value.trim() || 'تراجع عن العملية'),
+      () => cancelRepair(ticket.id, undoReason.value.trim() || 'تراجع عن العملية', undoCashConfirmed.value),
       `التراجع عن تذكرة ${ticket.ticketNo}`
     );
     if (outcome.status === 'cancelled') return;
     undoTarget.value = null;
-    okBanner.value =
-      refund > 0
-        ? `تم التراجع عن تذكرة ${outcome.value.ticketNo} ورجّعنا ${money(refund)} للعميل`
-        : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
+    okBanner.value = refund > 0
+      ? `تم التراجع عن تذكرة ${outcome.value.ticketNo}. راجع تسجيل طريقة رد ${money(refund)}؛ قد تحتاج إثباتاً.`
+      : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
     await loadOverview();
     emit('changed');
   } catch (e) {
@@ -1466,8 +1467,8 @@ onMounted(async () => {
         <div class="note" style="margin: 0">
           <Icon name="info" />
           <span>
-            التراجع بيرجّع العملية والحسابات زي ما كانت قبلها: التذكرة بتتقفل، والفلوس
-            اللي اتاخدت عليها بتخرج من تحصيل اليوم ومن رصيد المحفظة اللي اتحصّلت فيها.
+            التراجع بيقفل التذكرة، لكنه مش إثبات لوحده إن الفلوس اتردّت أو خرجت من درج معين.
+            الرد المختلط أو غير المعروف يفضل معلّق للمراجعة، من غير تخمين طريقة الصرف.
           </span>
         </div>
 
@@ -1483,7 +1484,7 @@ onMounted(async () => {
             class="muted small"
             style="margin-top: 6px"
           >
-            التذكرة دي كانت اتسلّمت — التراجع بيلغي التحصيل كله ({{ egp(undoTarget.finalPriceMinor) }})
+            التذكرة دي كانت اتسلّمت — المبلغ المطلوب مراجعته للرد كله ({{ egp(undoTarget.finalPriceMinor) }})
             مش العربون بس.
           </div>
           <div
@@ -1491,10 +1492,14 @@ onMounted(async () => {
             class="muted small"
             style="margin-top: 6px"
           >
-            العربون اللي اتاخد وقت الاستلام هيرجع كاش.
+            راجع طريقة رد العربون الفعلية قبل تأكيد العملية.
           </div>
         </div>
 
+        <label v-if="undoRefundMinor > 0 && undoTarget.payMethod === 'cash'" class="field">
+          <span><input v-model="undoCashConfirmed" type="checkbox" data-undo-cash-confirmed /> أؤكد إني دفعت كامل المبلغ نقداً بالفعل</span>
+          <span class="muted small">يُسجّل كاش فقط لو مصادر التحصيل تثبت إن المبلغ كله كان نقداً؛ وإلا تفضل طريقة الرد غير محسومة.</span>
+        </label>
         <label class="field">
           <span class="lbl">سبب التراجع (اختياري)</span>
           <input
