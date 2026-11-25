@@ -313,14 +313,13 @@ export function formatDailyWhatsAppSummary(
   const dateStr = fmtDate(input.date);
   const lines: string[] = [
     `📊 *ملخص يوم ${dateStr} — ${titleShop}*`,
+    'تنبيه: الأرقام والتكاليف تقديرية غير مُطابَقة أو معتمدة مالياً.',
     `• المبيعات: ${money(input.salesMinor)} (${num(input.invoicesCount)} فاتورة)`,
-    `• ربح البضاعة: ${money(input.goodsProfitMinor)}`,
+    `• ربح البضاعة التقديري غير المُطابَق: ${money(input.goodsProfitMinor)}`,
     `• فلوس الصيانة لوحدها: ${money(input.hardwareRevenueMinor)}`,
     `• فلوس السوفت وير لوحدها: ${money(input.softwareRevenueMinor)}`,
     `• عمولات المحافظ والخدمات: ${money(input.walletFeesMinor)}`,
-    input.expectedDrawerCashMinor === null
-      ? '• رصيد الدرج غير متاح لحين مطابقة مصادر النقدية'
-      : `• المفروض في الدرج (وردية #${num(input.shiftNumber)}): ${money(input.expectedDrawerCashMinor)}`,
+    '• رصيد الدرج غير متاح لحين مطابقة مصادر النقدية',
   ];
 
   const { shortages, overdueRepairs, stagnantProducts, totalStagnantCostMinor } =
@@ -342,7 +341,7 @@ export function formatDailyWhatsAppSummary(
     }`,
   );
   lines.push(
-    `• أصناف راكدة (+30 يوم): ${num(stagnantProducts.length)} صنف (رأس مال مجمد ${money(totalStagnantCostMinor)})`,
+    `• أصناف راكدة (+30 يوم): ${num(stagnantProducts.length)} صنف (رأس مال مجمد تقديري غير مُطابَق ${money(totalStagnantCostMinor)})`,
   );
 
   return lines.join('\n');

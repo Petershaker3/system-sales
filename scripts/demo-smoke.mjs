@@ -2875,6 +2875,7 @@ check(
   await page.click('[data-reports-incomplete] button');
   await page.waitForSelector('[data-reports-day-rating]', { timeout: 5000 });
   check('Isolated no-reversal report fixture is used only for UI rendering', (await count('[data-reports-incomplete]')) === 0);
+  check('Report marks profit and evaluations as unverified', (await text('[data-reports-unverified]')).includes('غير مُطابَقة'));
 
   check(
     'Owner opens «التقارير» on the «النهارده» tab with 6 KPI cards (net profit is its own), 7-day bars, and separate repair/software revenue',
@@ -2941,6 +2942,7 @@ check(
       waSummaryBody.includes('فلوس الصيانة لوحدها') &&
       waSummaryBody.includes('فلوس السوفت وير لوحدها') &&
       waSummaryBody.includes('رصيد الدرج غير متاح') &&
+      waSummaryBody.includes('تقديرية غير مُطابَقة') &&
       waSummaryBody.includes('التنبيهات الذكية') &&
       (await text('#toasts')).includes('اتبعت ملخص اليوم على واتساب المالك'),
     waSummaryBody.slice(0, 120)

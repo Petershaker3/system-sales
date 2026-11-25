@@ -768,15 +768,16 @@ function exportCsv(): void {
   if (monthAvailability.value !== 'ready') return;
   const R = monthRep.value;
   const lines = [
+    ['تنبيه', 'تقديرات غير مُطابَقة وغير معتمدة مالياً'],
     ['الشهر', fmtMonth(R.from)],
     ['المبيعات (ج.م)', String(R.T.salesMinor / 100)],
-    ['الربح (ج.م)', String(R.T.profitMinor / 100)],
+    ['الربح التقديري غير المُطابَق (ج.م)', String(R.T.profitMinor / 100)],
     ['عدد الفواتير', String(R.T.invoices)],
     ['إيراد الصيانة (ج.م)', String(monthHardwareRevenueMinor.value / 100)],
     ['إيراد السوفت وير (ج.م)', String(monthSoftwareRevenueMinor.value / 100)],
     ['عمولات المحافظ (ج.م)', String(monthWalletFeesMinor.value / 100)],
     ['مصاريف الشهر (ج.م)', String(monthExpensesMinor.value / 100)],
-    ['صافي الشهر بعد المصاريف (ج.م)', String(monthNetMinor.value / 100)],
+    ['صافي الشهر التقديري غير المُطابَق (ج.م)', String(monthNetMinor.value / 100)],
   ];
   const csv = lines.map((row) => row.join(',')).join('\n');
   if (
@@ -818,6 +819,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page" data-reports-screen>
+    <div class="note warn" role="alert" data-reports-unverified>
+      أرقام الربح والصافي والتقييمات تقديرية وغير مُطابَقة أو معتمدة مالياً؛ مصادر النقدية والتكاليف لم تكتمل مراجعتها. لا تستخدمها كربح مؤكد.
+    </div>
     <div class="page-h">
       <h2>التقارير</h2>
       <span class="sub">
