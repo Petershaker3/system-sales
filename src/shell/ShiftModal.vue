@@ -31,6 +31,7 @@ import {
   parseCount,
   parseMoney,
 } from '../ui/format';
+import CashDrawerSetup from './CashDrawerSetup.vue';
 import Icon from '../ui/Icon.vue';
 import Modal from '../ui/Modal.vue';
 import { toast } from '../ui/toast';
@@ -202,6 +203,7 @@ async function submitOperationalClose(): Promise<void> {
     :size="shiftState.openShift ? 'wide' : 'md'"
     @close="emit('close')"
   >
+    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" />
     <!-- Open a new shift -->
     <div v-if="!shiftState.openShift" data-open-shift-view>
       <form @submit.prevent="submitOpenShift">

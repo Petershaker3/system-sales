@@ -224,6 +224,7 @@ export const ErrorCode = {
   CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  CASH_DRAWER_INVALID: 'CASH_DRAWER_INVALID',
   SHIFT_ALREADY_OPEN: 'SHIFT_ALREADY_OPEN',
   SHIFT_NOT_OPEN: 'SHIFT_NOT_OPEN',
   SHIFT_OPENING_CASH_INVALID: 'SHIFT_OPENING_CASH_INVALID',
@@ -608,6 +609,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'الملاحظة طويلة زيادة عن اللزوم.',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  [ErrorCode.CASH_DRAWER_INVALID]: 'بيانات الدرج أو طلب الإعداد غير صالحة. راجع الاسم والدرج المختار.',
   [ErrorCode.SHIFT_ALREADY_OPEN]:
     'فيه وردية مفتوحة بالفعل دلوقتي.',
   [ErrorCode.SHIFT_NOT_OPEN]:

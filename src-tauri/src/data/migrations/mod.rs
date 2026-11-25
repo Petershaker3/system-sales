@@ -220,3 +220,6 @@ pub const REVIEW_EXISTING_ALLOCATIONS: &str = include_str!("0046_review_existing
 
 /// Evidence-backed, append-only links for historical refund allocations (0047).
 pub const REFUND_ALLOCATION_REPAIRS: &str = include_str!("0047_refund_allocation_repairs.sql");
+
+/// Explicit drawer identity and append-only source-linked cash posting foundation (0048).
+pub const CASH_POSTING_FOUNDATION: &str = include_str!("0048_cash_posting_foundation.sql");

@@ -504,3 +504,40 @@ async fn legacy_close_value_is_not_promoted_to_a_proven_physical_count() {
         .bind(opened.shift.id.as_str()).fetch_one(&pool).await.expect("handover");
     assert_eq!(row, (Some("legacy".to_owned()), None, None, "unreconciled".to_owned()));
 }
+
+#[tokio::test]
+async fn configured_shift_captures_source_linked_cash_without_claiming_reconciliation() {
+    let (pool, tokens, manager, seller, product) = setup_shop().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    // Before configuration and without a shift, never invent a drawer.
+    let before = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("sale before shift");
+    let unassigned: Option<String> = sqlx::query_scalar("SELECT p.drawer_id FROM cash_source_postings p JOIN sale_payments sp ON sp.id=p.source_id WHERE sp.sale_id=?1").bind(&before.sale_id).fetch_one(&pool).await.expect("posting");
+    assert!(unassigned.is_none());
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("configure");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("retry");
+    assert!(shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Changed", "req").await.is_err());
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 10_000).await.expect("open");
+    assert!(shift_service::configure_drawer(&pool, tokens.as_ref(), "other", "Other", "req2").await.is_err());
+    sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("sale");
+    shift_service::record_expense(&pool, tokens.as_ref(), "tea", 1000, None).await.expect("drawer expense");
+    shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 12_345).await.expect("count");
+    let preview = shift_service::cash_posting_preview(&pool, tokens.as_ref()).await.expect("preview");
+    assert!(!preview.complete);
+    assert_eq!(preview.drawers.len(), 1);
+    let assigned: Vec<_> = preview.recent_postings.iter().filter(|p| p.drawer_id.as_deref()==Some("till")).collect();
+    assert_eq!(assigned.len(), 2);
+    assert!(assigned.iter().any(|p| p.source_kind=="sale_payment" && p.signed_minor==20_000));
+    assert!(assigned.iter().any(|p| p.source_kind=="expense" && p.signed_minor == -1000));
+    assert!(assigned.iter().all(|p| p.shift_id.as_deref()==Some(opened.shift.id.as_str())));
+    assert_eq!(preview.recent_postings.len(), 3, "opening and physical count never post money");
+    sqlx::query("CREATE TRIGGER reject_sale_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='sale_recorded' BEGIN SELECT RAISE(ABORT,'test'); END;").execute(&pool).await.expect("failure injection");
+    assert!(sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.is_err());
+    let posted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings").fetch_one(&pool).await.expect("posting count");
+    assert_eq!(posted, 3, "failed source and its posting roll back together");
+    sqlx::query("DROP TRIGGER reject_sale_audit").execute(&pool).await.expect("cleanup");
+    assert!(sqlx::query("UPDATE cash_source_postings SET signed_minor=1").execute(&pool).await.is_err());
+    assert!(sqlx::query("DELETE FROM cash_source_postings").execute(&pool).await.is_err());
+}

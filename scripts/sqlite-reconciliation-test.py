@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 47)
+        self.assertEqual(len(paths), 48)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,12 +46,12 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-10]:
+            for path in migrations[:-11]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            for path in migrations[-10:]:
+            for path in migrations[-11:]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
@@ -114,6 +114,30 @@ class LedgerReconciliation(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("DELETE FROM sale_wallet_reviews")
         self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), ('vf',))
+
+    def test_cash_posting_captures_known_and_unknown_sources_without_count_postings(self):
+        self.sale('before', 1, 100, 0)
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('unassigned','before',1,'cash',100,1)")
+        self.assertEqual(self.db.execute("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_id='unassigned'").fetchone(), (None,100))
+        self.db.execute("INSERT INTO cash_drawers VALUES('d1','Till','u',2)")
+        self.db.execute("INSERT INTO cash_drawer_default VALUES(1,'d1','u',2)")
+        self.db.execute("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('shift',1,'open',100,'u',3)")
+        self.db.execute("INSERT INTO shift_cash_counts VALUES('count','shift',101,'u',4)")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM cash_source_postings").fetchone(), (1,), 'physical count is not a posting')
+        self.sale('during', 5, 200, 0)
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('cash','during',1,'cash',200,5)")
+        self.db.execute("INSERT INTO expenses(id,shift_id,paid_from,category,amount_minor,created_by,created_at) VALUES('expense','shift','drawer','tea',20,'u',6)")
+        self.db.execute("INSERT INTO expenses(id,shift_id,paid_from,category,amount_minor,created_by,created_at) VALUES('outside',NULL,'outside','tea',99,'u',6)")
+        self.assertEqual(self.db.execute("SELECT source_kind,drawer_id,signed_minor FROM cash_source_postings WHERE source_id IN ('cash','expense') ORDER BY source_id").fetchall(), [('sale_payment','d1',200),('expense','d1',-20)])
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM cash_source_postings WHERE source_id='outside'").fetchone(), (0,))
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE cash_source_postings SET signed_minor=1")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("DELETE FROM cash_source_postings")
+        self.db.execute("INSERT INTO cash_drawers VALUES('d2','Other','u',7)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("UPDATE cash_drawer_default SET drawer_id='d2'")
+        self.assertEqual(self.db.execute("SELECT drawer_id FROM cash_source_postings WHERE source_id='unassigned'").fetchone(), (None,))
 
     def test_refund_repair_shares_capacity_with_normal_links(self):
         self.sale('s', 1, 1000, 0)

@@ -539,3 +539,27 @@ erroneous repair. A manager must not use it for ambiguous amounts; a
 compensating correction mechanism and policy for disputed payout sources remain
 open. The manager UI is new and has not been tested against a live Tauri
 application. This change does not introduce a drawer ledger or reconciliation.
+
+### Cash posting foundation (0048)
+
+Explicit manager-configured drawer identities are snapshotted when a new shift
+opens. No identity is seeded, no earlier shift or source is backfilled, and
+changing the configured drawer during a shift is refused. The owner may still
+operate without a configured drawer: affected entries explicitly have no known
+drawer. Configuration is audited and request-idempotent.
+
+Cash sale/refund payment rows, cash customer-debt payments, drawer expenses,
+and cash-in/owner-draw movements now append source-linked postings in the same
+SQLite transaction as the original source. Outside expenses do not post to a
+drawer. The source key is unique, posting rows are immutable, and opening and
+counted amounts remain observations, not postings. A small owner-facing panel
+shows only recent captured events and explicitly says that the projection is
+incomplete and not a balance or reconciliation.
+
+This is **not the unified cash ledger**. Repair deposits and settlements, wallet
+service movements/voids, transfers, financial corrections, reconciliation and
+complete event-period reports still require implementation. Historical events
+are not reconstructed. Sales made without a configured/open shift remain
+unassigned. Original operation retries are not made idempotent by the source
+projection. Existing timestamp-based shift estimates and reports remain
+unreconciled; do not use these records to unlock or claim verified balances.

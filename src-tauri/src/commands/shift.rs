@@ -433,3 +433,13 @@ pub async fn record_shift_cash_count(ctx: Ctx<'_>, amount_minor: i64) -> Result<
 pub async fn latest_shift_cash_count(ctx: Ctx<'_>) -> Result<Option<crate::data::repositories::shift::ShiftCashCount>, ShiftCommandError> {
     use_cases::latest_shift_cash_count(&ctx.pool, ctx.tokens.as_ref()).await.map_err(Into::into)
 }
+
+
+#[tauri::command]
+pub async fn cash_posting_preview(ctx: Ctx<'_>) -> Result<use_cases::CashPostingPreview, ShiftCommandError> {
+    use_cases::cash_posting_preview(&ctx.pool, ctx.tokens.as_ref()).await.map_err(Into::into)
+}
+#[tauri::command]
+pub async fn configure_drawer(ctx: Ctx<'_>, drawer_id: String, name: String, request_id: String) -> Result<(), ShiftCommandError> {
+    use_cases::configure_drawer(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, &name, &request_id).await.map_err(Into::into)
+}

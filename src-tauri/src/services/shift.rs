@@ -692,3 +692,51 @@ pub async fn close_shift(
         cash_movements,
     })
 }
+
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CashPostingPreview {
+    pub drawers: Vec<repo::CashDrawerIdentity>,
+    pub recent_postings: Vec<repo::CashSourcePosting>,
+    /// This is an incomplete source projection, not a drawer balance.
+    pub complete: bool,
+}
+
+/// Owner-only preview. The projection is deliberately not reconciliation:
+/// legacy sources, repairs and wallet services are not yet fully posted.
+pub async fn cash_posting_preview(pool: &SqlitePool, tokens: &dyn SecureTokenStore) -> Result<CashPostingPreview, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let drawers = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let recent_postings = repo::recent_cash_source_postings(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(CashPostingPreview { drawers, recent_postings, complete: false })
+}
+
+/// Create an immutable drawer identity if necessary and explicitly configure it
+/// for future shifts. Existing shifts and historical entries are never relabelled.
+/// Retry IDs are scoped to the manager and the requested drawer.
+pub async fn configure_drawer(pool: &SqlitePool, tokens: &dyn SecureTokenStore, id: &str, name: &str, request_id: &str) -> Result<(), ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let id=id.trim(); let name=name.trim(); let request_id=request_id.trim();
+    if id.is_empty() || id.chars().count()>80 || name.is_empty() || name.chars().count()>80 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let actor=session.user_id(); let now=Timestamp::now();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    match repo::drawer_config_request_matches(&mut tx,request_id,id,name,&actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(ShiftError::InvalidDrawer.into()), None => {}
+    }
+    if repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.is_some() { return Err(ShiftError::AlreadyOpen.into()); }
+    let existing = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(drawer) = existing.iter().find(|d| d.id==id) {
+        if drawer.name != name { return Err(ShiftError::InvalidDrawer.into()); }
+    } else if !repo::create_cash_drawer(&mut tx,id,name,&actor.as_str(),now.as_millis()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        return Err(ShiftError::InvalidDrawer.into());
+    }
+    repo::configure_cash_drawer(&mut tx,id,&actor.as_str(),now.as_millis(),request_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_CONFIGURED,now,Some(serde_json::json!({"drawer_id":id,"request_id":request_id}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}

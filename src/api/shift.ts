@@ -132,3 +132,32 @@ export function recordShiftCashCount(amountMinor: number): Promise<ShiftCashCoun
 export function latestShiftCashCount(): Promise<ShiftCashCount | null> {
   return invoke<ShiftCashCount | null>('latest_shift_cash_count');
 }
+
+/** Partial source-linked records, not a cash balance or reconciliation. */
+export interface CashDrawerIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly createdBy: string;
+  readonly createdAt: number;
+  readonly isDefault: boolean;
+}
+export interface CashSourcePosting {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly shiftId: string | null;
+  readonly drawerId: string | null;
+  readonly signedMinor: number;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
+export interface CashPostingPreview {
+  readonly drawers: CashDrawerIdentity[];
+  readonly recentPostings: CashSourcePosting[];
+  readonly complete: false;
+}
+export function cashPostingPreview(): Promise<CashPostingPreview> {
+  return invoke('cash_posting_preview');
+}
+export function configureDrawer(drawerId: string, name: string, requestId: string): Promise<void> {
+  return invoke('configure_drawer', { drawerId, name, requestId });
+}

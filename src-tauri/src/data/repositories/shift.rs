@@ -636,3 +636,50 @@ pub async fn insert_opening_observation(
         .execute(&mut *conn).await?;
     Ok(())
 }
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct CashDrawerIdentity {
+    pub id: String,
+    pub name: String,
+    pub created_by: String,
+    pub created_at: i64,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct CashSourcePosting {
+    pub source_kind: String,
+    pub source_id: String,
+    pub shift_id: Option<String>,
+    pub drawer_id: Option<String>,
+    pub signed_minor: i64,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn list_cash_drawers(conn: &mut SqliteConnection) -> Result<Vec<CashDrawerIdentity>, sqlx::Error> {
+    sqlx::query_as("SELECT d.id,d.name,d.created_by,d.created_at,EXISTS(SELECT 1 FROM cash_drawer_default x WHERE x.drawer_id=d.id) is_default FROM cash_drawers d ORDER BY d.created_at,d.id").fetch_all(&mut *conn).await
+}
+
+pub async fn recent_cash_source_postings(conn: &mut SqliteConnection) -> Result<Vec<CashSourcePosting>, sqlx::Error> {
+    sqlx::query_as("SELECT source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at FROM cash_source_postings ORDER BY occurred_at DESC,source_kind,source_id LIMIT 100").fetch_all(&mut *conn).await
+}
+
+pub async fn create_cash_drawer(conn: &mut SqliteConnection, id: &str, name: &str, actor: &str, now: i64) -> Result<bool, sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO cash_drawers(id,name,created_by,created_at) VALUES(?1,?2,?3,?4)").bind(id).bind(name).bind(actor).bind(now).execute(&mut *conn).await?;
+    let result: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cash_drawers WHERE id=?1 AND name=?2 AND created_by=?3)").bind(id).bind(name).bind(actor).fetch_one(&mut *conn).await?;
+    Ok(result)
+}
+
+pub async fn drawer_config_request_matches(conn: &mut SqliteConnection, request_id: &str, id: &str, name: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT e.drawer_id,e.actor_id,d.name FROM cash_drawer_configuration_events e JOIN cash_drawers d ON d.id=e.drawer_id WHERE e.request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("drawer_id")==id && r.get::<String,_>("name")==name && r.get::<String,_>("actor_id")==actor))
+}
+
+pub async fn configure_cash_drawer(conn: &mut SqliteConnection, id: &str, actor: &str, now: i64, request_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_configuration_events(request_id,drawer_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4)").bind(request_id).bind(id).bind(actor).bind(now).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO cash_drawer_default(singleton,drawer_id,configured_by,configured_at) VALUES(1,?1,?2,?3) ON CONFLICT(singleton) DO UPDATE SET drawer_id=excluded.drawer_id,configured_by=excluded.configured_by,configured_at=excluded.configured_at").bind(id).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
+}

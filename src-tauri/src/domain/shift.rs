@@ -495,6 +495,7 @@ pub enum ShiftError {
     InvalidCashMovementKind,
     InvalidCashMovementAmount,
     InvalidCashMovementReason,
+    InvalidDrawer,
 }
 
 impl ShiftError {
@@ -515,6 +516,7 @@ impl ShiftError {
             ShiftError::InvalidCashMovementKind => "CASH_MOVEMENT_KIND_INVALID",
             ShiftError::InvalidCashMovementAmount => "CASH_MOVEMENT_AMOUNT_INVALID",
             ShiftError::InvalidCashMovementReason => "CASH_MOVEMENT_REASON_INVALID",
+            ShiftError::InvalidDrawer => "CASH_DRAWER_INVALID",
         }
     }
 }
