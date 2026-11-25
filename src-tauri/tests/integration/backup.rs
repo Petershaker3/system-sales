@@ -937,6 +937,8 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
         .execute(&pool).await.expect("payment with provenance");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('cash-sale','cash-sale',5,?1,'sale',25,0)").bind(&actor).execute(&pool).await.expect("cash sale");
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('cash-payment','cash-sale',1,'cash',25,5)").execute(&pool).await.expect("cash payment");
+    sqlx::query("INSERT INTO wallet_ops(id,wallet_id,kind,amount_minor,fee_minor,created_by,created_at) VALUES('backup-wallet-op','vf','deposit',30,1,?1,5)").bind(&actor).execute(&pool).await.expect("wallet operation");
+    sqlx::query("UPDATE wallet_ops SET voided_by=?1,voided_at=6,void_reason='void' WHERE id='backup-wallet-op'").bind(&actor).execute(&pool).await.expect("wallet void");
     // Test-only simulation of a payment that existed before provenance migration.
     let mut conn = pool.acquire().await.expect("fixture connection");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',100,0)").bind(&actor).execute(&mut *conn).await.expect("old sale");
@@ -960,6 +962,8 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     let cash_posting: (Option<String>, i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='sale_payment' AND source_id='cash-payment'").fetch_one(&restored).await.expect("cash posting survives restore");
     assert_eq!(cash_posting, (Some("backup-till".to_owned()), 25));
     assert!(sqlx::query("DELETE FROM cash_source_postings WHERE source_id='cash-payment'").execute(&restored).await.is_err());
+    let wallet_events: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id='backup-wallet-op' ORDER BY occurred_at").fetch_all(&restored).await.expect("wallet events survive restore");
+    assert_eq!(wallet_events, vec![("wallet_op".into(),31),("wallet_void".into(),-31)]);
     let count: i64 = sqlx::query_scalar("SELECT amount_minor FROM shift_cash_counts WHERE id='count'").fetch_one(&restored).await.expect("count");
     assert_eq!(count, 95);
     let wallet: String = sqlx::query_scalar("SELECT wallet_id FROM sale_wallet_provenance WHERE payment_id='payment'").fetch_one(&restored).await.expect("provenance");

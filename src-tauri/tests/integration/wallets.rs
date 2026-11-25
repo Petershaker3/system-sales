@@ -799,3 +799,24 @@ async fn wallet_transport_does_not_claim_an_estimate_is_reconciled() {
     let dto = mobile_shop_system_lib::commands::wallet::WalletSummaryDto::from(summary);
     assert!(!dto.balance_reconciled);
 }
+
+#[tokio::test]
+async fn wallet_cash_operation_and_later_void_are_distinct_shift_events() {
+    let (pool, tokens, manager, _, _) = setup_shop().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "d1", "First", "cfg1").await.expect("drawer");
+    let first = shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("open");
+    wallet_service::record_wallet_movement(&pool, tokens.as_ref(), "topup", "vf", None, Some("out"), 1000, None).await.expect("external topup");
+    let op = wallet_service::record_wallet_op(&pool, tokens.as_ref(), "vf", "deposit", 100, 10, None).await.expect("deposit");
+    let incoming: (String, i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='wallet_op' AND source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("incoming");
+    assert_eq!(incoming, ("d1".into(), 110));
+    shift_service::close_shift(&pool, tokens.as_ref(), first.shift.id.as_str(), 110, None).await.expect("close");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "d2", "Second", "cfg2").await.expect("second drawer");
+    let second = shift_service::open_shift(&pool, tokens.as_ref(), 110).await.expect("open second");
+    wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "reversed").await.expect("void");
+    let reversal: (String, String, i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='wallet_void' AND source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("compensation");
+    assert_eq!(reversal, (second.shift.id.as_str().to_owned(), "d2".into(), -110));
+    assert!(wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "again").await.is_err());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings WHERE source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("count");
+    assert_eq!(count, 2);
+}

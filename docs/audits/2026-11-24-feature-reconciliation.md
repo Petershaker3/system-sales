@@ -563,3 +563,15 @@ are not reconstructed. Sales made without a configured/open shift remain
 unassigned. Original operation retries are not made idempotent by the source
 projection. Existing timestamp-based shift estimates and reports remain
 unreconciled; do not use these records to unlock or claim verified balances.
+
+### Wallet service cash event capture (0049)
+
+New wallet deposits, withdrawals, cash services and drawer-funded topups or
+unloads produce source-linked cash events. Their sign follows the existing
+shift cash rules; wallet-to-wallet movements and external topups do not post to
+the drawer. Voiding a captured operation appends a compensating event at the
+void time, under the then-current shift drawer, instead of rewriting its
+original posting. A void for an operation predating this capture remains
+outside the projection; no historical cash flow is inferred. These events do
+not make the projection complete: repair cash, transfers, reconciliation,
+opening balance and historical gaps remain. Do not expose a trusted balance.
