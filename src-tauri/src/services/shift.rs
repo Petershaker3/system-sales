@@ -585,6 +585,7 @@ pub async fn latest_shift_cash_count(
 pub async fn close_shift(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
+    shift_id: &str,
     counted_cash_minor: i64,
     close_note: Option<&str>,
 ) -> Result<ShiftSummary, ShiftServiceError> {
@@ -614,6 +615,7 @@ pub async fn close_shift(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(ShiftError::NotOpen)?;
+    if open_shift.id.as_str() != shift_id { return Err(ShiftError::ShiftChanged.into()); }
 
     let closed_at = Timestamp::from_millis(now.as_millis().max(open_shift.opened_at.as_millis()));
     open_shift.closed_at = Some(closed_at);

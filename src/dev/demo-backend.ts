@@ -4879,6 +4879,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     const amount = args?.['countedCashMinor'];
     if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
     const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    if (args?.['shiftId'] !== open.id) fail('SHIFT_CHANGED');
     const summary = buildDemoShiftSummary(open);
     const closedAt = now();
     demoShiftCounts.push({ id: newProductId(), shiftId: open.id, amountMinor: amount as number, countedBy: user.id, countedAt: closedAt });

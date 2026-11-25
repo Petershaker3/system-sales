@@ -107,6 +107,11 @@ try {
   assert.ok((await page.$eval('[data-shift-handover-difference]', el => el.textContent)).includes('غير مُطابَق'));
   await page.click('[data-open-shift-submit]');
   await page.waitForSelector('[data-open-shift-view]', { hidden: true });
+  const retry = await page.evaluate(async () => {
+    try { await window.__TAURI_INTERNALS__.invoke('close_shift', { shiftId: 'shift-1', countedCashMinor: 0 }); return 'unexpected success'; }
+    catch (e) { return e.code; }
+  });
+  assert.equal(retry, 'SHIFT_CHANGED', 'stale close cannot close next shift');
   console.log('PASS operational close and independently counted unreconciled handover');
   await page.click('[data-open-reminders]');
   await page.type('[data-reminder-text]', 'تذكير اختبار');

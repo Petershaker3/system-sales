@@ -399,12 +399,14 @@ pub async fn record_cash_movement(
 pub async fn close_shift(
     ctx: Ctx<'_>,
     app: AppHandle,
+    shift_id: String,
     counted_cash_minor: i64,
     close_note: Option<String>,
 ) -> Result<ShiftSummaryDto, ShiftCommandError> {
     let summary = use_cases::close_shift(
         &ctx.pool,
         ctx.tokens.as_ref(),
+        &shift_id,
         counted_cash_minor,
         close_note.as_deref(),
     )

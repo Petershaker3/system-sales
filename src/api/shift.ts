@@ -111,10 +111,11 @@ export function recordCashMovement(
 }
 
 export function closeShift(
+  shiftId: string,
   countedCashMinor: number,
   closeNote: string | null = null
 ): Promise<ShiftSummary> {
-  return invoke<ShiftSummary>('close_shift', { countedCashMinor, closeNote });
+  return invoke<ShiftSummary>('close_shift', { shiftId, countedCashMinor, closeNote });
 }
 
 /** A physical observation, not a verified drawer balance or shift closing. */

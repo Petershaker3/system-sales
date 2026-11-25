@@ -174,10 +174,10 @@ async function submitCashCount(): Promise<void> {
 }
 
 async function submitOperationalClose(): Promise<void> {
-  if (busy.value || !canCloseShift.value || countedCashMinor.value === null) return;
+  if (busy.value || !canCloseShift.value || countedCashMinor.value === null || !props.shiftState.openShift) return;
   busy.value = true;
   try {
-    await closeShift(countedCashMinor.value, closeNote.value.trim() || null);
+    await closeShift(props.shiftState.openShift.shift.id, countedCashMinor.value, closeNote.value.trim() || null);
     toast('تم إغلاق الوردية تشغيلياً وتسجيل العدّ؛ المطابقة المالية لا تزال معلّقة', 'ok');
     emit('changed');
     emit('close');

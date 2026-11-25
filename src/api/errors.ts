@@ -231,6 +231,7 @@ export const ErrorCode = {
   SHIFT_CLOSE_NOTE_INVALID: 'SHIFT_CLOSE_NOTE_INVALID',
   SHIFT_CLOSE_FORBIDDEN_FOR_SELLER: 'SHIFT_CLOSE_FORBIDDEN_FOR_SELLER',
   SHIFT_CASH_UNRECONCILED: 'SHIFT_CASH_UNRECONCILED',
+  SHIFT_CHANGED: 'SHIFT_CHANGED',
   EXPENSE_CATEGORY_INVALID: 'EXPENSE_CATEGORY_INVALID',
   EXPENSE_AMOUNT_INVALID: 'EXPENSE_AMOUNT_INVALID',
   EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
@@ -617,6 +618,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'المعدود في الدرج لازم يكون صفر أو أكبر.',
   [ErrorCode.SHIFT_CLOSE_NOTE_INVALID]:
     'ملاحظة تقفيل الوردية طويلة زيادة عن اللزوم.',
+  [ErrorCode.SHIFT_CHANGED]: 'الوردية اتغيّرت؛ راجع الوردية المفتوحة قبل الإغلاق.',
   [ErrorCode.SHIFT_CASH_UNRECONCILED]:
     'لا يمكن تقفيل الوردية: مصادر النقدية لم تُطابق. تسجيل العدّ لا يغلق الوردية.',
   [ErrorCode.SHIFT_CLOSE_FORBIDDEN_FOR_SELLER]:

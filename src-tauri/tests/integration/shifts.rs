@@ -276,12 +276,13 @@ async fn seller_permission_and_unreconciled_close_are_enforced() {
     auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD)
         .await
         .expect("seller login");
-    shift_service::open_shift(&pool, tokens.as_ref(), 100_000)
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 100_000)
         .await
         .expect("seller opens shift #1");
+    let first_id = opened.shift.id.as_str().to_owned();
 
     // By default (`ui.seller_can_close_shift == "off"`), seller cannot close the shift.
-    let refused = shift_service::close_shift(&pool, tokens.as_ref(), 100_000, None).await;
+    let refused = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 100_000, None).await;
     assert_eq!(
         refused.err().map(|e| e.code()),
         Some("SHIFT_CLOSE_FORBIDDEN_FOR_SELLER")
@@ -298,13 +299,13 @@ async fn seller_permission_and_unreconciled_close_are_enforced() {
     // Even an authorized operator and a documented difference cannot turn an
     // unverified time-window estimate into a reconciled drawer close.
     auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD).await.expect("seller login");
-    let invalid = shift_service::close_shift(&pool, tokens.as_ref(), -1, None).await.expect_err("negative count refused");
+    let invalid = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, -1, None).await.expect_err("negative count refused");
     assert_eq!(invalid.code(), "SHIFT_COUNTED_CASH_INVALID");
     let count = shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 99_000).await.expect("record count");
     assert_eq!(count.amount_minor, 99_000);
     let latest = shift_service::latest_shift_cash_count(&pool, tokens.as_ref()).await.expect("read count").expect("exists");
     assert_eq!(latest.id, count.id);
-    let closed = shift_service::close_shift(&pool, tokens.as_ref(), 99_000, Some("عجز 10 ج فكة")).await.expect("operational close");
+    let closed = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 99_000, Some("عجز 10 ج فكة")).await.expect("operational close");
     assert_eq!(closed.shift.status.as_str(), "closed");
     assert_eq!(closed.shift.counted_cash.unwrap().as_minor(), 99_000);
     let dto: mobile_shop_system_lib::commands::shift::ShiftRecordDto = closed.shift.into();
@@ -312,6 +313,8 @@ async fn seller_permission_and_unreconciled_close_are_enforced() {
     assert!(dto.expected_cash_minor.is_none() && dto.difference_minor.is_none());
     let next = shift_service::open_shift(&pool, tokens.as_ref(), 98_000).await.expect("fresh opening count");
     assert_eq!(next.shift.shift_number, 2);
+    let retry = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 99_000, None).await.expect_err("stale retry cannot close the next shift");
+    assert_eq!(retry.code(), "SHIFT_CHANGED");
     let mut conn = pool.acquire().await.expect("conn");
     let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor, previous_count_minor, handover_difference_minor, reconciliation_status FROM shift_opening_observations WHERE shift_id = ?")
         .bind(next.shift.id.as_str()).fetch_one(&mut *conn).await.expect("handover");
@@ -461,10 +464,10 @@ async fn failed_count_audit_rolls_back_the_physical_observation() {
 #[tokio::test]
 async fn failed_close_audit_rolls_back_count_and_operational_close() {
     let (pool, tokens, _, _, _) = setup_shop().await;
-    shift_service::open_shift(&pool, tokens.as_ref(), 100).await.expect("open shift");
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 100).await.expect("open shift");
     sqlx::raw_sql("CREATE TRIGGER fail_shift_close_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='shift_closed' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
         .execute(&pool).await.expect("failure injection");
-    assert!(shift_service::close_shift(&pool, tokens.as_ref(), 101, None).await.is_err());
+    assert!(shift_service::close_shift(&pool, tokens.as_ref(), opened.shift.id.as_str(), 101, None).await.is_err());
     let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("counts");
     assert_eq!(n, 0);
     let state = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("state");
