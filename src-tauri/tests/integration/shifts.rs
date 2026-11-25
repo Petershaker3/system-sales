@@ -540,4 +540,13 @@ async fn configured_shift_captures_source_linked_cash_without_claiming_reconcili
     sqlx::query("DROP TRIGGER reject_sale_audit").execute(&pool).await.expect("cleanup");
     assert!(sqlx::query("UPDATE cash_source_postings SET signed_minor=1").execute(&pool).await.is_err());
     assert!(sqlx::query("DELETE FROM cash_source_postings").execute(&pool).await.is_err());
+    shift_service::close_shift(&pool, tokens.as_ref(), opened.shift.id.as_str(), 12_345, None).await.expect("close operationally");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "other", "Other", "other-req").await.expect("new drawer");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("old retry is a no-op");
+    let preview = shift_service::cash_posting_preview(&pool, tokens.as_ref()).await.expect("preview");
+    assert_eq!(preview.drawers.iter().find(|d| d.is_default).map(|d| d.id.as_str()), Some("other"));
+    let next = shift_service::open_shift(&pool, tokens.as_ref(), 11_000).await.expect("fresh opening");
+    sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("second drawer sale");
+    let assigned: Option<String> = sqlx::query_scalar("SELECT drawer_id FROM cash_source_postings WHERE shift_id=?1 AND source_kind='sale_payment'").bind(next.shift.id.as_str()).fetch_one(&pool).await.expect("posting");
+    assert_eq!(assigned.as_deref(), Some("other"));
 }

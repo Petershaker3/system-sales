@@ -919,6 +919,8 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     let dir = TempDir::new().expect("temp dir");
     let pool = shop_with_data(dir.path()).await;
     let actor: String = sqlx::query_scalar("SELECT id FROM users LIMIT 1").fetch_one(&pool).await.expect("actor");
+    sqlx::query("INSERT INTO cash_drawers VALUES('backup-till','Till',?1,0)").bind(&actor).execute(&pool).await.expect("drawer");
+    sqlx::query("INSERT INTO cash_drawer_default VALUES(1,'backup-till',?1,0)").bind(&actor).execute(&pool).await.expect("configuration");
     sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s1',1,'open',100,?1,1)")
         .bind(&actor).execute(&pool).await.expect("shift");
     sqlx::query("INSERT INTO shift_cash_counts(id,shift_id,amount_minor,counted_by,counted_at) VALUES('count','s1',95,?1,2)")
@@ -933,6 +935,8 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
         .bind(&actor).execute(&pool).await.expect("sale");
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('payment','sale',1,'vf',100,'vf',4)")
         .execute(&pool).await.expect("payment with provenance");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('cash-sale','cash-sale',5,?1,'sale',25,0)").bind(&actor).execute(&pool).await.expect("cash sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('cash-payment','cash-sale',1,'cash',25,5)").execute(&pool).await.expect("cash payment");
     // Test-only simulation of a payment that existed before provenance migration.
     let mut conn = pool.acquire().await.expect("fixture connection");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',100,0)").bind(&actor).execute(&mut *conn).await.expect("old sale");
@@ -953,6 +957,9 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor,previous_count_minor,handover_difference_minor,reconciliation_status FROM shift_opening_observations WHERE shift_id='s2'")
         .fetch_one(&restored).await.expect("handover");
     assert_eq!(handover, (90, 95, -5, "unreconciled".to_owned()));
+    let cash_posting: (Option<String>, i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='sale_payment' AND source_id='cash-payment'").fetch_one(&restored).await.expect("cash posting survives restore");
+    assert_eq!(cash_posting, (Some("backup-till".to_owned()), 25));
+    assert!(sqlx::query("DELETE FROM cash_source_postings WHERE source_id='cash-payment'").execute(&restored).await.is_err());
     let count: i64 = sqlx::query_scalar("SELECT amount_minor FROM shift_cash_counts WHERE id='count'").fetch_one(&restored).await.expect("count");
     assert_eq!(count, 95);
     let wallet: String = sqlx::query_scalar("SELECT wallet_id FROM sale_wallet_provenance WHERE payment_id='payment'").fetch_one(&restored).await.expect("provenance");

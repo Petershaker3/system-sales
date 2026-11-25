@@ -110,8 +110,14 @@ async fn no_column_is_named_as_if_it_would_hold_a_payload() {
     let payload_named: Vec<String> = every_column(&pool)
         .await
         .into_iter()
-        .filter(|(_, name, declared)| {
-            declared.eq_ignore_ascii_case("text")
+        .filter(|(table, name, declared)| {
+            // These drawer IDs are bounded foreign keys into cash_drawers.id;
+            // "drawer" contains the letters "raw", but is not a payload field.
+            let drawer_reference = name == "drawer_id" && [
+                "cash_drawer_default", "cash_drawer_configuration_events",
+                "shift_drawers", "cash_source_postings",
+            ].contains(&table.as_str());
+            !drawer_reference && declared.eq_ignore_ascii_case("text")
                 && [
                     "blob", "data", "payload", "content", "base64", "bytes", "raw", "image",
                     "photo", "picture", "binary",
@@ -168,4 +174,15 @@ async fn product_images_stores_a_bounded_file_reference_and_metadata_never_bytes
         "no column is named after an embedded image payload ({})",
         image_columns.join(", ")
     );
+}
+
+#[tokio::test]
+async fn drawer_reference_exemptions_are_foreign_keys_to_bounded_identities() {
+    let pool = db::open_in_memory().await.expect("database");
+    let ddl: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type='table' AND name='cash_drawers'").fetch_one(&pool).await.expect("drawer table");
+    assert!(ddl.contains("length(trim(id)) BETWEEN 1 AND 80"));
+    for table in ["cash_drawer_default", "cash_drawer_configuration_events", "shift_drawers", "cash_source_postings"] {
+        let fk: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_list(?1) WHERE \"from\"='drawer_id' AND \"table\"='cash_drawers' AND \"to\"='id'").bind(table).fetch_one(&pool).await.expect("foreign keys");
+        assert_eq!(fk, 1, "{table}.drawer_id must be a bounded drawer reference");
+    }
 }
