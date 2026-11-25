@@ -943,6 +943,7 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     sqlx::query("INSERT INTO cash_drawer_physical_counts VALUES('backup-drawer-count','backup-safe','s2',42,?1,6)").bind(&actor).execute(&pool).await.expect("drawer count");
     sqlx::query("INSERT INTO cash_drawer_transfers VALUES('backup-transfer','s2','backup-till','backup-safe',5,'safe',?1,6)").bind(&actor).execute(&pool).await.expect("transfer");
     sqlx::query("INSERT INTO repairs(id,ticket_no,device_name,issue,status,deposit_minor,pay_method,created_by,created_at) VALUES('backup-repair','backup-repair','phone','issue','received',23,'cash',?1,7)").bind(&actor).execute(&pool).await.expect("repair cash deposit");
+    sqlx::query("INSERT INTO uncertain_repair_refunds VALUES('backup-repair','s2',23,?1,8)").bind(&actor).execute(&pool).await.expect("uncertain repair event");
     // Test-only simulation of a payment that existed before provenance migration.
     let mut conn = pool.acquire().await.expect("fixture connection");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',100,0)").bind(&actor).execute(&mut *conn).await.expect("old sale");
@@ -972,6 +973,8 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     assert_eq!(drawer_count, ("backup-safe".into(),42));
     let pair: Vec<(String,String,i64)> = sqlx::query_as("SELECT source_kind,drawer_id,signed_minor FROM cash_source_postings WHERE source_id='backup-transfer' ORDER BY source_kind").fetch_all(&restored).await.expect("transfer pair restored");
     assert_eq!(pair, vec![("drawer_transfer_in".into(),"backup-safe".into(),5),("drawer_transfer_out".into(),"backup-till".into(),-5)]);
+    let gap: i64 = sqlx::query_scalar("SELECT amount_minor FROM uncertain_repair_refunds WHERE repair_id='backup-repair'").fetch_one(&restored).await.expect("uncertain payout restored");
+    assert_eq!(gap,23);
     let repair_event: (String,i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_deposit' AND source_id='backup-repair'").fetch_one(&restored).await.expect("repair event survives restore");
     assert_eq!(repair_event, ("backup-till".into(),23));
     let count: i64 = sqlx::query_scalar("SELECT amount_minor FROM shift_cash_counts WHERE id='count'").fetch_one(&restored).await.expect("count");

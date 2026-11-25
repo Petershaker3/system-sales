@@ -534,8 +534,12 @@ pub async fn cancel_repair(
 
     // Only known, wholly cash collections may be reflected as a cash refund.
     // Mixed or legacy sources remain explicit gaps in the partial projection.
-    repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+    let captured_cash = repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
         .await.map_err(|_| DomainError::StorageUnavailable)?;
+    if refunded_minor > 0 && !captured_cash {
+        repair_repo::record_uncertain_repair_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+            .await.map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),
@@ -543,6 +547,8 @@ pub async fn cancel_repair(
         "service_kind": cancelled.service_kind,
         "was_status": existing.status.as_str(),
         "refunded_minor": refunded_minor,
+        "cash_payout_attributed": captured_cash,
+        "payout_source_unresolved": refunded_minor > 0 && !captured_cash,
         "pay_method": existing.pay_method.as_str(),
         "approved_by": approved_by.as_str(),
         "reverses": if was_delivered {

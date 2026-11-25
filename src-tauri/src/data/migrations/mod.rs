@@ -235,3 +235,6 @@ pub const DRAWER_TRANSFERS: &str = include_str!("0051_drawer_transfers.sql");
 
 /// Explicit, append-only physical counts for individual drawers (0052).
 pub const DRAWER_PHYSICAL_COUNTS: &str = include_str!("0052_drawer_physical_counts.sql");
+
+/// Preserve unresolved repair refund sources without guessing a payout (0053).
+pub const UNCERTAIN_REPAIR_REFUNDS: &str = include_str!("0053_uncertain_repair_refunds.sql");

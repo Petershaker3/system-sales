@@ -629,8 +629,16 @@ pub async fn capture_cash_delivery(conn: &mut SqliteConnection, id: &str, actor:
 /// Capture a refund only when every collected piastre is already represented
 /// by known cash receipt postings. Mixed or historical sources remain outside
 /// this partial projection rather than being falsely identified as cash.
-pub async fn capture_proven_cash_refund(conn: &mut SqliteConnection, id: &str, refund_minor: i64, actor: &str, occurred_at: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO cash_source_postings(source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at) SELECT 'repair_cash_refund',r.id,sh.id,sd.drawer_id,-?2,?3,?4 FROM repairs r LEFT JOIN shifts sh ON sh.status='open' AND ?4>=sh.opened_at LEFT JOIN shift_drawers sd ON sd.shift_id=sh.id WHERE r.id=?1 AND r.status='cancelled' AND r.pay_method='cash' AND ?2>0 AND ?2=(SELECT COALESCE(SUM(p.signed_minor),0) FROM cash_source_postings p WHERE p.source_id=r.id AND p.source_kind IN ('repair_deposit','repair_delivery'))")
+pub async fn capture_proven_cash_refund(conn: &mut SqliteConnection, id: &str, refund_minor: i64, actor: &str, occurred_at: i64) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("INSERT INTO cash_source_postings(source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at) SELECT 'repair_cash_refund',r.id,sh.id,sd.drawer_id,-?2,?3,?4 FROM repairs r LEFT JOIN shifts sh ON sh.status='open' AND ?4>=sh.opened_at LEFT JOIN shift_drawers sd ON sd.shift_id=sh.id WHERE r.id=?1 AND r.status='cancelled' AND r.pay_method='cash' AND ?2>0 AND ?2=(SELECT COALESCE(SUM(p.signed_minor),0) FROM cash_source_postings p WHERE p.source_id=r.id AND p.source_kind IN ('repair_deposit','repair_delivery'))")
         .bind(id).bind(refund_minor).bind(actor).bind(occurred_at).execute(&mut *conn).await?;
+    Ok(result.rows_affected() == 1)
+}
+
+/// Explicitly retain an unresolved payout instead of silently dropping it or
+/// inventing a method/drawer. This is a gap record, not a money movement.
+pub async fn record_uncertain_repair_refund(conn: &mut SqliteConnection, id: &str, amount: i64, actor: &str, at: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO uncertain_repair_refunds(repair_id,shift_id,amount_minor,actor_id,occurred_at) SELECT ?1,s.id,?2,?3,?4 FROM (SELECT 1) x LEFT JOIN shifts s ON s.status='open' AND ?4>=s.opened_at")
+        .bind(id).bind(amount).bind(actor).bind(at).execute(&mut *conn).await?;
     Ok(())
 }

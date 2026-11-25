@@ -742,3 +742,24 @@ pub async fn recent_drawer_physical_counts(conn: &mut SqliteConnection) -> Resul
     sqlx::query_as("SELECT request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at FROM cash_drawer_physical_counts ORDER BY rowid DESC LIMIT 100")
         .fetch_all(&mut *conn).await
 }
+
+/// An unresolved repair cancellation payout is not a drawer movement.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct UncertainRepairRefund {
+    pub repair_id: String,
+    pub ticket_no: String,
+    pub shift_id: Option<String>,
+    pub amount_minor: i64,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn recent_uncertain_repair_refunds(conn: &mut SqliteConnection) -> Result<Vec<UncertainRepairRefund>, sqlx::Error> {
+    sqlx::query_as("SELECT u.repair_id,r.ticket_no,u.shift_id,u.amount_minor,u.actor_id,u.occurred_at FROM uncertain_repair_refunds u JOIN repairs r ON r.id=u.repair_id ORDER BY u.occurred_at DESC,u.repair_id DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
+}
+
+pub async fn uncertain_repair_refund_count(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM uncertain_repair_refunds").fetch_one(&mut *conn).await
+}

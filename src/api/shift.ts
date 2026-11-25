@@ -159,7 +159,17 @@ export interface DrawerPhysicalCount {
   readonly countedBy: string;
   readonly countedAt: number;
 }
+export interface UncertainRepairRefund {
+  readonly repairId: string;
+  readonly ticketNo: string;
+  readonly shiftId: string | null;
+  readonly amountMinor: number;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
 export interface CashPostingPreview {
+  readonly uncertainRepairRefunds: UncertainRepairRefund[];
+  readonly uncertainRepairRefundCount: number;
   readonly drawers: CashDrawerIdentity[];
   readonly recentPostings: CashSourcePosting[];
   readonly recentCounts: DrawerPhysicalCount[];

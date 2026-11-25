@@ -24,3 +24,14 @@ No promotion, release, branch deletion, history rewrite or change to the pre-exi
 ## Implementation notes: 0052
 
 The manager can record an append-only, idempotent physical observation for any configured drawer, including zero and times outside an open shift. A contemporaneous open shift is context, not an assertion that the drawer belongs to that shift. The observation is audited, does not create a posting and does not establish an expected balance, discrepancy or reconciliation. New records do not assign old shift counts to drawers. The API exposes the latest 100 observations and the UI labels them as unverified; source coverage and count-to-count reconciliation are still required.
+
+## Implementation notes: 0053
+
+For newly cancelled repairs, when the existing cash capture cannot attribute the
+whole refund, the cancellation transaction now appends an unresolved payout
+record. It keeps amount, actor, event time and known shift context but **not** a
+drawer or payment method. The manager's partial posting preview shows these
+records, expressly not as cash movements or a calculated shortage. Historic
+cancellations are not backfilled, and no resolution workflow has yet been
+implemented. Absence of newly captured gaps therefore does not establish full
+coverage. Rollback and backup fixtures cover the new record.

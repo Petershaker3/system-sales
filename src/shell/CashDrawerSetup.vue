@@ -62,7 +62,7 @@ async function save(): Promise<void> {
 <template>
   <section class="note" data-cash-drawer-setup>
     <button type="button" class="btn" :disabled="busy" @click="load">هوية الدرج وحركات نقدية مسجلة</button>
-    <p>عرض تجريبي غير مكتمل: لا يشمل كل مصادر النقدية أو التاريخ، وليس رصيداً ولا مطابقة.</p>
+    <p>عرض تجريبي غير مكتمل: لا يشمل كل مصادر النقدية أو التاريخ، وليس رصيداً ولا مطابقة. غياب الحالات الجديدة لا يثبت سلامة المرتجعات القديمة.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="preview">
       <p>درج الوردية القادم: {{ preview.drawers.find(d => d.isDefault)?.name ?? 'لم يحدد المالك درجاً' }}. الوردية المفتوحة والعمليات القديمة لا تُنسب بأثر رجعي.</p>
@@ -81,6 +81,11 @@ async function save(): Promise<void> {
         <label>سبب النقل <input v-model="transferReason" maxlength="300" /></label>
         <label><input v-model="confirmed" type="checkbox" /> عدّيت النقدية ونقلتها فعلاً وأفهم أن الرصيد لم يُطابق</label>
         <button type="button" class="btn" :disabled="busy || !destination || !parseMoney(amount) || !transferReason.trim() || !confirmed" @click="transfer">تسجيل النقل</button>
+      </div>
+      <div v-if="preview.uncertainRepairRefundCount > 0" class="note" role="status" data-uncertain-repair-refunds>
+        <p>فيه {{ preview.uncertainRepairRefundCount }} مرتجع صيانة مسجل من غير دليل كافٍ لطريقة الصرف أو الدرج. دي فجوة، مش حركة نقدية مؤكدة ولا عجز محسوب.</p>
+        <ul><li v-for="r in preview.uncertainRepairRefunds" :key="r.repairId">تذكرة {{ r.ticketNo }} — {{ money(r.amountMinor) }} — {{ r.actorId }} — {{ fmtLong(new Date(r.occurredAt)) }} — {{ r.shiftId ? 'الوردية مسجلة' : 'الوردية غير معروفة' }}</li></ul>
+        <p v-if="preview.uncertainRepairRefundCount > preview.uncertainRepairRefunds.length">المعروض آخر 100 حالة فقط.</p>
       </div>
       <div v-if="preview.drawers.length" class="stack" data-drawer-physical-count>
         <p>تسجيل جرد فعلي لدرج معين. الجرد ليس حركة مالية ولا يحدد عجزاً أو زيادة قبل اكتمال المطابقة.</p>

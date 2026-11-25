@@ -700,6 +700,8 @@ pub struct CashPostingPreview {
     pub drawers: Vec<repo::CashDrawerIdentity>,
     pub recent_postings: Vec<repo::CashSourcePosting>,
     pub recent_counts: Vec<repo::DrawerPhysicalCount>,
+    pub uncertain_repair_refunds: Vec<repo::UncertainRepairRefund>,
+    pub uncertain_repair_refund_count: i64,
     /// This is an incomplete source projection, not a drawer balance.
     pub complete: bool,
 }
@@ -713,8 +715,10 @@ pub async fn cash_posting_preview(pool: &SqlitePool, tokens: &dyn SecureTokenSto
     let drawers = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     let recent_postings = repo::recent_cash_source_postings(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     let recent_counts = repo::recent_drawer_physical_counts(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let uncertain_repair_refunds = repo::recent_uncertain_repair_refunds(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let uncertain_repair_refund_count = repo::uncertain_repair_refund_count(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
-    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, complete: false })
+    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, uncertain_repair_refunds, uncertain_repair_refund_count, complete: false })
 }
 
 /// Create an immutable drawer identity if necessary and explicitly configure it
