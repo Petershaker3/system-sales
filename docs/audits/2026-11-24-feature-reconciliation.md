@@ -348,8 +348,9 @@ implicit settlement, adjustment or verified drawer identity. Historical shift
 identities and drawer sources are not inferred. A numerical difference between
 observations does not establish that they concern the same physical drawer.
 Opening/closing remains subject to existing seller authorization. Existing
-closed records remain immutable. All unresolved balances continue to be blocked
-from the financial report guard, which has not been removed.
+closed records remain immutable. The return/cancellation report guard remains; it does not by itself prove all
+financial reporting sources reconciled. Unverified drawer balances are withheld
+where guarded, but a complete screen/export/API review remains outstanding.
 
 On `04d163400fa485e4fbe1f50f4c7ab58e49efef0a`, local 298 unit tests,
 typecheck, build, 6 focused mock checks, 5 SQLite experiments and 325/325 broad
