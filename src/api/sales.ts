@@ -536,3 +536,18 @@ export function walletReviewCases(saleId: string): Promise<WalletReviewCase[]> {
 export function reviewHistoricalWallet(paymentId: string, walletId: string, action: 'confirm' | 'revoke', reason: string, evidence: string, requestId: string): Promise<void> {
   return invoke('review_historical_wallet', { paymentId, walletId, action, reason, evidence, requestId });
 }
+
+export interface WalletReviewEvent {
+  readonly sequence: number;
+  readonly paymentId: string;
+  readonly walletId: string;
+  readonly action: 'confirm' | 'revoke';
+  readonly reason: string;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly occurredAt: number;
+  readonly requestId: string;
+}
+export function walletReviewHistory(paymentId: string): Promise<WalletReviewEvent[]> {
+  return invoke('wallet_review_history', { paymentId });
+}

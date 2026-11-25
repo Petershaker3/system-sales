@@ -129,6 +129,7 @@ pub fn run() {
             commands::sales::set_sale_customer_name,
             commands::sales::inspect_sale_for_return,
             commands::sales::wallet_review_cases,
+            commands::sales::wallet_review_history,
             commands::sales::review_historical_wallet,
             commands::sales::list_recent_sales_for_return,
             commands::sales::record_sale_return,

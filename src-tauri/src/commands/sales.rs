@@ -866,3 +866,8 @@ pub async fn wallet_review_cases(ctx: Ctx<'_>, sale_id: String) -> Result<Vec<cr
 pub async fn review_historical_wallet(ctx: Ctx<'_>, payment_id: String, wallet_id: String, action: String, reason: String, evidence: String, request_id: String) -> Result<(), SalesCommandError> {
     use_cases::review_historical_wallet(&ctx.pool, ctx.tokens.as_ref(), &payment_id, &wallet_id, &action, &reason, &evidence, &request_id).await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn wallet_review_history(ctx: Ctx<'_>, payment_id: String) -> Result<Vec<crate::data::repositories::sales::WalletReviewEvent>, SalesCommandError> {
+    use_cases::wallet_review_history(&ctx.pool, ctx.tokens.as_ref(), &payment_id).await.map_err(Into::into)
+}

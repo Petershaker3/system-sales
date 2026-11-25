@@ -37,3 +37,20 @@ its actual payment source. Until that decision and financial ledger exist,
 return and cancellation remain blocked for that source. A physical drawer ID
 for cash payments is still absent. None of these review events create a ledger
 posting, reconcile cash, prove profit or justify removing report guards.
+
+## Extension: reviewed effective source (0045–0046)
+
+An evidence-backed confirmation may now name a different existing wallet or
+resolve a formerly absent wallet. An effective attribution view consults the
+append-only review; the original payment and its recorded historical wallet
+remain unchanged. Linked refunds use that effective wallet, including when
+today's method setting has changed. Wallet estimates use the explicit reviewed
+source for the original payment, rather than retaining a conflicting guessed
+wallet. Review history is accessible to managers. An existing linked refund to
+a different wallet prevents a new confirmation; once any allocation uses the
+review, revocation is refused. Conflicts requiring correction of an already
+posted refund still need a compensating financial ledger and remain blocked.
+
+This resolves neither the physical payment source for an unresolved refund nor
+cash drawer identity. Unreviewed cases remain blocked and the report guard
+remains in place.

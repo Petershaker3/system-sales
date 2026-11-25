@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 45)
+        self.assertEqual(len(paths), 46)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,12 +46,12 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-8]:
+            for path in migrations[:-9]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            for path in migrations[-8:]:
+            for path in migrations[-9:]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
@@ -114,6 +114,20 @@ class LedgerReconciliation(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("DELETE FROM sale_wallet_reviews")
         self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_payments WHERE id='p'").fetchone(), ('vf',))
+
+    def test_review_cannot_contradict_existing_allocated_refund(self):
+        self.sale('s', 1, 100, 50)
+        self.sale('r', 2, 100, 50, 'reversal', 's')
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('p','s',1,'vf','vf',100,1)")
+        self.db.execute("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('r','r',1,'vf','vf',100,2)")
+        self.db.execute("INSERT INTO refund_payment_allocations VALUES('r','p',100)")
+        # Fixture simulates an allocation from before the provenance migration.
+        self.db.execute('DROP TRIGGER sale_wallet_provenance_no_delete')
+        self.db.execute('DELETE FROM sale_wallet_provenance')
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','ip','confirm','reason','statement','u',3,'conflict')")
+        self.db.execute("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','vf','confirm','reason','statement','u',3,'matched')")
+        self.assertEqual(self.db.execute("SELECT wallet_id FROM sale_effective_wallet_attribution WHERE payment_id='p'").fetchone(), ('vf',))
 
     def test_only_original_reversal_can_use_a_reconfigured_wallet(self):
         self.sale('s', 1, 100, 50)

@@ -654,6 +654,7 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "missing-wallet", "confirm", "reason", "evidence", "wrong-wallet").await.is_err());
     auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller login");
     assert_eq!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reason", "statement", "seller").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
+    assert_eq!(sales::wallet_review_history(&pool, tokens.as_ref(), pid).await.expect_err("seller cannot read evidence").code(), "PERMISSION_DENIED");
     auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager login");
     sqlx::raw_sql("CREATE TRIGGER fail_review_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='sale_wallet_reviewed' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").execute(&pool).await.expect("inject audit failure");
     assert!(sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "bank statement", "statement reference 123", "failed").await.is_err());
@@ -669,6 +670,8 @@ async fn historical_wallet_id_without_provenance_cannot_fund_return_or_cancel() 
     approval::approve_with_owner_pin(&pool, tokens.as_ref(), manager, OWNER_PIN).await.expect("approve cancellation");
     assert_eq!(sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "not yet proven").await.expect_err("revoked is unresolved").code(), "SALE_REFUND_SOURCE_UNVERIFIABLE");
     sales::review_historical_wallet(&pool, tokens.as_ref(), pid, "vf", "confirm", "reviewed again", "statement reference 456", "request-c").await.expect("confirm again");
+    let history = sales::wallet_review_history(&pool, tokens.as_ref(), pid).await.expect("review history");
+    assert_eq!(history.iter().map(|e| e.action.as_str()).collect::<Vec<_>>(), vec!["confirm", "revoke", "confirm"]);
     let original: Option<String> = sqlx::query_scalar("SELECT wallet_id FROM sale_payments WHERE id=?1").bind(pid).fetch_one(&pool).await.expect("original payment");
     assert_eq!(original.as_deref(), Some("vf"));
     let reversed = sales::cancel_sale(&pool, tokens.as_ref(), &sale.sale_id, "cancel with reviewed source").await.expect("cancel");

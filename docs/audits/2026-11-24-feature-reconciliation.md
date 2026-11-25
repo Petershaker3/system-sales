@@ -465,3 +465,22 @@ an unresolved refund is an open business-policy decision. No drawer identity,
 unified financial ledger, reconciliation, complete event-period reporting or
 real Tauri database-to-UI proof has been added by this change. The report guard
 remains. Do not describe this as full provenance resolution or cash lifecycle.
+
+
+### Effective source review (0045–0046)
+
+Superseding the same-wallet restriction in the preceding section, a manager
+may explicitly select an existing wallet supported by independent evidence even
+when the historical payment records another wallet or none. The original value
+is preserved; an effective-source view and the append-only decision identify
+the reviewed wallet. Refund allocation and wallet estimates use the active
+reviewed source. Wallets whose current method changed remain eligible as
+historical sources. If an existing linked refund names another wallet the
+review is refused; used confirmations cannot be revoked until a compensating
+financial correction model exists. The full review event history is exposed
+to managers. This is an attestation, not a technical verification of evidence.
+
+Unresolved payment sources remain blocked: no physical payment destination is
+inferred and no decision has been made for paying a refund from a different
+source. Full drawer ledger, reconciliation, complete history reporting, and
+real database-to-UI validation are still outstanding. The report guard remains.

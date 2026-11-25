@@ -2874,3 +2874,11 @@ pub async fn review_historical_wallet(
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
     Ok(())
 }
+
+/// Full immutable review history, available only to the shop owner.
+pub async fn wallet_review_history(pool: &SqlitePool, tokens: &dyn SecureTokenStore, payment_id: &str) -> Result<Vec<sales_repo::WalletReviewEvent>, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::wallet_review_history(&mut conn, payment_id).await.map_err(|_| DomainError::StorageUnavailable.into())
+}

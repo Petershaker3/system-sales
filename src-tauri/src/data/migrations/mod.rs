@@ -214,3 +214,6 @@ pub const SALE_WALLET_EVIDENCE_REVIEW: &str = include_str!("0044_wallet_evidence
 
 /// Evidence-based effective wallet attribution without rewriting old payments (0045).
 pub const EFFECTIVE_WALLET_ATTRIBUTION: &str = include_str!("0045_effective_wallet_attribution.sql");
+
+/// Prevent evidence reviews from contradicting existing refund allocations (0046).
+pub const REVIEW_EXISTING_ALLOCATIONS: &str = include_str!("0046_review_existing_allocations.sql");

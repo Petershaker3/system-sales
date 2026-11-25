@@ -1377,3 +1377,21 @@ pub async fn wallet_review_request_matches(conn: &mut SqliteConnection, request_
     let row = sqlx::query("SELECT payment_id,wallet_id,action,reason,evidence,actor_id FROM sale_wallet_reviews WHERE request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
     Ok(row.map(|r| r.get::<String,_>("payment_id") == payment_id && r.get::<String,_>("wallet_id") == wallet_id && r.get::<String,_>("action") == action && r.get::<String,_>("reason") == reason && r.get::<String,_>("evidence") == evidence && r.get::<String,_>("actor_id") == actor))
 }
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletReviewEvent {
+    pub sequence: i64,
+    pub payment_id: String,
+    pub wallet_id: String,
+    pub action: String,
+    pub reason: String,
+    pub evidence: String,
+    pub actor_id: String,
+    pub occurred_at: i64,
+    pub request_id: String,
+}
+pub async fn wallet_review_history(conn: &mut SqliteConnection, payment_id: &str) -> Result<Vec<WalletReviewEvent>, sqlx::Error> {
+    sqlx::query_as::<_, WalletReviewEvent>("SELECT sequence,payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id FROM sale_wallet_reviews WHERE payment_id=?1 ORDER BY sequence")
+        .bind(payment_id).fetch_all(&mut *conn).await
+}
