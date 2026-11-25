@@ -339,16 +339,16 @@ async function submitOperationalClose(): Promise<void> {
                   + {{ money(shiftState.openShift.totals.customerCashInMinor) }}
                 </td>
               </tr>
-              <tr v-if="shiftState.openShift.totals.servicesCashInMinor > 0">
-                <td>+ خدمات ومحافظ داخل الدرج</td>
+              <tr v-if="shiftState.openShift.totals.servicesCashInMinor !== 0">
+                <td>خدمات ومحافظ داخل الدرج (بعد الإلغاء)</td>
                 <td class="num" style="text-align: end" data-shift-services-in>
-                  + {{ money(shiftState.openShift.totals.servicesCashInMinor) }}
+                  {{ shiftState.openShift.totals.servicesCashInMinor > 0 ? '+ ' : '− ' }}{{ money(Math.abs(shiftState.openShift.totals.servicesCashInMinor)) }}
                 </td>
               </tr>
-              <tr v-if="shiftState.openShift.totals.servicesCashOutMinor > 0">
-                <td>− سحب محافظ خارج من الدرج</td>
+              <tr v-if="shiftState.openShift.totals.servicesCashOutMinor !== 0">
+                <td>سحب محافظ خارج من الدرج (بعد الإلغاء)</td>
                 <td class="num" style="text-align: end" data-shift-services-out>
-                  − {{ money(shiftState.openShift.totals.servicesCashOutMinor) }}
+                  {{ shiftState.openShift.totals.servicesCashOutMinor > 0 ? '− ' : '+ ' }}{{ money(Math.abs(shiftState.openShift.totals.servicesCashOutMinor)) }}
                 </td>
               </tr>
               <tr v-if="shiftState.openShift.totals.walletDrawerNetMinor !== 0">

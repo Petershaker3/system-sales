@@ -816,6 +816,17 @@ async fn wallet_cash_operation_and_later_void_are_distinct_shift_events() {
     wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "reversed").await.expect("void");
     let reversal: (String, String, i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='wallet_void' AND source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("compensation");
     assert_eq!(reversal, (second.shift.id.as_str().to_owned(), "d2".into(), -110));
+    let second_totals = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("second summary").open_shift.expect("open").totals;
+    assert_eq!(second_totals.services_cash_in_minor, -110, "void belongs to the later shift");
+    assert_eq!(second_totals.services_fee_minor, -10);
+    assert_eq!(second_totals.expected_cash_minor, 0);
+    let mut conn = pool.acquire().await.expect("connection");
+    let closed = mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn, first.shift.id.as_str()).await.expect("find closed").expect("first");
+    let first_totals = mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn, &closed).await.expect("recompute first");
+    assert_eq!(first_totals.services_cash_in_minor, 110, "later void must not erase prior receipt");
+    assert_eq!(first_totals.services_fee_minor, 10);
+    assert_eq!(first_totals.expected_cash_minor, 110);
+    drop(conn);
     assert!(wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "again").await.is_err());
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings WHERE source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("count");
     assert_eq!(count, 2);

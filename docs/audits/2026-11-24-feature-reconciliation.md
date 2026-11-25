@@ -596,3 +596,12 @@ request ID and changed retries fail. The destination may be a drawer not tied
 to the open shift. This explicitly confirms physical movement but does not
 check available cash: the partial posting projection has no trustworthy opening
 balance or full historical coverage. It is not a reconciled drawer balance.
+
+### Wallet voids in shift estimates
+
+Wallet operation receipts and their later voids now affect the respective
+shift in which each event occurred. Captured shift identity takes precedence
+over timestamp inference, including when two shifts touch the same millisecond.
+For older operations without captured postings, timestamps remain a fallback
+estimate, not proof of a drawer assignment. This does not resolve other missing
+sources or turn the estimate into a reconciled balance.

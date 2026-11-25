@@ -387,37 +387,35 @@ pub async fn compute_shift_totals(
     let cash_in_minor: i64 = mov_row.try_get("cash_in_minor")?;
     let owner_draw_minor: i64 = mov_row.try_get("owner_draw_minor")?;
 
+    // A void is a new event, not a deletion of the original operation from
+    // its earlier shift. Prefer the captured event's immutable shift identity;
+    // older operations without a posting use the historical timestamp estimate.
     let svc_row = sqlx::query(
-        "SELECT
-            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN 1 ELSE 0 END), 0) AS services_count,
-            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN fee_minor ELSE 0 END), 0) AS services_fee_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind IN ('deposit', 'bill', 'card') THEN amount_minor + fee_minor
-                    WHEN kind = 'software' THEN fee_minor
-                    ELSE 0
-                END
-            ), 0) AS services_cash_in_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind = 'withdraw' THEN amount_minor - fee_minor
-                    ELSE 0
-                END
-            ), 0) AS services_cash_out_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind = 'topup' AND via = 'drawer' THEN -amount_minor
-                    WHEN kind = 'unload' AND via = 'drawer' THEN amount_minor
-                    ELSE 0
-                END
-            ), 0) AS wallet_drawer_net_minor
-         FROM wallet_ops
-         WHERE voided_at IS NULL
-           AND created_at >= ?1
-           AND created_at <= ?2",
+        "WITH wallet_events AS (
+             SELECT w.kind,w.via,w.amount_minor,w.fee_minor,1 AS direction
+               FROM wallet_ops w
+               LEFT JOIN cash_source_postings p ON p.source_kind='wallet_op' AND p.source_id=w.id
+              WHERE (p.source_id IS NOT NULL AND p.shift_id=?3)
+                 OR (p.source_id IS NULL AND w.created_at >= ?1 AND w.created_at <= ?2)
+             UNION ALL
+             SELECT w.kind,w.via,w.amount_minor,w.fee_minor,-1 AS direction
+               FROM wallet_ops w
+               LEFT JOIN cash_source_postings p ON p.source_kind='wallet_void' AND p.source_id=w.id
+              WHERE w.voided_at IS NOT NULL AND (
+                    (p.source_id IS NOT NULL AND p.shift_id=?3)
+                 OR (p.source_id IS NULL AND w.voided_at >= ?1 AND w.voided_at <= ?2))
+         )
+         SELECT
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','withdraw','bill','card','software') THEN direction ELSE 0 END),0) AS services_count,
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','withdraw','bill','card','software') THEN direction * fee_minor ELSE 0 END),0) AS services_fee_minor,
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','bill','card') THEN direction * (amount_minor + fee_minor) WHEN kind='software' THEN direction * fee_minor ELSE 0 END),0) AS services_cash_in_minor,
+            COALESCE(SUM(CASE WHEN kind='withdraw' THEN direction * (amount_minor - fee_minor) ELSE 0 END),0) AS services_cash_out_minor,
+            COALESCE(SUM(CASE WHEN kind='topup' AND via='drawer' THEN -direction * amount_minor WHEN kind='unload' AND via='drawer' THEN direction * amount_minor ELSE 0 END),0) AS wallet_drawer_net_minor
+         FROM wallet_events",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 

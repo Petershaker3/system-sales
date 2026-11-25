@@ -96,4 +96,9 @@ test('formatShiftWhatsAppReport includes drawer math, non-cash sales, and close 
   assert.match(report, /فودافون كاش/);
   assert.match(report, /إنستاباي/);
   assert.match(report, /الدرج مظبوط تمام/);
+  const reversal = formatShiftWhatsAppReport({ ...summary, totals: { ...summary.totals, servicesCashInMinor: -110, servicesCashOutMinor: -50, servicesFeeMinor: -10, drawerTransferNetMinor: -123 } }, 'محل', 0);
+  assert.match(reversal, /− خدمات ومحافظ داخل الدرج \(بعد الإلغاء\)/);
+  assert.match(reversal, /\+ سحب محافظ خارج من الدرج \(بعد الإلغاء\)/);
+  assert.match(reversal, /− النقل بين الأدراج/);
+  assert.match(reversal, /عمولات الخدمات/);
 });
