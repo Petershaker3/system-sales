@@ -451,7 +451,12 @@ pub async fn compute_shift_totals(
     let rep_deliv_count: i64 = rep_row.try_get("deliv_count")?;
     let rep_deliv_profit: i64 = rep_row.try_get("deliv_profit_minor")?;
 
-    Ok(ShiftTotals::compute_with_services(
+    // Transfers are physical outflows from the assigned drawer, not owner
+    // withdrawals and not income to the shop. The paired destination posting
+    // belongs to a different drawer and must not cancel the source outflow.
+    let transfer_net: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(p.signed_minor),0) FROM cash_source_postings p JOIN shift_drawers d ON d.shift_id=p.shift_id AND d.drawer_id=p.drawer_id WHERE p.shift_id=?1 AND p.source_kind IN ('drawer_transfer_in','drawer_transfer_out')")
+        .bind(shift.id.as_str()).fetch_one(&mut *conn).await?;
+    let mut totals = ShiftTotals::compute_with_services(
         shift.opening_cash.as_minor(),
         cash_sales_minor,
         vf_sales_minor + rep_deliv_vf,
@@ -471,7 +476,10 @@ pub async fn compute_shift_totals(
         cash_in_minor,
         owner_draw_minor,
         expenses_minor,
-    ))
+    );
+    totals.drawer_transfer_net_minor = transfer_net;
+    totals.expected_cash_minor = totals.expected_cash_minor.checked_add(transfer_net).ok_or(sqlx::Error::Protocol("shift transfer total overflow".into()))?;
+    Ok(totals)
 }
 
 /// List recent closed shifts (most recent first, up to `limit`).

@@ -203,7 +203,7 @@ async function submitOperationalClose(): Promise<void> {
     :size="shiftState.openShift ? 'wide' : 'md'"
     @close="emit('close')"
   >
-    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" :shift-id="shiftState.openShift?.shift.id ?? null" />
+    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" :shift-id="shiftState.openShift?.shift.id ?? null" @changed="emit('changed')" />
     <!-- Open a new shift -->
     <div v-if="!shiftState.openShift" data-open-shift-view>
       <form @submit.prevent="submitOpenShift">
@@ -356,6 +356,12 @@ async function submitOperationalClose(): Promise<void> {
                 <td class="num" style="text-align: end" data-shift-wallet-drawer>
                   {{ shiftState.openShift.totals.walletDrawerNetMinor > 0 ? '+ ' : '− '
                   }}{{ money(Math.abs(shiftState.openShift.totals.walletDrawerNetMinor)) }}
+                </td>
+              </tr>
+              <tr v-if="shiftState.openShift.totals.drawerTransferNetMinor !== 0">
+                <td>النقل بين الأدراج (درج الوردية)</td>
+                <td class="num" style="text-align: end" data-shift-drawer-transfer>
+                  {{ shiftState.openShift.totals.drawerTransferNetMinor > 0 ? '+ ' : '− ' }}{{ money(Math.abs(shiftState.openShift.totals.drawerTransferNetMinor)) }}
                 </td>
               </tr>
               <tr v-if="shiftState.openShift.totals.cashInMinor > 0">

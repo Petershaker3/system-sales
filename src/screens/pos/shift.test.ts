@@ -75,6 +75,7 @@ test('formatShiftWhatsAppReport includes drawer math, non-cash sales, and close 
       servicesCashInMinor: 0,
       servicesCashOutMinor: 0,
       walletDrawerNetMinor: 0,
+      drawerTransferNetMinor: 0,
       cashInMinor: 10_000,
       ownerDrawMinor: 30_000,
       expensesMinor: 5_000,

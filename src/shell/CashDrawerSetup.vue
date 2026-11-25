@@ -5,6 +5,7 @@ import { describeError } from '../api/errors';
 import { fmtLong, money, moneyUnitWord, parseMoney } from '../ui/format';
 
 const props = defineProps<{ canConfigure: boolean; shiftId: string | null }>();
+const emit = defineEmits<{ changed: [] }>();
 const preview = ref<CashPostingPreview | null>(null);
 const error = ref(''); const busy = ref(false);
 const selected = ref(''); const newName = ref('');
@@ -19,6 +20,7 @@ async function transfer(): Promise<void> {
   transferRequest.value ??= crypto.randomUUID(); busy.value = true; error.value = '';
   try {
     await transferDrawerCash(props.shiftId, destination.value, parsed, transferReason.value, transferRequest.value);
+    emit('changed');
     destination.value = ''; amount.value = ''; transferReason.value = ''; confirmed.value = false;
     await load();
   } catch (err) { error.value = describeError(err); }

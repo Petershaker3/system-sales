@@ -42,6 +42,7 @@ export interface ShiftTotals {
   readonly servicesCashInMinor: number;
   readonly servicesCashOutMinor: number;
   readonly walletDrawerNetMinor: number;
+  readonly drawerTransferNetMinor: number;
   readonly cashInMinor: number;
   readonly ownerDrawMinor: number;
   readonly expensesMinor: number;

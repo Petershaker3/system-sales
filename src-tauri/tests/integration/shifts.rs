@@ -561,6 +561,9 @@ async fn drawer_transfer_is_atomic_authorized_and_idempotent() {
     let shift=opened.shift.id.as_str();
     shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("transfer");
     shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("retry");
+    let totals=shift_service::current_shift_summary(&pool,tokens.as_ref()).await.expect("summary").open_shift.expect("open").totals;
+    assert_eq!(totals.drawer_transfer_net_minor,-123);
+    assert_eq!(totals.expected_cash_minor,-123, "only source leg affects this drawer estimate");
     assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",124,"put away","transfer-1").await.is_err());
     assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"till",1,"same drawer","transfer-2").await.is_err());
     assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"missing",1,"unknown drawer","transfer-3").await.is_err());

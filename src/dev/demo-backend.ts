@@ -1734,6 +1734,7 @@ function buildDemoShiftSummary(shift: DemoShift) {
       servicesCashInMinor: svc.servicesCashInMinor,
       servicesCashOutMinor: svc.servicesCashOutMinor,
       walletDrawerNetMinor: svc.walletDrawerNetMinor,
+      drawerTransferNetMinor: 0,
       cashInMinor,
       ownerDrawMinor,
       expensesMinor,
