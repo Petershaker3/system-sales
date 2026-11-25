@@ -702,6 +702,7 @@ pub struct CashPostingPreview {
     pub recent_counts: Vec<repo::DrawerPhysicalCount>,
     pub uncertain_repair_refunds: Vec<repo::UncertainRepairRefund>,
     pub uncertain_repair_refund_count: i64,
+    pub repair_cash_refund_reviews: Vec<repo::RepairCashRefundReview>,
     /// This is an incomplete source projection, not a drawer balance.
     pub complete: bool,
 }
@@ -717,8 +718,9 @@ pub async fn cash_posting_preview(pool: &SqlitePool, tokens: &dyn SecureTokenSto
     let recent_counts = repo::recent_drawer_physical_counts(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     let uncertain_repair_refunds = repo::recent_uncertain_repair_refunds(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     let uncertain_repair_refund_count = repo::uncertain_repair_refund_count(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let repair_cash_refund_reviews = repo::recent_repair_cash_refund_reviews(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
-    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, uncertain_repair_refunds, uncertain_repair_refund_count, complete: false })
+    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, uncertain_repair_refunds, uncertain_repair_refund_count, repair_cash_refund_reviews, complete: false })
 }
 
 /// Create an immutable drawer identity if necessary and explicitly configure it
@@ -796,4 +798,30 @@ pub async fn record_drawer_physical_count(pool: &SqlitePool, tokens: &dyn Secure
     audit::append(&mut tx,actor,audit::event::CASH_DRAWER_PHYSICAL_COUNTED,now,Some(serde_json::json!({"request_id":request_id,"drawer_id":drawer_id,"shift_id":count.shift_id.as_deref(),"amount_minor":amount_minor,"reconciled":false}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
     Ok(count)
+}
+
+
+/// The manager asserts an actually paid wholly cash repair refund, its payout
+/// time and drawer with evidence. Original uncertainty and receipts are never
+/// changed; the database enforces source capacity and shift/drawer identity.
+pub async fn review_repair_cash_refund(pool: &SqlitePool, tokens: &dyn SecureTokenStore, request: &str, repair_id: &str, shift_id: &str, drawer_id: &str, payout_at: i64, evidence: &str) -> Result<repo::RepairCashRefundReview, ShiftServiceError> {
+    let session=identity_session::resolve(pool,tokens).await?;
+    if session.role()!=Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let request=request.trim(); let repair_id=repair_id.trim(); let shift_id=shift_id.trim(); let drawer_id=drawer_id.trim(); let evidence=evidence.trim();
+    if request.is_empty() || request.chars().count()>120 || repair_id.is_empty() || shift_id.is_empty() || drawer_id.is_empty() || evidence.is_empty() || evidence.chars().count()>1000 || payout_at<0 { return Err(ShiftError::RepairRefundEvidenceInvalid.into()); }
+    let actor=session.user_id();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(old)=repo::repair_cash_refund_review_by_request(&mut tx,request).await.map_err(|_| DomainError::StorageUnavailable)? {
+        if old.repair_id==repair_id && old.shift_id==shift_id && old.drawer_id==drawer_id && old.payout_at==payout_at && old.evidence==evidence && old.actor_id==actor.as_str() { return Ok(old); }
+        return Err(ShiftError::RepairRefundEvidenceInvalid.into());
+    }
+    let now=Timestamp::now();
+    let review=repo::RepairCashRefundReview { request_id:request.to_owned(), repair_id:repair_id.to_owned(), shift_id:shift_id.to_owned(), drawer_id:drawer_id.to_owned(), payout_at, evidence:evidence.to_owned(), actor_id:actor.as_str(), reviewed_at:now.as_millis() };
+    repo::insert_repair_cash_refund_review(&mut tx,&review).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c|c.parse::<i32>().ok()).is_some_and(|code|code & 255==19) => ShiftServiceError::from(ShiftError::RepairRefundEvidenceInvalid),
+        _ => ShiftServiceError::from(DomainError::StorageUnavailable),
+    })?;
+    audit::append(&mut tx,actor,audit::event::REPAIR_CASH_REFUND_REVIEWED,now,Some(serde_json::json!({"request_id":request,"repair_id":repair_id,"shift_id":shift_id,"drawer_id":drawer_id,"payout_at":payout_at}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(review)
 }

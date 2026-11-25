@@ -238,3 +238,6 @@ pub const DRAWER_PHYSICAL_COUNTS: &str = include_str!("0052_drawer_physical_coun
 
 /// Preserve unresolved repair refund sources without guessing a payout (0053).
 pub const UNCERTAIN_REPAIR_REFUNDS: &str = include_str!("0053_uncertain_repair_refunds.sql");
+
+/// Evidence-backed review of a previously uncertain wholly cash repair payout (0054).
+pub const REPAIR_CASH_REFUND_REVIEWS: &str = include_str!("0054_repair_cash_refund_reviews.sql");

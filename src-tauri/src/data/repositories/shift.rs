@@ -756,10 +756,39 @@ pub struct UncertainRepairRefund {
 }
 
 pub async fn recent_uncertain_repair_refunds(conn: &mut SqliteConnection) -> Result<Vec<UncertainRepairRefund>, sqlx::Error> {
-    sqlx::query_as("SELECT u.repair_id,r.ticket_no,u.shift_id,u.amount_minor,u.actor_id,u.occurred_at FROM uncertain_repair_refunds u JOIN repairs r ON r.id=u.repair_id ORDER BY u.occurred_at DESC,u.repair_id DESC LIMIT 100")
+    sqlx::query_as("SELECT u.repair_id,r.ticket_no,u.shift_id,u.amount_minor,u.actor_id,u.occurred_at FROM uncertain_repair_refunds u JOIN repairs r ON r.id=u.repair_id WHERE NOT EXISTS(SELECT 1 FROM repair_cash_refund_reviews v WHERE v.repair_id=u.repair_id) ORDER BY u.occurred_at DESC,u.repair_id DESC LIMIT 100")
         .fetch_all(&mut *conn).await
 }
 
 pub async fn uncertain_repair_refund_count(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT COUNT(*) FROM uncertain_repair_refunds").fetch_one(&mut *conn).await
+    sqlx::query_scalar("SELECT COUNT(*) FROM uncertain_repair_refunds u WHERE NOT EXISTS(SELECT 1 FROM repair_cash_refund_reviews v WHERE v.repair_id=u.repair_id)").fetch_one(&mut *conn).await
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairCashRefundReview {
+    pub request_id: String,
+    pub repair_id: String,
+    pub shift_id: String,
+    pub drawer_id: String,
+    pub payout_at: i64,
+    pub evidence: String,
+    pub actor_id: String,
+    pub reviewed_at: i64,
+}
+
+pub async fn repair_cash_refund_review_by_request(conn: &mut SqliteConnection, request: &str) -> Result<Option<RepairCashRefundReview>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at FROM repair_cash_refund_reviews WHERE request_id=?1")
+        .bind(request).fetch_optional(&mut *conn).await
+}
+
+pub async fn insert_repair_cash_refund_review(conn: &mut SqliteConnection, review: &RepairCashRefundReview) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO repair_cash_refund_reviews(request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(&review.request_id).bind(&review.repair_id).bind(&review.shift_id).bind(&review.drawer_id).bind(review.payout_at).bind(&review.evidence).bind(&review.actor_id).bind(review.reviewed_at).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn recent_repair_cash_refund_reviews(conn: &mut SqliteConnection) -> Result<Vec<RepairCashRefundReview>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at FROM repair_cash_refund_reviews ORDER BY reviewed_at DESC,request_id DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
 }

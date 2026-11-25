@@ -32,9 +32,8 @@ whole refund, the cancellation transaction now appends an unresolved payout
 record. It keeps amount, actor, event time and known shift context but **not** a
 drawer or payment method. The manager's partial posting preview shows these
 records, expressly not as cash movements or a calculated shortage. Historic
-cancellations are not backfilled, and no resolution workflow has yet been
-implemented. Absence of newly captured gaps therefore does not establish full
-coverage. Rollback and backup fixtures cover the new record.
+cancellations are not backfilled. Absence of newly captured gaps therefore
+does not establish full coverage. Rollback and backup fixtures cover the new record.
 
 ## Physical payout confirmation review
 
@@ -46,3 +45,18 @@ unresolved event. Existing callers that omit the confirmation default to false;
 manager approval still applies and mixed/legacy payouts are not guessed. Older
 cash refund postings made before this correction remain historical claims, not
 independent proof of payout, and must be considered during reconciliation.
+
+
+## Implementation notes: 0054
+
+A manager can attest an already-paid, wholly cash repair refund with explicit
+evidence, payout time and the assigned shift drawer. Database checks require
+all original collection to be captured as cash, exact amount, the original
+uncertain event's known shift, a matching shift/drawer assignment and a payout
+time within that shift and not before collection. A single append-only review
+and linked outflow are committed with audit in one transaction; retries are
+idempotent. The original gap and its audit remain unchanged and review history
+is visible. This is a manager's assertion, not independently verified evidence;
+mixed, historical without captured receipts, unknown-shift and payouts in a
+different shift remain unresolved. A review cannot currently be reversed, and
+all cash balances and reports remain incomplete and unreconciled.

@@ -686,7 +686,8 @@ async fn mixed_repair_cancellation_does_not_invent_a_cash_payout() {
 
 #[tokio::test]
 async fn known_cash_collection_does_not_prove_physical_refund_without_confirmation() {
-    let (pool,tokens,_,_,_)=setup_shop_for_repairs().await;
+    let (pool,tokens,manager,seller,_)=setup_shop_for_repairs().await;
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"review-till","Till","review-config").await.expect("drawer");
     let shift=shift_service::open_shift(&pool,tokens.as_ref(),0).await.expect("shift");
     let ticket=repair_service::create_repair(&pool,tokens.as_ref(),CreateRepairInput {
         service_kind:"hardware".into(), customer_name:"".into(), customer_phone:"".into(), device_name:"phone".into(), imei:None, device_lock:None, issue:"screen".into(), accessories:None, due_label:None,
@@ -700,4 +701,30 @@ async fn known_cash_collection_does_not_prove_physical_refund_without_confirmati
     assert_eq!(totals.expected_cash_minor,200,"do not subtract an unconfirmed payout");
     let gap_shift: Option<String>=sqlx::query_scalar("SELECT shift_id FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("gap");
     assert_eq!(gap_shift.as_deref(),Some(shift.shift.id.as_str()));
+    let payout_at:i64=sqlx::query_scalar("SELECT occurred_at FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("gap time");
+    let shift_id=shift.shift.id.as_str();
+    sqlx::query("CREATE TRIGGER reject_refund_review_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='repair_cash_refund_reviewed' BEGIN SELECT RAISE(ABORT,'test'); END").execute(&pool).await.expect("inject audit failure");
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-1",&ticket.id,shift_id,"review-till",payout_at,"receipt 42").await.is_err());
+    let n:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("outflow count"); assert_eq!(n,0,"audit failure rolls back review and posting");
+    sqlx::query("DROP TRIGGER reject_refund_review_audit").execute(&pool).await.expect("drop failure");
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-bad",&ticket.id,shift_id,"missing",payout_at,"receipt 42").await.is_err());
+    let (one,two)=tokio::join!(
+        shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-1",&ticket.id,shift_id,"review-till",payout_at,"receipt 42"),
+        shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-2",&ticket.id,shift_id,"review-till",payout_at,"receipt 42")
+    );
+    assert_ne!(one.is_ok(),two.is_ok(),"only one concurrent review can resolve the same payout");
+    let review=one.or(two).expect("one review succeeds");
+    let retry=shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),&review.request_id,&ticket.id,shift_id,"review-till",payout_at,"receipt 42").await.expect("retry");
+    assert_eq!(review.reviewed_at,retry.reviewed_at);
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),&review.request_id,&ticket.id,shift_id,"review-till",payout_at,"changed evidence").await.is_err());
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-3",&ticket.id,shift_id,"review-till",payout_at,"duplicate").await.is_err());
+    let preview=shift_service::cash_posting_preview(&pool,tokens.as_ref()).await.expect("review preview");
+    assert_eq!(preview.uncertain_repair_refund_count,0);
+    assert_eq!(preview.repair_cash_refund_reviews[0].evidence,"receipt 42");
+    assert_eq!(preview.recent_postings.iter().find(|p| p.source_kind=="repair_cash_refund").expect("posting").signed_minor,-200);
+    assert!(!preview.complete);
+    assert!(sqlx::query("DELETE FROM repair_cash_refund_reviews WHERE request_id=?1").bind(&review.request_id).execute(&pool).await.is_err());
+    auth::login(&pool,tokens.as_ref(),seller,PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"denied",&ticket.id,shift_id,"review-till",payout_at,"evidence").await.expect_err("seller denied").code(),"PERMISSION_DENIED");
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
 }

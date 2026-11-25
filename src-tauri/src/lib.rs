@@ -156,6 +156,7 @@ pub fn run() {
             commands::customer::archive_customer,
             commands::customer::record_customer_payment,
             commands::customer::list_customer_ledger,
+            commands::shift::review_repair_cash_refund,
             commands::shift::record_drawer_physical_count,
             commands::shift::transfer_drawer_cash,
             commands::shift::cash_posting_preview,

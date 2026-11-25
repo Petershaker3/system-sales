@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { cashPostingPreview, configureDrawer, transferDrawerCash, recordDrawerPhysicalCount, type CashPostingPreview } from '../api/shift';
+import { cashPostingPreview, configureDrawer, transferDrawerCash, recordDrawerPhysicalCount, reviewRepairCashRefund, type CashPostingPreview } from '../api/shift';
 import { describeError } from '../api/errors';
 import { fmtLong, money, moneyUnitWord, parseMoney } from '../ui/format';
 
@@ -37,6 +37,21 @@ async function saveCount(): Promise<void> {
     await recordDrawerPhysicalCount(countDrawer.value, parsed, countRequest.value);
     countDrawer.value = ''; countAmount.value = ''; countConfirmed.value = false;
     await load();
+  } catch (err) { error.value = describeError(err); }
+  finally { busy.value = false; }
+}
+const reviewRepair = ref(''); const reviewDrawer = ref(''); const reviewTime = ref(''); const reviewEvidence = ref(''); const reviewConfirmed = ref(false);
+const reviewRequest = ref<string | null>(null);
+watch([reviewRepair, reviewDrawer, reviewTime, reviewEvidence, reviewConfirmed], () => { reviewRequest.value = null; });
+async function saveRefundReview(): Promise<void> {
+  const gap = preview.value?.uncertainRepairRefunds.find(r => r.repairId === reviewRepair.value);
+  const payoutAt = new Date(reviewTime.value).getTime();
+  if (busy.value || !gap?.shiftId || !reviewDrawer.value || !Number.isSafeInteger(payoutAt) || !reviewEvidence.value.trim() || !reviewConfirmed.value) return;
+  reviewRequest.value ??= crypto.randomUUID(); busy.value = true; error.value = '';
+  try {
+    await reviewRepairCashRefund(reviewRequest.value, gap.repairId, gap.shiftId, reviewDrawer.value, payoutAt, reviewEvidence.value);
+    reviewRepair.value = ''; reviewDrawer.value = ''; reviewTime.value = ''; reviewEvidence.value = ''; reviewConfirmed.value = false;
+    emit('changed'); await load();
   } catch (err) { error.value = describeError(err); }
   finally { busy.value = false; }
 }
@@ -86,6 +101,17 @@ async function save(): Promise<void> {
         <p>فيه {{ preview.uncertainRepairRefundCount }} مرتجع صيانة مسجل من غير دليل كافٍ لطريقة الصرف أو الدرج. دي فجوة، مش حركة نقدية مؤكدة ولا عجز محسوب.</p>
         <ul><li v-for="r in preview.uncertainRepairRefunds" :key="r.repairId">تذكرة {{ r.ticketNo }} — {{ money(r.amountMinor) }} — {{ r.actorId }} — {{ fmtLong(new Date(r.occurredAt)) }} — {{ r.shiftId ? 'الوردية مسجلة' : 'الوردية غير معروفة' }}</li></ul>
         <p v-if="preview.uncertainRepairRefundCount > preview.uncertainRepairRefunds.length">المعروض آخر 100 حالة فقط.</p>
+        <p>مراجعة المدير متاحة فقط لرد كامل ثبت تحصيله نقداً، وله وردية ودرج مسجلان. المختلط والقديم بلا دليل يظل مجهولاً.</p>
+        <label>التذكرة <select v-model="reviewRepair"><option value="">اختار</option><option v-for="r in preview.uncertainRepairRefunds.filter(r => r.shiftId)" :key="r.repairId" :value="r.repairId">{{ r.ticketNo }} — {{ money(r.amountMinor) }}</option></select></label>
+        <label>الدرج الذي خرج منه النقد فعلاً <select v-model="reviewDrawer"><option value="">اختار</option><option v-for="d in preview.drawers" :key="d.id" :value="d.id">{{ d.name }}</option></select></label>
+        <label>وقت الصرف الفعلي بدقة <input v-model="reviewTime" type="datetime-local" step="0.001" /></label>
+        <label>الدليل على الصرف والوقت والدرج <input v-model="reviewEvidence" maxlength="1000" /></label>
+        <label><input v-model="reviewConfirmed" type="checkbox" /> تحققت من الدليل وأؤكد خروج المبلغ كله كاش من الدرج في الوقت المكتوب</label>
+        <button type="button" class="btn" :disabled="busy || !reviewRepair || !reviewDrawer || !reviewTime || !reviewEvidence.trim() || !reviewConfirmed" @click="saveRefundReview">تسجيل مراجعة المدير</button>
+      </div>
+      <div v-if="preview.repairCashRefundReviews.length" class="note" data-repair-refund-review-history>
+        <p>مراجعات رد نقدي سابقة؛ الدليل إقرار المدير وليس تحققًا آليًا منه:</p>
+        <ul><li v-for="r in preview.repairCashRefundReviews" :key="r.requestId">{{ r.repairId }} — {{ preview.drawers.find(d => d.id === r.drawerId)?.name ?? 'درج غير معروف' }} — صرف {{ fmtLong(new Date(r.payoutAt)) }} — راجع {{ r.actorId }} في {{ fmtLong(new Date(r.reviewedAt)) }} — {{ r.evidence }}</li></ul>
       </div>
       <div v-if="preview.drawers.length" class="stack" data-drawer-physical-count>
         <p>تسجيل جرد فعلي لدرج معين. الجرد ليس حركة مالية ولا يحدد عجزاً أو زيادة قبل اكتمال المطابقة.</p>

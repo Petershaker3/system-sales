@@ -115,7 +115,7 @@ async fn no_column_is_named_as_if_it_would_hold_a_payload() {
             // "drawer" contains the letters "raw", but is not a payload field.
             let drawer_reference = (table == "cash_drawer_transfers" && (name == "from_drawer_id" || name == "to_drawer_id")) || name == "drawer_id" && [
                 "cash_drawer_default", "cash_drawer_configuration_events",
-                "shift_drawers", "cash_source_postings", "cash_drawer_physical_counts",
+                "shift_drawers", "cash_source_postings", "cash_drawer_physical_counts", "repair_cash_refund_reviews",
             ].contains(&table.as_str());
             !drawer_reference && declared.eq_ignore_ascii_case("text")
                 && [
@@ -181,7 +181,7 @@ async fn drawer_reference_exemptions_are_foreign_keys_to_bounded_identities() {
     let pool = db::open_in_memory().await.expect("database");
     let ddl: String = sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type='table' AND name='cash_drawers'").fetch_one(&pool).await.expect("drawer table");
     assert!(ddl.contains("length(trim(id)) BETWEEN 1 AND 80"));
-    for (table, column) in [("cash_drawer_default","drawer_id"), ("cash_drawer_configuration_events","drawer_id"), ("shift_drawers","drawer_id"), ("cash_source_postings","drawer_id"), ("cash_drawer_transfers","from_drawer_id"), ("cash_drawer_transfers","to_drawer_id"), ("cash_drawer_physical_counts","drawer_id")] {
+    for (table, column) in [("cash_drawer_default","drawer_id"), ("cash_drawer_configuration_events","drawer_id"), ("shift_drawers","drawer_id"), ("cash_source_postings","drawer_id"), ("cash_drawer_transfers","from_drawer_id"), ("cash_drawer_transfers","to_drawer_id"), ("cash_drawer_physical_counts","drawer_id"), ("repair_cash_refund_reviews","drawer_id")] {
         let fk: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_list(?1) WHERE \"from\"=?2 AND \"table\"='cash_drawers' AND \"to\"='id'").bind(table).bind(column).fetch_one(&pool).await.expect("foreign keys");
         assert_eq!(fk, 1, "{table}.{column} must be a bounded drawer reference");
     }

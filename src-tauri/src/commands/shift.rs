@@ -455,3 +455,8 @@ pub async fn transfer_drawer_cash(ctx: Ctx<'_>, shift_id: String, to_drawer_id: 
 pub async fn record_drawer_physical_count(ctx: Ctx<'_>, drawer_id: String, amount_minor: i64, request_id: String) -> Result<crate::data::repositories::shift::DrawerPhysicalCount, ShiftCommandError> {
     use_cases::record_drawer_physical_count(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, amount_minor, &request_id).await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn review_repair_cash_refund(ctx: Ctx<'_>, request_id: String, repair_id: String, shift_id: String, drawer_id: String, payout_at: i64, evidence: String) -> Result<crate::data::repositories::shift::RepairCashRefundReview, ShiftCommandError> {
+    use_cases::review_repair_cash_refund(&ctx.pool,ctx.tokens.as_ref(),&request_id,&repair_id,&shift_id,&drawer_id,payout_at,&evidence).await.map_err(Into::into)
+}

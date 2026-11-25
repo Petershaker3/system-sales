@@ -167,7 +167,18 @@ export interface UncertainRepairRefund {
   readonly actorId: string;
   readonly occurredAt: number;
 }
+export interface RepairCashRefundReview {
+  readonly requestId: string;
+  readonly repairId: string;
+  readonly shiftId: string;
+  readonly drawerId: string;
+  readonly payoutAt: number;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly reviewedAt: number;
+}
 export interface CashPostingPreview {
+  readonly repairCashRefundReviews: RepairCashRefundReview[];
   readonly uncertainRepairRefunds: UncertainRepairRefund[];
   readonly uncertainRepairRefundCount: number;
   readonly drawers: CashDrawerIdentity[];
@@ -188,4 +199,8 @@ export function transferDrawerCash(shiftId: string, toDrawerId: string, amountMi
 
 export function recordDrawerPhysicalCount(drawerId: string, amountMinor: number, requestId: string): Promise<DrawerPhysicalCount> {
   return invoke('record_drawer_physical_count', { drawerId, amountMinor, requestId });
+}
+
+export function reviewRepairCashRefund(requestId: string, repairId: string, shiftId: string, drawerId: string, payoutAt: number, evidence: string): Promise<RepairCashRefundReview> {
+  return invoke('review_repair_cash_refund', { requestId, repairId, shiftId, drawerId, payoutAt, evidence });
 }

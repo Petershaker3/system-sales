@@ -16,7 +16,7 @@ class LedgerReconciliation(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.execute('PRAGMA foreign_keys=ON')
         paths = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-        self.assertEqual(len(paths), 53)
+        self.assertEqual(len(paths), 54)
         for path in paths:
             self.db.executescript(path.read_text(encoding='utf-8'))
         self.db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
@@ -46,12 +46,12 @@ class LedgerReconciliation(unittest.TestCase):
         try:
             prior.execute('PRAGMA foreign_keys=ON')
             migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
-            for path in migrations[:-16]:
+            for path in migrations[:-17]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old','old',100,'u','sale',100,60)")
             before = prior.execute('SELECT * FROM sales').fetchall()
-            for path in migrations[-16:]:
+            for path in migrations[-17:]:
                 prior.executescript(path.read_text(encoding='utf-8'))
             self.assertEqual(prior.execute('SELECT * FROM sales').fetchall(), before)
             self.assertEqual(prior.execute('PRAGMA integrity_check').fetchone(), ('ok',))
@@ -143,7 +143,7 @@ class LedgerReconciliation(unittest.TestCase):
         prior = sqlite3.connect(':memory:')
         try:
             prior.execute('PRAGMA foreign_keys=ON')
-            migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-4]
+            migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-5]
             for path in migrations[:-1]: prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('s','s',1,'u','sale',100,0)")
@@ -178,6 +178,48 @@ class LedgerReconciliation(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("UPDATE wallet_ops SET voided_at=11 WHERE id='wit'")
 
+    def test_repair_cash_refund_review_requires_cash_proof_drawer_and_time(self):
+        self.db.execute("INSERT INTO cash_drawers VALUES('a','A','u',1)")
+        self.db.execute("INSERT INTO cash_drawers VALUES('b','B','u',1)")
+        self.db.execute("INSERT INTO cash_drawer_default VALUES(1,'a','u',1)")
+        self.db.execute("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s',1,'open',0,'u',2)")
+        self.db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,deposit_minor,pay_method,created_by,created_at) VALUES('r','r','phone','issue','received',50,'cash','u',3)")
+        self.db.execute("UPDATE repairs SET status='cancelled' WHERE id='r'")
+        self.db.execute("INSERT INTO uncertain_repair_refunds VALUES('r','s',50,'u',4)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('bad-drawer','r','s','b',4,'evidence','u',5)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('bad-time','r','s','a',2,'evidence','u',5)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('bad-future','r','s','a',6,'evidence','u',5)")
+        self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('ok','r','s','a',4,'receipt 123','u',5)")
+        self.assertEqual(self.db.execute("SELECT source_kind,drawer_id,signed_minor,occurred_at FROM cash_source_postings WHERE source_id='r' ORDER BY source_kind").fetchall(), [('repair_cash_refund','a',-50,4),('repair_deposit','a',50,3)])
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('dup','r','s','a',4,'evidence','u',5)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("UPDATE repair_cash_refund_reviews SET evidence='change'")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("DELETE FROM repair_cash_refund_reviews")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM uncertain_repair_refunds WHERE repair_id='r'").fetchone(),(1,))
+        self.db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,created_by,created_at) VALUES('legacy','legacy','phone','issue','cancelled','u',3)")
+        self.db.execute("INSERT INTO uncertain_repair_refunds VALUES('legacy','s',50,'u',4)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('unproven','legacy','s','a',4,'evidence','u',5)")
+        self.db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,deposit_minor,pay_method,created_by,created_at) VALUES('mixed','mixed','phone','issue','received',50,'cash','u',3)")
+        self.db.execute("UPDATE repairs SET status='cancelled',pay_method='vf' WHERE id='mixed'")
+        self.db.execute("INSERT INTO uncertain_repair_refunds VALUES('mixed','s',200,'u',4)")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO repair_cash_refund_reviews VALUES('mixed-refund','mixed','s','a',4,'evidence','u',5)")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM cash_source_postings WHERE source_id='mixed' AND source_kind='repair_cash_refund'").fetchone(),(0,))
+
+    def test_0054_upgrade_preserves_unresolved_payouts(self):
+        db=sqlite3.connect(':memory:'); db.execute('PRAGMA foreign_keys=ON')
+        try:
+            paths=sorted((ROOT/'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
+            for path in paths[:-1]: db.executescript(path.read_text())
+            db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
+            db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,created_by,created_at) VALUES('r','r','phone','issue','cancelled','u',1)")
+            db.execute("INSERT INTO uncertain_repair_refunds VALUES('r',NULL,23,'u',2)")
+            before=db.execute('SELECT * FROM uncertain_repair_refunds').fetchall()
+            db.executescript(paths[-1].read_text())
+            self.assertEqual(db.execute('SELECT * FROM uncertain_repair_refunds').fetchall(),before)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM repair_cash_refund_reviews').fetchone(),(0,))
+            self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(),[])
+            self.assertEqual(db.execute('PRAGMA integrity_check').fetchone(),('ok',))
+        finally: db.close()
+
     def test_uncertain_repair_refunds_are_explicit_not_cash_postings(self):
         self.db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,created_by,created_at) VALUES('r','r','phone','issue','cancelled','u',1)")
         self.db.execute("INSERT INTO uncertain_repair_refunds VALUES('r',NULL,23,'u',2)")
@@ -189,7 +231,7 @@ class LedgerReconciliation(unittest.TestCase):
     def test_0053_populated_upgrade_does_not_invent_refunds(self):
         db=sqlite3.connect(':memory:'); db.execute('PRAGMA foreign_keys=ON')
         try:
-            paths=sorted((ROOT/'src-tauri/src/data/migrations').glob('[0-9]*.sql'))
+            paths=sorted((ROOT/'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-1]
             for path in paths[:-1]: db.executescript(path.read_text())
             db.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             db.execute("INSERT INTO repairs(id,ticket_no,device_name,issue,status,created_by,created_at) VALUES('r','r','phone','issue','cancelled','u',1)")
@@ -213,7 +255,7 @@ class LedgerReconciliation(unittest.TestCase):
     def test_0052_upgrade_keeps_populated_drawer_events(self):
         prior=sqlite3.connect(':memory:'); prior.execute('PRAGMA foreign_keys=ON')
         try:
-            paths=sorted((ROOT/'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-1]
+            paths=sorted((ROOT/'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-2]
             for path in paths[:-1]: prior.executescript(path.read_text())
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO cash_drawers VALUES('a','A','u',1)")
@@ -246,7 +288,7 @@ class LedgerReconciliation(unittest.TestCase):
     def test_transfer_upgrade_preserves_existing_events(self):
         prior=sqlite3.connect(':memory:'); prior.execute('PRAGMA foreign_keys=ON')
         try:
-            paths=sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-2]
+            paths=sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-3]
             for path in paths[:-1]: prior.executescript(path.read_text())
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO wallet_ops(id,wallet_id,kind,amount_minor,fee_minor,created_by,created_at) VALUES('op','vf','deposit',10,1,'u',2)")
@@ -261,7 +303,7 @@ class LedgerReconciliation(unittest.TestCase):
         prior = sqlite3.connect(':memory:')
         try:
             prior.execute('PRAGMA foreign_keys=ON')
-            migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-3]
+            migrations = sorted((ROOT / 'src-tauri/src/data/migrations').glob('[0-9]*.sql'))[:-4]
             for path in migrations[:-1]: prior.executescript(path.read_text(encoding='utf-8'))
             prior.execute("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','test-only',0,0)")
             prior.execute("INSERT INTO wallet_ops(id,wallet_id,kind,amount_minor,fee_minor,created_by,created_at) VALUES('op','vf','deposit',10,1,'u',2)")

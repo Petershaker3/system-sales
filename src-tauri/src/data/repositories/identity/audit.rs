@@ -154,6 +154,7 @@ pub const CUSTOMER_PAYMENT_RECORDED: &str = "customer_payment_recorded";
 pub const CASH_DRAWER_CONFIGURED: &str = "cash_drawer_configured";
 pub const CASH_DRAWER_TRANSFERRED: &str = "cash_drawer_transferred";
 pub const CASH_DRAWER_PHYSICAL_COUNTED: &str = "cash_drawer_physical_counted";
+pub const REPAIR_CASH_REFUND_REVIEWED: &str = "repair_cash_refund_reviewed";
 pub const SHIFT_OPENED: &str = "shift_opened";
 pub const SHIFT_CASH_COUNTED: &str = "shift_cash_counted";
 pub const SALE_WALLET_REVIEWED: &str = "sale_wallet_reviewed";
