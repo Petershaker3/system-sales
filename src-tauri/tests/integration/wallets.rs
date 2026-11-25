@@ -771,3 +771,31 @@ async fn every_money_flow_names_the_number_that_took_it() {
         "the number the operator picked has to be on the list they picked from"
     );
 }
+
+#[tokio::test]
+async fn concurrent_wallet_adjustments_to_same_observation_do_not_double_post() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("wallet.db")).await.expect("database");
+    let tokens = InMemoryTokenStore::new();
+    let owner = bootstrap::create_first_manager(&pool, "Peter", PASSWORD).await.expect("owner").user_id;
+    auth::login(&pool, &tokens, owner, PASSWORD).await.expect("login");
+    let (a, b) = tokio::join!(
+        wallet_service::reconcile_wallet(&pool, &tokens, "vf", 500, "physical observation", None),
+        wallet_service::reconcile_wallet(&pool, &tokens, "vf", 500, "physical observation", None)
+    );
+    let a = a.expect("first request");
+    let b = b.expect("second request");
+    assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
+    let (n, total): (i64, i64) = sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(amount_minor),0) FROM wallet_ops WHERE wallet_id='vf' AND kind='adjust'")
+        .fetch_one(&pool).await.expect("adjustments");
+    assert_eq!((n, total), (1, 500));
+}
+
+#[tokio::test]
+async fn wallet_transport_does_not_claim_an_estimate_is_reconciled() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    let overview = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50).await.expect("overview");
+    let summary = overview.wallets.into_iter().next().expect("wallet");
+    let dto = mobile_shop_system_lib::commands::wallet::WalletSummaryDto::from(summary);
+    assert!(!dto.balance_reconciled);
+}

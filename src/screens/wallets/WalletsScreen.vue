@@ -308,7 +308,7 @@ async function submitCount(): Promise<void> {
     return;
   }
   if (wcDiffMinor.value === 0) {
-    toast(`رصيد ${w.wallet.name} مظبوط، مفيش فرق`, 'ok');
+    toast(`يساوي تقدير النظام فقط؛ مصادر ${w.wallet.name} لم تُطابَق`, 'ok');
     countOpen.value = false;
     return;
   }
@@ -327,7 +327,7 @@ async function submitCount(): Promise<void> {
       wcNoteText.value.trim() || null
     );
     toast(
-      `اتظبط رصيد ${w.wallet.name} على ${money(realMinor)}`,
+      `سُجّل تعديل يدوي لـ ${w.wallet.name}؛ المطابقة غير مثبتة`,
       'ok'
     );
     countOpen.value = false;
@@ -477,11 +477,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page" data-wallets-screen>
+    <div class="note warn" role="alert" data-wallet-balances-unverified>
+      أرصدة المحافظ المحسوبة تقديرية وغير مُطابَقة؛ بعض مصادر الدفعات القديمة غير مثبتة. المساواة أو التعديل اليدوي لا يثبت صحة المصادر.
+    </div>
     <div class="page-h" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
       <div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap">
         <h2>المحافظ</h2>
         <span class="sub">
-          إجمالي الأرصدة:
+          إجمالي الأرصدة التقديري غير المُطابَق:
           <b class="num" data-wallets-total-balance>{{
             money(totalBalanceMinor)
           }}</b>
@@ -1137,7 +1140,7 @@ onBeforeUnmount(() => {
     <Modal
       v-if="countOpen"
       title="جرد محفظة"
-      sub="طابق الرصيد المسجّل في السيستم بالرصيد الفعلي في تطبيق المحفظة"
+      sub="قارن رصيد التطبيق بتقدير النظام؛ التعديل اليدوي لا يثبت مصادر الحركات"
       @close="countOpen = false"
     >
       <div v-if="wcWallet" data-wallet-count-modal>
@@ -1167,7 +1170,7 @@ onBeforeUnmount(() => {
 
         <div class="g2">
           <div class="field">
-            <span class="lbl">المسجّل في السيستم</span>
+            <span class="lbl">تقدير النظام غير المُطابَق</span>
             <div
               class="in lg num"
               style="
@@ -1211,7 +1214,7 @@ onBeforeUnmount(() => {
           >
             {{
               wcDiffMinor === 0
-                ? 'مظبوط'
+                ? 'يساوي التقدير غير المُطابَق'
                 : wcDiffMinor < 0
                   ? `عجز ${money(Math.abs(wcDiffMinor))}`
                   : `زيادة +${money(wcDiffMinor)}`
@@ -1261,7 +1264,7 @@ onBeforeUnmount(() => {
           @click="submitCount"
         >
           <Icon name="check" />
-          <span>{{ wcDiffMinor === 0 ? 'تمام، مظبوط' : 'ظبّط الرصيد' }}</span>
+          <span>{{ wcDiffMinor === 0 ? 'إغلاق المقارنة' : 'تسجيل تعديل يدوي' }}</span>
         </button>
       </template>
     </Modal>

@@ -427,3 +427,20 @@ backend, not a real Tauri/SQLite UI. A new encrypted backup/restore test covers
 shift counts, handover and wallet provenance and checks restored integrity and
 append-only enforcement; its result requires the non-release CI run on or
 after `977aac61830a2aaa54d1a39bb6b081f61fca0c22`.
+
+Wallet summaries may include historical inferred assignments. The wallet API now
+marks its calculated balance `balanceReconciled: false`; the wallet screen and
+manual adjustment dialog label the calculation and equality as unverified.
+Recording an existing authorized wallet adjustment is not proof of source
+reconciliation. Its read/compute/write transaction now takes SQLite's immediate
+write lock before computing a difference, and rejects signed arithmetic overflow.
+A file-backed concurrent test exercises duplicate requests to adjust to the same
+observed amount. This does not supply general idempotency keys for other cash or
+wallet events and does not resolve ambiguous historical sources.
+
+Report UI, printed page, CSV, and daily WhatsApp summary now carry an explicit
+unverified-calculation warning, and the WhatsApp formatter withholds the drawer
+balance regardless of any caller-provided estimate. The return/cancellation
+guard remains unchanged. These warnings do not make the underlying report
+calculations complete, and no full screen/API review or real database-to-UI test
+has yet been proved.

@@ -460,7 +460,8 @@ pub async fn record_wallet_movement(
     Ok(op)
 }
 
-/// Reconcile a wallet's balance against its real app balance (`adjust`, owner only).
+/// Record an authorized adjustment against the computed estimate (owner only).
+/// This does not prove historical sources or mark the balance reconciled.
 /// Returns `Ok(None)` if `real_balance_minor` already equals the computed balance.
 pub async fn reconcile_wallet(
     pool: &SqlitePool,
@@ -481,7 +482,7 @@ pub async fn reconcile_wallet(
     let now = Timestamp::now();
 
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -494,7 +495,8 @@ pub async fn reconcile_wallet(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
-    let diff_minor = real_balance_minor - expected_minor;
+    let diff_minor = real_balance_minor.checked_sub(expected_minor)
+        .ok_or(DomainError::StorageUnavailable)?;
     if diff_minor == 0 {
         return Ok(None);
     }

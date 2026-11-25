@@ -53,6 +53,8 @@ export interface WalletPeriodStats {
 
 export interface WalletSummary {
   readonly wallet: WalletRecord;
+  /** Legacy-derived estimate, not evidence of a reconciled wallet. */
+  readonly balanceReconciled?: boolean;
   readonly balanceMinor: number;
   readonly state: WalletAlertState;
   readonly today: WalletPeriodStats;
