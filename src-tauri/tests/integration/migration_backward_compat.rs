@@ -387,3 +387,33 @@ async fn editing_an_applied_migration_is_detected_rather_than_tolerated() {
         .expect("count");
     assert_eq!(applied, 7, "a refused open must not append migration 8");
 }
+/// Simulate the immediately preceding schema/SQLx ledger with populated payment
+/// records, then reopen through the real migration runner. The temporary test
+/// database alone is rewound; production databases never run a down migration.
+#[tokio::test]
+async fn populated_v38_upgrades_without_inventing_refund_allocations() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("shop.db");
+    let pool = db::open(&path).await.expect("current schema");
+    sqlx::query("DROP TABLE refund_payment_allocations").execute(&pool).await.expect("remove v39 table in test fixture");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version=39").execute(&pool).await.expect("rewind fixture ledger");
+    sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)")
+        .execute(&pool).await.expect("user");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('legacy-sale','legacy-sale',100,'legacy-user','sale',1000,600)")
+        .execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('legacy-return','legacy-return',200,'legacy-user','reversal','legacy-sale',300,180)")
+        .execute(&pool).await.expect("return");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('original','legacy-sale',1,'cash',1000,100),('refund','legacy-return',1,'cash',300,200)")
+        .execute(&pool).await.expect("payments");
+    pool.close().await;
+    let upgraded = db::open(&path).await.expect("SQLx upgrade to v39");
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(39));
+    let payments: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM sale_payments WHERE id IN ('original','refund')").fetch_one(&upgraded).await.expect("payments preserved");
+    assert_eq!(payments, 1300);
+    let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&upgraded).await.expect("links");
+    assert_eq!(links, 0, "old sources were not guessed");
+    let check: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&upgraded).await.expect("integrity");
+    assert_eq!(check, "ok");
+    let fk: Vec<String> = sqlx::query_scalar("PRAGMA foreign_key_check").fetch_all(&upgraded).await.expect("foreign keys");
+    assert!(fk.is_empty());
+}
