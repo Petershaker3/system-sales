@@ -591,3 +591,26 @@ async fn unlinked_legacy_refund_is_not_attributed_to_an_original_payment() {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&pool).await.expect("links");
     assert_eq!(count, 0, "never manufacture historical links");
 }
+
+/// Two independent writers compete for the same original payment. This is a
+/// database-level concurrency guard; it does not claim to exercise two POS
+/// sessions or the owner-approval flow.
+#[tokio::test]
+async fn concurrent_allocation_writers_cannot_refund_one_payment_twice() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("concurrent.db")).await.expect("database");
+    sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('u','Fixture','manager','fixture',0,0)").execute(&pool).await.expect("user");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('s','s',1,'u','sale',NULL,100,0),('r1','r1',2,'u','reversal','s',100,0),('r2','r2',2,'u','reversal','s',100,0)").execute(&pool).await.expect("documents");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('p','s',1,'cash',100,1),('p1','r1',1,'cash',100,2),('p2','r2',1,'cash',100,2)").execute(&pool).await.expect("payments");
+    async fn allocate(pool: &SqlitePool, refund: &str) -> Result<(), sqlx::Error> {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        sqlx::query("INSERT INTO refund_payment_allocations(reversal_payment_id,original_payment_id,amount_minor) VALUES(?1,'p',100)")
+            .bind(refund).execute(&mut *tx).await?;
+        tx.commit().await
+    }
+    let (a, b) = tokio::join!(allocate(&pool, "p1"), allocate(&pool, "p2"));
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1, "only one writer may consume the original payment");
+    let (count, total): (i64, i64) = sqlx::query_as("SELECT COUNT(*),COALESCE(SUM(amount_minor),0) FROM refund_payment_allocations WHERE original_payment_id='p'")
+        .fetch_one(&pool).await.expect("allocation totals");
+    assert_eq!((count, total), (1, 100));
+}
