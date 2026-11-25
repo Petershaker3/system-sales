@@ -161,3 +161,7 @@ export function cashPostingPreview(): Promise<CashPostingPreview> {
 export function configureDrawer(drawerId: string, name: string, requestId: string): Promise<void> {
   return invoke('configure_drawer', { drawerId, name, requestId });
 }
+
+export function transferDrawerCash(shiftId: string, toDrawerId: string, amountMinor: number, reason: string, requestId: string): Promise<void> {
+  return invoke('transfer_drawer_cash', { shiftId, toDrawerId, amountMinor, reason, requestId });
+}

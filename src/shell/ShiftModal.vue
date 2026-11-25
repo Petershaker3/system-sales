@@ -203,7 +203,7 @@ async function submitOperationalClose(): Promise<void> {
     :size="shiftState.openShift ? 'wide' : 'md'"
     @close="emit('close')"
   >
-    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" />
+    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" :shift-id="shiftState.openShift?.shift.id ?? null" />
     <!-- Open a new shift -->
     <div v-if="!shiftState.openShift" data-open-shift-view>
       <form @submit.prevent="submitOpenShift">

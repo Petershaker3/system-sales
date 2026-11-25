@@ -683,3 +683,18 @@ pub async fn configure_cash_drawer(conn: &mut SqliteConnection, id: &str, actor:
     sqlx::query("INSERT INTO cash_drawer_default(singleton,drawer_id,configured_by,configured_at) VALUES(1,?1,?2,?3) ON CONFLICT(singleton) DO UPDATE SET drawer_id=excluded.drawer_id,configured_by=excluded.configured_by,configured_at=excluded.configured_at").bind(id).bind(actor).bind(now).execute(&mut *conn).await?;
     Ok(())
 }
+
+pub async fn shift_drawer_id(conn: &mut SqliteConnection, shift_id: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT drawer_id FROM shift_drawers WHERE shift_id=?1").bind(shift_id).fetch_optional(&mut *conn).await
+}
+
+pub async fn transfer_request_matches(conn: &mut SqliteConnection, request: &str, shift: &str, to: &str, amount: i64, reason: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT shift_id,to_drawer_id,amount_minor,reason,actor_id FROM cash_drawer_transfers WHERE request_id=?1").bind(request).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("shift_id")==shift && r.get::<String,_>("to_drawer_id")==to && r.get::<i64,_>("amount_minor")==amount && r.get::<String,_>("reason")==reason && r.get::<String,_>("actor_id")==actor))
+}
+
+pub async fn insert_drawer_transfer(conn: &mut SqliteConnection, request: &str, shift: &str, from: &str, to: &str, amount: i64, reason: &str, actor: &str, now: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_transfers(request_id,shift_id,from_drawer_id,to_drawer_id,amount_minor,reason,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(request).bind(shift).bind(from).bind(to).bind(amount).bind(reason).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
+}

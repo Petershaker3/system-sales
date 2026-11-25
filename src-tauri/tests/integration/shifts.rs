@@ -550,3 +550,24 @@ async fn configured_shift_captures_source_linked_cash_without_claiming_reconcili
     let assigned: Option<String> = sqlx::query_scalar("SELECT drawer_id FROM cash_source_postings WHERE shift_id=?1 AND source_kind='sale_payment'").bind(next.shift.id.as_str()).fetch_one(&pool).await.expect("posting");
     assert_eq!(assigned.as_deref(), Some("other"));
 }
+
+#[tokio::test]
+async fn drawer_transfer_is_atomic_authorized_and_idempotent() {
+    let (pool,tokens,manager,_cashier,_)=setup_shop().await;
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"safe","Safe","setup-safe").await.expect("safe");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"till","Till","setup-till").await.expect("till");
+    let opened=shift_service::open_shift(&pool,tokens.as_ref(),0).await.expect("open");
+    let shift=opened.shift.id.as_str();
+    shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("transfer");
+    shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("retry");
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",124,"put away","transfer-1").await.is_err());
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"till",1,"same drawer","transfer-2").await.is_err());
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"missing",1,"unknown drawer","transfer-3").await.is_err());
+    let postings: Vec<(String,String,i64)> = sqlx::query_as("SELECT source_kind,drawer_id,signed_minor FROM cash_source_postings WHERE source_id='transfer-1' ORDER BY source_kind").fetch_all(&pool).await.expect("paired events");
+    assert_eq!(postings,vec![("drawer_transfer_in".into(),"safe".into(),123),("drawer_transfer_out".into(),"till".into(),-123)]);
+    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_drawer_transfers").fetch_one(&pool).await.unwrap(); assert_eq!(count,1);
+    auth::logout(&pool,tokens.as_ref()).await.expect("logout");
+    auth::login(&pool,tokens.as_ref(),_cashier,PASSWORD).await.expect("cashier");
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",10,"unauthorized","transfer-4").await.is_err());
+}

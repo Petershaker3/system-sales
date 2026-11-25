@@ -244,7 +244,7 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
         ledger(&pool).await,
         vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
         ],
         "the pending migrations must be applied, not the whole chain re-run"
     );
@@ -299,7 +299,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 50, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 51, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 
@@ -400,6 +400,7 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     sqlx::query("CREATE TRIGGER sale_payments_wallet_matches_method BEFORE INSERT ON sale_payments WHEN NEW.wallet_id IS NOT NULL AND COALESCE((SELECT w.pay_method FROM wallets w WHERE w.id=NEW.wallet_id),'') <> NEW.method BEGIN SELECT RAISE(ABORT, 'sale_payments.wallet_id must name a wallet that receives this method'); END;")
         .execute(&mut *fixture_conn).await.expect("restore v38 trigger in fixture");
     drop(fixture_conn);
+    sqlx::query("DROP TABLE cash_drawer_transfers").execute(&pool).await.expect("fixture 51");
     sqlx::query("DROP TRIGGER cash_repair_created_post").execute(&pool).await.expect("fixture 50");
     sqlx::query("DROP TRIGGER cash_wallet_operation_post").execute(&pool).await.expect("fixture 49");
     sqlx::query("DROP TRIGGER cash_wallet_void_post").execute(&pool).await.expect("fixture 49");
@@ -425,7 +426,7 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     sqlx::query("DROP TABLE shift_opening_observations").execute(&pool).await.expect("remove v42 table in test fixture");
     sqlx::query("DROP TABLE shift_cash_counts").execute(&pool).await.expect("remove v41 table in test fixture");
     sqlx::query("DROP TABLE refund_payment_allocations").execute(&pool).await.expect("remove v39 table in test fixture");
-    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (39,40,41,42,43,44,45,46,47,48,49,50)").execute(&pool).await.expect("rewind fixture ledger");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (39,40,41,42,43,44,45,46,47,48,49,50,51)").execute(&pool).await.expect("rewind fixture ledger");
     sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)")
         .execute(&pool).await.expect("user");
     sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('legacy-sale','legacy-sale',100,'legacy-user','sale',1000,600)")
@@ -439,8 +440,8 @@ async fn populated_v38_upgrades_without_inventing_refund_allocations() {
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('legacy-wallet-payment','legacy-electronic',1,'vf',100,'vf',100)")
         .execute(&pool).await.expect("legacy wallet assignment");
     pool.close().await;
-    let upgraded = db::open(&path).await.expect("SQLx upgrade to v50");
-    assert_eq!(ledger(&upgraded).await.last().copied(), Some(50));
+    let upgraded = db::open(&path).await.expect("SQLx upgrade to v51");
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(51));
     let payments: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM sale_payments WHERE id IN ('original','refund')").fetch_one(&upgraded).await.expect("payments preserved");
     assert_eq!(payments, 1300);
     let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&upgraded).await.expect("links");
@@ -466,6 +467,7 @@ async fn populated_review_upgrade_preserves_evidence_and_original_payment() {
     sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='p'").execute(&mut *conn).await.expect("fixture");
     sqlx::query("CREATE TRIGGER sale_wallet_provenance_no_delete BEFORE DELETE ON sale_wallet_provenance BEGIN SELECT RAISE(ABORT,'wallet provenance is immutable'); END;").execute(&mut *conn).await.expect("restore trigger");
     sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','vf','confirm','review','document 123','legacy-user',2,'r1')").execute(&mut *conn).await.expect("review");
+    sqlx::query("DROP TABLE cash_drawer_transfers").execute(&mut *conn).await.expect("fixture 51");
     sqlx::query("DROP TRIGGER cash_repair_created_post").execute(&mut *conn).await.expect("fixture 50");
     sqlx::query("DROP TRIGGER cash_wallet_operation_post").execute(&mut *conn).await.expect("fixture 49");
     sqlx::query("DROP TRIGGER cash_wallet_void_post").execute(&mut *conn).await.expect("fixture 49");
@@ -484,13 +486,13 @@ async fn populated_review_upgrade_preserves_evidence_and_original_payment() {
     sqlx::query("DROP TABLE refund_allocation_repairs").execute(&mut *conn).await.expect("fixture");
     sqlx::query("DROP TRIGGER sale_wallet_review_existing_allocations").execute(&mut *conn).await.expect("fixture");
     sqlx::query("DROP VIEW sale_effective_wallet_attribution").execute(&mut *conn).await.expect("fixture");
-    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (45,46,47,48,49,50)").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (45,46,47,48,49,50,51)").execute(&mut *conn).await.expect("fixture");
     drop(conn);
     pool.close().await;
     let upgraded = db::open(&path).await.expect("SQLx upgrade");
     let row: (String, String, String, String) = sqlx::query_as("SELECT p.wallet_id, e.wallet_id, r.reason, r.evidence FROM sale_payments p JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id JOIN sale_wallet_reviews r ON r.payment_id=p.id WHERE p.id='p'").fetch_one(&upgraded).await.expect("review retained");
     assert_eq!(row, ("vf".into(), "vf".into(), "review".into(), "document 123".into()));
-    assert_eq!(ledger(&upgraded).await.last().copied(), Some(50));
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(51));
     let integrity: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&upgraded).await.expect("integrity");
     assert_eq!(integrity, "ok");
 }

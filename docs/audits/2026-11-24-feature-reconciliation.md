@@ -586,3 +586,13 @@ existing cancellation says it returns. Mixed-method cancellations, ambiguous
 API deposits, and historical receipts that predate capture remain outside the
 partial projection; no payout source is guessed. This is not a reconciliation,
 and financial reporting and balance guards remain unchanged.
+
+### Manager-confirmed drawer transfers (0051)
+
+A manager can record an actual transfer from the currently assigned shift
+drawer to a different configured drawer. One immutable event and two equal,
+opposite source-linked postings are written atomically; retries use a stable
+request ID and changed retries fail. The destination may be a drawer not tied
+to the open shift. This explicitly confirms physical movement but does not
+check available cash: the partial posting projection has no trustworthy opening
+balance or full historical coverage. It is not a reconciled drawer balance.

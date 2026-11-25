@@ -229,3 +229,6 @@ pub const WALLET_CASH_EVENTS: &str = include_str!("0049_wallet_cash_events.sql")
 
 /// Repair cash receipts and evidence-preserving cancellation postings (0050).
 pub const REPAIR_CASH_EVENTS: &str = include_str!("0050_repair_cash_events.sql");
+
+/// Atomic source-linked transfers between explicitly configured drawers (0051).
+pub const DRAWER_TRANSFERS: &str = include_str!("0051_drawer_transfers.sql");

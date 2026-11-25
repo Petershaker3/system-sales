@@ -443,3 +443,8 @@ pub async fn cash_posting_preview(ctx: Ctx<'_>) -> Result<use_cases::CashPosting
 pub async fn configure_drawer(ctx: Ctx<'_>, drawer_id: String, name: String, request_id: String) -> Result<(), ShiftCommandError> {
     use_cases::configure_drawer(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, &name, &request_id).await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn transfer_drawer_cash(ctx: Ctx<'_>, shift_id: String, to_drawer_id: String, amount_minor: i64, reason: String, request_id: String) -> Result<(), ShiftCommandError> {
+    use_cases::transfer_drawer_cash(&ctx.pool, ctx.tokens.as_ref(), &shift_id, &to_drawer_id, amount_minor, &reason, &request_id).await.map_err(Into::into)
+}

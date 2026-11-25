@@ -740,3 +740,29 @@ pub async fn configure_drawer(pool: &SqlitePool, tokens: &dyn SecureTokenStore, 
     tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
     Ok(())
 }
+
+
+/// Record a manager-confirmed physical transfer from the open shift's assigned
+/// drawer to another explicit drawer. This does not assert a reconciled balance.
+pub async fn transfer_drawer_cash(pool: &SqlitePool, tokens: &dyn SecureTokenStore, shift_id: &str, to_id: &str, amount_minor: i64, reason: &str, request_id: &str) -> Result<(), ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let shift_id=shift_id.trim(); let to_id=to_id.trim(); let reason=reason.trim(); let request_id=request_id.trim();
+    if shift_id.is_empty() || to_id.is_empty() || amount_minor<=0 || reason.is_empty() || reason.chars().count()>300 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let actor=session.user_id(); let now=Timestamp::now();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    match repo::transfer_request_matches(&mut tx,request_id,shift_id,to_id,amount_minor,reason,&actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(ShiftError::InvalidDrawer.into()), None => {}
+    }
+    let open=repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.ok_or(ShiftError::NotOpen)?;
+    if open.id.as_str()!=shift_id { return Err(ShiftError::ShiftChanged.into()); }
+    let from=repo::shift_drawer_id(&mut tx,shift_id).await.map_err(|_| DomainError::StorageUnavailable)?.ok_or(ShiftError::InvalidDrawer)?;
+    if from==to_id { return Err(ShiftError::InvalidDrawer.into()); }
+    repo::insert_drawer_transfer(&mut tx,request_id,shift_id,&from,to_id,amount_minor,reason,&actor.as_str(),now.as_millis()).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => ShiftServiceError::from(ShiftError::InvalidDrawer),
+        _ => ShiftServiceError::from(DomainError::StorageUnavailable),
+    })?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_TRANSFERRED,now,Some(serde_json::json!({"request_id":request_id,"shift_id":shift_id,"from_drawer_id":from,"to_drawer_id":to_id,"amount_minor":amount_minor}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}
