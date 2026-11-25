@@ -940,7 +940,7 @@ async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provena
     sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('cash-payment','cash-sale',1,'cash',25,5)").execute(&pool).await.expect("cash payment");
     sqlx::query("INSERT INTO wallet_ops(id,wallet_id,kind,amount_minor,fee_minor,created_by,created_at) VALUES('backup-wallet-op','vf','deposit',30,1,?1,5)").bind(&actor).execute(&pool).await.expect("wallet operation");
     sqlx::query("UPDATE wallet_ops SET voided_by=?1,voided_at=6,void_reason='void' WHERE id='backup-wallet-op'").bind(&actor).execute(&pool).await.expect("wallet void");
-    sqlx::query("INSERT INTO cash_drawer_transfers VALUES('backup-transfer','s1','backup-till','backup-safe',5,'safe',?1,6)").bind(&actor).execute(&pool).await.expect("transfer");
+    sqlx::query("INSERT INTO cash_drawer_transfers VALUES('backup-transfer','s2','backup-till','backup-safe',5,'safe',?1,6)").bind(&actor).execute(&pool).await.expect("transfer");
     sqlx::query("INSERT INTO repairs(id,ticket_no,device_name,issue,status,deposit_minor,pay_method,created_by,created_at) VALUES('backup-repair','backup-repair','phone','issue','received',23,'cash',?1,7)").bind(&actor).execute(&pool).await.expect("repair cash deposit");
     // Test-only simulation of a payment that existed before provenance migration.
     let mut conn = pool.acquire().await.expect("fixture connection");
