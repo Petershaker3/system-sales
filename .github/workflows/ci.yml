@@ -15,7 +15,9 @@ name: CI
 
 on:
   push:
-    branches: ['main', 'arena/**']
+    # This session uses the read-only rust-verification workflow instead.
+    # Remove this exception before any eventual promotion to main.
+    branches: ['main', 'arena/**', '!arena/a4478358-system-sales']
   pull_request:
   workflow_dispatch:
 
