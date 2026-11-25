@@ -280,3 +280,12 @@ mocked backend only. The broader demo smoke was attempted and progressed through
 the updated shift checks, then failed at the guarded report screen because it
 expected the old `[data-reports-day-rating]` element. It did not complete; the
 underlying report-guard behavior needs a separately updated full smoke test.
+
+**Verification at `8ed84f8471aba34bbf56ebf7bfa967172077b76d`:** non-release
+GitHub run https://github.com/Petershaker3/system-sales/actions/runs/45523419867
+passed the pinned Rust `cargo test --locked --no-fail-fast` suite and frontend
+build, including the new transport-status test. Local typecheck and 298 frontend
+unit tests passed; six focused demo browser checks passed. The broad mocked demo
+smoke did not complete: it failed on a guarded report screen after its updated
+shift checks passed. No real drawer balance, device, or full cash lifecycle was
+verified. Documentation added after this tested commit does not change code.
