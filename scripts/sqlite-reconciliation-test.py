@@ -427,6 +427,12 @@ class LedgerReconciliation(unittest.TestCase):
         self.assertEqual(self.db.execute(query, (0, 150)).fetchone(), (5002, 50020000, 30012000, 0, 0, 0, 0, 0, 0, 0, 0))
         self.assertEqual(self.db.execute(query, (150, 250)).fetchone(), (1, 3000, 2000, 4, 21000, 6600, 6000, 1, 10000, 6000, 0))
         self.assertEqual(self.db.execute(query, (0, 250)).fetchone(), (5003, 50023000, 30014000, 4, 21000, 6600, 6000, 1, 10000, 6000, 0))
+        # Half-open boundaries: an event at the end is excluded and belongs
+        # exactly once to the adjacent window beginning at that instant.
+        self.assertEqual(self.db.execute(query, (0, 100)).fetchone(), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        self.assertEqual(self.db.execute(query, (100, 200)).fetchone(), (5002, 50020000, 30012000, 0, 0, 0, 0, 0, 0, 0, 0))
+        self.assertEqual(self.db.execute(query, (200, 201)).fetchone(), (1, 3000, 2000, 4, 21000, 6600, 6000, 1, 10000, 6000, 0))
+        self.assertEqual(self.db.execute(query, (201, 250)).fetchone(), (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         plan = self.db.execute('EXPLAIN QUERY PLAN ' + query, (150, 250)).fetchall()
         for index in ('idx_sales_occurred_at', 'idx_sale_returns_occurred_at', 'idx_sale_reversals_occurred_at'):
             self.assertTrue(any(index in row[3] for row in plan), (index, plan))

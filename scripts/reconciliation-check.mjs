@@ -52,6 +52,34 @@ try {
   assert.equal(await page.$eval('[data-reports-export]', el => el.disabled), true);
   assert.match(await page.$eval('[data-reports-incomplete]', el => el.textContent), /المصاريف/);
   console.log('PASS failed expense source hides report and disables exports');
+
+  // Entirely synthetic empty sales/event data isolates retry behaviour. This
+  // demonstrates the Vue state transition, not database completeness.
+  await page.evaluate(() => {
+    const original = window.__reconciliationOriginalInvoke;
+    window.__TAURI_INTERNALS__.invoke = (cmd, args, ...rest) => {
+      if (cmd === 'list_sales_history') return Promise.resolve([]);
+      if (cmd === 'sales_financial_event_totals') return Promise.resolve({
+        saleCount: 0, saleTotalMinor: 0, saleCostMinor: 0,
+        returnCount: 0, refundMinor: 0, intactCostMinor: 0, damagedCostMinor: 0,
+        cancellationCount: 0, cancelledTotalMinor: 0, cancelledCostMinor: 0, inconsistentCancellationCount: 0,
+      });
+      return original(cmd, args, ...rest);
+    };
+  });
+  await page.click('[data-reports-incomplete] button');
+  await page.waitForSelector('[data-day-net]');
+  assert.equal(await page.$('[data-reports-incomplete]'), null);
+  console.log('PASS retry recovers the report after synthetic sources succeed');
+
+  // Restore the failed expense scenario used by the independent preview test.
+  await page.evaluate(() => {
+    const original = window.__reconciliationOriginalInvoke;
+    window.__TAURI_INTERNALS__.invoke = (cmd, ...args) => cmd === 'expenses_overview' ? Promise.reject({ code: 'LOCAL_STORAGE_UNAVAILABLE' }) : original(cmd, ...args);
+  });
+  await clickText('.rail .nav-btn', 'المصاريف');
+  await clickText('.rail .nav-btn', 'التقارير');
+  await page.waitForSelector('[data-reports-incomplete] button');
   // Transport/UI test with deliberately synthetic event components: it is not
   // an end-to-end SQLx or financial reconciliation test.
   await page.evaluate(() => {

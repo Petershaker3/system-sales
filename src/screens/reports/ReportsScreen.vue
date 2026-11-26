@@ -32,7 +32,7 @@ import {
 } from '../../ui/format';
 import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
-import { reportAvailability, reportSource, sourceErrorParts, type SourceState } from './report-availability';
+import { affectedHistoryInWindow, reportAvailability, reportSource, reportWindowHasReversals, sourceErrorParts, type ReportWindow, type SourceState } from './report-availability';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
 import {
@@ -110,17 +110,21 @@ const monthState = ref<SourceState>('loading');
 const reportError = ref('');
 let dayRequest = 0;
 let monthRequest = 0;
+const dayReversalState = ref<SourceState>('loading');
+const monthReversalState = ref<SourceState>('loading');
+const dayReversals = ref(false);
+const monthReversals = ref(false);
 const dayAvailability = computed(() => reportAvailability({
-  base: baseState.value, auxiliary: dayState.value, historyLength: history.value.length,
+  base: baseState.value, auxiliary: dayState.value === 'ready' ? dayReversalState.value : dayState.value, historyLength: history.value.length,
   historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
-  hasReturnsOrCancellations: history.value.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0),
+  hasReturnsOrCancellations: dayReversals.value || dayGuardWindows.value.some(window => affectedHistoryInWindow(history.value, window)),
   repairHardwareProfit: todayRepairs.value?.hardware.netProfitMinor,
   repairSoftwareProfit: todayRepairs.value?.software.netProfitMinor,
 }));
 const monthAvailability = computed(() => reportAvailability({
-  base: baseState.value, auxiliary: monthState.value, historyLength: history.value.length,
+  base: baseState.value, auxiliary: monthState.value === 'ready' ? monthReversalState.value : monthState.value, historyLength: history.value.length,
   historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
-  hasReturnsOrCancellations: history.value.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0),
+  hasReturnsOrCancellations: monthReversals.value || affectedHistoryInWindow(history.value, monthGuardWindow.value),
   repairHardwareProfit: monthRepairs.value?.hardware.netProfitMinor,
   repairSoftwareProfit: monthRepairs.value?.software.netProfitMinor,
 }));
@@ -205,6 +209,45 @@ const monthRep = computed(() =>
     isUsedCategory,
   }),
 );
+
+// These screens display comparisons as well as the selected period. Guard a
+// conservative window that includes those comparisons, not just the selected
+// day/month. A sale in the window can also be changed by a later reversal.
+const dayGuardWindows = computed<readonly ReportWindow[]>(() => [
+  { from: addDays(dayStart(dayDate.value), -6).getTime(), to: addDays(dayStart(dayDate.value), 1).getTime() },
+  { from: dayStart(currentMonthRep.value.P.from).getTime(), to: addDays(monthEnd(nowDate.value), 1).getTime() },
+]);
+const monthGuardWindow = computed<ReportWindow>(() => {
+  const report = monthRep.value;
+  const to = addDays(monthEnd(selectedMonth.value), 1).getTime();
+  // Month trend/rank uses historical sale months. A cancelled-only month may
+  // disappear from byMonth(), so include all loaded earlier sale dates.
+  const earlierSales = history.value.filter(s => s.occurredAt < to).map(s => s.occurredAt);
+  return { from: Math.min(dayStart(report.Y.from).getTime(), dayStart(report.P.from).getTime(), dayStart(report.from).getTime(), ...earlierSales), to };
+});
+
+let dayReversalRequest = 0;
+let monthReversalRequest = 0;
+watch(dayGuardWindows, async (windows) => {
+  const request = ++dayReversalRequest;
+  dayReversalState.value = 'loading';
+  try {
+    const found = await Promise.all(windows.map(window => reportWindowHasReversals(window, salesFinancialEvents)));
+    if (request === dayReversalRequest) { dayReversals.value = found.some(Boolean); dayReversalState.value = 'ready'; }
+  } catch {
+    if (request === dayReversalRequest) dayReversalState.value = 'failed';
+  }
+}, { immediate: true, flush: 'sync' });
+watch(monthGuardWindow, async (window) => {
+  const request = ++monthReversalRequest;
+  monthReversalState.value = 'loading';
+  try {
+    const found = await reportWindowHasReversals(window, salesFinancialEvents);
+    if (request === monthReversalRequest) { monthReversals.value = found; monthReversalState.value = 'ready'; }
+  } catch {
+    if (request === monthReversalRequest) monthReversalState.value = 'failed';
+  }
+}, { immediate: true, flush: 'sync' });
 
 const allMonthsAsc = computed(() => byMonth(history.value));
 const allMonthsDesc = computed(() => [...allMonthsAsc.value].reverse());
@@ -896,7 +939,8 @@ onBeforeUnmount(() => {
       <p v-if="activeAvailability === 'loading'">بيتحمّل التقرير…</p>
       <template v-else>
         <p>التقرير غير مكتمل؛ تعذّر تحميل مصدر، أو بيانات التكلفة غير متاحة، أو سجل المبيعات بلغ حد التحميل. الأرقام مش معروضة كصفر.</p>
-        <p v-if="history.some(s => s.isCancelled || s.alreadyRefundedMinor > 0 || s.returnCount == null || s.returnCount > 0)">سجل المبيعات يحتوي على مرتجعات أو إلغاءات، أو بيانات المرتجعات غير متاحة؛ التقرير الحالي لا يحسب أثرها حسب تاريخ الحركة، لذلك لا يمكن الاعتماد على أرقامه.</p>
+        <p v-if="(activeTab === 'today' ? dayReversals || dayGuardWindows.some(window => affectedHistoryInWindow(history, window)) : monthReversals || affectedHistoryInWindow(history, monthGuardWindow))">الفترة أو مقارناتها تحتوي على مرتجعات أو إلغاءات، أو بيانات المرتجعات غير متاحة؛ التقرير الحالي لا يحسب أثرها حسب تاريخ الحركة.</p>
+        <p v-if="(activeTab === 'today' ? dayReversalState : monthReversalState) === 'failed'">تعذّر التحقق من حركات المرتجعات والإلغاءات؛ التقرير غير متاح.</p>
         <p v-if="reportError">{{ reportError }}</p>
         <button type="button" class="btn" @click="loadAll">حاول تاني</button>
       </template>
