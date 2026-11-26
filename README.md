@@ -2,6 +2,9 @@
 
 Offline-first point-of-sale for a mobile-phone shop: Tauri 2 + Vue 3 + Rust + SQLite.
 
+> **Repository and branch status:** see [`docs/REPOSITORY_STATUS.md`](docs/REPOSITORY_STATUS.md)
+> for the current comparison baseline, candidate branch, verification scope, and readiness limits.
+
 > **Plan of record (2026-10-16): [`docs/PLAN.md`](docs/PLAN.md)** — decisions in
 > [`ADR-016`](docs/decisions/ADR-016-owner-plan-2026-10-16.md). The **Windows desktop is the
 > point of sale and the single source of truth** (one SQLite database, sells with no internet);

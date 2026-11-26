@@ -1,6 +1,6 @@
 # ADR-060: Repair cost recognition and cancellation disposition
 
-Status: implemented locally on the candidate branch; not committed.
+Status: implemented on candidate branch `arena/a4478358-system-sales` and included in PR #2; pending review and merge.
 
 ## Decision
 
