@@ -10,12 +10,12 @@ promotion work.
 | --- | --- | --- | --- |
 | GitHub default branch | `main` | `32f5c33df0732d4910ef0c11ae927c413b6cd3cc` | Repository default. It is not the behavioral baseline for this review. |
 | Stable behavioral reference | `arena/03ca3ea8-system-sales` | `8946909f2cc55c8a2eb12836cdccd002a7ea624c` | The user-designated stable version used as the comparison base for PR #2. |
-| Candidate under review | `arena/a4478358-system-sales` | `4523fc0a43b73d8d099aae2e3c8696d4670597c4` | Candidate changes, including repair-cost accounting, awaiting review. |
+| Candidate under review | `arena/a4478358-system-sales` | `f0e9e680ece8ebfc088c9389253b0d154be24458` | Candidate changes, including repair-cost accounting, awaiting review. |
 
 PR #2 compares the candidate directly to the stable behavioral reference. At
-this snapshot, the candidate is 66 commits ahead and has no commits unique to
-the reference side. The comparison contains 96 changed files, with 6,947
-insertions and 526 deletions. This makes the intended comparison explicit; it
+this snapshot, the candidate is 67 commits ahead and has no commits unique to
+the reference side. The comparison contains 98 changed files, with 6,998
+insertions and 527 deletions. This makes the intended comparison explicit; it
 does not establish that the candidate is a complete replacement for every
 other branch or that the reference branch is the version installed in the
 shop.
