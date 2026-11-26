@@ -319,10 +319,13 @@ pub async fn compute_shift_totals(
             COALESCE(SUM(CASE WHEN sp.method = 'credit' THEN (CASE WHEN s.kind = 'sale' THEN sp.amount_minor ELSE -sp.amount_minor END) ELSE 0 END), 0) AS credit_minor
          FROM sale_payments sp
          INNER JOIN sales s ON s.id = sp.sale_id
-         WHERE s.occurred_at >= ?1 AND s.occurred_at <= ?2",
+         LEFT JOIN cash_source_postings p ON p.source_kind='sale_payment' AND p.source_id=sp.id
+         WHERE (sp.method='cash' AND p.source_id IS NOT NULL AND p.shift_id=?3)
+            OR ((sp.method<>'cash' OR p.source_id IS NULL) AND s.occurred_at >= ?1 AND s.occurred_at <= ?2)",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 
@@ -352,15 +355,16 @@ pub async fn compute_shift_totals(
     let sales_count = net_count.max(0) as u64;
 
     let customer_cash_in_minor: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(-amount_minor), 0)
-         FROM customer_ledger
-         WHERE kind = 'payment'
-           AND method = 'cash'
-           AND occurred_at >= ?1
-           AND occurred_at <= ?2",
+        "SELECT COALESCE(SUM(-c.amount_minor), 0)
+         FROM customer_ledger c
+         LEFT JOIN cash_source_postings p ON p.source_kind='customer_payment' AND p.source_id=c.id
+         WHERE c.kind='payment' AND c.method='cash'
+           AND ((p.source_id IS NOT NULL AND p.shift_id=?3)
+             OR (p.source_id IS NULL AND c.occurred_at >= ?1 AND c.occurred_at <= ?2))",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 
@@ -387,37 +391,35 @@ pub async fn compute_shift_totals(
     let cash_in_minor: i64 = mov_row.try_get("cash_in_minor")?;
     let owner_draw_minor: i64 = mov_row.try_get("owner_draw_minor")?;
 
+    // A void is a new event, not a deletion of the original operation from
+    // its earlier shift. Prefer the captured event's immutable shift identity;
+    // older operations without a posting use the historical timestamp estimate.
     let svc_row = sqlx::query(
-        "SELECT
-            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN 1 ELSE 0 END), 0) AS services_count,
-            COALESCE(SUM(CASE WHEN kind IN ('deposit', 'withdraw', 'bill', 'card', 'software') THEN fee_minor ELSE 0 END), 0) AS services_fee_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind IN ('deposit', 'bill', 'card') THEN amount_minor + fee_minor
-                    WHEN kind = 'software' THEN fee_minor
-                    ELSE 0
-                END
-            ), 0) AS services_cash_in_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind = 'withdraw' THEN amount_minor - fee_minor
-                    ELSE 0
-                END
-            ), 0) AS services_cash_out_minor,
-            COALESCE(SUM(
-                CASE
-                    WHEN kind = 'topup' AND via = 'drawer' THEN -amount_minor
-                    WHEN kind = 'unload' AND via = 'drawer' THEN amount_minor
-                    ELSE 0
-                END
-            ), 0) AS wallet_drawer_net_minor
-         FROM wallet_ops
-         WHERE voided_at IS NULL
-           AND created_at >= ?1
-           AND created_at <= ?2",
+        "WITH wallet_events AS (
+             SELECT w.kind,w.via,w.amount_minor,w.fee_minor,1 AS direction
+               FROM wallet_ops w
+               LEFT JOIN cash_source_postings p ON p.source_kind='wallet_op' AND p.source_id=w.id
+              WHERE (p.source_id IS NOT NULL AND p.shift_id=?3)
+                 OR (p.source_id IS NULL AND w.created_at >= ?1 AND w.created_at <= ?2)
+             UNION ALL
+             SELECT w.kind,w.via,w.amount_minor,w.fee_minor,-1 AS direction
+               FROM wallet_ops w
+               LEFT JOIN cash_source_postings p ON p.source_kind='wallet_void' AND p.source_id=w.id
+              WHERE w.voided_at IS NOT NULL AND (
+                    (p.source_id IS NOT NULL AND p.shift_id=?3)
+                 OR (p.source_id IS NULL AND w.voided_at >= ?1 AND w.voided_at <= ?2))
+         )
+         SELECT
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','withdraw','bill','card','software') THEN direction ELSE 0 END),0) AS services_count,
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','withdraw','bill','card','software') THEN direction * fee_minor ELSE 0 END),0) AS services_fee_minor,
+            COALESCE(SUM(CASE WHEN kind IN ('deposit','bill','card') THEN direction * (amount_minor + fee_minor) WHEN kind='software' THEN direction * fee_minor ELSE 0 END),0) AS services_cash_in_minor,
+            COALESCE(SUM(CASE WHEN kind='withdraw' THEN direction * (amount_minor - fee_minor) ELSE 0 END),0) AS services_cash_out_minor,
+            COALESCE(SUM(CASE WHEN kind='topup' AND via='drawer' THEN -direction * amount_minor WHEN kind='unload' AND via='drawer' THEN direction * amount_minor ELSE 0 END),0) AS wallet_drawer_net_minor
+         FROM wallet_events",
     )
     .bind(from_ms)
     .bind(to_ms)
+    .bind(shift.id.as_str())
     .fetch_one(&mut *conn)
     .await?;
 
@@ -429,8 +431,8 @@ pub async fn compute_shift_totals(
 
     let rep_row = sqlx::query(
         "SELECT
-            COALESCE(SUM(CASE WHEN status != 'cancelled' AND created_at >= ?1 AND created_at <= ?2 AND deposit_minor > 0 THEN deposit_minor ELSE 0 END), 0) AS deposit_cash_minor,
-            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'cash' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_cash_minor,
+            COALESCE(SUM(CASE WHEN status != 'cancelled' AND created_at >= ?1 AND created_at <= ?2 AND deposit_minor > 0 AND NOT EXISTS (SELECT 1 FROM cash_source_postings p WHERE p.source_kind='repair_deposit' AND p.source_id=repairs.id) THEN deposit_minor ELSE 0 END), 0) AS deposit_cash_minor,
+            COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'cash' AND NOT EXISTS (SELECT 1 FROM cash_source_postings p WHERE p.source_kind='repair_delivery' AND p.source_id=repairs.id) THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_cash_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'vf' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_vf_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'instapay' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_instapay_minor,
             COALESCE(SUM(CASE WHEN status = 'delivered' AND delivered_at >= ?1 AND delivered_at <= ?2 AND pay_method = 'card' THEN MAX(0, final_price_minor - deposit_minor) ELSE 0 END), 0) AS deliv_card_minor,
@@ -451,7 +453,18 @@ pub async fn compute_shift_totals(
     let rep_deliv_count: i64 = rep_row.try_get("deliv_count")?;
     let rep_deliv_profit: i64 = rep_row.try_get("deliv_profit_minor")?;
 
-    Ok(ShiftTotals::compute_with_services(
+    // Captured repair receipts and proven cash refunds are immutable events.
+    // Their shift identity remains valid even after the ticket is cancelled.
+    // Old tickets without these postings still use the incomplete legacy estimate.
+    let repair_cash_events: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(signed_minor),0) FROM cash_source_postings WHERE shift_id=?1 AND source_kind IN ('repair_deposit','repair_delivery','repair_cash_refund')")
+        .bind(shift.id.as_str()).fetch_one(&mut *conn).await?;
+
+    // Transfers are physical outflows from the assigned drawer, not owner
+    // withdrawals and not income to the shop. The paired destination posting
+    // belongs to a different drawer and must not cancel the source outflow.
+    let transfer_net: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(p.signed_minor),0) FROM cash_source_postings p JOIN shift_drawers d ON d.shift_id=p.shift_id AND d.drawer_id=p.drawer_id WHERE p.shift_id=?1 AND p.source_kind IN ('drawer_transfer_in','drawer_transfer_out')")
+        .bind(shift.id.as_str()).fetch_one(&mut *conn).await?;
+    let mut totals = ShiftTotals::compute_with_services(
         shift.opening_cash.as_minor(),
         cash_sales_minor,
         vf_sales_minor + rep_deliv_vf,
@@ -465,13 +478,16 @@ pub async fn compute_shift_totals(
         customer_cash_in_minor,
         (services_count_raw + rep_deliv_count).max(0) as u64,
         services_fee_minor + rep_deliv_profit,
-        services_cash_in_minor + rep_deposit_cash + rep_deliv_cash,
+        services_cash_in_minor + rep_deposit_cash + rep_deliv_cash + repair_cash_events,
         services_cash_out_minor,
         wallet_drawer_net_minor,
         cash_in_minor,
         owner_draw_minor,
         expenses_minor,
-    ))
+    );
+    totals.drawer_transfer_net_minor = transfer_net;
+    totals.expected_cash_minor = totals.expected_cash_minor.checked_add(transfer_net).ok_or(sqlx::Error::Protocol("shift transfer total overflow".into()))?;
+    Ok(totals)
 }
 
 /// List recent closed shifts (most recent first, up to `limit`).
@@ -591,4 +607,188 @@ fn row_to_cash_movement(row: sqlx::sqlite::SqliteRow) -> Result<CashMovementReco
         created_by: parse_user_id(&created_by_raw)?,
         created_at: Timestamp::from_millis(created_at_raw),
     })
+}
+
+/// A physical count is an observation, not a reconciled balance.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShiftCashCount {
+    pub id: String,
+    pub shift_id: String,
+    pub amount_minor: i64,
+    pub counted_by: String,
+    pub counted_at: i64,
+}
+
+pub async fn insert_cash_count(conn: &mut SqliteConnection, count: &ShiftCashCount) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO shift_cash_counts(id,shift_id,amount_minor,counted_by,counted_at) VALUES(?1,?2,?3,?4,?5)")
+        .bind(&count.id).bind(&count.shift_id).bind(count.amount_minor).bind(&count.counted_by).bind(count.counted_at)
+        .execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn latest_cash_count(conn: &mut SqliteConnection, shift_id: &str) -> Result<Option<ShiftCashCount>, sqlx::Error> {
+    let row = sqlx::query("SELECT id,shift_id,amount_minor,counted_by,counted_at FROM shift_cash_counts WHERE shift_id=?1 ORDER BY counted_at DESC,id DESC LIMIT 1")
+        .bind(shift_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| ShiftCashCount { id: r.get("id"), shift_id: r.get("shift_id"), amount_minor: r.get("amount_minor"), counted_by: r.get("counted_by"), counted_at: r.get("counted_at") }))
+}
+
+/// Record the observed opening and (when known) the previous physical count.
+/// A difference here is an unresolved handover observation, not an adjustment.
+pub async fn insert_opening_observation(
+    conn: &mut SqliteConnection, shift: &ShiftRecord, previous: Option<&ShiftRecord>,
+) -> Result<(), sqlx::Error> {
+    // Older closes predate physical-count observations and may have accepted a
+    // prefilled estimate. Retain the prior shift link but do not elevate that
+    // historical value into a proven physical count.
+    let previous_count: Option<i64> = if let Some(prior) = previous {
+        sqlx::query_scalar("SELECT c.amount_minor FROM shift_cash_counts c JOIN shifts s ON s.id=c.shift_id WHERE s.id=?1 AND c.counted_at=s.closed_at AND c.counted_by=s.closed_by AND c.amount_minor=s.counted_cash_minor ORDER BY c.id DESC LIMIT 1")
+            .bind(prior.id.as_str()).fetch_optional(&mut *conn).await?
+    } else { None };
+    let difference = previous_count.map(|v| shift.opening_cash.as_minor() - v);
+    sqlx::query("INSERT INTO shift_opening_observations(shift_id,previous_shift_id,opening_minor,previous_count_minor,handover_difference_minor,observed_by,observed_at) VALUES(?1,?2,?3,?4,?5,?6,?7)")
+        .bind(shift.id.as_str()).bind(previous.map(|s| s.id.as_str())).bind(shift.opening_cash.as_minor())
+        .bind(previous_count).bind(difference).bind(shift.opened_by.as_str()).bind(shift.opened_at.as_millis())
+        .execute(&mut *conn).await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct CashDrawerIdentity {
+    pub id: String,
+    pub name: String,
+    pub created_by: String,
+    pub created_at: i64,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct CashSourcePosting {
+    pub source_kind: String,
+    pub source_id: String,
+    pub shift_id: Option<String>,
+    pub drawer_id: Option<String>,
+    pub signed_minor: i64,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn list_cash_drawers(conn: &mut SqliteConnection) -> Result<Vec<CashDrawerIdentity>, sqlx::Error> {
+    sqlx::query_as("SELECT d.id,d.name,d.created_by,d.created_at,EXISTS(SELECT 1 FROM cash_drawer_default x WHERE x.drawer_id=d.id) is_default FROM cash_drawers d ORDER BY d.created_at,d.id").fetch_all(&mut *conn).await
+}
+
+pub async fn recent_cash_source_postings(conn: &mut SqliteConnection) -> Result<Vec<CashSourcePosting>, sqlx::Error> {
+    sqlx::query_as("SELECT source_kind,source_id,shift_id,drawer_id,signed_minor,actor_id,occurred_at FROM cash_source_postings ORDER BY occurred_at DESC,source_kind,source_id LIMIT 100").fetch_all(&mut *conn).await
+}
+
+pub async fn create_cash_drawer(conn: &mut SqliteConnection, id: &str, name: &str, actor: &str, now: i64) -> Result<bool, sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO cash_drawers(id,name,created_by,created_at) VALUES(?1,?2,?3,?4)").bind(id).bind(name).bind(actor).bind(now).execute(&mut *conn).await?;
+    let result: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cash_drawers WHERE id=?1 AND name=?2 AND created_by=?3)").bind(id).bind(name).bind(actor).fetch_one(&mut *conn).await?;
+    Ok(result)
+}
+
+pub async fn drawer_config_request_matches(conn: &mut SqliteConnection, request_id: &str, id: &str, name: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT e.drawer_id,e.actor_id,d.name FROM cash_drawer_configuration_events e JOIN cash_drawers d ON d.id=e.drawer_id WHERE e.request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("drawer_id")==id && r.get::<String,_>("name")==name && r.get::<String,_>("actor_id")==actor))
+}
+
+pub async fn configure_cash_drawer(conn: &mut SqliteConnection, id: &str, actor: &str, now: i64, request_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_configuration_events(request_id,drawer_id,actor_id,occurred_at) VALUES(?1,?2,?3,?4)").bind(request_id).bind(id).bind(actor).bind(now).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO cash_drawer_default(singleton,drawer_id,configured_by,configured_at) VALUES(1,?1,?2,?3) ON CONFLICT(singleton) DO UPDATE SET drawer_id=excluded.drawer_id,configured_by=excluded.configured_by,configured_at=excluded.configured_at").bind(id).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn shift_drawer_id(conn: &mut SqliteConnection, shift_id: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar("SELECT drawer_id FROM shift_drawers WHERE shift_id=?1").bind(shift_id).fetch_optional(&mut *conn).await
+}
+
+pub async fn transfer_request_matches(conn: &mut SqliteConnection, request: &str, shift: &str, to: &str, amount: i64, reason: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT shift_id,to_drawer_id,amount_minor,reason,actor_id FROM cash_drawer_transfers WHERE request_id=?1").bind(request).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("shift_id")==shift && r.get::<String,_>("to_drawer_id")==to && r.get::<i64,_>("amount_minor")==amount && r.get::<String,_>("reason")==reason && r.get::<String,_>("actor_id")==actor))
+}
+
+pub async fn insert_drawer_transfer(conn: &mut SqliteConnection, request: &str, shift: &str, from: &str, to: &str, amount: i64, reason: &str, actor: &str, now: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_transfers(request_id,shift_id,from_drawer_id,to_drawer_id,amount_minor,reason,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(request).bind(shift).bind(from).bind(to).bind(amount).bind(reason).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
+}
+
+/// A physical observation only; no completeness or reconciliation is implied.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawerPhysicalCount {
+    pub request_id: String,
+    pub drawer_id: String,
+    pub shift_id: Option<String>,
+    pub amount_minor: i64,
+    pub counted_by: String,
+    pub counted_at: i64,
+}
+
+pub async fn drawer_physical_count_by_request(conn: &mut SqliteConnection, request: &str) -> Result<Option<DrawerPhysicalCount>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at FROM cash_drawer_physical_counts WHERE request_id=?1")
+        .bind(request).fetch_optional(&mut *conn).await
+}
+
+pub async fn insert_drawer_physical_count(conn: &mut SqliteConnection, count: &DrawerPhysicalCount) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO cash_drawer_physical_counts(request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at) VALUES(?1,?2,?3,?4,?5,?6)")
+        .bind(&count.request_id).bind(&count.drawer_id).bind(&count.shift_id).bind(count.amount_minor).bind(&count.counted_by).bind(count.counted_at).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn recent_drawer_physical_counts(conn: &mut SqliteConnection) -> Result<Vec<DrawerPhysicalCount>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,drawer_id,shift_id,amount_minor,counted_by,counted_at FROM cash_drawer_physical_counts ORDER BY rowid DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
+}
+
+/// An unresolved repair cancellation payout is not a drawer movement.
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct UncertainRepairRefund {
+    pub repair_id: String,
+    pub ticket_no: String,
+    pub shift_id: Option<String>,
+    pub amount_minor: i64,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn recent_uncertain_repair_refunds(conn: &mut SqliteConnection) -> Result<Vec<UncertainRepairRefund>, sqlx::Error> {
+    sqlx::query_as("SELECT u.repair_id,r.ticket_no,u.shift_id,u.amount_minor,u.actor_id,u.occurred_at FROM uncertain_repair_refunds u JOIN repairs r ON r.id=u.repair_id WHERE NOT EXISTS(SELECT 1 FROM repair_cash_refund_reviews v WHERE v.repair_id=u.repair_id) ORDER BY u.occurred_at DESC,u.repair_id DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
+}
+
+pub async fn uncertain_repair_refund_count(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM uncertain_repair_refunds u WHERE NOT EXISTS(SELECT 1 FROM repair_cash_refund_reviews v WHERE v.repair_id=u.repair_id)").fetch_one(&mut *conn).await
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairCashRefundReview {
+    pub request_id: String,
+    pub repair_id: String,
+    pub shift_id: String,
+    pub drawer_id: String,
+    pub payout_at: i64,
+    pub evidence: String,
+    pub actor_id: String,
+    pub reviewed_at: i64,
+}
+
+pub async fn repair_cash_refund_review_by_request(conn: &mut SqliteConnection, request: &str) -> Result<Option<RepairCashRefundReview>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at FROM repair_cash_refund_reviews WHERE request_id=?1")
+        .bind(request).fetch_optional(&mut *conn).await
+}
+
+pub async fn insert_repair_cash_refund_review(conn: &mut SqliteConnection, review: &RepairCashRefundReview) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO repair_cash_refund_reviews(request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(&review.request_id).bind(&review.repair_id).bind(&review.shift_id).bind(&review.drawer_id).bind(review.payout_at).bind(&review.evidence).bind(&review.actor_id).bind(review.reviewed_at).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn recent_repair_cash_refund_reviews(conn: &mut SqliteConnection) -> Result<Vec<RepairCashRefundReview>, sqlx::Error> {
+    sqlx::query_as("SELECT request_id,repair_id,shift_id,drawer_id,payout_at,evidence,actor_id,reviewed_at FROM repair_cash_refund_reviews ORDER BY reviewed_at DESC,request_id DESC LIMIT 100")
+        .fetch_all(&mut *conn).await
 }

@@ -190,3 +190,57 @@ pub const REPAIR_PARTS: &str = include_str!("0036_repair_parts.sql");
 /// `discount_minor`, which keeps meaning «what came off the lines» (owner,
 /// 2026-11-09). Purely additive; every existing sale starts at 0.
 pub const SALE_SURCHARGE: &str = include_str!("0037_sale_surcharge.sql");
+
+/// Period lookup for append-only full-cancellation events (0038).
+pub const SALE_REVERSAL_PERIOD_INDEX: &str = include_str!("0038_sale_reversal_period_index.sql");
+
+/// Explicit original-payment links for new refund rows (0039).
+pub const REFUND_PAYMENT_ALLOCATIONS: &str = include_str!("0039_refund_payment_allocations.sql");
+
+/// Preserve the recorded wallet of a reversal after its configuration changes (0040).
+pub const PRESERVE_REFUND_WALLET: &str = include_str!("0040_preserve_refund_wallet.sql");
+
+/// Physical shift counts, not reconciled drawer balances (0041).
+pub const SHIFT_CASH_COUNTS: &str = include_str!("0041_shift_cash_counts.sql");
+
+/// Unreconciled opening and prior count observations (0042).
+pub const SHIFT_HANDOVER: &str = include_str!("0042_shift_handover.sql");
+
+/// Explicit provenance for new sale wallet allocations (0043).
+pub const SALE_WALLET_PROVENANCE: &str = include_str!("0043_wallet_payment_provenance.sql");
+
+/// Append-only review of a historical recorded wallet (0044).
+pub const SALE_WALLET_EVIDENCE_REVIEW: &str = include_str!("0044_wallet_evidence_review.sql");
+
+/// Evidence-based effective wallet attribution without rewriting old payments (0045).
+pub const EFFECTIVE_WALLET_ATTRIBUTION: &str = include_str!("0045_effective_wallet_attribution.sql");
+
+/// Prevent evidence reviews from contradicting existing refund allocations (0046).
+pub const REVIEW_EXISTING_ALLOCATIONS: &str = include_str!("0046_review_existing_allocations.sql");
+
+/// Evidence-backed, append-only links for historical refund allocations (0047).
+pub const REFUND_ALLOCATION_REPAIRS: &str = include_str!("0047_refund_allocation_repairs.sql");
+
+/// Explicit drawer identity and append-only source-linked cash posting foundation (0048).
+pub const CASH_POSTING_FOUNDATION: &str = include_str!("0048_cash_posting_foundation.sql");
+
+/// Wallet/service cash flows and compensating void events (0049).
+pub const WALLET_CASH_EVENTS: &str = include_str!("0049_wallet_cash_events.sql");
+
+/// Repair cash receipts and evidence-preserving cancellation postings (0050).
+pub const REPAIR_CASH_EVENTS: &str = include_str!("0050_repair_cash_events.sql");
+
+/// Atomic source-linked transfers between explicitly configured drawers (0051).
+pub const DRAWER_TRANSFERS: &str = include_str!("0051_drawer_transfers.sql");
+
+/// Explicit, append-only physical counts for individual drawers (0052).
+pub const DRAWER_PHYSICAL_COUNTS: &str = include_str!("0052_drawer_physical_counts.sql");
+
+/// Preserve unresolved repair refund sources without guessing a payout (0053).
+pub const UNCERTAIN_REPAIR_REFUNDS: &str = include_str!("0053_uncertain_repair_refunds.sql");
+
+/// Evidence-backed review of a previously uncertain wholly cash repair payout (0054).
+pub const REPAIR_CASH_REFUND_REVIEWS: &str = include_str!("0054_repair_cash_refund_reviews.sql");
+
+/// Repair cost basis, cancellation disposition and append-only cost history (0055).
+pub const REPAIR_COST_ACCOUNTING: &str = include_str!("0055_repair_cost_accounting.sql");

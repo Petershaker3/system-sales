@@ -252,6 +252,19 @@ pub async fn create_repair(
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
 
+    repair_repo::append_cost_history(
+        &mut tx,
+        id.as_str(),
+        &actor.as_str(),
+        now.as_millis(),
+        if input.deliver_now { "delivered_final" } else { "estimate" },
+        None,
+        Some(parts_cost_minor),
+        "ticket_created",
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
     if let Some(wallet_id) = pay_wallet_id.as_deref() {
         repair_repo::set_pay_wallet(&mut tx, id.as_str(), Some(wallet_id))
             .await
@@ -344,6 +357,21 @@ pub async fn update_repair_status(
     )
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
+
+    if existing.parts_cost_minor != updated.parts_cost_minor {
+        repair_repo::append_cost_history(
+            &mut tx,
+            rid.as_str(),
+            &actor.as_str(),
+            now.as_millis(),
+            "estimate",
+            Some(existing.parts_cost_minor),
+            Some(updated.parts_cost_minor),
+            "estimate_updated",
+        )
+        .await
+        .map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),
@@ -438,6 +466,23 @@ pub async fn deliver_repair(
     .await
     .map_err(|_| DomainError::StorageUnavailable)?;
 
+    repair_repo::append_cost_history(
+        &mut tx,
+        rid.as_str(),
+        &actor.as_str(),
+        now.as_millis(),
+        "delivered_final",
+        Some(existing.parts_cost_minor),
+        Some(effective_parts_cost),
+        "delivery_final_cost",
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // Recorded in the same transaction as delivery; no historic source is inferred.
+    repair_repo::capture_cash_delivery(&mut tx, rid.as_str(), &actor.as_str())
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+
     if let Some(wallet_id) = pay_wallet_id.as_deref() {
         repair_repo::set_pay_wallet(&mut tx, rid.as_str(), Some(wallet_id))
             .await
@@ -466,15 +511,42 @@ pub async fn deliver_repair(
 
 /// Undo a repair or software ticket and give back the money it collected (`ADR-046`).
 ///
-/// Works on every stage, delivered included: the ticket leaves `delivered` or
-/// keeps its deposit, which is what removes its money from the drawer, the
-/// wallet balance and the day's revenue. Needs the owner's approval; a second
-/// undo is refused with `REPAIR_ALREADY_CANCELLED` so nobody refunds twice.
+/// Works on every stage, delivered included. Status changes alone do not prove
+/// a physical refund. This compatibility entry point leaves the payout source
+/// unresolved; a second undo is refused so nobody refunds twice.
 pub async fn cancel_repair(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
     id: &str,
     note: Option<&str>,
+) -> Result<RepairTicket, RepairServiceError> {
+    cancel_repair_with_cash_confirmation(pool, tokens, id, note, false).await
+}
+
+/// An affirmative operator statement that the entire refund was physically paid
+/// in cash is required in addition to evidence of wholly cash receipts. Without
+/// both, retain an unresolved payout instead of inventing a cash outflow.
+pub async fn cancel_repair_with_cash_confirmation(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    id: &str,
+    note: Option<&str>,
+    cash_payout_confirmed: bool,
+) -> Result<RepairTicket, RepairServiceError> {
+    cancel_repair_with_cash_confirmation_and_cost(
+        pool, tokens, id, note, cash_payout_confirmed, "unknown", None,
+    )
+    .await
+}
+
+pub async fn cancel_repair_with_cash_confirmation_and_cost(
+    pool: &SqlitePool,
+    tokens: &dyn SecureTokenStore,
+    id: &str,
+    note: Option<&str>,
+    cash_payout_confirmed: bool,
+    parts_status: &str,
+    cancellation_parts_cost_minor: Option<i64>,
 ) -> Result<RepairTicket, RepairServiceError> {
     let session = identity_session::resolve(pool, tokens).await?;
     session.authorize(Permission::Sell)?;
@@ -482,6 +554,16 @@ pub async fn cancel_repair(
     let rid = RepairId::new(id).ok_or(RepairError::NotFound)?;
     let clean_note = match note {
         Some(raw) => Some(validate_default_text(Some(raw), "", MAX_REPAIR_NOTE_CHARS)?),
+        None => None,
+    };
+    if !matches!(parts_status, "no_parts" | "used" | "unknown")
+        || (parts_status == "used" && cancellation_parts_cost_minor.is_none())
+        || (parts_status != "used" && cancellation_parts_cost_minor.is_some())
+    {
+        return Err(RepairError::AmountInvalid.into());
+    }
+    let cancellation_parts_cost_minor = match cancellation_parts_cost_minor {
+        Some(value) => Some(validate_money_minor(value)?),
         None => None,
     };
 
@@ -524,9 +606,48 @@ pub async fn cancel_repair(
         existing.deposit_minor.max(0)
     };
 
-    let cancelled = repair_repo::mark_cancelled(&mut tx, rid.as_str(), clean_note.as_deref())
+    let cancelled = repair_repo::mark_cancelled(
+        &mut tx,
+        rid.as_str(),
+        clean_note.as_deref(),
+        now.as_millis(),
+        parts_status,
+        cancellation_parts_cost_minor,
+    )
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+
+    repair_repo::append_cost_history(
+        &mut tx,
+        rid.as_str(),
+        &actor.as_str(),
+        now.as_millis(),
+        "cancelled_actual",
+        Some(existing.parts_cost_minor),
+        match parts_status {
+            "no_parts" => Some(0),
+            "used" => cancellation_parts_cost_minor,
+            _ => None,
+        },
+        match parts_status {
+            "no_parts" => "cancelled_no_parts_used",
+            "used" => "cancelled_parts_not_returned",
+            _ => "cancelled_parts_disposition_unknown",
+        },
+    )
+    .await
+    .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // Only known, wholly cash collections may be reflected as a cash refund.
+    // Mixed or legacy sources remain explicit gaps in the partial projection.
+    let captured_cash = if cash_payout_confirmed {
+        repair_repo::capture_proven_cash_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+            .await.map_err(|_| DomainError::StorageUnavailable)?
+    } else { false };
+    if refunded_minor > 0 && !captured_cash {
+        repair_repo::record_uncertain_repair_refund(&mut tx, rid.as_str(), refunded_minor, &actor.as_str(), now.as_millis())
+            .await.map_err(|_| DomainError::StorageUnavailable)?;
+    }
 
     let detail = serde_json::json!({
         "repair_id": rid.as_str(),
@@ -534,6 +655,11 @@ pub async fn cancel_repair(
         "service_kind": cancelled.service_kind,
         "was_status": existing.status.as_str(),
         "refunded_minor": refunded_minor,
+        "cash_payout_confirmed": cash_payout_confirmed,
+        "cash_payout_attributed": captured_cash,
+        "payout_source_unresolved": refunded_minor > 0 && !captured_cash,
+        "parts_disposition": parts_status,
+        "cancelled_parts_cost_minor": cancellation_parts_cost_minor,
         "pay_method": existing.pay_method.as_str(),
         "approved_by": approved_by.as_str(),
         "reverses": if was_delivered {

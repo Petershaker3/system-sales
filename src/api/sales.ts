@@ -471,6 +471,8 @@ export interface SaleHistoryEntry {
   readonly costTotalMinor?: number;
   readonly profitMinor?: number;
   readonly alreadyRefundedMinor: number;
+  /** Absent on older backends; zero-value returns still increment this count. */
+  readonly returnCount?: number;
   readonly isCancelled: boolean;
   readonly lines: readonly SaleHistoryLine[];
   readonly payments: readonly SaleHistoryPayment[];
@@ -482,4 +484,106 @@ export async function listSalesHistory(
   return invoke<readonly SaleHistoryEntry[]>('list_sales_history', {
     limit: limit ?? 500,
   });
+}
+/** Raw period events; costs and refunds are not a reconciled profit figure. */
+export interface SalesFinancialEvents {
+  readonly saleCount: number;
+  readonly saleTotalMinor: number;
+  readonly saleCostMinor: number;
+  readonly returnCount: number;
+  readonly refundMinor: number;
+  readonly intactCostMinor: number;
+  readonly damagedCostMinor: number;
+  readonly cancellationCount: number;
+  readonly cancelledTotalMinor: number;
+  readonly cancelledCostMinor: number;
+  readonly inconsistentCancellationCount: number;
+}
+
+export async function salesFinancialEvents(fromMs: number, toMsExclusive: number): Promise<SalesFinancialEvents> {
+  if (!Number.isSafeInteger(fromMs) || !Number.isSafeInteger(toMsExclusive) || fromMs >= toMsExclusive) {
+    throw new Error('SALES_REPORT_PERIOD_INVALID');
+  }
+  const result = await invoke<SalesFinancialEvents>('sales_financial_event_totals', { fromMs, toMsExclusive });
+  const keys: readonly (keyof SalesFinancialEvents)[] = ['saleCount', 'saleTotalMinor', 'saleCostMinor', 'returnCount', 'refundMinor', 'intactCostMinor', 'damagedCostMinor', 'cancellationCount', 'cancelledTotalMinor', 'cancelledCostMinor', 'inconsistentCancellationCount'];
+  if (!result || keys.some(key => !Number.isSafeInteger(result[key]) || result[key] < 0)) {
+    throw new Error('SALES_REPORT_UNSAFE_OR_MISSING_DATA');
+  }
+  if (result.inconsistentCancellationCount !== 0) throw new Error('SALES_REPORT_INCONSISTENT_CANCELLATION');
+  return result;
+}
+
+/** Historical electronic payments; a recorded wallet is not proof of receipt. */
+export interface WalletReviewCase {
+  readonly paymentId: string;
+  readonly saleId: string;
+  readonly saleReference: string;
+  readonly method: string;
+  readonly amountMinor: number;
+  readonly recordedWalletId: string | null;
+  readonly recordedWalletName: string | null;
+  readonly occurredAt: number;
+  readonly reviewAction: 'confirm' | 'revoke' | null;
+  readonly reviewWalletId: string | null;
+  readonly reviewReason: string | null;
+  readonly reviewEvidence: string | null;
+  readonly reviewActorId: string | null;
+  readonly reviewOccurredAt: number | null;
+}
+export function walletReviewCases(saleId: string): Promise<WalletReviewCase[]> {
+  return invoke('wallet_review_cases', { saleId });
+}
+export function reviewHistoricalWallet(paymentId: string, walletId: string, action: 'confirm' | 'revoke', reason: string, evidence: string, requestId: string): Promise<void> {
+  return invoke('review_historical_wallet', { paymentId, walletId, action, reason, evidence, requestId });
+}
+
+export interface WalletReviewEvent {
+  readonly sequence: number;
+  readonly paymentId: string;
+  readonly walletId: string;
+  readonly action: 'confirm' | 'revoke';
+  readonly reason: string;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly occurredAt: number;
+  readonly requestId: string;
+  readonly recordedWalletId: string | null;
+  readonly previousWalletId: string | null;
+  readonly resultingWalletId: string | null;
+}
+export function walletReviewHistory(paymentId: string): Promise<WalletReviewEvent[]> {
+  return invoke('wallet_review_history', { paymentId });
+}
+
+export interface RefundRepairPayment {
+  readonly paymentId: string;
+  readonly saleId: string;
+  readonly kind: 'sale' | 'reversal';
+  readonly method: string;
+  readonly recordedWalletId: string | null;
+  readonly effectiveWalletId: string | null;
+  readonly amountMinor: number;
+  readonly allocatedMinor: number;
+  readonly occurredAt: number;
+}
+export interface RefundRepairEvent {
+  readonly requestId: string;
+  readonly reversalPaymentId: string;
+  readonly originalPaymentId: string;
+  readonly amountMinor: number;
+  readonly reason: string;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
+export interface RefundRepairCase {
+  readonly payments: RefundRepairPayment[];
+  readonly repairs: RefundRepairEvent[];
+  readonly unresolved: boolean;
+}
+export function refundRepairCase(saleId: string): Promise<RefundRepairCase> {
+  return invoke('refund_repair_case', { saleId });
+}
+export function repairRefundAllocation(reversalPaymentId: string, originalPaymentId: string, amountMinor: number, reason: string, evidence: string, requestId: string): Promise<void> {
+  return invoke('repair_refund_allocation', { reversalPaymentId, originalPaymentId, amountMinor, reason, evidence, requestId });
 }

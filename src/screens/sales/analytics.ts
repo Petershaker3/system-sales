@@ -694,7 +694,9 @@ export function byMonth(list: readonly SaleHistoryEntry[]): MonthBreakdownRow[] 
 
   for (const x of list) {
     if (x.isCancelled) continue;
-    const d = new Date(x.occurredAt);
+    // Sales are instants, not date-picker labels: group by the business day
+    // containing the sale, including sales exactly at midnight.
+    const d = dayStart(new Date(x.occurredAt));
     const k = monthKey(d);
     let e = m.get(k);
     if (!e) {

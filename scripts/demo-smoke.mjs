@@ -1676,14 +1676,15 @@ await sleep(150);
 await page.click('[data-open-shift-modal]');
 await page.waitForSelector('[data-close-shift-view]', { timeout: 3000 });
 await sleep(150);
-await page.click('[data-shift-match-expected]');
+check('Shift count starts blank and closing is blocked', (await page.$eval('[data-shift-counted-input]', el => el.value)) === '' && (await page.$eval('[data-close-shift-submit]', el => el.disabled)) && (await count('[data-shift-unreconciled]')) === 1);
+await page.type('[data-shift-counted-input]', '0');
 await sleep(100);
 const diffState = await page.$eval('[data-shift-diff-banner]', (el) => el.getAttribute('data-shift-diff-state'));
 const diffLabel = await text('[data-shift-diff-label]');
 check(
-  'Shift close modal reconciles opening cash + cash sales + customer cash - expenses - owner draw with zero difference («مظبوط»)',
-  diffState === 'exact' &&
-    diffLabel.includes('مظبوط') &&
+  'Shift close labels its difference as an unreconciled estimate',
+  Boolean(diffState) &&
+    diffLabel.includes('غير المُراجَع') &&
     (await text('[data-shift-expenses]')).includes('50') &&
     (await text('[data-shift-owner-draw]')).includes('200'),
   `${diffState}: ${diffLabel}`
@@ -1697,39 +1698,29 @@ check(
   'Sending shift report on WhatsApp builds Arabic shift summary for the owner phone',
   Boolean(lastShiftWa) &&
     lastShiftWa.shiftNumber === 1 &&
-    lastShiftWa.differenceMinor === 0 &&
     lastShiftWa.url.startsWith('https://wa.me/201288887777?text=') &&
     lastShiftWa.text.includes('تقرير تقفيل الوردية #1') &&
-    lastShiftWa.text.includes('مظبوط'),
+    lastShiftWa.text.includes('غير مُراجَع'),
   lastShiftWa?.url
 );
 await shot('40-shift-close-reconciliation');
 
+// A counted close ends operations, not the outstanding reconciliation.
+await page.click('[data-shift-record-count]');
+await page.waitForFunction(() => document.querySelector('[data-shift-count-state]')?.textContent.includes('آخر عدّ'));
 await page.click('[data-close-shift-submit]');
 await page.waitForSelector('[data-close-shift-view]', { hidden: true, timeout: 3000 });
-await sleep(200);
-check(
-  'After closing Shift #1, topbar shows no open shift and offers «فتح وردية»',
-  (await text('[data-topbar-shift-status]')).includes('مفيش وردية مفتوحة') &&
-    (await text('[data-open-shift-modal]')).includes('فتح وردية')
-);
-
+check('Operational close releases the shift without asserting financial reconciliation',
+  (await text('[data-topbar-shift-status]')).includes('مفيش وردية مفتوحة'));
 await page.click('[data-open-shift-modal]');
-await page.waitForSelector('[data-open-shift-view]', { timeout: 3000 });
-await sleep(150);
-check(
-  'Open Shift modal pre-fills previous closed shift counted cash and lists recent closed shifts',
-  (await count('[data-last-closed-shift-hint]')) === 1 &&
-    (await count('[data-recent-closed-shifts]')) === 1
-);
-await shot('41-open-next-shift');
+await page.waitForSelector('[data-open-shift-view]');
+check('Next opening requires a fresh physical observation',
+  (await page.$eval('[data-open-shift-cash]', el => el.value)) === '' && (await text('[data-last-closed-shift-hint]')).includes('المطابقة معلّقة'));
+await page.type('[data-open-shift-cash]', '1');
+check('Handover difference is explicitly unresolved', (await text('[data-shift-handover-difference]')).includes('غير مُطابَق'));
 await page.click('[data-open-shift-submit]');
-await page.waitForSelector('[data-open-shift-view]', { hidden: true, timeout: 3000 });
-await sleep(200);
-check(
-  'Opening the next shift starts Shift #2 in the topbar',
-  (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة')
-);
+await page.waitForSelector('[data-open-shift-view]', { hidden: true });
+check('Next shift opens from its own count', (await text('[data-topbar-shift-status]')).includes('وردية #2 مفتوحة'));
 
 // --- Plan item 1.10 (ADR-025): Quick Services (F9), Wallets screen, and Wallets/Commission settings ---
 await clickText('.rail .nav-btn', 'البيع');
@@ -2866,7 +2857,25 @@ check(
   // --- Phase 2 Item 2.5: Monthly Reports & Evaluation (ADR-035) ------------
   await clickText('.rail .nav-btn', 'التقارير');
   await page.waitForSelector('[data-reports-screen]', { timeout: 3000 });
-  await sleep(250);
+  await page.waitForSelector('[data-reports-incomplete] button', { timeout: 5000 });
+  const guardText = await text('[data-reports-incomplete]');
+  check('Reports refuse actual demo history with returns or cancellations',
+    guardText.includes('مرتجعات') && (await count('[data-reports-day-rating]')) === 0 &&
+    (await page.$eval('[data-reports-export]', el => el.disabled)), guardText.replace(/\s+/g, ' '));
+  // Separately exercise the existing report UI against a deliberately reduced
+  // no-reversal fixture. This is not a complete-history financial report.
+  await page.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__smokeOriginalInvoke = original;
+    window.__TAURI_INTERNALS__.invoke = async (cmd, ...args) => {
+      const result = await original(cmd, ...args);
+      return cmd === 'list_sales_history' ? result.filter(s => !s.isCancelled && s.returnCount === 0 && s.alreadyRefundedMinor === 0) : result;
+    };
+  });
+  await page.click('[data-reports-incomplete] button');
+  await page.waitForSelector('[data-reports-day-rating]', { timeout: 5000 });
+  check('Isolated no-reversal report fixture is used only for UI rendering', (await count('[data-reports-incomplete]')) === 0);
+  check('Report marks profit and evaluations as unverified', (await text('[data-reports-unverified]')).includes('غير مُطابَقة'));
 
   check(
     'Owner opens «التقارير» on the «النهارده» tab with 6 KPI cards (net profit is its own), 7-day bars, and separate repair/software revenue',
@@ -2932,7 +2941,8 @@ check(
     waSummaryBody.includes('ملخص اليوم') &&
       waSummaryBody.includes('فلوس الصيانة لوحدها') &&
       waSummaryBody.includes('فلوس السوفت وير لوحدها') &&
-      waSummaryBody.includes('المفروض في الدرج') &&
+      waSummaryBody.includes('رصيد الدرج غير متاح') &&
+      waSummaryBody.includes('تقديرية غير مُطابَقة') &&
       waSummaryBody.includes('التنبيهات الذكية') &&
       (await text('#toasts')).includes('اتبعت ملخص اليوم على واتساب المالك'),
     waSummaryBody.slice(0, 120)
@@ -2987,6 +2997,8 @@ check(
     (await text('.topbar h1')) === 'المبيعات' &&
       (await count('[data-sales-inv-row]')) >= 1
   );
+
+  await page.evaluate(() => { window.__TAURI_INTERNALS__.invoke = window.__smokeOriginalInvoke; });
 
   // --- Phase 3 Item 3.2 (ADR-037): LAN Companion Server & Mobile Helper -----
   await clickText('.rail .nav-btn', 'الموبايل');
@@ -3141,10 +3153,10 @@ await shot('62d-companion-tryout-inbox');
   await sleep(200);
   const remoteSummaryTxt = await text('[data-mobile-remote-summary]');
   check(
-    'Switching Mobile Companion to «من برّه المحل (للمالك)» displays separate repair & software money and drawer cash',
+    'Remote owner view separates repair and software and withholds the unreconciled drawer balance',
     remoteSummaryTxt.includes('فلوس الصيانة لوحدها') &&
       remoteSummaryTxt.includes('فلوس السوفت وير لوحدها') &&
-      remoteSummaryTxt.includes('المفروض في الدرج'),
+      remoteSummaryTxt.includes('رصيد الدرج غير متاح') && !remoteSummaryTxt.includes('المفروض في الدرج'),
     remoteSummaryTxt
   );
   await shot('63-mobile-remote-owner');
@@ -3494,6 +3506,10 @@ check(
   (await count('[data-wallet-choice]')) === 2,
   `choices=${await count('[data-wallet-choice]')}`
 );
+await page.click('#confirm-pay-btn');
+await sleep(200);
+check('Electronic sale refuses a missing explicit wallet rather than selecting a primary',
+  (await count('[data-wallet-choice]')) === 2 && (await text('.modal')).includes('اختار رقم المحفظة'));
 const numberButtons = await page.$$('[data-wallet-choice]');
 if (numberButtons[1]) await numberButtons[1].click();
 await sleep(200);

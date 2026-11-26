@@ -244,7 +244,7 @@ async fn the_current_chain_applies_on_top_of_a_populated_earlier_database() {
         ledger(&pool).await,
         vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+            26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
         ],
         "the pending migrations must be applied, not the whole chain re-run"
     );
@@ -299,7 +299,7 @@ async fn a_prior_release_database_survives_being_opened_twice() {
 
     for round in 1..=2 {
         let pool = db::open(&dir.path().join("shop.db")).await.expect("reopen");
-        assert_eq!(ledger(&pool).await.len(), 37, "round {round}: ledger complete");
+        assert_eq!(ledger(&pool).await.len(), 55, "round {round}: ledger complete");
         assert_intact(&pool, &format!("round {round}")).await;
     }
 
@@ -386,4 +386,135 @@ async fn editing_an_applied_migration_is_detected_rather_than_tolerated() {
         .await
         .expect("count");
     assert_eq!(applied, 7, "a refused open must not append migration 8");
+}
+/// Simulate the immediately preceding schema/SQLx ledger with populated payment
+/// records, then reopen through the real migration runner. The temporary test
+/// database alone is rewound; production databases never run a down migration.
+#[tokio::test]
+async fn populated_v38_upgrades_without_inventing_refund_allocations() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("shop.db");
+    let pool = db::open(&path).await.expect("current schema");
+    let mut fixture_conn = pool.acquire().await.expect("fixture connection");
+    sqlx::query("DROP TRIGGER sale_payments_wallet_matches_method").execute(&mut *fixture_conn).await.expect("remove v40 trigger in fixture");
+    sqlx::query("CREATE TRIGGER sale_payments_wallet_matches_method BEFORE INSERT ON sale_payments WHEN NEW.wallet_id IS NOT NULL AND COALESCE((SELECT w.pay_method FROM wallets w WHERE w.id=NEW.wallet_id),'') <> NEW.method BEGIN SELECT RAISE(ABORT, 'sale_payments.wallet_id must name a wallet that receives this method'); END;")
+        .execute(&mut *fixture_conn).await.expect("restore v38 trigger in fixture");
+    drop(fixture_conn);
+    sqlx::query("DROP TABLE repair_cash_refund_reviews").execute(&pool).await.expect("fixture 54");
+    sqlx::query("DROP TRIGGER repair_cost_history_no_update").execute(&pool).await.expect("fixture 55");
+    sqlx::query("DROP TRIGGER repair_cost_history_no_delete").execute(&pool).await.expect("fixture 55");
+    sqlx::query("DROP INDEX idx_repair_cost_history_ticket_time").execute(&pool).await.expect("fixture 55");
+    sqlx::query("DROP TABLE repair_cost_history").execute(&pool).await.expect("fixture 55");
+    sqlx::query("DROP INDEX idx_repairs_cancelled_at").execute(&pool).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_parts_cost_minor").execute(&pool).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_parts_status").execute(&pool).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_at").execute(&pool).await.expect("fixture 55");
+    sqlx::query("DROP TABLE uncertain_repair_refunds").execute(&pool).await.expect("fixture 53");
+    sqlx::query("DROP TABLE cash_drawer_physical_counts").execute(&pool).await.expect("fixture 52");
+    sqlx::query("DROP TABLE cash_drawer_transfers").execute(&pool).await.expect("fixture 51");
+    sqlx::query("DROP TRIGGER cash_repair_created_post").execute(&pool).await.expect("fixture 50");
+    sqlx::query("DROP TRIGGER cash_wallet_operation_post").execute(&pool).await.expect("fixture 49");
+    sqlx::query("DROP TRIGGER cash_wallet_void_post").execute(&pool).await.expect("fixture 49");
+    sqlx::query("DROP TRIGGER cash_sale_payment_post").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_customer_payment_post").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_drawer_expense_post").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_movement_post").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER shift_drawer_on_open").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_source_postings").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TABLE shift_drawers").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawer_default").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawer_configuration_events").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawers").execute(&pool).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER sale_wallet_review_repair_used").execute(&pool).await.expect("fixture");
+    sqlx::query("DROP VIEW refund_allocation_effective").execute(&pool).await.expect("fixture");
+    sqlx::query("DROP TABLE refund_allocation_repairs").execute(&pool).await.expect("fixture");
+    sqlx::query("DROP TRIGGER sale_wallet_review_existing_allocations").execute(&pool).await.expect("remove v46 trigger in test fixture");
+    sqlx::query("DROP VIEW sale_effective_wallet_attribution").execute(&pool).await.expect("remove v45 view in test fixture");
+    sqlx::query("DROP TABLE sale_wallet_reviews").execute(&pool).await.expect("remove v44 table in test fixture");
+    sqlx::query("DROP TRIGGER refund_allocation_wallet_provenance").execute(&pool).await.expect("remove v43 trigger in test fixture");
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_on_insert").execute(&pool).await.expect("remove v43 insert trigger in test fixture");
+    sqlx::query("DROP TABLE sale_wallet_provenance").execute(&pool).await.expect("remove v43 table in test fixture");
+    sqlx::query("DROP TABLE shift_opening_observations").execute(&pool).await.expect("remove v42 table in test fixture");
+    sqlx::query("DROP TABLE shift_cash_counts").execute(&pool).await.expect("remove v41 table in test fixture");
+    sqlx::query("DROP TABLE refund_payment_allocations").execute(&pool).await.expect("remove v39 table in test fixture");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55)").execute(&pool).await.expect("rewind fixture ledger");
+    sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)")
+        .execute(&pool).await.expect("user");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('legacy-sale','legacy-sale',100,'legacy-user','sale',1000,600)")
+        .execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('legacy-return','legacy-return',200,'legacy-user','reversal','legacy-sale',300,180)")
+        .execute(&pool).await.expect("return");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('original','legacy-sale',1,'cash',1000,100),('refund','legacy-return',1,'cash',300,200)")
+        .execute(&pool).await.expect("payments");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('legacy-electronic','legacy-electronic',100,'legacy-user','sale',100,0)")
+        .execute(&pool).await.expect("legacy electronic sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('legacy-wallet-payment','legacy-electronic',1,'vf',100,'vf',100)")
+        .execute(&pool).await.expect("legacy wallet assignment");
+    pool.close().await;
+    let upgraded = db::open(&path).await.expect("SQLx upgrade to v55");
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(55));
+    let payments: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM sale_payments WHERE id IN ('original','refund')").fetch_one(&upgraded).await.expect("payments preserved");
+    assert_eq!(payments, 1300);
+    let links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM refund_payment_allocations").fetch_one(&upgraded).await.expect("links");
+    assert_eq!(links, 0, "old sources were not guessed");
+    let provenance: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_wallet_provenance WHERE payment_id='legacy-wallet-payment'").fetch_one(&upgraded).await.expect("provenance");
+    assert_eq!(provenance, 0, "upgrade must not turn old wallet backfill into evidence");
+    let check: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&upgraded).await.expect("integrity");
+    assert_eq!(check, "ok");
+    let fk: Vec<String> = sqlx::query_scalar("PRAGMA foreign_key_check").fetch_all(&upgraded).await.expect("foreign keys");
+    assert!(fk.is_empty());
+}
+
+#[tokio::test]
+async fn populated_review_upgrade_preserves_evidence_and_original_payment() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("v44.db");
+    let pool = db::open(&path).await.expect("database");
+    let mut conn = pool.acquire().await.expect("fixture connection");
+    sqlx::query("INSERT INTO users(id,display_name,role,verifier,created_at,updated_at) VALUES('legacy-user','Legacy','manager','fixture',0,0)").execute(&mut *conn).await.expect("user");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('sale','sale',1,'legacy-user','sale',100,0)").execute(&mut *conn).await.expect("sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,wallet_id,amount_minor,occurred_at) VALUES('p','sale',1,'vf','vf',100,1)").execute(&mut *conn).await.expect("payment");
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='p'").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("CREATE TRIGGER sale_wallet_provenance_no_delete BEFORE DELETE ON sale_wallet_provenance BEGIN SELECT RAISE(ABORT,'wallet provenance is immutable'); END;").execute(&mut *conn).await.expect("restore trigger");
+    sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('p','vf','confirm','review','document 123','legacy-user',2,'r1')").execute(&mut *conn).await.expect("review");
+    sqlx::query("DROP TABLE repair_cash_refund_reviews").execute(&mut *conn).await.expect("fixture 54");
+    sqlx::query("DROP TRIGGER repair_cost_history_no_update").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("DROP TRIGGER repair_cost_history_no_delete").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("DROP INDEX idx_repair_cost_history_ticket_time").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("DROP TABLE repair_cost_history").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("DROP INDEX idx_repairs_cancelled_at").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_parts_cost_minor").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_parts_status").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("ALTER TABLE repairs DROP COLUMN cancelled_at").execute(&mut *conn).await.expect("fixture 55");
+    sqlx::query("DROP TABLE uncertain_repair_refunds").execute(&mut *conn).await.expect("fixture 53");
+    sqlx::query("DROP TABLE cash_drawer_physical_counts").execute(&mut *conn).await.expect("fixture 52");
+    sqlx::query("DROP TABLE cash_drawer_transfers").execute(&mut *conn).await.expect("fixture 51");
+    sqlx::query("DROP TRIGGER cash_repair_created_post").execute(&mut *conn).await.expect("fixture 50");
+    sqlx::query("DROP TRIGGER cash_wallet_operation_post").execute(&mut *conn).await.expect("fixture 49");
+    sqlx::query("DROP TRIGGER cash_wallet_void_post").execute(&mut *conn).await.expect("fixture 49");
+    sqlx::query("DROP TRIGGER cash_sale_payment_post").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_customer_payment_post").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_drawer_expense_post").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER cash_movement_post").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER shift_drawer_on_open").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_source_postings").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TABLE shift_drawers").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawer_default").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawer_configuration_events").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TABLE cash_drawers").execute(&mut *conn).await.expect("fixture 48");
+    sqlx::query("DROP TRIGGER sale_wallet_review_repair_used").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DROP VIEW refund_allocation_effective").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DROP TABLE refund_allocation_repairs").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DROP TRIGGER sale_wallet_review_existing_allocations").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DROP VIEW sale_effective_wallet_attribution").execute(&mut *conn).await.expect("fixture");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (45,46,47,48,49,50,51,52,53,54,55)").execute(&mut *conn).await.expect("fixture");
+    drop(conn);
+    pool.close().await;
+    let upgraded = db::open(&path).await.expect("SQLx upgrade");
+    let row: (String, String, String, String) = sqlx::query_as("SELECT p.wallet_id, e.wallet_id, r.reason, r.evidence FROM sale_payments p JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id JOIN sale_wallet_reviews r ON r.payment_id=p.id WHERE p.id='p'").fetch_one(&upgraded).await.expect("review retained");
+    assert_eq!(row, ("vf".into(), "vf".into(), "review".into(), "document 123".into()));
+    assert_eq!(ledger(&upgraded).await.last().copied(), Some(55));
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&upgraded).await.expect("integrity");
+    assert_eq!(integrity, "ok");
 }

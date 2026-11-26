@@ -30,6 +30,7 @@ import {
   prevPeriod,
   rateDay,
   rateMonthVerdict,
+  setBusinessDayStartHour,
   todayReport,
   totalsOf,
   yearAgo,
@@ -200,6 +201,32 @@ describe('Sales analytics (Plan 1.14 / ADR-029)', () => {
     const months = byMonth(history);
     assert.equal(months.length, 1);
     assert.equal(months[0]!.invoices, 2);
+  });
+
+  it('groups month trends by business-day boundaries, including midnight', () => {
+    setBusinessDayStartHour(5);
+    try {
+      const sales = [
+        makeSale({ occurredAt: new Date(2026, 10, 1, 0, 0).getTime(), totalMinor: 100 }),
+        makeSale({ occurredAt: new Date(2026, 10, 1, 4, 59, 59, 999).getTime(), totalMinor: 200 }),
+        makeSale({ occurredAt: new Date(2026, 10, 1, 5, 0).getTime(), totalMinor: 400 }),
+      ];
+      const months = byMonth(sales);
+      assert.deepEqual(months.map(m => [m.key, isoDay(m.from), m.from.getHours(), m.salesMinor]), [
+        ['2026-10', '2026-10-01', 5, 300],
+        ['2026-11', '2026-11-01', 5, 400],
+      ]);
+      assert.deepEqual(byMonth([...sales].reverse()).map(m => [m.key, m.salesMinor]), [
+        ['2026-10', 300], ['2026-11', 400],
+      ]);
+      const report = monthReport(sales, new Date(2026, 10, 1), new Date(2026, 10, 15, 12));
+      assert.equal(report.T.salesMinor, 400);
+      assert.deepEqual(report.months.map(m => [m.key, m.salesMinor]), [
+        ['2026-10', 300], ['2026-11', 400],
+      ]);
+    } finally {
+      setBusinessDayStartHour(0);
+    }
   });
 
   it('filters by seller role, category (line-level), payment method, and Arabic/Latin search queries', () => {

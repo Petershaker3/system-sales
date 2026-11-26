@@ -502,10 +502,14 @@ pub async fn list_sale_payments(
     sale_id: &str,
 ) -> Result<Vec<SalePaymentRecord>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, sale_id, payment_no, method, wallet_id, amount_minor, reference, occurred_at
-         FROM sale_payments
-         WHERE sale_id = ?1
-         ORDER BY payment_no",
+        "SELECT p.id, p.sale_id, p.payment_no, p.method,
+                CASE WHEN s.kind='sale' AND p.method IN ('vf','instapay')
+                  THEN COALESCE(e.wallet_id,p.wallet_id) ELSE p.wallet_id END AS wallet_id,
+                p.amount_minor, p.reference, p.occurred_at
+         FROM sale_payments p JOIN sales s ON s.id=p.sale_id
+         LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id
+         WHERE p.sale_id = ?1
+         ORDER BY p.payment_no",
     )
     .bind(sale_id)
     .fetch_all(&mut *conn)
@@ -698,6 +702,8 @@ pub struct SaleHistoryRow {
     pub cost_total_minor: Option<i64>,
     pub profit_minor: Option<i64>,
     pub already_refunded_minor: i64,
+    /// Count even zero-value returns: refunded money alone cannot reveal them.
+    pub return_count: i64,
     pub is_cancelled: bool,
     pub lines: Vec<SaleHistoryLineRow>,
     pub payments: Vec<SaleHistoryPaymentRow>,
@@ -1115,6 +1121,7 @@ pub async fn list_sales_history(
                 s.discount_minor AS discount_minor,
                 s.surcharge_minor AS surcharge_minor,
                 COALESCE((SELECT SUM(sr.refund_minor) FROM sale_returns sr WHERE sr.original_sale_id = s.id), 0) AS already_refunded_minor,
+                (SELECT COUNT(*) FROM sale_returns sr WHERE sr.original_sale_id = s.id) AS return_count,
                 CASE WHEN EXISTS (SELECT 1 FROM sale_reversals rev WHERE rev.original_sale_id = s.id) THEN 1 ELSE 0 END AS is_cancelled
          FROM sales s
          LEFT JOIN users usr ON usr.id = s.sold_by
@@ -1236,6 +1243,7 @@ pub async fn list_sales_history(
             cost_total_minor: Some(cost_total_minor),
             profit_minor: Some(total_minor - cost_total_minor),
             already_refunded_minor,
+            return_count: srow.get("return_count"),
             is_cancelled,
             lines,
             payments,
@@ -1243,4 +1251,207 @@ pub async fn list_sales_history(
     }
 
     Ok(out)
+}
+
+/// Raw sales events in a half-open UTC millisecond interval. This deliberately
+/// does not calculate profit or identify payment sources: returns, damaged
+/// stock, expenses, wallets, and repairs must first be reconciled across their
+/// own ledgers. Caller must enforce permission and validate the interval.
+/// A single SQLite statement reads a single snapshot and keeps the separate
+/// event streams from multiplying one another. SQLite reports integer SUM
+/// overflow as an error rather than returning an approximate floating amount.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinancialEventTotals {
+    pub sale_count: i64,
+    pub sale_total_minor: i64,
+    pub sale_cost_minor: i64,
+    pub return_count: i64,
+    pub refund_minor: i64,
+    pub intact_cost_minor: i64,
+    pub damaged_cost_minor: i64,
+    pub cancellation_count: i64,
+    pub cancelled_total_minor: i64,
+    pub cancelled_cost_minor: i64,
+    pub inconsistent_cancellation_count: i64,
+}
+
+pub async fn financial_event_totals(
+    conn: &mut SqliteConnection,
+    from_ms: i64,
+    to_ms_exclusive: i64,
+) -> Result<FinancialEventTotals, sqlx::Error> {
+    let row = sqlx::query(include_str!("financial_events.sql"))
+        .bind(from_ms)
+        .bind(to_ms_exclusive)
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(FinancialEventTotals {
+        sale_count: row.try_get("sale_count")?,
+        sale_total_minor: row.try_get("sale_total_minor")?,
+        sale_cost_minor: row.try_get("sale_cost_minor")?,
+        return_count: row.try_get("return_count")?,
+        refund_minor: row.try_get("refund_minor")?,
+        intact_cost_minor: row.try_get("intact_cost_minor")?,
+        damaged_cost_minor: row.try_get("damaged_cost_minor")?,
+        cancellation_count: row.try_get("cancellation_count")?,
+        cancelled_total_minor: row.try_get("cancelled_total_minor")?,
+        cancelled_cost_minor: row.try_get("cancelled_cost_minor")?,
+        inconsistent_cancellation_count: row.try_get("inconsistent_cancellation_count")?,
+    })
+}
+
+/// True when a previous positive reversal payment lacks complete explicit
+/// allocation links. Never guess how an old refund was split across payments.
+pub async fn has_unallocated_refund_payments(
+    conn: &mut SqliteConnection,
+    original_sale_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sales s WHERE s.kind='reversal' AND s.reverses_sale_id=?1
+         AND (s.total_minor <> COALESCE((SELECT SUM(p.amount_minor) FROM sale_payments p WHERE p.sale_id=s.id),0)
+           OR EXISTS (SELECT 1 FROM sale_payments p WHERE p.sale_id=s.id AND p.amount_minor <>
+             COALESCE((SELECT SUM(a.amount_minor) FROM refund_allocation_effective a WHERE a.reversal_payment_id=p.id),0)))",
+    ).bind(original_sale_id).fetch_one(&mut *conn).await?;
+    Ok(count != 0)
+}
+
+pub async fn allocated_refund_for_payment(
+    conn: &mut SqliteConnection,
+    original_payment_id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COALESCE(SUM(amount_minor),0) FROM refund_allocation_effective WHERE original_payment_id=?1")
+        .bind(original_payment_id).fetch_one(&mut *conn).await
+}
+
+pub async fn insert_refund_payment_allocation(
+    conn: &mut SqliteConnection,
+    reversal_payment_id: &str,
+    original_payment_id: &str,
+    amount_minor: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO refund_payment_allocations(reversal_payment_id,original_payment_id,amount_minor) VALUES(?1,?2,?3)")
+        .bind(reversal_payment_id).bind(original_payment_id).bind(amount_minor)
+        .execute(&mut *conn).await?;
+    Ok(())
+}
+
+/// Only a recorded post-provenance wallet may be used as a refund source.
+/// Existing rows are intentionally not inferred or backfilled.
+pub async fn wallet_source_is_recorded(conn: &mut SqliteConnection, payment_id: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sale_effective_wallet_attribution WHERE payment_id=?1 AND wallet_id IS NOT NULL)")
+        .bind(payment_id).fetch_one(&mut *conn).await
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletReviewCase {
+    pub payment_id: String,
+    pub sale_id: String,
+    pub sale_reference: String,
+    pub method: String,
+    pub amount_minor: i64,
+    pub recorded_wallet_id: Option<String>,
+    pub recorded_wallet_name: Option<String>,
+    pub occurred_at: i64,
+    pub review_action: Option<String>,
+    pub review_wallet_id: Option<String>,
+    pub review_reason: Option<String>,
+    pub review_evidence: Option<String>,
+    pub review_actor_id: Option<String>,
+    pub review_occurred_at: Option<i64>,
+}
+
+pub async fn wallet_review_cases(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<WalletReviewCase>, sqlx::Error> {
+    sqlx::query_as::<_, WalletReviewCase>("SELECT p.id payment_id,p.sale_id,s.reference sale_reference,p.method,p.amount_minor,p.wallet_id recorded_wallet_id,w.name recorded_wallet_name,p.occurred_at,r.action review_action,r.wallet_id review_wallet_id,r.reason review_reason,r.evidence review_evidence,r.actor_id review_actor_id,r.occurred_at review_occurred_at FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN wallets w ON w.id=p.wallet_id LEFT JOIN sale_wallet_reviews r ON r.sequence=(SELECT MAX(r2.sequence) FROM sale_wallet_reviews r2 WHERE r2.payment_id=p.id) WHERE p.sale_id=?1 AND s.kind='sale' AND p.method IN ('vf','instapay') AND NOT EXISTS(SELECT 1 FROM sale_wallet_provenance v WHERE v.payment_id=p.id) ORDER BY p.payment_no")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn append_wallet_review(conn: &mut SqliteConnection, payment_id: &str, wallet_id: &str, action: &str, reason: &str, evidence: &str, actor: &str, now: i64, request_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)")
+        .bind(payment_id).bind(wallet_id).bind(action).bind(reason).bind(evidence).bind(actor).bind(now).bind(request_id).execute(&mut *conn).await?;
+    Ok(())
+}
+
+pub async fn wallet_review_request_matches(conn: &mut SqliteConnection, request_id: &str, payment_id: &str, wallet_id: &str, action: &str, reason: &str, evidence: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT payment_id,wallet_id,action,reason,evidence,actor_id FROM sale_wallet_reviews WHERE request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("payment_id") == payment_id && r.get::<String,_>("wallet_id") == wallet_id && r.get::<String,_>("action") == action && r.get::<String,_>("reason") == reason && r.get::<String,_>("evidence") == evidence && r.get::<String,_>("actor_id") == actor))
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct WalletReviewEvent {
+    pub sequence: i64,
+    pub payment_id: String,
+    pub wallet_id: String,
+    pub action: String,
+    pub reason: String,
+    pub evidence: String,
+    pub actor_id: String,
+    pub occurred_at: i64,
+    pub request_id: String,
+    /// Historical payment field is not necessarily verified and is never rewritten.
+    pub recorded_wallet_id: Option<String>,
+    /// Effective proven attribution immediately before and after this event.
+    pub previous_wallet_id: Option<String>,
+    pub resulting_wallet_id: Option<String>,
+}
+pub async fn wallet_review_history(conn: &mut SqliteConnection, payment_id: &str) -> Result<Vec<WalletReviewEvent>, sqlx::Error> {
+    sqlx::query_as::<_, WalletReviewEvent>("SELECT r.sequence,r.payment_id,r.wallet_id,r.action,r.reason,r.evidence,r.actor_id,r.occurred_at,r.request_id,
+      p.wallet_id recorded_wallet_id,
+      (SELECT CASE WHEN previous.action='confirm' THEN previous.wallet_id ELSE NULL END
+       FROM sale_wallet_reviews previous WHERE previous.payment_id=r.payment_id AND previous.sequence<r.sequence
+       ORDER BY previous.sequence DESC LIMIT 1) previous_wallet_id,
+      CASE WHEN r.action='confirm' THEN r.wallet_id ELSE NULL END resulting_wallet_id
+      FROM sale_wallet_reviews r JOIN sale_payments p ON p.id=r.payment_id
+      WHERE r.payment_id=?1 ORDER BY r.sequence")
+        .bind(payment_id).fetch_all(&mut *conn).await
+}
+
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundAllocationRepairPayment {
+    pub payment_id: String,
+    pub sale_id: String,
+    pub kind: String,
+    pub method: String,
+    pub recorded_wallet_id: Option<String>,
+    pub effective_wallet_id: Option<String>,
+    pub amount_minor: i64,
+    pub allocated_minor: i64,
+    pub occurred_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundAllocationRepairEvent {
+    pub request_id: String,
+    pub reversal_payment_id: String,
+    pub original_payment_id: String,
+    pub amount_minor: i64,
+    pub reason: String,
+    pub evidence: String,
+    pub actor_id: String,
+    pub occurred_at: i64,
+}
+
+pub async fn refund_repair_payments(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<RefundAllocationRepairPayment>, sqlx::Error> {
+    sqlx::query_as("SELECT p.id payment_id,p.sale_id,s.kind,p.method,p.wallet_id recorded_wallet_id, e.wallet_id effective_wallet_id,p.amount_minor,p.occurred_at, COALESCE((SELECT SUM(a.amount_minor) FROM refund_allocation_effective a WHERE (s.kind='sale' AND a.original_payment_id=p.id) OR (s.kind='reversal' AND a.reversal_payment_id=p.id)),0) allocated_minor FROM sale_payments p JOIN sales s ON s.id=p.sale_id LEFT JOIN sale_effective_wallet_attribution e ON e.payment_id=p.id WHERE (s.id=?1 AND s.kind='sale') OR (s.reverses_sale_id=?1 AND s.kind='reversal') ORDER BY s.occurred_at,s.id,p.payment_no")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn refund_repair_history(conn: &mut SqliteConnection, sale_id: &str) -> Result<Vec<RefundAllocationRepairEvent>, sqlx::Error> {
+    sqlx::query_as("SELECT r.request_id,r.reversal_payment_id,r.original_payment_id,r.amount_minor,r.reason,r.evidence,r.actor_id,r.occurred_at FROM refund_allocation_repairs r JOIN sale_payments p ON p.id=r.original_payment_id WHERE p.sale_id=?1 ORDER BY r.occurred_at,r.request_id")
+        .bind(sale_id).fetch_all(&mut *conn).await
+}
+
+pub async fn refund_repair_request_matches(conn: &mut SqliteConnection, request_id: &str, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, actor: &str) -> Result<Option<bool>, sqlx::Error> {
+    let row = sqlx::query("SELECT reversal_payment_id,original_payment_id,amount_minor,reason,evidence,actor_id FROM refund_allocation_repairs WHERE request_id=?1").bind(request_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| r.get::<String,_>("reversal_payment_id") == reversal && r.get::<String,_>("original_payment_id") == original && r.get::<i64,_>("amount_minor") == amount && r.get::<String,_>("reason") == reason && r.get::<String,_>("evidence") == evidence && r.get::<String,_>("actor_id") == actor))
+}
+
+pub async fn append_refund_repair(conn: &mut SqliteConnection, request_id: &str, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, actor: &str, now: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO refund_allocation_repairs(request_id,reversal_payment_id,original_payment_id,amount_minor,reason,evidence,actor_id,occurred_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)").bind(request_id).bind(reversal).bind(original).bind(amount).bind(reason).bind(evidence).bind(actor).bind(now).execute(&mut *conn).await?;
+    Ok(())
 }

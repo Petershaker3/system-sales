@@ -1011,6 +1011,7 @@ const shifts: DemoShift[] = [
     closedAt: null,
   },
 ];
+const demoShiftCounts: Array<{ id: string; shiftId: string; amountMinor: number; countedBy: string; countedAt: number }> = [];
 const expenses: DemoExpense[] = [];
 const cashMovements: DemoCashMovement[] = [];
 
@@ -1426,7 +1427,7 @@ function demoResolvePaymentWalletId(
     if (chosen) fail(code);
     return null;
   }
-  if (!chosen) return demoSalePayeeWalletId(method);
+  if (!chosen) fail(code);
   const w = demoWallets.find((x) => x.id === chosen);
   if (w === undefined || w.payMethod !== method) fail(code);
   return w === undefined ? null : w.id;
@@ -1733,6 +1734,7 @@ function buildDemoShiftSummary(shift: DemoShift) {
       servicesCashInMinor: svc.servicesCashInMinor,
       servicesCashOutMinor: svc.servicesCashOutMinor,
       walletDrawerNetMinor: svc.walletDrawerNetMinor,
+      drawerTransferNetMinor: 0,
       cashInMinor,
       ownerDrawMinor,
       expensesMinor,
@@ -3023,6 +3025,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
             }
           : {}),
         alreadyRefundedMinor,
+        returnCount: prevReturns.length,
         isCancelled: s.isCancelled,
         lines: lineDtos,
         payments: s.payments.map((p) => ({
@@ -4857,30 +4860,38 @@ const handlers: Record<string, (args: Args) => unknown> = {
     });
     return buildDemoShiftSummary(open);
   },
+  latest_shift_cash_count: () => {
+    requireUser();
+    const open = shifts.find((s) => s.status === 'open');
+    return open ? [...demoShiftCounts].reverse().find((c) => c.shiftId === open.id) ?? null : null;
+  },
+  record_shift_cash_count: (args) => {
+    const user = requireUser();
+    const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
+    const amount = args?.['amountMinor'];
+    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
+    const count = { id: newProductId(), shiftId: open.id, amountMinor: amount as number, countedBy: user.id, countedAt: now() };
+    demoShiftCounts.push(count);
+    return count;
+  },
   close_shift: (args) => {
     const user = requireUser();
-    if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') {
-      fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
-    }
+    if (user.role !== 'manager' && appearance.sellerCanCloseShift !== 'on') fail('SHIFT_CLOSE_FORBIDDEN_FOR_SELLER');
+    const amount = args?.['countedCashMinor'];
+    if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) fail('SHIFT_COUNTED_CASH_INVALID');
     const open = shifts.find((s) => s.status === 'open') ?? fail('SHIFT_NOT_OPEN');
-    const countedCashMinor = numArg(args, 'countedCashMinor');
-    if (countedCashMinor < 0) fail('SHIFT_COUNTED_CASH_INVALID');
-    const closeNote = str(args, 'closeNote').trim() || null;
-    const closedAt = Math.max(now(), open.openedAt);
-    open.closedAt = closedAt;
-    const summaryBeforeClose = buildDemoShiftSummary(open);
-    const expectedCashMinor = summaryBeforeClose.totals.expectedCashMinor;
-    const differenceMinor = countedCashMinor - expectedCashMinor;
+    if (args?.['shiftId'] !== open.id) fail('SHIFT_CHANGED');
+    const summary = buildDemoShiftSummary(open);
+    const closedAt = now();
+    demoShiftCounts.push({ id: newProductId(), shiftId: open.id, amountMinor: amount as number, countedBy: user.id, countedAt: closedAt });
     open.status = 'closed';
-    open.expectedCashMinor = expectedCashMinor;
-    open.countedCashMinor = countedCashMinor;
-    open.differenceMinor = differenceMinor;
-    open.closeNote = closeNote;
+    open.countedCashMinor = amount as number;
+    open.expectedCashMinor = null;
+    open.differenceMinor = null;
     open.closedBy = user.id;
-    if (appearance.backupOnShift === 'on') {
-      recordDemoBackup('shift_close', `تقفيل وردية #${open.shiftNumber}`);
-    }
-    return buildDemoShiftSummary(open);
+    open.closedAt = closedAt;
+    open.closeNote = typeof args?.['closeNote'] === 'string' ? args['closeNote'] : null;
+    return { ...summary, shift: { ...open, cashReconciled: false } };
   },
 
   // shop wallets and services ledger (Plan item 1.10, ADR-025)

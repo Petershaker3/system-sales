@@ -137,7 +137,7 @@ pub async fn open_shift(
     let now = Timestamp::now();
 
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -171,6 +171,11 @@ pub async fn open_shift(
     repo::insert_open_shift(&mut tx, &shift)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+
+    // The new opening is a fresh physical observation. A previous counted
+    // close is retained for handover comparison, never silently inherited.
+    let previous = repo::find_last_closed_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    repo::insert_opening_observation(&mut tx, &shift, previous.as_ref()).await.map_err(|_| DomainError::StorageUnavailable)?;
 
     audit::append(
         &mut tx,
@@ -537,10 +542,50 @@ pub async fn record_cash_movement(
     Ok(summary)
 }
 
-/// Close the currently open shift, recording counted cash, expected cash, difference, and note.
+/// Record an observed physical count independently of reconciliation. The
+/// transaction locks before inspecting the open shift, so the count cannot be
+/// attached to a shift that closed concurrently. Counts never post money.
+pub async fn record_shift_cash_count(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore, amount_minor: i64,
+) -> Result<repo::ShiftCashCount, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+    let amount = validate_counted_cash(amount_minor)?;
+    let actor = session.user_id();
+    let now = Timestamp::now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    let shift = repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?
+        .ok_or(ShiftError::NotOpen)?;
+    let count = repo::ShiftCashCount {
+        id: uuid::Uuid::now_v7().to_string(), shift_id: shift.id.as_str().to_owned(),
+        amount_minor: amount.as_minor(), counted_by: actor.as_str(), counted_at: now.as_millis(),
+    };
+    repo::insert_cash_count(&mut tx, &count).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx, actor, audit::event::SHIFT_CASH_COUNTED, now,
+        Some(serde_json::json!({"shift_id": count.shift_id.as_str(), "count_id": count.id.as_str(), "amount_minor": count.amount_minor, "reconciled": false}).to_string()))
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(count)
+}
+
+/// Latest physical observation for the open shift, never a reconciled balance.
+pub async fn latest_shift_cash_count(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore,
+) -> Result<Option<repo::ShiftCashCount>, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let Some(shift) = repo::find_open_shift(&mut conn).await.map_err(|_| DomainError::StorageUnavailable)? else { return Ok(None); };
+    repo::latest_cash_count(&mut conn, shift.id.as_str()).await.map_err(|_| DomainError::StorageUnavailable.into())
+}
+
+/// Close operations with a physical observation, never a financial reconciliation.
+/// The legacy schema requires an estimate and estimated difference; both remain
+/// unverified and are never exposed as reconciled balances.
 pub async fn close_shift(
     pool: &SqlitePool,
     tokens: &dyn SecureTokenStore,
+    shift_id: &str,
     counted_cash_minor: i64,
     close_note: Option<&str>,
 ) -> Result<ShiftSummary, ShiftServiceError> {
@@ -553,7 +598,7 @@ pub async fn close_shift(
     let now = Timestamp::now();
 
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -570,6 +615,7 @@ pub async fn close_shift(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?
         .ok_or(ShiftError::NotOpen)?;
+    if open_shift.id.as_str() != shift_id { return Err(ShiftError::ShiftChanged.into()); }
 
     let closed_at = Timestamp::from_millis(now.as_millis().max(open_shift.opened_at.as_millis()));
     open_shift.closed_at = Some(closed_at);
@@ -578,7 +624,17 @@ pub async fn close_shift(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
     let expected_cash_minor = totals.expected_cash_minor;
-    let difference_minor = counted_cash.as_minor() - expected_cash_minor;
+    let difference_minor = counted_cash.as_minor().checked_sub(expected_cash_minor)
+        .ok_or(DomainError::StorageUnavailable)?;
+
+    let count = repo::ShiftCashCount {
+        id: uuid::Uuid::now_v7().to_string(), shift_id: open_shift.id.as_str().to_owned(),
+        amount_minor: counted_cash.as_minor(), counted_by: actor.as_str(), counted_at: closed_at.as_millis(),
+    };
+    repo::insert_cash_count(&mut tx, &count).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx, actor, audit::event::SHIFT_CASH_COUNTED, closed_at,
+        Some(serde_json::json!({"shift_id": count.shift_id.as_str(), "count_id": count.id.as_str(), "amount_minor": count.amount_minor, "reconciled": false}).to_string()))
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
 
     repo::close_shift_row(
         &mut tx,
@@ -602,6 +658,7 @@ pub async fn close_shift(
             serde_json::json!({
                 "shift_id": open_shift.id.as_str(),
                 "shift_number": open_shift.shift_number,
+                "reconciliation_status": "unreconciled",
                 "expected_cash_minor": expected_cash_minor,
                 "counted_cash_minor": counted_cash.as_minor(),
                 "difference_minor": difference_minor,
@@ -634,4 +691,137 @@ pub async fn close_shift(
         expenses,
         cash_movements,
     })
+}
+
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CashPostingPreview {
+    pub drawers: Vec<repo::CashDrawerIdentity>,
+    pub recent_postings: Vec<repo::CashSourcePosting>,
+    pub recent_counts: Vec<repo::DrawerPhysicalCount>,
+    pub uncertain_repair_refunds: Vec<repo::UncertainRepairRefund>,
+    pub uncertain_repair_refund_count: i64,
+    pub repair_cash_refund_reviews: Vec<repo::RepairCashRefundReview>,
+    /// This is an incomplete source projection, not a drawer balance.
+    pub complete: bool,
+}
+
+/// Owner-only preview. The projection is deliberately not reconciliation:
+/// legacy sources, repairs and wallet services are not yet fully posted.
+pub async fn cash_posting_preview(pool: &SqlitePool, tokens: &dyn SecureTokenStore) -> Result<CashPostingPreview, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let drawers = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let recent_postings = repo::recent_cash_source_postings(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let recent_counts = repo::recent_drawer_physical_counts(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let uncertain_repair_refunds = repo::recent_uncertain_repair_refunds(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let uncertain_repair_refund_count = repo::uncertain_repair_refund_count(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let repair_cash_refund_reviews = repo::recent_repair_cash_refund_reviews(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(CashPostingPreview { drawers, recent_postings, recent_counts, uncertain_repair_refunds, uncertain_repair_refund_count, repair_cash_refund_reviews, complete: false })
+}
+
+/// Create an immutable drawer identity if necessary and explicitly configure it
+/// for future shifts. Existing shifts and historical entries are never relabelled.
+/// Retry IDs are scoped to the manager and the requested drawer.
+pub async fn configure_drawer(pool: &SqlitePool, tokens: &dyn SecureTokenStore, id: &str, name: &str, request_id: &str) -> Result<(), ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let id=id.trim(); let name=name.trim(); let request_id=request_id.trim();
+    if id.is_empty() || id.chars().count()>80 || name.is_empty() || name.chars().count()>80 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let actor=session.user_id(); let now=Timestamp::now();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    match repo::drawer_config_request_matches(&mut tx,request_id,id,name,&actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(ShiftError::InvalidDrawer.into()), None => {}
+    }
+    if repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.is_some() { return Err(ShiftError::AlreadyOpen.into()); }
+    let existing = repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(drawer) = existing.iter().find(|d| d.id==id) {
+        if drawer.name != name { return Err(ShiftError::InvalidDrawer.into()); }
+    } else if !repo::create_cash_drawer(&mut tx,id,name,&actor.as_str(),now.as_millis()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        return Err(ShiftError::InvalidDrawer.into());
+    }
+    repo::configure_cash_drawer(&mut tx,id,&actor.as_str(),now.as_millis(),request_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_CONFIGURED,now,Some(serde_json::json!({"drawer_id":id,"request_id":request_id}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}
+
+
+/// Record a manager-confirmed physical transfer from the open shift's assigned
+/// drawer to another explicit drawer. This does not assert a reconciled balance.
+pub async fn transfer_drawer_cash(pool: &SqlitePool, tokens: &dyn SecureTokenStore, shift_id: &str, to_id: &str, amount_minor: i64, reason: &str, request_id: &str) -> Result<(), ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let shift_id=shift_id.trim(); let to_id=to_id.trim(); let reason=reason.trim(); let request_id=request_id.trim();
+    if shift_id.is_empty() || to_id.is_empty() || amount_minor<=0 || reason.is_empty() || reason.chars().count()>300 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let actor=session.user_id(); let now=Timestamp::now();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    match repo::transfer_request_matches(&mut tx,request_id,shift_id,to_id,amount_minor,reason,&actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(ShiftError::InvalidDrawer.into()), None => {}
+    }
+    let open=repo::find_open_shift(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.ok_or(ShiftError::NotOpen)?;
+    if open.id.as_str()!=shift_id { return Err(ShiftError::ShiftChanged.into()); }
+    let from=repo::shift_drawer_id(&mut tx,shift_id).await.map_err(|_| DomainError::StorageUnavailable)?.ok_or(ShiftError::InvalidDrawer)?;
+    if from==to_id { return Err(ShiftError::InvalidDrawer.into()); }
+    repo::insert_drawer_transfer(&mut tx,request_id,shift_id,&from,to_id,amount_minor,reason,&actor.as_str(),now.as_millis()).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => ShiftServiceError::from(ShiftError::InvalidDrawer),
+        _ => ShiftServiceError::from(DomainError::StorageUnavailable),
+    })?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_TRANSFERRED,now,Some(serde_json::json!({"request_id":request_id,"shift_id":shift_id,"from_drawer_id":from,"to_drawer_id":to_id,"amount_minor":amount_minor}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}
+
+
+/// A manager records the cash physically counted in one named drawer. A retry
+/// repeats the original observation; it never creates a posting or an adjustment.
+pub async fn record_drawer_physical_count(pool: &SqlitePool, tokens: &dyn SecureTokenStore, drawer_id: &str, amount_minor: i64, request_id: &str) -> Result<repo::DrawerPhysicalCount, ShiftServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role()!=Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let drawer_id=drawer_id.trim(); let request_id=request_id.trim();
+    if drawer_id.is_empty() || drawer_id.chars().count()>80 || request_id.is_empty() || request_id.chars().count()>120 { return Err(ShiftError::InvalidDrawer.into()); }
+    let amount=validate_counted_cash(amount_minor)?;
+    let actor=session.user_id();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(existing)=repo::drawer_physical_count_by_request(&mut tx,request_id).await.map_err(|_| DomainError::StorageUnavailable)? {
+        if existing.drawer_id==drawer_id && existing.amount_minor==amount.as_minor() && existing.counted_by==actor.as_str() { return Ok(existing); }
+        return Err(ShiftError::InvalidDrawer.into());
+    }
+    if !repo::list_cash_drawers(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?.iter().any(|d|d.id==drawer_id) { return Err(ShiftError::InvalidDrawer.into()); }
+    let shift=repo::open_shift_id(&mut tx).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let now=Timestamp::now();
+    let count=repo::DrawerPhysicalCount { request_id:request_id.to_owned(), drawer_id:drawer_id.to_owned(), shift_id:shift, amount_minor:amount.as_minor(), counted_by:actor.as_str(), counted_at:now.as_millis() };
+    repo::insert_drawer_physical_count(&mut tx,&count).await.map_err(|_| DomainError::StorageUnavailable)?;
+    audit::append(&mut tx,actor,audit::event::CASH_DRAWER_PHYSICAL_COUNTED,now,Some(serde_json::json!({"request_id":request_id,"drawer_id":drawer_id,"shift_id":count.shift_id.as_deref(),"amount_minor":amount_minor,"reconciled":false}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(count)
+}
+
+
+/// The manager asserts an actually paid wholly cash repair refund, its payout
+/// time and drawer with evidence. Original uncertainty and receipts are never
+/// changed; the database enforces source capacity and shift/drawer identity.
+pub async fn review_repair_cash_refund(pool: &SqlitePool, tokens: &dyn SecureTokenStore, request: &str, repair_id: &str, shift_id: &str, drawer_id: &str, payout_at: i64, evidence: &str) -> Result<repo::RepairCashRefundReview, ShiftServiceError> {
+    let session=identity_session::resolve(pool,tokens).await?;
+    if session.role()!=Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let request=request.trim(); let repair_id=repair_id.trim(); let shift_id=shift_id.trim(); let drawer_id=drawer_id.trim(); let evidence=evidence.trim();
+    if request.is_empty() || request.chars().count()>120 || repair_id.is_empty() || shift_id.is_empty() || drawer_id.is_empty() || evidence.is_empty() || evidence.chars().count()>1000 || payout_at<0 { return Err(ShiftError::RepairRefundEvidenceInvalid.into()); }
+    let actor=session.user_id();
+    let mut tx=pool.begin_with("BEGIN IMMEDIATE").await.map_err(|_| DomainError::StorageUnavailable)?;
+    if let Some(old)=repo::repair_cash_refund_review_by_request(&mut tx,request).await.map_err(|_| DomainError::StorageUnavailable)? {
+        if old.repair_id==repair_id && old.shift_id==shift_id && old.drawer_id==drawer_id && old.payout_at==payout_at && old.evidence==evidence && old.actor_id==actor.as_str() { return Ok(old); }
+        return Err(ShiftError::RepairRefundEvidenceInvalid.into());
+    }
+    let now=Timestamp::now();
+    let review=repo::RepairCashRefundReview { request_id:request.to_owned(), repair_id:repair_id.to_owned(), shift_id:shift_id.to_owned(), drawer_id:drawer_id.to_owned(), payout_at, evidence:evidence.to_owned(), actor_id:actor.as_str(), reviewed_at:now.as_millis() };
+    repo::insert_repair_cash_refund_review(&mut tx,&review).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c|c.parse::<i32>().ok()).is_some_and(|code|code & 255==19) => ShiftServiceError::from(ShiftError::RepairRefundEvidenceInvalid),
+        _ => ShiftServiceError::from(DomainError::StorageUnavailable),
+    })?;
+    audit::append(&mut tx,actor,audit::event::REPAIR_CASH_REFUND_REVIEWED,now,Some(serde_json::json!({"request_id":request,"repair_id":repair_id,"shift_id":shift_id,"drawer_id":drawer_id,"payout_at":payout_at}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(review)
 }

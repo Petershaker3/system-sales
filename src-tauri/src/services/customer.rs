@@ -280,8 +280,7 @@ pub async fn record_payment(
         return Err(CustomerError::PaymentExceedsBalance.into());
     }
 
-    // Which number of the shop the customer sent the money to — named at the counter, or the
-    // primary for the method when nobody looked at the list (`ADR-041`).
+    // The receiving electronic wallet must be explicitly named at the counter.
     let wallet_id = wallet_service::resolve_payment_wallet_id(
         &mut tx,
         &method,

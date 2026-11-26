@@ -144,7 +144,7 @@ const ledgerItems = computed<LedgerItem[]>(() => {
 <template>
   <Modal
     :title="`مصروفات وحركة الدرج — وردية #${openShift.shift.shiftNumber}`"
-    sub="سجّل أي مصروف خرج من الدرج أو سحب للمالك أو فكة دخلت الدرج عشان التقفيل يطابق بالملليم"
+    sub="سجّل المصروفات وحركة النقدية؛ حساب الوردية تقديري وغير مُراجَع"
     size="md"
     @close="emit('close')"
   >
@@ -162,7 +162,7 @@ const ledgerItems = computed<LedgerItem[]>(() => {
         "
       >
         <div>
-          <small class="muted">المتوقع في الدرج دلوقتي</small>
+          <small class="muted">تقدير غير مُراجَع حسب توقيت الحركات</small>
           <div class="num" style="font-size: 18px; font-weight: 800" data-drawer-expected-cash>
             {{ money(openShift.totals.expectedCashMinor) }}
           </div>

@@ -21,7 +21,8 @@ import {
 import { runPeriodicBackupTick } from '../api/backup';
 import { describeError } from '../api/errors';
 import { appearance, loadShopLogo, shopLogo } from '../ui/appearance';
-import { fmtTime } from '../ui/format';
+import { dg, fmtTime } from '../ui/format';
+import { dueCount, reminders, todayISO } from '../ui/reminders';
 import Icon from '../ui/Icon.vue';
 import PinPad from '../ui/PinPad.vue';
 import { toast } from '../ui/toast';
@@ -38,6 +39,7 @@ import PhoneCaptureScreen from '../screens/mobile/PhoneCaptureScreen.vue';
 import SettingsScreen from '../screens/settings/SettingsScreen.vue';
 import GuideScreen from '../screens/guide/GuideScreen.vue';
 import DrawerExpenseModal from './DrawerExpenseModal.vue';
+import RemindersModal from './RemindersModal.vue';
 import { openModeHint, openMode } from './open-mode';
 import ShiftModal from './ShiftModal.vue';
 import { isPhone } from './device';
@@ -256,6 +258,8 @@ function onSwitchKey(event: KeyboardEvent): void {
 }
 
 const clock = ref(fmtTime());
+const remindersModalOpen = ref(false);
+const remindersDue = computed(() => { void clock.value; return dueCount(reminders.value, todayISO()); });
 let tick = 0;
 
 const shiftState = ref<CurrentShiftState>({
@@ -441,6 +445,11 @@ async function restartNow(): Promise<void> {
           </template>
           <template v-else>مفيش وردية مفتوحة</template>
         </span>
+        <button type="button" class="btn sm ghost reminder-bell" data-open-reminders
+          title="التذكيرات والملاحظات" aria-label="التذكيرات والملاحظات" @click="remindersModalOpen = true">
+          <Icon name="bell" /><span class="hide-sm">التذكيرات</span>
+          <span v-if="remindersDue > 0" class="bell-badge num" data-reminders-badge>{{ dg(remindersDue) }}</span>
+        </button>
         <button
           type="button"
           class="btn sm ghost"
@@ -642,6 +651,7 @@ async function restartNow(): Promise<void> {
         />
       </div>
 
+      <RemindersModal v-if="remindersModalOpen" @close="remindersModalOpen = false" />
       <DrawerExpenseModal
         v-if="drawerModalOpen && shiftState.openShift"
         :open-shift="shiftState.openShift"

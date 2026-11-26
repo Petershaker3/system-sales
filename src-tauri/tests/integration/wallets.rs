@@ -233,7 +233,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
     .await
     .expect("topup et from drawer");
 
-    // 9. Sale paid via Vodafone Cash (`vf`, 200 EGP) automatically increases `vf` wallet balance!
+    // 9. Sale explicitly paid to Vodafone Cash (`vf`, 200 EGP) increases that wallet balance.
     sales::record_sale_with_payments(
         &pool,
         tokens.as_ref(),
@@ -249,7 +249,7 @@ async fn wallet_balance_and_shift_drawer_reflect_deposits_withdrawals_bills_soft
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         }]),
         None,
     )
@@ -460,7 +460,7 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
             method: "vf".to_owned(),
             amount_minor: 20_000,
             reference: None,
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         }]),
         None,
     )
@@ -483,7 +483,7 @@ async fn two_numbers_of_one_company_keep_their_own_money() {
     assert_eq!(
         first_now.balance_minor - vf.balance_minor,
         20_000,
-        "the primary number of the method is where the sale's money went"
+        "the explicitly selected wallet is where the sale money went"
     );
     assert_eq!(
         second_now.balance_minor, 0,
@@ -770,4 +770,64 @@ async fn every_money_flow_names_the_number_that_took_it() {
             .any(|w| w.id.as_str() == second.id.as_str()),
         "the number the operator picked has to be on the list they picked from"
     );
+}
+
+#[tokio::test]
+async fn concurrent_wallet_adjustments_to_same_observation_do_not_double_post() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("wallet.db")).await.expect("database");
+    let tokens = InMemoryTokenStore::new();
+    let owner = bootstrap::create_first_manager(&pool, "Peter", PASSWORD).await.expect("owner").user_id;
+    auth::login(&pool, &tokens, owner, PASSWORD).await.expect("login");
+    let (a, b) = tokio::join!(
+        wallet_service::reconcile_wallet(&pool, &tokens, "vf", 500, "physical observation", None),
+        wallet_service::reconcile_wallet(&pool, &tokens, "vf", 500, "physical observation", None)
+    );
+    let a = a.expect("first request");
+    let b = b.expect("second request");
+    assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
+    let (n, total): (i64, i64) = sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(amount_minor),0) FROM wallet_ops WHERE wallet_id='vf' AND kind='adjust'")
+        .fetch_one(&pool).await.expect("adjustments");
+    assert_eq!((n, total), (1, 500));
+}
+
+#[tokio::test]
+async fn wallet_transport_does_not_claim_an_estimate_is_reconciled() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    let overview = wallet_service::wallets_overview(&pool, tokens.as_ref(), 0, 0, i64::MAX, None, 50).await.expect("overview");
+    let summary = overview.wallets.into_iter().next().expect("wallet");
+    let dto = mobile_shop_system_lib::commands::wallet::WalletSummaryDto::from(summary);
+    assert!(!dto.balance_reconciled);
+}
+
+#[tokio::test]
+async fn wallet_cash_operation_and_later_void_are_distinct_shift_events() {
+    let (pool, tokens, manager, _, _) = setup_shop().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "d1", "First", "cfg1").await.expect("drawer");
+    let first = shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("open");
+    wallet_service::record_wallet_movement(&pool, tokens.as_ref(), "topup", "vf", None, Some("out"), 1000, None).await.expect("external topup");
+    let op = wallet_service::record_wallet_op(&pool, tokens.as_ref(), "vf", "deposit", 100, 10, None).await.expect("deposit");
+    let incoming: (String, i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='wallet_op' AND source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("incoming");
+    assert_eq!(incoming, ("d1".into(), 110));
+    shift_service::close_shift(&pool, tokens.as_ref(), first.shift.id.as_str(), 110, None).await.expect("close");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "d2", "Second", "cfg2").await.expect("second drawer");
+    let second = shift_service::open_shift(&pool, tokens.as_ref(), 110).await.expect("open second");
+    wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "reversed").await.expect("void");
+    let reversal: (String, String, i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='wallet_void' AND source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("compensation");
+    assert_eq!(reversal, (second.shift.id.as_str().to_owned(), "d2".into(), -110));
+    let second_totals = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("second summary").open_shift.expect("open").totals;
+    assert_eq!(second_totals.services_cash_in_minor, -110, "void belongs to the later shift");
+    assert_eq!(second_totals.services_fee_minor, -10);
+    assert_eq!(second_totals.expected_cash_minor, 0);
+    let mut conn = pool.acquire().await.expect("connection");
+    let closed = mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn, first.shift.id.as_str()).await.expect("find closed").expect("first");
+    let first_totals = mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn, &closed).await.expect("recompute first");
+    assert_eq!(first_totals.services_cash_in_minor, 110, "later void must not erase prior receipt");
+    assert_eq!(first_totals.services_fee_minor, 10);
+    assert_eq!(first_totals.expected_cash_minor, 110);
+    drop(conn);
+    assert!(wallet_service::void_wallet_op(&pool, tokens.as_ref(), op.id.as_str(), "again").await.is_err());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings WHERE source_id=?1").bind(op.id.as_str()).fetch_one(&pool).await.expect("count");
+    assert_eq!(count, 2);
 }

@@ -33,6 +33,7 @@ pub struct ShiftRecordDto {
     pub id: String,
     pub shift_number: u64,
     pub status: String,
+    pub cash_reconciled: bool,
     pub opening_cash_minor: i64,
     pub expected_cash_minor: Option<i64>,
     pub counted_cash_minor: Option<i64>,
@@ -50,10 +51,11 @@ impl From<ShiftRecord> for ShiftRecordDto {
             id: s.id.as_str().to_owned(),
             shift_number: s.shift_number,
             status: s.status.as_str().to_owned(),
+            cash_reconciled: false,
             opening_cash_minor: s.opening_cash.as_minor(),
-            expected_cash_minor: s.expected_cash_minor,
+            expected_cash_minor: None,
             counted_cash_minor: s.counted_cash.map(|c| c.as_minor()),
-            difference_minor: s.difference_minor,
+            difference_minor: None,
             close_note: s.close_note.map(|n| n.as_str().to_owned()),
             opened_by: s.opened_by.as_str(),
             opened_at: s.opened_at.as_millis(),
@@ -66,6 +68,9 @@ impl From<ShiftRecord> for ShiftRecordDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShiftTotalsDto {
+    /// Legacy timestamp-based calculation is not a verified drawer ledger.
+    /// A future reconciler may set this only after every source is identified.
+    pub cash_reconciled: bool,
     pub opening_cash_minor: i64,
     pub cash_sales_minor: i64,
     pub vf_sales_minor: i64,
@@ -82,6 +87,7 @@ pub struct ShiftTotalsDto {
     pub services_cash_in_minor: i64,
     pub services_cash_out_minor: i64,
     pub wallet_drawer_net_minor: i64,
+    pub drawer_transfer_net_minor: i64,
     pub cash_in_minor: i64,
     pub owner_draw_minor: i64,
     pub expenses_minor: i64,
@@ -93,6 +99,7 @@ pub struct ShiftTotalsDto {
 impl From<ShiftTotals> for ShiftTotalsDto {
     fn from(t: ShiftTotals) -> Self {
         Self {
+            cash_reconciled: false,
             opening_cash_minor: t.opening_cash_minor,
             cash_sales_minor: t.cash_sales_minor,
             vf_sales_minor: t.vf_sales_minor,
@@ -109,6 +116,7 @@ impl From<ShiftTotals> for ShiftTotalsDto {
             services_cash_in_minor: t.services_cash_in_minor,
             services_cash_out_minor: t.services_cash_out_minor,
             wallet_drawer_net_minor: t.wallet_drawer_net_minor,
+            drawer_transfer_net_minor: t.drawer_transfer_net_minor,
             cash_in_minor: t.cash_in_minor,
             owner_draw_minor: t.owner_draw_minor,
             expenses_minor: t.expenses_minor,
@@ -393,12 +401,14 @@ pub async fn record_cash_movement(
 pub async fn close_shift(
     ctx: Ctx<'_>,
     app: AppHandle,
+    shift_id: String,
     counted_cash_minor: i64,
     close_note: Option<String>,
 ) -> Result<ShiftSummaryDto, ShiftCommandError> {
     let summary = use_cases::close_shift(
         &ctx.pool,
         ctx.tokens.as_ref(),
+        &shift_id,
         counted_cash_minor,
         close_note.as_deref(),
     )
@@ -413,4 +423,40 @@ pub async fn close_shift(
         .await;
     }
     Ok(summary.into())
+}
+
+/// Store a physical observation; this does not reconcile or close a shift.
+#[tauri::command]
+pub async fn record_shift_cash_count(ctx: Ctx<'_>, amount_minor: i64) -> Result<crate::data::repositories::shift::ShiftCashCount, ShiftCommandError> {
+    use_cases::record_shift_cash_count(&ctx.pool, ctx.tokens.as_ref(), amount_minor).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn latest_shift_cash_count(ctx: Ctx<'_>) -> Result<Option<crate::data::repositories::shift::ShiftCashCount>, ShiftCommandError> {
+    use_cases::latest_shift_cash_count(&ctx.pool, ctx.tokens.as_ref()).await.map_err(Into::into)
+}
+
+
+#[tauri::command]
+pub async fn cash_posting_preview(ctx: Ctx<'_>) -> Result<use_cases::CashPostingPreview, ShiftCommandError> {
+    use_cases::cash_posting_preview(&ctx.pool, ctx.tokens.as_ref()).await.map_err(Into::into)
+}
+#[tauri::command]
+pub async fn configure_drawer(ctx: Ctx<'_>, drawer_id: String, name: String, request_id: String) -> Result<(), ShiftCommandError> {
+    use_cases::configure_drawer(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, &name, &request_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn transfer_drawer_cash(ctx: Ctx<'_>, shift_id: String, to_drawer_id: String, amount_minor: i64, reason: String, request_id: String) -> Result<(), ShiftCommandError> {
+    use_cases::transfer_drawer_cash(&ctx.pool, ctx.tokens.as_ref(), &shift_id, &to_drawer_id, amount_minor, &reason, &request_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn record_drawer_physical_count(ctx: Ctx<'_>, drawer_id: String, amount_minor: i64, request_id: String) -> Result<crate::data::repositories::shift::DrawerPhysicalCount, ShiftCommandError> {
+    use_cases::record_drawer_physical_count(&ctx.pool, ctx.tokens.as_ref(), &drawer_id, amount_minor, &request_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn review_repair_cash_refund(ctx: Ctx<'_>, request_id: String, repair_id: String, shift_id: String, drawer_id: String, payout_at: i64, evidence: String) -> Result<crate::data::repositories::shift::RepairCashRefundReview, ShiftCommandError> {
+    use_cases::review_repair_cash_refund(&ctx.pool,ctx.tokens.as_ref(),&request_id,&repair_id,&shift_id,&drawer_id,payout_at,&evidence).await.map_err(Into::into)
 }

@@ -107,6 +107,8 @@ impl From<WalletPeriodStats> for WalletPeriodStatsDto {
 #[serde(rename_all = "camelCase")]
 pub struct WalletSummaryDto {
     pub wallet: WalletRecordDto,
+    /// Historical wallet assignments may be inferred; equality is not reconciliation.
+    pub balance_reconciled: bool,
     pub balance_minor: i64,
     pub state: String,
     pub today: WalletPeriodStatsDto,
@@ -117,6 +119,7 @@ impl From<WalletSummary> for WalletSummaryDto {
     fn from(s: WalletSummary) -> Self {
         Self {
             wallet: s.wallet.into(),
+            balance_reconciled: false,
             balance_minor: s.balance_minor,
             state: s.state.as_str().to_owned(),
             today: s.today.into(),

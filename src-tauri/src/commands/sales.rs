@@ -779,6 +779,7 @@ pub struct SaleHistoryEntryDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profit_minor: Option<i64>,
     pub already_refunded_minor: i64,
+    pub return_count: i64,
     pub is_cancelled: bool,
     pub lines: Vec<SaleHistoryLineDto>,
     pub payments: Vec<SaleHistoryPaymentDto>,
@@ -809,6 +810,7 @@ pub async fn list_sales_history(
             cost_total_minor: r.cost_total_minor,
             profit_minor: r.profit_minor,
             already_refunded_minor: r.already_refunded_minor,
+            return_count: r.return_count,
             is_cancelled: r.is_cancelled,
             lines: r
                 .lines
@@ -845,4 +847,37 @@ pub async fn list_sales_history(
                 .collect(),
         })
         .collect())
+}
+/// Half-open UTC interval; these are raw event components, not a profit figure.
+#[tauri::command]
+pub async fn sales_financial_event_totals(
+    ctx: Ctx<'_>, from_ms: i64, to_ms_exclusive: i64,
+) -> Result<crate::data::repositories::sales::FinancialEventTotals, SalesCommandError> {
+    use_cases::financial_event_totals(&ctx.pool, ctx.tokens.as_ref(), from_ms, to_ms_exclusive)
+        .await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn wallet_review_cases(ctx: Ctx<'_>, sale_id: String) -> Result<Vec<crate::data::repositories::sales::WalletReviewCase>, SalesCommandError> {
+    use_cases::wallet_review_cases(&ctx.pool, ctx.tokens.as_ref(), &sale_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn review_historical_wallet(ctx: Ctx<'_>, payment_id: String, wallet_id: String, action: String, reason: String, evidence: String, request_id: String) -> Result<(), SalesCommandError> {
+    use_cases::review_historical_wallet(&ctx.pool, ctx.tokens.as_ref(), &payment_id, &wallet_id, &action, &reason, &evidence, &request_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn wallet_review_history(ctx: Ctx<'_>, payment_id: String) -> Result<Vec<crate::data::repositories::sales::WalletReviewEvent>, SalesCommandError> {
+    use_cases::wallet_review_history(&ctx.pool, ctx.tokens.as_ref(), &payment_id).await.map_err(Into::into)
+}
+
+
+#[tauri::command]
+pub async fn refund_repair_case(ctx: Ctx<'_>, sale_id: String) -> Result<use_cases::RefundRepairCase, SalesCommandError> {
+    use_cases::refund_repair_case(&ctx.pool, ctx.tokens.as_ref(), &sale_id).await.map_err(Into::into)
+}
+#[tauri::command]
+pub async fn repair_refund_allocation(ctx: Ctx<'_>, reversal_payment_id: String, original_payment_id: String, amount_minor: i64, reason: String, evidence: String, request_id: String) -> Result<(), SalesCommandError> {
+    use_cases::repair_refund_allocation(&ctx.pool, ctx.tokens.as_ref(), &reversal_payment_id, &original_payment_id, amount_minor, &reason, &evidence, &request_id).await.map_err(Into::into)
 }

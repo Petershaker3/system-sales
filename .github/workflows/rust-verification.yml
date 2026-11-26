@@ -1,0 +1,43 @@
+# Non-publication verification for the active recovery branch only.
+# No release, tag, artifact upload, or repository write permissions.
+name: Rust verification (no release)
+on:
+  push:
+    branches: ['arena/a4478358-system-sales']
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
+          rustup run 1.98.1 rustc --version
+          rustup run 1.98.1 cargo --version
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci && npm run build
+      - name: Rust and SQLx integration tests
+        working-directory: src-tauri
+        env:
+          RUSTUP_TOOLCHAIN: '1.98.1'
+        shell: bash
+        run: |
+          set +e
+          cargo test --locked --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/cargo-output.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Job annotations are accessible even when log-download hosts are blocked.
+            details=$(grep -E 'panicked at|assertion|left:|right:|error\[|^error:|^---- .* stdout ----|^test result: FAILED|Database\(' "$RUNNER_TEMP/cargo-output.log" | tail -35 | tr '\n' '|')
+            printf '::error::%s\n' "${details//'%'/'%25'}"
+          fi
+          exit "$status"

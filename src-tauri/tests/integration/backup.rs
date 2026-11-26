@@ -913,3 +913,91 @@ async fn usb_manual_copy_and_pin_approved_saved_backup_restore_round_trip() {
     reopened.close().await;
 }
 
+
+#[tokio::test]
+async fn encrypted_backup_restores_cash_observations_handover_and_wallet_provenance() {
+    let dir = TempDir::new().expect("temp dir");
+    let pool = shop_with_data(dir.path()).await;
+    let actor: String = sqlx::query_scalar("SELECT id FROM users LIMIT 1").fetch_one(&pool).await.expect("actor");
+    sqlx::query("INSERT INTO cash_drawers VALUES('backup-till','Till',?1,0)").bind(&actor).execute(&pool).await.expect("drawer");
+    sqlx::query("INSERT INTO cash_drawers VALUES('backup-safe','Safe',?1,0)").bind(&actor).execute(&pool).await.expect("safe");
+    sqlx::query("INSERT INTO cash_drawer_default VALUES(1,'backup-till',?1,0)").bind(&actor).execute(&pool).await.expect("configuration");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s1',1,'open',100,?1,1)")
+        .bind(&actor).execute(&pool).await.expect("shift");
+    sqlx::query("INSERT INTO shift_cash_counts(id,shift_id,amount_minor,counted_by,counted_at) VALUES('count','s1',95,?1,2)")
+        .bind(&actor).execute(&pool).await.expect("count");
+    sqlx::query("UPDATE shifts SET status='closed',expected_cash_minor=100,counted_cash_minor=95,difference_minor=-5,closed_by=?1,closed_at=2 WHERE id='s1'")
+        .bind(&actor).execute(&pool).await.expect("operational close");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('s2',2,'open',90,?1,3)")
+        .bind(&actor).execute(&pool).await.expect("next shift");
+    sqlx::query("INSERT INTO shift_opening_observations(shift_id,previous_shift_id,opening_minor,previous_count_minor,handover_difference_minor,observed_by,observed_at) VALUES('s2','s1',90,95,-5,?1,3)")
+        .bind(&actor).execute(&pool).await.expect("handover");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('sale','sale',4,?1,'sale',100,0)")
+        .bind(&actor).execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('payment','sale',1,'vf',100,'vf',4)")
+        .execute(&pool).await.expect("payment with provenance");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('cash-sale','cash-sale',5,?1,'sale',25,0)").bind(&actor).execute(&pool).await.expect("cash sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('cash-payment','cash-sale',1,'cash',25,5)").execute(&pool).await.expect("cash payment");
+    sqlx::query("INSERT INTO wallet_ops(id,wallet_id,kind,amount_minor,fee_minor,created_by,created_at) VALUES('backup-wallet-op','vf','deposit',30,1,?1,5)").bind(&actor).execute(&pool).await.expect("wallet operation");
+    sqlx::query("UPDATE wallet_ops SET voided_by=?1,voided_at=6,void_reason='void' WHERE id='backup-wallet-op'").bind(&actor).execute(&pool).await.expect("wallet void");
+    sqlx::query("INSERT INTO cash_drawer_physical_counts VALUES('backup-drawer-count','backup-safe','s2',42,?1,6)").bind(&actor).execute(&pool).await.expect("drawer count");
+    sqlx::query("INSERT INTO cash_drawer_transfers VALUES('backup-transfer','s2','backup-till','backup-safe',5,'safe',?1,6)").bind(&actor).execute(&pool).await.expect("transfer");
+    sqlx::query("INSERT INTO repairs(id,ticket_no,device_name,issue,status,deposit_minor,pay_method,created_by,created_at) VALUES('backup-repair','backup-repair','phone','issue','received',23,'cash',?1,7)").bind(&actor).execute(&pool).await.expect("repair cash deposit");
+    sqlx::query("INSERT INTO uncertain_repair_refunds VALUES('backup-repair','s2',23,?1,8)").bind(&actor).execute(&pool).await.expect("uncertain repair event");
+    sqlx::query("UPDATE repairs SET status='cancelled' WHERE id='backup-repair'").execute(&pool).await.expect("cancelled fixture");
+    sqlx::query("INSERT INTO repair_cash_refund_reviews VALUES('backup-cash-review','backup-repair','s2','backup-till',8,'receipt 42',?1,9)").bind(&actor).execute(&pool).await.expect("cash review");
+    // Test-only simulation of a payment that existed before provenance migration.
+    let mut conn = pool.acquire().await.expect("fixture connection");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('old-sale','old-sale',1,?1,'sale',100,0)").bind(&actor).execute(&mut *conn).await.expect("old sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('old-p','old-sale',1,'vf',100,'vf',1)").execute(&mut *conn).await.expect("old payment");
+    sqlx::query("DROP TRIGGER sale_wallet_provenance_no_delete").execute(&mut *conn).await.expect("fixture drop trigger");
+    sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='old-p'").execute(&mut *conn).await.expect("fixture legacy payment");
+    sqlx::query("CREATE TRIGGER sale_wallet_provenance_no_delete BEFORE DELETE ON sale_wallet_provenance BEGIN SELECT RAISE(ABORT, 'wallet provenance is immutable'); END;").execute(&mut *conn).await.expect("restore trigger");
+    sqlx::query("INSERT INTO sale_wallet_reviews(payment_id,wallet_id,action,reason,evidence,actor_id,occurred_at,request_id) VALUES('old-p','vf','confirm','statement reviewed','reference 123',?1,10,'backup-review')").bind(&actor).execute(&mut *conn).await.expect("review");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,reverses_sale_id,total_minor,cost_total_minor) VALUES('old-return','old-return',11,?1,'reversal','old-sale',50,0)").bind(&actor).execute(&mut *conn).await.expect("old return");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,wallet_id,occurred_at) VALUES('old-refund','old-return',1,'vf',50,'vf',11)").execute(&mut *conn).await.expect("old refund");
+    sqlx::query("INSERT INTO refund_allocation_repairs VALUES('repair','old-refund','old-p',50,'reason','receipt',?1,12)").bind(&actor).execute(&mut *conn).await.expect("repair");
+    drop(conn);
+    let path = dir.path().join("financial.msb");
+    backup::create_backup(&pool, dir.path(), &path, BACKUP_PASSWORD).await.expect("encrypted backup");
+    pool.close().await;
+    backup::restore_backup(dir.path(), &path, BACKUP_PASSWORD).expect("restore");
+    let restored = db::open(&dir.path().join("shop.db")).await.expect("reopen");
+    let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor,previous_count_minor,handover_difference_minor,reconciliation_status FROM shift_opening_observations WHERE shift_id='s2'")
+        .fetch_one(&restored).await.expect("handover");
+    assert_eq!(handover, (90, 95, -5, "unreconciled".to_owned()));
+    let cash_posting: (Option<String>, i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='sale_payment' AND source_id='cash-payment'").fetch_one(&restored).await.expect("cash posting survives restore");
+    assert_eq!(cash_posting, (Some("backup-till".to_owned()), 25));
+    assert!(sqlx::query("DELETE FROM cash_source_postings WHERE source_id='cash-payment'").execute(&restored).await.is_err());
+    let wallet_events: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id='backup-wallet-op' ORDER BY occurred_at").fetch_all(&restored).await.expect("wallet events survive restore");
+    assert_eq!(wallet_events, vec![("wallet_op".into(),31),("wallet_void".into(),-31)]);
+    let drawer_count: (String,i64) = sqlx::query_as("SELECT drawer_id,amount_minor FROM cash_drawer_physical_counts WHERE request_id='backup-drawer-count'").fetch_one(&restored).await.expect("drawer count restored");
+    assert_eq!(drawer_count, ("backup-safe".into(),42));
+    let pair: Vec<(String,String,i64)> = sqlx::query_as("SELECT source_kind,drawer_id,signed_minor FROM cash_source_postings WHERE source_id='backup-transfer' ORDER BY source_kind").fetch_all(&restored).await.expect("transfer pair restored");
+    assert_eq!(pair, vec![("drawer_transfer_in".into(),"backup-safe".into(),5),("drawer_transfer_out".into(),"backup-till".into(),-5)]);
+    let gap: i64 = sqlx::query_scalar("SELECT amount_minor FROM uncertain_repair_refunds WHERE repair_id='backup-repair'").fetch_one(&restored).await.expect("uncertain payout restored");
+    assert_eq!(gap,23);
+    let reviewed: (String,i64) = sqlx::query_as("SELECT evidence,payout_at FROM repair_cash_refund_reviews WHERE request_id='backup-cash-review'").fetch_one(&restored).await.expect("cash review restored");
+    assert_eq!(reviewed, ("receipt 42".into(),8));
+    let outflow: (String,i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id='backup-repair'").fetch_one(&restored).await.expect("reviewed payout restored");
+    assert_eq!(outflow, ("backup-till".into(),-23));
+    let repair_event: (String,i64) = sqlx::query_as("SELECT drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_deposit' AND source_id='backup-repair'").fetch_one(&restored).await.expect("repair event survives restore");
+    assert_eq!(repair_event, ("backup-till".into(),23));
+    let count: i64 = sqlx::query_scalar("SELECT amount_minor FROM shift_cash_counts WHERE id='count'").fetch_one(&restored).await.expect("count");
+    assert_eq!(count, 95);
+    let wallet: String = sqlx::query_scalar("SELECT wallet_id FROM sale_wallet_provenance WHERE payment_id='payment'").fetch_one(&restored).await.expect("provenance");
+    assert_eq!(wallet, "vf");
+    let review: (String, String, String) = sqlx::query_as("SELECT action,reason,evidence FROM sale_wallet_reviews WHERE payment_id='old-p'").fetch_one(&restored).await.expect("review survives restore");
+    assert_eq!(review, ("confirm".into(), "statement reviewed".into(), "reference 123".into()));
+    let repair: (i64, String) = sqlx::query_as("SELECT amount_minor,evidence FROM refund_allocation_repairs WHERE request_id='repair'").fetch_one(&restored).await.expect("repair survives");
+    assert_eq!(repair, (50, "receipt".to_owned()));
+    assert!(sqlx::query("DELETE FROM refund_allocation_repairs WHERE request_id='repair'").execute(&restored).await.is_err());
+    let linked: i64 = sqlx::query_scalar("SELECT SUM(amount_minor) FROM refund_allocation_effective WHERE original_payment_id='old-p'").fetch_one(&restored).await.expect("effective allocation");
+    assert_eq!(linked, 50);
+    assert!(sqlx::query("DELETE FROM sale_wallet_reviews WHERE payment_id='old-p'").execute(&restored).await.is_err());
+    assert!(sqlx::query("DELETE FROM sale_wallet_provenance WHERE payment_id='payment'").execute(&restored).await.is_err(), "append-only trigger survives restore");
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&restored).await.expect("integrity");
+    assert_eq!(integrity, "ok");
+    let fk: Vec<String> = sqlx::query_scalar("PRAGMA foreign_key_check").fetch_all(&restored).await.expect("foreign keys");
+    assert!(fk.is_empty());
+}

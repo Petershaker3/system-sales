@@ -151,7 +151,14 @@ pub const CUSTOMER_ARCHIVED: &str = "customer_archived";
 pub const CUSTOMER_PAYMENT_RECORDED: &str = "customer_payment_recorded";
 
 /// Shifts, drawer expenses, and cash movements (Plan item 1.9, ADR-024).
+pub const CASH_DRAWER_CONFIGURED: &str = "cash_drawer_configured";
+pub const CASH_DRAWER_TRANSFERRED: &str = "cash_drawer_transferred";
+pub const CASH_DRAWER_PHYSICAL_COUNTED: &str = "cash_drawer_physical_counted";
+pub const REPAIR_CASH_REFUND_REVIEWED: &str = "repair_cash_refund_reviewed";
 pub const SHIFT_OPENED: &str = "shift_opened";
+pub const SHIFT_CASH_COUNTED: &str = "shift_cash_counted";
+pub const SALE_WALLET_REVIEWED: &str = "sale_wallet_reviewed";
+pub const REFUND_ALLOCATION_REPAIRED: &str = "refund_allocation_repaired";
 pub const EXPENSE_RECORDED: &str = "expense_recorded";
 pub const CASH_MOVEMENT_RECORDED: &str = "cash_movement_recorded";
 pub const SHIFT_CLOSED: &str = "shift_closed";

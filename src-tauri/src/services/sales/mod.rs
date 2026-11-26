@@ -30,7 +30,7 @@ use crate::domain::customer::{CustomerError, CustomerLedgerEntry, NewCustomer};
 use crate::domain::identity::{DomainError, Permission, Sensitivity, Timestamp, UserId};
 use crate::domain::organisation::CostMethod;
 use crate::domain::sales::{
-    allocate_default_refund_payments, civil_ymd_from_millis, compute_partial_line_return,
+    civil_ymd_from_millis, compute_partial_line_return,
     compute_return_refund_minor, discount_exceeds_limit, format_invoice_reference,
     validate_invoice_discount, validate_line_discount, validate_return_reason, validate_surcharge,
     validate_sale_payments, PaymentMethod, ReturnCondition, SaleError, SalePaymentInput,
@@ -55,11 +55,9 @@ pub enum SalePayeeError {
 
 /// The shop wallet the money of one payment lands in (`ADR-040`, `ADR-041`).
 ///
-/// `chosen` is the number the operator named at the till. A refund arrives here with the number
-/// the row it reverses was paid into — `allocate_default_refund_payments` copies it — so money
-/// leaves by the wallet it came in by instead of always hitting the primary. When nobody named
-/// one it is the primary for the method, the only answer a shop with one number per method can
-/// have. `None` for a method no wallet receives: cash stays in the drawer.
+/// `chosen` is the number the operator named at the till. When nobody named
+/// one, electronic payment is rejected. Refunds copy only a source with
+/// recorded provenance; older backfilled wallet identifiers remain unknown.
 async fn sale_payee_wallet_id(
     conn: &mut sqlx::SqliteConnection,
     method: PaymentMethod,
@@ -132,6 +130,7 @@ pub struct SaleOutcome {
 /// sale link inherits because it names a customer.
 #[derive(Debug)]
 pub enum SaleServiceError {
+    InvalidReportPeriod,
     Identity(DomainError),
     Sale(SaleError),
     Stock(inventory::StockServiceError),
@@ -187,6 +186,7 @@ impl SaleServiceError {
     /// this layer and the drift guard keeps covering every table.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::InvalidReportPeriod => "SALES_REPORT_PERIOD_INVALID",
             Self::Identity(error) => error.code(),
             Self::Sale(error) => error.code(),
             Self::Stock(error) => error.code(),
@@ -200,6 +200,7 @@ impl SaleServiceError {
 impl std::fmt::Display for SaleServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidReportPeriod => write!(f, "invalid report period"),
             Self::Identity(error) => write!(f, "{error}"),
             Self::Sale(error) => write!(f, "{error}"),
             Self::Stock(error) => write!(f, "{error}"),
@@ -859,6 +860,13 @@ pub async fn cancel_sale(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
+    for payment in &original_payments {
+        if (payment.method == "vf" || payment.method == "instapay") && payment.amount_minor > 0
+            && !sales_repo::wallet_source_is_recorded(&mut *tx, &payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
+        }
+    }
+
     let snapshot = settings_repo::load_snapshot(&mut *tx)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
@@ -897,10 +905,11 @@ pub async fn cancel_sale(
 
     let mut reversed_credit_minor: i64 = 0;
     for orig_p in &original_payments {
+        let reversal_payment_id = Uuid::now_v7().to_string();
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
-                id: Uuid::now_v7().to_string(),
+                id: reversal_payment_id.clone(),
                 sale_id: reversal_id.clone(),
                 payment_no: orig_p.payment_no,
                 method: orig_p.method.clone(),
@@ -912,6 +921,11 @@ pub async fn cancel_sale(
         )
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
+        if orig_p.amount_minor > 0 {
+            sales_repo::insert_refund_payment_allocation(
+                &mut *tx, &reversal_payment_id, &orig_p.id, orig_p.amount_minor,
+            ).await.map_err(|_| DomainError::StorageUnavailable)?;
+        }
 
         if orig_p.method == "credit" {
             reversed_credit_minor = reversed_credit_minor
@@ -1588,35 +1602,65 @@ async fn execute_return_core_in_tx(
         .checked_add(inv_discount_share_minor)
         .ok_or(CostError::Overflow)?;
 
-    let refunded_by_method = sales_repo::refunded_by_method_for_sale(&mut *tx, original_sale_id)
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-    let mut refunded_map: std::collections::HashMap<String, i64> =
-        refunded_by_method.into_iter().collect();
-
-    let mut remaining_by_method: Vec<(PaymentMethod, i64, Option<String>, Option<String>)> =
-        Vec::new();
+    // Existing unlinked positive reversals cannot be assigned to a specific
+    // original row without inventing history. Refuse rather than reuse funds.
+    if sales_repo::has_unallocated_refund_payments(&mut *tx, original_sale_id)
+        .await.map_err(|_| DomainError::StorageUnavailable)? {
+        return Err(SaleError::RefundSourceUnverifiable.into());
+    }
+    let mut available = Vec::with_capacity(orig_payments.len());
     for op in &orig_payments {
-        if let Ok(m) = PaymentMethod::parse(&op.method) {
-            let used = refunded_map.remove(&op.method).unwrap_or(0);
-            let avail = op.amount_minor.saturating_sub(used).max(0);
-            remaining_by_method.push((m, avail, op.reference.clone(), op.wallet_id.clone()));
+        let used = sales_repo::allocated_refund_for_payment(&mut *tx, &op.id)
+            .await.map_err(|_| DomainError::StorageUnavailable)?;
+        let remaining = op.amount_minor.checked_sub(used)
+            .filter(|v| *v >= 0).ok_or(SaleError::RefundSourceUnverifiable)?;
+        available.push(remaining);
+    }
+    // Custom sources remain supported only when each names a recorded original
+    // source with sufficient unrefunded value. Multiple rows sharing a source
+    // are consumed in original payment order, and every slice gets a link.
+    let requested = match refund_payments {
+        Some(custom) if !custom.is_empty() => Some(validate_sale_payments(
+            custom, refund_minor, enabled_pay_methods, original_customer_id.is_some(),
+        )?),
+        _ => None,
+    };
+    let mut allocations: Vec<(usize, i64, Option<String>)> = Vec::new();
+    if let Some(ref rows) = requested {
+        for row in rows {
+            let mut left = row.amount_minor;
+            for (index, op) in orig_payments.iter().enumerate() {
+                if op.method != row.method.as_str() || op.wallet_id != row.wallet_id { continue; }
+                let take = left.min(available[index]);
+                if take > 0 {
+                    allocations.push((index, take, row.reference.clone()));
+                    available[index] -= take;
+                    left -= take;
+                }
+            }
+            if left != 0 { return Err(SaleError::RefundSourceUnverifiable.into()); }
+        }
+    } else {
+        let mut left = refund_minor;
+        for (index, op) in orig_payments.iter().enumerate() {
+            let take = left.min(available[index]);
+            if take > 0 {
+                allocations.push((index, take, op.reference.clone()));
+                available[index] -= take;
+                left -= take;
+            }
+        }
+        if left != 0 { return Err(SaleError::RefundSourceUnverifiable.into()); }
+    }
+    // A non-null wallet on old payments may have been guessed by migration
+    // 0030. Require explicit provenance for each electronic allocation.
+    for (i, _, _) in &allocations {
+        let p = &orig_payments[*i];
+        if (p.method == "vf" || p.method == "instapay") &&
+            !sales_repo::wallet_source_is_recorded(&mut *tx, &p.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
         }
     }
-    let fallback_method = remaining_by_method
-        .first()
-        .map(|(m, ..)| *m)
-        .unwrap_or(PaymentMethod::Cash);
-
-    let validated_refund_payments = match refund_payments {
-        Some(custom) if !custom.is_empty() => validate_sale_payments(
-            custom,
-            refund_minor,
-            enabled_pay_methods,
-            original_customer_id.is_some(),
-        )?,
-        _ => allocate_default_refund_payments(&remaining_by_method, fallback_method, refund_minor),
-    };
 
     let return_reference = next_reference(&mut *tx, prefix, now).await?;
     let return_sale_id = Uuid::now_v7().to_string();
@@ -1650,34 +1694,39 @@ async fn execute_return_core_in_tx(
     }
 
     let mut reversed_credit_minor: i64 = 0;
-    for (idx, p) in validated_refund_payments.iter().enumerate() {
-        // Resolved before the insert: `insert_sale_payment` borrows the connection for the
-        // whole call, so the payee lookup cannot run inside its argument list.
-        let payee_wallet_id = sale_payee_wallet_id(&mut *tx, p.method, p.wallet_id.as_deref())
-            .await
-            .map_err(|err| match err {
-                SalePayeeError::Storage => SaleServiceError::from(DomainError::StorageUnavailable),
-                SalePayeeError::NotEligible => SaleError::PaymentWalletInvalid.into(),
-            })?;
+    if refund_minor == 0 {
+        let original_payment = orig_payments.first().ok_or(SaleError::RefundSourceUnverifiable)?;
+        if (original_payment.method == "vf" || original_payment.method == "instapay") &&
+            !sales_repo::wallet_source_is_recorded(&mut *tx, &original_payment.id).await.map_err(|_| DomainError::StorageUnavailable)? {
+            return Err(SaleError::RefundSourceUnverifiable.into());
+        }
+        sales_repo::insert_sale_payment(&mut *tx, &SalePaymentRecord {
+            id: Uuid::now_v7().to_string(), sale_id: return_sale_id.clone(), payment_no: 1,
+            method: original_payment.method.clone(), wallet_id: original_payment.wallet_id.clone(),
+            amount_minor: 0, reference: original_payment.reference.clone(), occurred_at: now.as_millis(),
+        }).await.map_err(|_| DomainError::StorageUnavailable)?;
+    }
+    for (idx, (original_index, amount_minor, reference)) in allocations.iter().enumerate() {
+        let original_payment = &orig_payments[*original_index];
+        let payment_id = Uuid::now_v7().to_string();
         sales_repo::insert_sale_payment(
             &mut *tx,
             &SalePaymentRecord {
-                id: Uuid::now_v7().to_string(),
+                id: payment_id.clone(),
                 sale_id: return_sale_id.clone(),
                 payment_no: idx as i64 + 1,
-                method: p.method.as_str().to_owned(),
-                wallet_id: payee_wallet_id,
-                amount_minor: p.amount_minor,
-                reference: p.reference.clone(),
+                method: original_payment.method.clone(),
+                wallet_id: original_payment.wallet_id.clone(),
+                amount_minor: *amount_minor,
+                reference: reference.clone(),
                 occurred_at: now.as_millis(),
             },
-        )
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-
-        if p.method == PaymentMethod::Credit {
-            reversed_credit_minor = reversed_credit_minor
-                .checked_add(p.amount_minor)
+        ).await.map_err(|_| DomainError::StorageUnavailable)?;
+        sales_repo::insert_refund_payment_allocation(
+            &mut *tx, &payment_id, &original_payment.id, *amount_minor,
+        ).await.map_err(|_| DomainError::StorageUnavailable)?;
+        if original_payment.method == "credit" {
+            reversed_credit_minor = reversed_credit_minor.checked_add(*amount_minor)
                 .ok_or(CostError::Overflow)?;
         }
     }
@@ -2611,26 +2660,21 @@ pub async fn inspect_sale_for_return(
     let raw_payments = sales_repo::list_sale_payments(&mut conn, &sale.id)
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
-    let refunded_by_method = sales_repo::refunded_by_method_for_sale(&mut conn, &sale.id)
-        .await
-        .map_err(|_| DomainError::StorageUnavailable)?;
-    let mut refunded_map: std::collections::HashMap<String, i64> =
-        refunded_by_method.into_iter().collect();
-
+    if sales_repo::has_unallocated_refund_payments(&mut conn, &sale.id)
+        .await.map_err(|_| DomainError::StorageUnavailable)? {
+        return Err(SaleError::RefundSourceUnverifiable.into());
+    }
     let mut payments = Vec::with_capacity(raw_payments.len());
     for p in raw_payments {
-        let used = refunded_map.remove(&p.method).unwrap_or(0);
-        let already_refunded_minor = if is_cancelled {
-            p.amount_minor
-        } else {
-            used.min(p.amount_minor)
-        };
-        let remaining_minor = p.amount_minor.saturating_sub(already_refunded_minor).max(0);
+        let used = sales_repo::allocated_refund_for_payment(&mut conn, &p.id)
+            .await.map_err(|_| DomainError::StorageUnavailable)?;
+        let remaining_minor = p.amount_minor.checked_sub(used)
+            .filter(|v| *v >= 0).ok_or(SaleError::RefundSourceUnverifiable)?;
         payments.push(ReturnableSalePaymentView {
             method: p.method,
             amount_minor: p.amount_minor,
             reference: p.reference,
-            already_refunded_minor,
+            already_refunded_minor: used,
             remaining_minor,
         });
     }
@@ -2766,4 +2810,117 @@ pub async fn list_sales_history(
     }
 
     Ok(rows)
+}
+
+/// Shop-wide raw event components, never a net-profit report. Only managers
+/// may access shop-wide sales history; the same boundary applies here.
+pub async fn financial_event_totals(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore, from_ms: i64, to_ms_exclusive: i64,
+) -> Result<sales_repo::FinancialEventTotals, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    session.authorize(Permission::Sell)?;
+    if session.role() != crate::domain::identity::Role::Manager {
+        return Err(DomainError::PermissionDenied.into());
+    }
+    if from_ms >= to_ms_exclusive {
+        return Err(SaleServiceError::InvalidReportPeriod);
+    }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::financial_event_totals(&mut conn, from_ms, to_ms_exclusive)
+        .await.map_err(|_| DomainError::StorageUnavailable.into())
+}
+
+/// Managers may inspect historical electronic payments and prior review events.
+/// A recorded wallet without evidence is deliberately not treated as proven.
+pub async fn wallet_review_cases(pool: &SqlitePool, tokens: &dyn SecureTokenStore, sale_id: &str) -> Result<Vec<sales_repo::WalletReviewCase>, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::wallet_review_cases(&mut conn, sale_id).await.map_err(|_| DomainError::StorageUnavailable.into())
+}
+
+/// Append a confirmation or compensating revocation, with evidence and actor.
+/// A request id may be replayed only with an identical payload by the same actor.
+pub async fn review_historical_wallet(
+    pool: &SqlitePool, tokens: &dyn SecureTokenStore, payment_id: &str, wallet_id: &str,
+    action: &str, reason: &str, evidence: &str, request_id: &str,
+) -> Result<(), SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let reason = reason.trim();
+    let evidence = evidence.trim();
+    let request_id = request_id.trim();
+    if !matches!(action, "confirm" | "revoke") || payment_id.trim().is_empty() || wallet_id.trim().is_empty()
+        || reason.is_empty() || reason.chars().count() > 300 || evidence.is_empty() || evidence.chars().count() > 1000
+        || request_id.is_empty() || request_id.chars().count() > 120 {
+        return Err(SaleError::RefundSourceUnverifiable.into());
+    }
+    let actor = session.user_id();
+    let now = Timestamp::now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
+    match sales_repo::wallet_review_request_matches(&mut tx, request_id, payment_id, wallet_id, action, reason, evidence, &actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()),
+        Some(false) => return Err(SaleError::RefundSourceUnverifiable.into()),
+        None => {}
+    }
+    sales_repo::append_wallet_review(&mut tx, payment_id, wallet_id, action, reason, evidence, &actor.as_str(), now.as_millis(), request_id).await
+        .map_err(|error| match error {
+            sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => SaleServiceError::from(SaleError::RefundSourceUnverifiable),
+            other => map_busy(other),
+        })?;
+    audit::append(&mut tx, actor, audit::event::SALE_WALLET_REVIEWED, now,
+        Some(serde_json::json!({"payment_id": payment_id, "wallet_id": wallet_id, "action": action, "request_id": request_id}).to_string()))
+        .await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
+}
+
+/// Full immutable review history, available only to the shop owner.
+pub async fn wallet_review_history(pool: &SqlitePool, tokens: &dyn SecureTokenStore, payment_id: &str) -> Result<Vec<sales_repo::WalletReviewEvent>, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut conn = pool.acquire().await.map_err(|_| DomainError::StorageUnavailable)?;
+    sales_repo::wallet_review_history(&mut conn, payment_id).await.map_err(|_| DomainError::StorageUnavailable.into())
+}
+
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundRepairCase {
+    pub payments: Vec<sales_repo::RefundAllocationRepairPayment>,
+    pub repairs: Vec<sales_repo::RefundAllocationRepairEvent>,
+    pub unresolved: bool,
+}
+
+/// Evidence and capacity inspection is restricted to managers. An incomplete
+/// reversal remains unresolved even when one wallet has been reviewed.
+pub async fn refund_repair_case(pool: &SqlitePool, tokens: &dyn SecureTokenStore, sale_id: &str) -> Result<RefundRepairCase, SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let mut tx = pool.begin().await.map_err(|_| DomainError::StorageUnavailable)?;
+    let payments = sales_repo::refund_repair_payments(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let repairs = sales_repo::refund_repair_history(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    let unresolved = sales_repo::has_unallocated_refund_payments(&mut tx, sale_id).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(RefundRepairCase { payments, repairs, unresolved })
+}
+
+/// An evidence-backed link never moves funds. Serializing the capacity check,
+/// repair and audit ensures a retry or concurrent manager cannot overallocate.
+pub async fn repair_refund_allocation(pool: &SqlitePool, tokens: &dyn SecureTokenStore, reversal: &str, original: &str, amount: i64, reason: &str, evidence: &str, request_id: &str) -> Result<(), SaleServiceError> {
+    let session = identity_session::resolve(pool, tokens).await?;
+    if session.role() != crate::domain::identity::Role::Manager { return Err(DomainError::PermissionDenied.into()); }
+    let reason = reason.trim(); let evidence = evidence.trim(); let request_id = request_id.trim();
+    if reversal.trim().is_empty() || original.trim().is_empty() || amount <= 0 || reason.is_empty() || reason.chars().count()>300 || evidence.is_empty() || evidence.chars().count()>1000 || request_id.is_empty() || request_id.chars().count()>120 { return Err(SaleError::RefundSourceUnverifiable.into()); }
+    let actor = session.user_id(); let now = Timestamp::now();
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.map_err(map_busy)?;
+    match sales_repo::refund_repair_request_matches(&mut tx, request_id, reversal, original, amount, reason, evidence, &actor.as_str()).await.map_err(|_| DomainError::StorageUnavailable)? {
+        Some(true) => return Ok(()), Some(false) => return Err(SaleError::RefundSourceUnverifiable.into()), None => {}
+    }
+    sales_repo::append_refund_repair(&mut tx, request_id, reversal, original, amount, reason, evidence, &actor.as_str(), now.as_millis()).await.map_err(|error| match error {
+        sqlx::Error::Database(ref db) if db.code().and_then(|c| c.parse::<i32>().ok()).is_some_and(|code| code & 255 == 19) => SaleServiceError::from(SaleError::RefundSourceUnverifiable), other => map_busy(other),
+    })?;
+    audit::append(&mut tx, actor, audit::event::REFUND_ALLOCATION_REPAIRED, now, Some(serde_json::json!({"request_id":request_id,"reversal_payment_id":reversal,"original_payment_id":original,"amount_minor":amount}).to_string())).await.map_err(|_| DomainError::StorageUnavailable)?;
+    tx.commit().await.map_err(|_| DomainError::StorageUnavailable)?;
+    Ok(())
 }

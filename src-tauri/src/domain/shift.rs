@@ -331,6 +331,7 @@ pub struct ShiftTotals {
     pub services_cash_in_minor: i64,
     pub services_cash_out_minor: i64,
     pub wallet_drawer_net_minor: i64,
+    pub drawer_transfer_net_minor: i64,
     pub cash_in_minor: i64,
     pub owner_draw_minor: i64,
     pub expenses_minor: i64,
@@ -432,6 +433,7 @@ impl ShiftTotals {
             services_cash_in_minor,
             services_cash_out_minor,
             wallet_drawer_net_minor,
+            drawer_transfer_net_minor: 0,
             cash_in_minor,
             owner_draw_minor,
             expenses_minor,
@@ -486,6 +488,8 @@ pub enum ShiftError {
     InvalidCountedCash,
     InvalidCloseNote,
     SellerCannotCloseShift,
+    CashUnreconciled,
+    ShiftChanged,
     InvalidExpenseCategory,
     InvalidExpenseAmount,
     InvalidExpenseNote,
@@ -493,6 +497,8 @@ pub enum ShiftError {
     InvalidCashMovementKind,
     InvalidCashMovementAmount,
     InvalidCashMovementReason,
+    InvalidDrawer,
+    RepairRefundEvidenceInvalid,
 }
 
 impl ShiftError {
@@ -504,6 +510,8 @@ impl ShiftError {
             ShiftError::InvalidCountedCash => "SHIFT_COUNTED_CASH_INVALID",
             ShiftError::InvalidCloseNote => "SHIFT_CLOSE_NOTE_INVALID",
             ShiftError::SellerCannotCloseShift => "SHIFT_CLOSE_FORBIDDEN_FOR_SELLER",
+            ShiftError::CashUnreconciled => "SHIFT_CASH_UNRECONCILED",
+            ShiftError::ShiftChanged => "SHIFT_CHANGED",
             ShiftError::InvalidExpenseCategory => "EXPENSE_CATEGORY_INVALID",
             ShiftError::InvalidExpenseAmount => "EXPENSE_AMOUNT_INVALID",
             ShiftError::InvalidExpenseNote => "EXPENSE_NOTE_INVALID",
@@ -511,6 +519,8 @@ impl ShiftError {
             ShiftError::InvalidCashMovementKind => "CASH_MOVEMENT_KIND_INVALID",
             ShiftError::InvalidCashMovementAmount => "CASH_MOVEMENT_AMOUNT_INVALID",
             ShiftError::InvalidCashMovementReason => "CASH_MOVEMENT_REASON_INVALID",
+            ShiftError::InvalidDrawer => "CASH_DRAWER_INVALID",
+            ShiftError::RepairRefundEvidenceInvalid => "REPAIR_CASH_REFUND_EVIDENCE_INVALID",
         }
     }
 }

@@ -193,9 +193,20 @@ export async function deliverRepair(params: DeliverRepairParams): Promise<Repair
   });
 }
 
-export async function cancelRepair(id: string, note?: string | null): Promise<RepairTicket> {
+export type RepairCancellationPartsDisposition = 'no_parts' | 'used' | 'unknown';
+
+export async function cancelRepair(
+  id: string,
+  note?: string | null,
+  cashPayoutConfirmed = false,
+  partsDisposition: RepairCancellationPartsDisposition = 'unknown',
+  cancellationPartsCostMinor: number | null = null,
+): Promise<RepairTicket> {
   return invoke<RepairTicket>('cancel_repair', {
     id,
     note: note ?? null,
+    cashPayoutConfirmed,
+    partsDisposition,
+    cancellationPartsCostMinor,
   });
 }

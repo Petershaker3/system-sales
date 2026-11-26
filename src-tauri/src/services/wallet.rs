@@ -460,7 +460,8 @@ pub async fn record_wallet_movement(
     Ok(op)
 }
 
-/// Reconcile a wallet's balance against its real app balance (`adjust`, owner only).
+/// Record an authorized adjustment against the computed estimate (owner only).
+/// This does not prove historical sources or mark the balance reconciled.
 /// Returns `Ok(None)` if `real_balance_minor` already equals the computed balance.
 pub async fn reconcile_wallet(
     pool: &SqlitePool,
@@ -481,7 +482,7 @@ pub async fn reconcile_wallet(
     let now = Timestamp::now();
 
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
@@ -494,7 +495,8 @@ pub async fn reconcile_wallet(
         .await
         .map_err(|_| DomainError::StorageUnavailable)?;
 
-    let diff_minor = real_balance_minor - expected_minor;
+    let diff_minor = real_balance_minor.checked_sub(expected_minor)
+        .ok_or(DomainError::StorageUnavailable)?;
     if diff_minor == 0 {
         return Ok(None);
     }
@@ -683,14 +685,8 @@ pub enum PaymentWalletFailure {
     NotEligible(WalletError),
 }
 
-/// The wallet one payment should be recorded on, for every flow that moves money (`ADR-041`).
-///
-/// A sale, a return, a customer settling a debt and a repair being settled all ask the same
-/// question and must get the same answer: the number the operator named when they named one, and
-/// the primary for the method otherwise. A named wallet that does not receive the method is an
-/// error, never a silent reassignment — quietly moving money to another wallet is how a till ends
-/// up balanced on paper and wrong in the drawer. A method no shop wallet holds (cash, card, the
-/// customer's own wallet) yields `None`, and naming a wallet for it is `WalletPayMethodInvalid`.
+/// Require an explicitly selected wallet for electronic payment methods.
+/// Missing selection is not evidence that a current primary received the money.
 pub async fn resolve_payment_wallet_id(
     conn: &mut sqlx::SqliteConnection,
     method_raw: &str,
@@ -726,10 +722,7 @@ pub async fn resolve_payment_wallet_id(
         return Ok(Some(wallet.id.as_str().to_owned()));
     }
 
-    let primary = repo::primary_payment_wallet(conn, method)
-        .await
-        .map_err(PaymentWalletFailure::Storage)?;
-    Ok(primary.map(|wallet| wallet.id.as_str().to_owned()))
+    Err(PaymentWalletFailure::NotEligible(WalletError::WalletPayMethodInvalid))
 }
 
 /// The wallet numbers that can receive a sale paid with `method` (`ADR-040`).

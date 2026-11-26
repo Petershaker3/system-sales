@@ -31,15 +31,15 @@ test('denomTotalMinor sums Egyptian banknotes and 0.5 EGP coins into piastres', 
 test('shiftDifferenceState classifies exact, shortage, and overage', () => {
   const exact = shiftDifferenceState(0);
   assert.equal(exact.state, 'exact');
-  assert.match(exact.label, /مظبوط/);
+  assert.match(exact.label, /غير المُراجَع/);
 
   const shortage = shiftDifferenceState(-2_500);
   assert.equal(shortage.state, 'shortage');
-  assert.match(shortage.label, /عجز/);
+  assert.match(shortage.label, /أقل من التقدير/);
 
   const overage = shiftDifferenceState(1_500);
   assert.equal(overage.state, 'overage');
-  assert.match(overage.label, /زيادة/);
+  assert.match(overage.label, /أعلى من التقدير/);
 });
 
 test('formatShiftWhatsAppReport includes drawer math, non-cash sales, and close note', () => {
@@ -75,6 +75,7 @@ test('formatShiftWhatsAppReport includes drawer math, non-cash sales, and close 
       servicesCashInMinor: 0,
       servicesCashOutMinor: 0,
       walletDrawerNetMinor: 0,
+      drawerTransferNetMinor: 0,
       cashInMinor: 10_000,
       ownerDrawMinor: 30_000,
       expensesMinor: 5_000,
@@ -90,8 +91,14 @@ test('formatShiftWhatsAppReport includes drawer math, non-cash sales, and close 
   assert.match(report, /تقرير تقفيل الوردية #1/);
   assert.match(report, /المتوقع في الدرج/);
   assert.match(report, /المعدود الفعلي/);
-  assert.match(report, /مظبوط/);
+  assert.match(report, /غير مُراجَع/);
+  assert.match(report, /الربح غير متاح/);
   assert.match(report, /فودافون كاش/);
   assert.match(report, /إنستاباي/);
   assert.match(report, /الدرج مظبوط تمام/);
+  const reversal = formatShiftWhatsAppReport({ ...summary, totals: { ...summary.totals, servicesCashInMinor: -110, servicesCashOutMinor: -50, servicesFeeMinor: -10, drawerTransferNetMinor: -123 } }, 'محل', 0);
+  assert.match(reversal, /− خدمات ومحافظ داخل الدرج \(بعد الإلغاء\)/);
+  assert.match(reversal, /\+ سحب محافظ خارج من الدرج \(بعد الإلغاء\)/);
+  assert.match(reversal, /− النقل بين الأدراج/);
+  assert.match(reversal, /عمولات الخدمات/);
 });

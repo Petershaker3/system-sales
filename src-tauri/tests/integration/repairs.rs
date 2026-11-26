@@ -252,19 +252,20 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
     assert_eq!(owner_overview.hardware.parts_cost_minor, Some(2100_00));
     assert_eq!(owner_overview.hardware.net_profit_minor, Some(1100_00));
 
-    // Software bucket: 2 tickets (1 delivered + 1 open), 250 + 100 deposit = 350 EGP revenue, 50 EGP cost, 300 EGP net profit.
+    // Software bucket: 2 tickets (1 delivered + 1 open), 250 + 100 deposit = 350 EGP revenue.
+    // The open ticket's 50 EGP parts estimate is excluded from actual cost and profit.
     assert_eq!(owner_overview.software.tickets_count, 2);
     assert_eq!(owner_overview.software.open_count, 1);
     assert_eq!(owner_overview.software.delivered_count, 1);
     assert_eq!(owner_overview.software.total_revenue_minor, 350_00);
-    assert_eq!(owner_overview.software.parts_cost_minor, Some(50_00));
-    assert_eq!(owner_overview.software.net_profit_minor, Some(300_00));
+    assert_eq!(owner_overview.software.parts_cost_minor, Some(0));
+    assert_eq!(owner_overview.software.net_profit_minor, Some(350_00));
 
-    // Combined bucket: 3 tickets, 3,550 EGP total revenue, 2,150 EGP cost, 1,400 EGP net profit.
+    // Combined bucket: 3 tickets, 3,550 EGP total revenue, 2,100 EGP actual cost, 1,450 EGP net profit.
     assert_eq!(owner_overview.combined.tickets_count, 3);
     assert_eq!(owner_overview.combined.total_revenue_minor, 3550_00);
-    assert_eq!(owner_overview.combined.parts_cost_minor, Some(2150_00));
-    assert_eq!(owner_overview.combined.net_profit_minor, Some(1400_00));
+    assert_eq!(owner_overview.combined.parts_cost_minor, Some(2100_00));
+    assert_eq!(owner_overview.combined.net_profit_minor, Some(1450_00));
 
     // Technician breakdown separates "م. حسن" (hardware) and "يوسف" (software).
     assert_eq!(owner_overview.technicians.len(), 2);
@@ -369,7 +370,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             amount_minor: 400_00,
             method: "vf".to_owned(),
             note: Some("سداد جزء من الآجل فودافون كاش".to_owned()),
-            wallet_id: None,
+            wallet_id: Some("vf".to_owned()),
         },
     )
     .await
@@ -417,7 +418,7 @@ async fn repair_collections_and_customer_credit_wallet_repayments_sync_with_shif
             technician_name: Some("م. حسن".to_owned()),
             warranty_days: Some(14),
             note: None,
-            pay_wallet_id: None,
+            pay_wallet_id: Some("vf".to_owned()),
         },
     )
     .await
@@ -589,11 +590,12 @@ async fn undoing_a_delivered_ticket_takes_its_money_back_out_of_the_drawer() {
     assert_eq!(before.hardware.total_revenue_minor, 800_00);
 
     owner_approves(&pool, tokens.as_ref()).await;
-    let undone = repair_service::cancel_repair(
+    let undone = repair_service::cancel_repair_with_cash_confirmation(
         &pool,
         tokens.as_ref(),
         ticket.id.as_str(),
         Some("العميل رجع الجهاز"),
+        true,
     )
     .await
     .expect("undo the delivered ticket");
@@ -620,4 +622,110 @@ async fn undoing_a_delivered_ticket_takes_its_money_back_out_of_the_drawer() {
         .await
         .expect_err("a second undo must be refused");
     assert_eq!(second.code(), "REPAIR_ALREADY_CANCELLED");
+}
+
+#[tokio::test]
+async fn cash_repair_receipts_and_wholly_cash_cancellation_keep_event_shifts() {
+    let (pool, tokens, manager, _, _) = setup_shop_for_repairs().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "r1", "First", "r1-setup").await.expect("drawer");
+    let first = shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("shift");
+    let ticket = repair_service::create_repair(&pool, tokens.as_ref(), CreateRepairInput {
+        service_kind: "hardware".into(), customer_name: "".into(), customer_phone: "".into(), device_name: "phone".into(), imei: None, device_lock: None, issue: "screen".into(), accessories: None, due_label: None,
+        estimated_price_minor: 200, parts_cost_minor: None, part_name: None, part_supplier: None, deposit_minor: 50, pay_method: Some("cash".into()), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None, deliver_now: false,
+    }).await.expect("deposit");
+    repair_service::deliver_repair(&pool, tokens.as_ref(), DeliverRepairInput { id: ticket.id.clone(), final_price_minor: 200, parts_cost_minor: None, pay_method: "cash".into(), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None }).await.expect("delivery");
+    let receipts: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id=?1 ORDER BY source_kind").bind(&ticket.id).fetch_all(&pool).await.expect("receipts");
+    assert_eq!(receipts, vec![("repair_delivery".into(),150),("repair_deposit".into(),50)]);
+    shift_service::close_shift(&pool, tokens.as_ref(), first.shift.id.as_str(), 200, None).await.expect("close");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "r2", "Second", "r2-setup").await.expect("second drawer");
+    let second = shift_service::open_shift(&pool, tokens.as_ref(), 200).await.expect("second shift");
+    owner_approves(&pool, tokens.as_ref()).await;
+    repair_service::cancel_repair_with_cash_confirmation(&pool, tokens.as_ref(), &ticket.id, Some("refund"), true).await.expect("cancel");
+    let refund: (String,String,i64) = sqlx::query_as("SELECT shift_id,drawer_id,signed_minor FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("refund posting");
+    assert_eq!(refund, (second.shift.id.as_str().to_owned(),"r2".into(),-200));
+    let uncertain:i64 = sqlx::query_scalar("SELECT COUNT(*) FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("gap count");
+    assert_eq!(uncertain,0,"a captured wholly cash refund is not also a gap");
+    let current = shift_service::current_shift_summary(&pool,tokens.as_ref()).await.expect("current").open_shift.expect("open").totals;
+    assert_eq!(current.services_cash_in_minor,-200, "refund belongs to its own shift");
+    assert_eq!(current.expected_cash_minor,0);
+    let mut conn = pool.acquire().await.expect("connection");
+    let closed = mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn,first.shift.id.as_str()).await.expect("read").expect("first shift");
+    let past = mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn,&closed).await.expect("totals");
+    assert_eq!(past.services_cash_in_minor,200, "later cancellation must not erase receipts");
+    assert_eq!(past.expected_cash_minor,200);
+}
+
+#[tokio::test]
+async fn mixed_repair_cancellation_does_not_invent_a_cash_payout() {
+    let (pool, tokens, manager, _, _) = setup_shop_for_repairs().await;
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    let ticket = repair_service::create_repair(&pool, tokens.as_ref(), CreateRepairInput {
+        service_kind: "hardware".into(), customer_name: "".into(), customer_phone: "".into(), device_name: "phone".into(), imei: None, device_lock: None, issue: "screen".into(), accessories: None, due_label: None,
+        estimated_price_minor: 200, parts_cost_minor: None, part_name: None, part_supplier: None, deposit_minor: 50, pay_method: Some("cash".into()), pay_wallet_id: None, technician_name: None, warranty_days: None, note: None, deliver_now: false,
+    }).await.expect("deposit");
+    repair_service::deliver_repair(&pool, tokens.as_ref(), DeliverRepairInput { id: ticket.id.clone(), final_price_minor: 200, parts_cost_minor: None, pay_method: "vf".into(), pay_wallet_id: Some("vf".into()), technician_name: None, warranty_days: None, note: None }).await.expect("delivery");
+    owner_approves(&pool, tokens.as_ref()).await;
+    sqlx::query("CREATE TRIGGER reject_uncertain_refund BEFORE INSERT ON uncertain_repair_refunds BEGIN SELECT RAISE(ABORT,'test'); END").execute(&pool).await.expect("inject failure");
+    assert!(repair_service::cancel_repair_with_cash_confirmation(&pool, tokens.as_ref(), &ticket.id, None, true).await.is_err());
+    let status: String=sqlx::query_scalar("SELECT status FROM repairs WHERE id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("status");
+    assert_eq!(status,"delivered","gap insert failure rolls back cancellation and approval");
+    sqlx::query("DROP TRIGGER reject_uncertain_refund").execute(&pool).await.expect("drop failure");
+    repair_service::cancel_repair_with_cash_confirmation(&pool, tokens.as_ref(), &ticket.id, None, true).await.expect("retry cancel");
+    let gap: (Option<String>,i64)=sqlx::query_as("SELECT shift_id,amount_minor FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("explicit unresolved payout");
+    assert_eq!(gap,(None,200));
+    let preview=shift_service::cash_posting_preview(&pool,tokens.as_ref()).await.expect("preview");
+    assert_eq!(preview.uncertain_repair_refund_count,1);
+    assert_eq!(preview.uncertain_repair_refunds[0].repair_id,ticket.id);
+    assert!(!preview.complete);
+    assert!(sqlx::query("UPDATE uncertain_repair_refunds SET amount_minor=1 WHERE repair_id=?1").bind(&ticket.id).execute(&pool).await.is_err());
+    assert!(sqlx::query("DELETE FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).execute(&pool).await.is_err());
+    let events: Vec<(String,i64)> = sqlx::query_as("SELECT source_kind,signed_minor FROM cash_source_postings WHERE source_id=?1 ORDER BY source_kind").bind(&ticket.id).fetch_all(&pool).await.expect("events");
+    assert_eq!(events, vec![("repair_deposit".into(),50)], "mixed refund source remains unknown");
+}
+
+
+#[tokio::test]
+async fn known_cash_collection_does_not_prove_physical_refund_without_confirmation() {
+    let (pool,tokens,manager,seller,_)=setup_shop_for_repairs().await;
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"review-till","Till","review-config").await.expect("drawer");
+    let shift=shift_service::open_shift(&pool,tokens.as_ref(),0).await.expect("shift");
+    let ticket=repair_service::create_repair(&pool,tokens.as_ref(),CreateRepairInput {
+        service_kind:"hardware".into(), customer_name:"".into(), customer_phone:"".into(), device_name:"phone".into(), imei:None, device_lock:None, issue:"screen".into(), accessories:None, due_label:None,
+        estimated_price_minor:200, parts_cost_minor:None, part_name:None, part_supplier:None, deposit_minor:0, pay_method:Some("cash".into()), pay_wallet_id:None, technician_name:None, warranty_days:None, note:None, deliver_now:true,
+    }).await.expect("cash collection");
+    owner_approves(&pool,tokens.as_ref()).await;
+    repair_service::cancel_repair(&pool,tokens.as_ref(),&ticket.id,None).await.expect("cancel without payout claim");
+    let (outflow,gap):(i64,i64)=sqlx::query_as("SELECT (SELECT COUNT(*) FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1),(SELECT COUNT(*) FROM uncertain_repair_refunds WHERE repair_id=?1)").bind(&ticket.id).fetch_one(&pool).await.expect("evidence");
+    assert_eq!((outflow,gap),(0,1));
+    let totals=shift_service::current_shift_summary(&pool,tokens.as_ref()).await.expect("summary").open_shift.expect("open").totals;
+    assert_eq!(totals.expected_cash_minor,200,"do not subtract an unconfirmed payout");
+    let gap_shift: Option<String>=sqlx::query_scalar("SELECT shift_id FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("gap");
+    assert_eq!(gap_shift.as_deref(),Some(shift.shift.id.as_str()));
+    let payout_at:i64=sqlx::query_scalar("SELECT occurred_at FROM uncertain_repair_refunds WHERE repair_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("gap time");
+    let shift_id=shift.shift.id.as_str();
+    sqlx::query("CREATE TRIGGER reject_refund_review_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='repair_cash_refund_reviewed' BEGIN SELECT RAISE(ABORT,'test'); END").execute(&pool).await.expect("inject audit failure");
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-1",&ticket.id,shift_id,"review-till",payout_at,"receipt 42").await.is_err());
+    let n:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings WHERE source_kind='repair_cash_refund' AND source_id=?1").bind(&ticket.id).fetch_one(&pool).await.expect("outflow count"); assert_eq!(n,0,"audit failure rolls back review and posting");
+    sqlx::query("DROP TRIGGER reject_refund_review_audit").execute(&pool).await.expect("drop failure");
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-bad",&ticket.id,shift_id,"missing",payout_at,"receipt 42").await.is_err());
+    let (one,two)=tokio::join!(
+        shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-1",&ticket.id,shift_id,"review-till",payout_at,"receipt 42"),
+        shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-2",&ticket.id,shift_id,"review-till",payout_at,"receipt 42")
+    );
+    assert_ne!(one.is_ok(),two.is_ok(),"only one concurrent review can resolve the same payout");
+    let review=one.or(two).expect("one review succeeds");
+    let retry=shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),&review.request_id,&ticket.id,shift_id,"review-till",payout_at,"receipt 42").await.expect("retry");
+    assert_eq!(review.reviewed_at,retry.reviewed_at);
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),&review.request_id,&ticket.id,shift_id,"review-till",payout_at,"changed evidence").await.is_err());
+    assert!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"review-3",&ticket.id,shift_id,"review-till",payout_at,"duplicate").await.is_err());
+    let preview=shift_service::cash_posting_preview(&pool,tokens.as_ref()).await.expect("review preview");
+    assert_eq!(preview.uncertain_repair_refund_count,0);
+    assert_eq!(preview.repair_cash_refund_reviews[0].evidence,"receipt 42");
+    assert_eq!(preview.recent_postings.iter().find(|p| p.source_kind=="repair_cash_refund").expect("posting").signed_minor,-200);
+    assert!(!preview.complete);
+    assert!(sqlx::query("DELETE FROM repair_cash_refund_reviews WHERE request_id=?1").bind(&review.request_id).execute(&pool).await.is_err());
+    auth::login(&pool,tokens.as_ref(),seller,PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::review_repair_cash_refund(&pool,tokens.as_ref(),"denied",&ticket.id,shift_id,"review-till",payout_at,"evidence").await.expect_err("seller denied").code(),"PERMISSION_DENIED");
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
 }

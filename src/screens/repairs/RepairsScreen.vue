@@ -9,6 +9,7 @@ import {
   updateRepairStatus,
   type RepairKindFinancialBucket,
   type RepairPayMethod,
+  type RepairCancellationPartsDisposition,
   type RepairServiceKind,
   type RepairStatusId,
   type RepairTechnicianSummary,
@@ -41,6 +42,7 @@ import {
   SOFTWARE_QUICK_ISSUES,
   type RepairPeriodId,
 } from './repairs';
+import { parseCancellationPartsCostInput } from './cancellation-cost';
 
 const props = defineProps<{
   session: Session;
@@ -230,6 +232,77 @@ async function loadOverview(): Promise<void> {
   }
 }
 
+function applyIntakeLocally(ticket: RepairTicket): void {
+  const range = repairPeriodRange(period.value);
+  const isInRange = (at: number | null): boolean => at !== null &&
+    (range.fromTs === null || at >= range.fromTs) &&
+    (range.toTs === null || at <= range.toTs);
+  const open = ['received', 'diagnosing', 'waiting', 'ready'].includes(ticket.status);
+  const createdInPeriod = isInRange(ticket.createdAt);
+  const deliveredInPeriod = ticket.status === 'delivered' && isInRange(ticket.deliveredAt);
+  const includeTicket = open || createdInPeriod || deliveredInPeriod;
+  if (includeTicket) tickets.value = [ticket, ...tickets.value.filter((row) => row.id !== ticket.id)];
+
+  const updateBucket = (bucket: RepairKindFinancialBucket): RepairKindFinancialBucket => {
+    if (bucket.serviceKind !== 'all' && bucket.serviceKind !== ticket.serviceKind) return bucket;
+    const deposit = createdInPeriod ? ticket.depositMinor : 0;
+    const delivery = deliveredInPeriod ? Math.max(0, ticket.finalPriceMinor - ticket.depositMinor) : 0;
+    const revenue = deposit + delivery;
+    const cost = deliveredInPeriod ? (ticket.partsCostMinor ?? 0) : 0;
+    return {
+      ...bucket,
+      ticketsCount: bucket.ticketsCount + (includeTicket ? 1 : 0),
+      openCount: bucket.openCount + (open ? 1 : 0),
+      readyCount: bucket.readyCount + (ticket.status === 'ready' ? 1 : 0),
+      deliveredCount: bucket.deliveredCount + (deliveredInPeriod ? 1 : 0),
+      depositCollectedMinor: bucket.depositCollectedMinor + deposit,
+      deliveryCollectedMinor: bucket.deliveryCollectedMinor + delivery,
+      totalRevenueMinor: bucket.totalRevenueMinor + revenue,
+      cashCollectedMinor: bucket.cashCollectedMinor + deposit + (ticket.payMethod === 'cash' ? delivery : 0),
+      vfCollectedMinor: bucket.vfCollectedMinor + (ticket.payMethod === 'vf' ? delivery : 0),
+      instapayCollectedMinor: bucket.instapayCollectedMinor + (ticket.payMethod === 'instapay' ? delivery : 0),
+      cardCollectedMinor: bucket.cardCollectedMinor + (ticket.payMethod === 'card' ? delivery : 0),
+      partsCostMinor: bucket.partsCostMinor === null ? null : bucket.partsCostMinor + cost,
+      netProfitMinor: bucket.netProfitMinor === null ? null : bucket.netProfitMinor + revenue - cost,
+    };
+  };
+  hardwareBucket.value = updateBucket(hardwareBucket.value);
+  softwareBucket.value = updateBucket(softwareBucket.value);
+  combinedBucket.value = updateBucket(combinedBucket.value);
+
+  const technician = ticket.technicianName?.trim();
+  if (technician && includeTicket) {
+    const existing = technicians.value.find((row) => row.technicianName === technician);
+    const revenue = (createdInPeriod ? ticket.depositMinor : 0) +
+      (deliveredInPeriod ? Math.max(0, ticket.finalPriceMinor - ticket.depositMinor) : 0);
+    const cost = deliveredInPeriod ? (ticket.partsCostMinor ?? 0) : 0;
+    const base = existing ?? {
+      technicianName: technician,
+      hardwareCount: 0,
+      softwareCount: 0,
+      deliveredCount: 0,
+      hardwareRevenueMinor: 0,
+      softwareRevenueMinor: 0,
+      totalRevenueMinor: 0,
+      partsCostMinor: 0,
+      netProfitMinor: 0,
+    };
+    const updated: RepairTechnicianSummary = {
+      ...base,
+      hardwareCount: base.hardwareCount + (ticket.serviceKind === 'hardware' ? 1 : 0),
+      softwareCount: base.softwareCount + (ticket.serviceKind === 'software' ? 1 : 0),
+      deliveredCount: base.deliveredCount + (deliveredInPeriod ? 1 : 0),
+      hardwareRevenueMinor: base.hardwareRevenueMinor + (ticket.serviceKind === 'hardware' ? revenue : 0),
+      softwareRevenueMinor: base.softwareRevenueMinor + (ticket.serviceKind === 'software' ? revenue : 0),
+      totalRevenueMinor: base.totalRevenueMinor + revenue,
+      partsCostMinor: base.partsCostMinor === null ? null : base.partsCostMinor + cost,
+      netProfitMinor: base.netProfitMinor === null ? null : base.netProfitMinor + revenue - cost,
+    };
+    technicians.value = [updated, ...technicians.value.filter((row) => row.technicianName !== technician)]
+      .sort((a, b) => b.totalRevenueMinor - a.totalRevenueMinor || a.technicianName.localeCompare(b.technicianName));
+  }
+}
+
 async function selectPeriod(next: RepairPeriodId): Promise<void> {
   period.value = next;
   await loadOverview();
@@ -369,7 +442,7 @@ async function submitIntake(): Promise<void> {
     okBanner.value = intakeDeliverNow.value
       ? `تم تسجيل وتحصيل تذكرة ${created.ticketNo} (${serviceKindLabel(created.serviceKind)}) بنجاح`
       : `تم فتح تذكرة ${created.ticketNo} (${serviceKindLabel(created.serviceKind)}) بنجاح`;
-    await loadOverview();
+    applyIntakeLocally(created);
     emit('changed');
   } catch (e) {
     intakeError.value = describeError(e);
@@ -519,6 +592,9 @@ async function saveDetailChanges(): Promise<void> {
 // undid what, when, and how much went back.
 const undoTarget = ref<RepairTicket | null>(null);
 const undoReason = ref('');
+const undoCashConfirmed = ref(false);
+const undoPartsDisposition = ref<RepairCancellationPartsDisposition>('unknown');
+const undoCancelledPartsCostEgp = ref('');
 const undoSubmitting = ref(false);
 
 /** What the customer gets back if this ticket is undone, in money. */
@@ -531,6 +607,9 @@ const undoRefundMinor = computed<number>(() => {
 function askUndo(ticket: RepairTicket): void {
   undoTarget.value = ticket;
   undoReason.value = '';
+  undoCashConfirmed.value = false;
+  undoPartsDisposition.value = 'unknown';
+  undoCancelledPartsCostEgp.value = '';
   errorBanner.value = '';
   detailTarget.value = null;
 }
@@ -538,19 +617,31 @@ function askUndo(ticket: RepairTicket): void {
 async function confirmUndo(): Promise<void> {
   const ticket = undoTarget.value;
   if (!ticket) return;
+  const parsedCancellationCost = parseCancellationPartsCostInput(undoCancelledPartsCostEgp.value);
+  if (undoPartsDisposition.value === 'used' && !parsedCancellationCost.ok) {
+    errorBanner.value = 'أدخل التكلفة الفعلية للقطع المستخدمة.';
+    return;
+  }
   undoSubmitting.value = true;
   try {
     const refund = undoRefundMinor.value;
     const outcome = await withOwnerApproval(
-      () => cancelRepair(ticket.id, undoReason.value.trim() || 'تراجع عن العملية'),
+      () => cancelRepair(
+        ticket.id,
+        undoReason.value.trim() || 'تراجع عن العملية',
+        undoCashConfirmed.value,
+        undoPartsDisposition.value,
+        undoPartsDisposition.value === 'used' && parsedCancellationCost.ok
+          ? parsedCancellationCost.amountMinor
+          : null,
+      ),
       `التراجع عن تذكرة ${ticket.ticketNo}`
     );
     if (outcome.status === 'cancelled') return;
     undoTarget.value = null;
-    okBanner.value =
-      refund > 0
-        ? `تم التراجع عن تذكرة ${outcome.value.ticketNo} ورجّعنا ${money(refund)} للعميل`
-        : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
+    okBanner.value = refund > 0
+      ? `تم التراجع عن تذكرة ${outcome.value.ticketNo}. راجع تسجيل طريقة رد ${money(refund)}؛ قد تحتاج إثباتاً.`
+      : `تم التراجع عن تذكرة ${outcome.value.ticketNo}`;
     await loadOverview();
     emit('changed');
   } catch (e) {
@@ -704,12 +795,12 @@ onMounted(async () => {
           </div>
           <div v-if="canSeeCost" class="rb-metric">
             <span class="lbl">تكلفة قطع الغيار</span>
-            <strong class="val num" data-hw-cost>{{ egp(hardwareBucket.partsCostMinor ?? 0) }}</strong>
+            <strong class="val num" data-hw-cost>{{ hardwareBucket.partsCostMinor === null ? 'غير محسوم' : egp(hardwareBucket.partsCostMinor) }}</strong>
             <span class="sub muted small">{{ hardwareBucket.openCount }} جهاز مفتوح</span>
           </div>
           <div v-if="canSeeCost" class="rb-metric highlight">
             <span class="lbl">صافي فلوس الصيانة</span>
-            <strong class="val num ok-txt" data-hw-profit>{{ egp(hardwareBucket.netProfitMinor ?? 0) }}</strong>
+            <strong class="val num ok-txt" data-hw-profit>{{ hardwareBucket.netProfitMinor === null ? 'غير محسوم' : egp(hardwareBucket.netProfitMinor) }}</strong>
             <span class="sub muted small">بعد خصم قطع الغيار</span>
           </div>
         </div>
@@ -736,12 +827,12 @@ onMounted(async () => {
           </div>
           <div v-if="canSeeCost" class="rb-metric">
             <span class="lbl">تكلفة كريدت / شير</span>
-            <strong class="val num" data-sw-cost>{{ egp(softwareBucket.partsCostMinor ?? 0) }}</strong>
+            <strong class="val num" data-sw-cost>{{ softwareBucket.partsCostMinor === null ? 'غير محسوم' : egp(softwareBucket.partsCostMinor) }}</strong>
             <span class="sub muted small">{{ softwareBucket.openCount }} مفتوح حالياً</span>
           </div>
           <div v-if="canSeeCost" class="rb-metric highlight">
             <span class="lbl">صافي فلوس السوفت وير</span>
-            <strong class="val num ok-txt" data-sw-profit>{{ egp(softwareBucket.netProfitMinor ?? 0) }}</strong>
+            <strong class="val num ok-txt" data-sw-profit>{{ softwareBucket.netProfitMinor === null ? 'غير محسوم' : egp(softwareBucket.netProfitMinor) }}</strong>
             <span class="sub muted small">ربح السوفت وير المستقل</span>
           </div>
         </div>
@@ -1108,7 +1199,9 @@ onMounted(async () => {
 
             <label v-if="canSeeCost" class="field">
               <span class="lbl">
-                {{ intakeKind === 'software' ? `تكلفة داخلية (${moneyUnitWord()})` : `تكلفة القطعة (${moneyUnitWord()})` }}
+                {{ intakeDeliverNow
+                  ? `التكلفة النهائية ${intakeKind === 'software' ? 'الداخلية' : 'للقطع'} (${moneyUnitWord()})`
+                  : `التكلفة التقديرية ${intakeKind === 'software' ? 'الداخلية' : 'للقطع'} (${moneyUnitWord()})` }}
               </span>
               <input
                 v-model="intakePartsCostEgp"
@@ -1120,6 +1213,7 @@ onMounted(async () => {
                 placeholder="0"
                 data-intake-parts-cost
               />
+              <span v-if="!intakeDeliverNow" class="sub muted small">لا تدخل صافي الربح الفعلي إلا بعد التسليم.</span>
             </label>
           </div>
 
@@ -1466,8 +1560,8 @@ onMounted(async () => {
         <div class="note" style="margin: 0">
           <Icon name="info" />
           <span>
-            التراجع بيرجّع العملية والحسابات زي ما كانت قبلها: التذكرة بتتقفل، والفلوس
-            اللي اتاخدت عليها بتخرج من تحصيل اليوم ومن رصيد المحفظة اللي اتحصّلت فيها.
+            التراجع بيقفل التذكرة، لكنه مش إثبات لوحده إن الفلوس اتردّت أو خرجت من درج معين.
+            الرد المختلط أو غير المعروف يفضل معلّق للمراجعة، من غير تخمين طريقة الصرف.
           </span>
         </div>
 
@@ -1483,7 +1577,7 @@ onMounted(async () => {
             class="muted small"
             style="margin-top: 6px"
           >
-            التذكرة دي كانت اتسلّمت — التراجع بيلغي التحصيل كله ({{ egp(undoTarget.finalPriceMinor) }})
+            التذكرة دي كانت اتسلّمت — المبلغ المطلوب مراجعته للرد كله ({{ egp(undoTarget.finalPriceMinor) }})
             مش العربون بس.
           </div>
           <div
@@ -1491,10 +1585,24 @@ onMounted(async () => {
             class="muted small"
             style="margin-top: 6px"
           >
-            العربون اللي اتاخد وقت الاستلام هيرجع كاش.
+            راجع طريقة رد العربون الفعلية قبل تأكيد العملية.
           </div>
         </div>
 
+        <label v-if="undoRefundMinor > 0 && undoTarget.payMethod === 'cash'" class="field">
+          <span><input v-model="undoCashConfirmed" type="checkbox" data-undo-cash-confirmed /> أؤكد إني دفعت كامل المبلغ نقداً بالفعل</span>
+          <span class="muted small">يُسجّل كاش فقط لو مصادر التحصيل تثبت إن المبلغ كله كان نقداً؛ وإلا تفضل طريقة الرد غير محسومة.</span>
+        </label>
+        <fieldset class="field">
+          <legend class="lbl">حالة تكلفة القطع</legend>
+          <label class="row"><input v-model="undoPartsDisposition" type="radio" value="no_parts" data-undo-parts="no_parts" /> لم تُستخدم قطع</label>
+          <label class="row"><input v-model="undoPartsDisposition" type="radio" value="used" data-undo-parts="used" /> استُخدمت قطع ولم يمكن إرجاعها</label>
+          <label class="row"><input v-model="undoPartsDisposition" type="radio" value="unknown" data-undo-parts="unknown" /> الحالة غير معروفة، تبقى غير محسومة</label>
+          <label v-if="undoPartsDisposition === 'used'" class="field">
+            <span class="lbl">التكلفة الفعلية للقطع ({{ moneyUnitWord() }})</span>
+            <input v-model="undoCancelledPartsCostEgp" type="number" min="0" required class="input" data-undo-parts-cost />
+          </label>
+        </fieldset>
         <label class="field">
           <span class="lbl">سبب التراجع (اختياري)</span>
           <input
@@ -1574,7 +1682,10 @@ onMounted(async () => {
           </label>
 
           <label v-if="canSeeCost" class="field">
-            <span class="lbl">تكلفة قطع الغيار / التكلفة الداخلية ({{ moneyUnitWord() }})</span>
+            <span class="lbl">
+              {{ detailTarget.status === 'delivered' ? 'التكلفة النهائية' : 'التكلفة التقديرية' }}
+              {{ detailTarget.serviceKind === 'software' ? 'الداخلية' : 'للقطع' }} ({{ moneyUnitWord() }})
+            </span>
             <input
               v-model="detailPartsCostEgp"
               type="number"
@@ -1584,6 +1695,7 @@ onMounted(async () => {
               :dir="detailPartsCostEgp ? 'ltr' : 'rtl'"
               data-detail-parts-cost
             />
+            <span v-if="detailTarget.status !== 'delivered'" class="sub muted small">لا تدخل صافي الربح الفعلي إلا بعد التسليم.</span>
           </label>
 
           <label class="field">

@@ -183,7 +183,7 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
                 method: "vf".to_owned(),
                 amount_minor: 20_000,
                 reference: Some("VF-900".to_owned()),
-                wallet_id: None,
+                wallet_id: Some("vf".to_owned()),
             },
             SalePaymentInput {
                 method: "credit".to_owned(),
@@ -269,19 +269,20 @@ async fn open_shift_tracks_sales_customer_cash_expenses_and_movements_with_exact
 }
 
 #[tokio::test]
-async fn seller_shift_close_permission_and_sequential_shift_lifecycle_work_end_to_end() {
+async fn seller_permission_and_unreconciled_close_are_enforced() {
     let (pool, tokens, manager_uid, seller_uid, _product_id) = setup_shop().await;
 
     // Seller logs in and opens Shift #1 with 1,000 EGP (100_000 minor).
     auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD)
         .await
         .expect("seller login");
-    shift_service::open_shift(&pool, tokens.as_ref(), 100_000)
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 100_000)
         .await
         .expect("seller opens shift #1");
+    let first_id = opened.shift.id.as_str().to_owned();
 
     // By default (`ui.seller_can_close_shift == "off"`), seller cannot close the shift.
-    let refused = shift_service::close_shift(&pool, tokens.as_ref(), 100_000, None).await;
+    let refused = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 100_000, None).await;
     assert_eq!(
         refused.err().map(|e| e.code()),
         Some("SHIFT_CLOSE_FORBIDDEN_FOR_SELLER")
@@ -295,65 +296,33 @@ async fn seller_shift_close_permission_and_sequential_shift_lifecycle_work_end_t
         .await
         .expect("enable seller_can_close_shift");
 
-    // Seller logs back in and closes Shift #1 with counted cash 990 EGP (99_000 minor -> -10 EGP shortage).
-    auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD)
-        .await
-        .expect("seller login");
-    let closed = shift_service::close_shift(
-        &pool,
-        tokens.as_ref(),
-        99_000,
-        Some("عجز 10 ج فكة"),
-    )
-    .await
-    .expect("seller closes shift #1");
-
-    assert_eq!(closed.shift.shift_number, 1);
+    // Even an authorized operator and a documented difference cannot turn an
+    // unverified time-window estimate into a reconciled drawer close.
+    auth::login(&pool, tokens.as_ref(), seller_uid, PASSWORD).await.expect("seller login");
+    let invalid = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, -1, None).await.expect_err("negative count refused");
+    assert_eq!(invalid.code(), "SHIFT_COUNTED_CASH_INVALID");
+    let count = shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 99_000).await.expect("record count");
+    assert_eq!(count.amount_minor, 99_000);
+    let latest = shift_service::latest_shift_cash_count(&pool, tokens.as_ref()).await.expect("read count").expect("exists");
+    assert_eq!(latest.id, count.id);
+    let closed = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 99_000, Some("عجز 10 ج فكة")).await.expect("operational close");
     assert_eq!(closed.shift.status.as_str(), "closed");
-    assert_eq!(closed.shift.expected_cash_minor, Some(100_000));
-    assert_eq!(
-        closed.shift.counted_cash.map(|c| c.as_minor()),
-        Some(99_000)
-    );
-    assert_eq!(closed.shift.difference_minor, Some(-1_000));
-    assert_eq!(
-        closed.shift.close_note.as_ref().map(|n| n.as_str()),
-        Some("عجز 10 ج فكة")
-    );
-
-    // Current shift state now shows `open_shift = None` and `last_closed_shift = Some(#1)`.
-    let state = shift_service::current_shift_summary(&pool, tokens.as_ref())
-        .await
-        .expect("current_shift_summary after close");
-    assert!(state.open_shift.is_none());
-    assert_eq!(
-        state
-            .last_closed_shift
-            .as_ref()
-            .and_then(|s| s.counted_cash.map(|c| c.as_minor())),
-        Some(99_000)
-    );
-
-    // Opening the next shift creates Shift #2.
-    let shift2 = shift_service::open_shift(&pool, tokens.as_ref(), 99_000)
-        .await
-        .expect("open shift #2");
-    assert_eq!(shift2.shift.shift_number, 2);
-
-    // Audit trail recorded all events.
+    assert_eq!(closed.shift.counted_cash.unwrap().as_minor(), 99_000);
+    let dto: mobile_shop_system_lib::commands::shift::ShiftRecordDto = closed.shift.into();
+    assert!(!dto.cash_reconciled);
+    assert!(dto.expected_cash_minor.is_none() && dto.difference_minor.is_none());
+    let next = shift_service::open_shift(&pool, tokens.as_ref(), 98_000).await.expect("fresh opening count");
+    assert_eq!(next.shift.shift_number, 2);
+    let retry = shift_service::close_shift(&pool, tokens.as_ref(), &first_id, 99_000, None).await.expect_err("stale retry cannot close the next shift");
+    assert_eq!(retry.code(), "SHIFT_CHANGED");
     let mut conn = pool.acquire().await.expect("conn");
-    assert_eq!(
-        audit::count_by_type(&mut conn, audit::event::SHIFT_OPENED)
-            .await
-            .expect("count shift_opened"),
-        2
-    );
-    assert_eq!(
-        audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED)
-            .await
-            .expect("count shift_closed"),
-        1
-    );
+    let handover: (i64, i64, i64, String) = sqlx::query_as("SELECT opening_minor, previous_count_minor, handover_difference_minor, reconciliation_status FROM shift_opening_observations WHERE shift_id = ?")
+        .bind(next.shift.id.as_str()).fetch_one(&mut *conn).await.expect("handover");
+    assert_eq!(handover, (98_000, 99_000, -1_000, "unreconciled".to_owned()));
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CASH_COUNTED).await.expect("count audit"), 2);
+    assert_eq!(audit::count_by_type(&mut conn, audit::event::SHIFT_CLOSED).await.expect("close audit"), 1);
+
+
 }
 
 /// One list of expenses, two sources (`ADR-043`).
@@ -470,4 +439,194 @@ async fn an_outside_expense_needs_no_shift_and_never_moves_expected_cash() {
         .expect("empty window");
     assert_eq!(future.count, 0);
     assert_eq!(future.total_minor, 0);
+}
+
+#[tokio::test]
+async fn shift_transport_explicitly_marks_legacy_cash_total_unreconciled() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    let summary = shift_service::open_shift(&pool, tokens.as_ref(), 1000).await.expect("open shift");
+    let dto = mobile_shop_system_lib::commands::shift::ShiftTotalsDto::from(summary.totals);
+    let encoded = serde_json::to_value(dto).expect("serialize totals");
+    assert_eq!(encoded["cashReconciled"], false);
+}
+
+#[tokio::test]
+async fn failed_count_audit_rolls_back_the_physical_observation() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    shift_service::open_shift(&pool, tokens.as_ref(), 0).await.expect("open shift");
+    sqlx::raw_sql("CREATE TRIGGER fail_shift_count_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='shift_cash_counted' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
+        .execute(&pool).await.expect("failure injection");
+    assert!(shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 500).await.is_err());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("count rows");
+    assert_eq!(n, 0, "count and audit must commit together");
+}
+
+#[tokio::test]
+async fn failed_close_audit_rolls_back_count_and_operational_close() {
+    let (pool, tokens, _, _, _) = setup_shop().await;
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 100).await.expect("open shift");
+    sqlx::raw_sql("CREATE TRIGGER fail_shift_close_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='shift_closed' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
+        .execute(&pool).await.expect("failure injection");
+    assert!(shift_service::close_shift(&pool, tokens.as_ref(), opened.shift.id.as_str(), 101, None).await.is_err());
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts").fetch_one(&pool).await.expect("counts");
+    assert_eq!(n, 0);
+    let state = shift_service::current_shift_summary(&pool, tokens.as_ref()).await.expect("state");
+    assert!(state.open_shift.is_some());
+    assert!(state.last_closed_shift.is_none());
+}
+
+#[tokio::test]
+async fn concurrent_close_requests_cannot_close_twice() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pool = mobile_shop_system_lib::data::db::open(&dir.path().join("close.db")).await.expect("db");
+    let tokens = InMemoryTokenStore::new();
+    let owner = bootstrap::create_first_manager(&pool, "Peter", PASSWORD).await.expect("owner").user_id;
+    auth::login(&pool, &tokens, owner, PASSWORD).await.expect("login");
+    let opened = shift_service::open_shift(&pool, &tokens, 100).await.expect("open");
+    let id = opened.shift.id.as_str().to_owned();
+    let (a, b) = tokio::join!(
+        shift_service::close_shift(&pool, &tokens, &id, 100, None),
+        shift_service::close_shift(&pool, &tokens, &id, 100, None)
+    );
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM shift_cash_counts WHERE shift_id=?")
+        .bind(&id).fetch_one(&pool).await.expect("counts");
+    assert_eq!(n, 1, "close retries do not create duplicate count observations");
+}
+
+#[tokio::test]
+async fn legacy_close_value_is_not_promoted_to_a_proven_physical_count() {
+    let (pool, tokens, owner, _, _) = setup_shop().await;
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,expected_cash_minor,counted_cash_minor,difference_minor,opened_by,opened_at,closed_by,closed_at) VALUES('legacy',1,'closed',100,100,100,0,?1,1,?1,2)")
+        .bind(owner.as_str()).execute(&pool).await.expect("legacy close");
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 75).await.expect("fresh count");
+    let row: (Option<String>, Option<i64>, Option<i64>, String) = sqlx::query_as("SELECT previous_shift_id, previous_count_minor, handover_difference_minor, reconciliation_status FROM shift_opening_observations WHERE shift_id=?")
+        .bind(opened.shift.id.as_str()).fetch_one(&pool).await.expect("handover");
+    assert_eq!(row, (Some("legacy".to_owned()), None, None, "unreconciled".to_owned()));
+}
+
+#[tokio::test]
+async fn configured_shift_captures_source_linked_cash_without_claiming_reconciliation() {
+    let (pool, tokens, manager, seller, product) = setup_shop().await;
+    let lines = [SaleLineWithUnitInput { product_id: product, quantity: 1, warranty_start: None, warranty_end: None, imei: None }];
+    // Before configuration and without a shift, never invent a drawer.
+    let before = sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("sale before shift");
+    let unassigned: Option<String> = sqlx::query_scalar("SELECT p.drawer_id FROM cash_source_postings p JOIN sale_payments sp ON sp.id=p.source_id WHERE sp.sale_id=?1").bind(&before.sale_id).fetch_one(&pool).await.expect("posting");
+    assert!(unassigned.is_none());
+    auth::login(&pool, tokens.as_ref(), seller, PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect_err("seller denied").code(), "PERMISSION_DENIED");
+    auth::login(&pool, tokens.as_ref(), manager, PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("configure");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("retry");
+    assert!(shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Changed", "req").await.is_err());
+    let opened = shift_service::open_shift(&pool, tokens.as_ref(), 10_000).await.expect("open");
+    assert!(shift_service::configure_drawer(&pool, tokens.as_ref(), "other", "Other", "req2").await.is_err());
+    sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("sale");
+    shift_service::record_expense(&pool, tokens.as_ref(), "tea", 1000, None).await.expect("drawer expense");
+    shift_service::record_shift_cash_count(&pool, tokens.as_ref(), 12_345).await.expect("count");
+    let preview = shift_service::cash_posting_preview(&pool, tokens.as_ref()).await.expect("preview");
+    assert!(!preview.complete);
+    assert_eq!(preview.drawers.len(), 1);
+    let assigned: Vec<_> = preview.recent_postings.iter().filter(|p| p.drawer_id.as_deref()==Some("till")).collect();
+    assert_eq!(assigned.len(), 2);
+    assert!(assigned.iter().any(|p| p.source_kind=="sale_payment" && p.signed_minor==20_000));
+    assert!(assigned.iter().any(|p| p.source_kind=="expense" && p.signed_minor == -1000));
+    assert!(assigned.iter().all(|p| p.shift_id.as_deref()==Some(opened.shift.id.as_str())));
+    assert_eq!(preview.recent_postings.len(), 3, "opening and physical count never post money");
+    sqlx::query("CREATE TRIGGER reject_sale_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='sale_recorded' BEGIN SELECT RAISE(ABORT,'test'); END;").execute(&pool).await.expect("failure injection");
+    assert!(sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.is_err());
+    let posted: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cash_source_postings").fetch_one(&pool).await.expect("posting count");
+    assert_eq!(posted, 3, "failed source and its posting roll back together");
+    sqlx::query("DROP TRIGGER reject_sale_audit").execute(&pool).await.expect("cleanup");
+    assert!(sqlx::query("UPDATE cash_source_postings SET signed_minor=1").execute(&pool).await.is_err());
+    assert!(sqlx::query("DELETE FROM cash_source_postings").execute(&pool).await.is_err());
+    shift_service::close_shift(&pool, tokens.as_ref(), opened.shift.id.as_str(), 12_345, None).await.expect("close operationally");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "other", "Other", "other-req").await.expect("new drawer");
+    shift_service::configure_drawer(&pool, tokens.as_ref(), "till", "Till", "req").await.expect("old retry is a no-op");
+    let preview = shift_service::cash_posting_preview(&pool, tokens.as_ref()).await.expect("preview");
+    assert_eq!(preview.drawers.iter().find(|d| d.is_default).map(|d| d.id.as_str()), Some("other"));
+    let next = shift_service::open_shift(&pool, tokens.as_ref(), 11_000).await.expect("fresh opening");
+    sales::record_sale_with_discounts(&pool, tokens.as_ref(), &lines, Some(20_000), None, None, 0, &[0]).await.expect("second drawer sale");
+    let assigned: Option<String> = sqlx::query_scalar("SELECT drawer_id FROM cash_source_postings WHERE shift_id=?1 AND source_kind='sale_payment'").bind(next.shift.id.as_str()).fetch_one(&pool).await.expect("posting");
+    assert_eq!(assigned.as_deref(), Some("other"));
+}
+
+#[tokio::test]
+async fn drawer_transfer_is_atomic_authorized_and_idempotent() {
+    let (pool,tokens,manager,_cashier,_)=setup_shop().await;
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"safe","Safe","setup-safe").await.expect("safe");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"till","Till","setup-till").await.expect("till");
+    let opened=shift_service::open_shift(&pool,tokens.as_ref(),0).await.expect("open");
+    let shift=opened.shift.id.as_str();
+    shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("transfer");
+    shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",123,"put away","transfer-1").await.expect("retry");
+    let totals=shift_service::current_shift_summary(&pool,tokens.as_ref()).await.expect("summary").open_shift.expect("open").totals;
+    assert_eq!(totals.drawer_transfer_net_minor,-123);
+    assert_eq!(totals.expected_cash_minor,-123, "only source leg affects this drawer estimate");
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",124,"put away","transfer-1").await.is_err());
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"till",1,"same drawer","transfer-2").await.is_err());
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"missing",1,"unknown drawer","transfer-3").await.is_err());
+    let postings: Vec<(String,String,i64)> = sqlx::query_as("SELECT source_kind,drawer_id,signed_minor FROM cash_source_postings WHERE source_id='transfer-1' ORDER BY source_kind").fetch_all(&pool).await.expect("paired events");
+    assert_eq!(postings,vec![("drawer_transfer_in".into(),"safe".into(),123),("drawer_transfer_out".into(),"till".into(),-123)]);
+    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_drawer_transfers").fetch_one(&pool).await.unwrap(); assert_eq!(count,1);
+    auth::logout(&pool,tokens.as_ref()).await.expect("logout");
+    auth::login(&pool,tokens.as_ref(),_cashier,PASSWORD).await.expect("cashier");
+    assert!(shift_service::transfer_drawer_cash(&pool,tokens.as_ref(),shift,"safe",10,"unauthorized","transfer-4").await.is_err());
+}
+
+#[tokio::test]
+async fn captured_cash_sales_and_customer_payments_use_shift_identity_at_shared_boundary() {
+    let (pool, _tokens, manager, _, _) = setup_shop().await;
+    let actor = manager.as_str();
+    sqlx::query("INSERT INTO cash_drawers VALUES('boundary-till','Till',?1,0)").bind(&actor).execute(&pool).await.expect("drawer");
+    sqlx::query("INSERT INTO cash_drawer_default VALUES(1,'boundary-till',?1,0)").bind(&actor).execute(&pool).await.expect("default");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('boundary-first',1,'open',0,?1,10)").bind(&actor).execute(&pool).await.expect("first");
+    sqlx::query("UPDATE shifts SET status='closed',expected_cash_minor=0,counted_cash_minor=0,difference_minor=0,closed_by=?1,closed_at=20 WHERE id='boundary-first'").bind(&actor).execute(&pool).await.expect("close");
+    // A captured posting made with no open shift remains unassigned even when
+    // its timestamp happens to equal both adjacent shifts' boundary.
+    sqlx::query("INSERT INTO customers(id,name,created_by,created_at,updated_at) VALUES('boundary-customer','Customer',?1,1,1)").bind(&actor).execute(&pool).await.expect("customer");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('outside-sale','outside-sale',20,?1,'sale',30,0)").bind(&actor).execute(&pool).await.expect("outside sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('outside-payment','outside-sale',1,'cash',30,20)").execute(&pool).await.expect("outside payment");
+    sqlx::query("INSERT INTO customer_ledger(id,customer_id,kind,amount_minor,method,actor_id,occurred_at) VALUES('outside-customer','boundary-customer','payment',-40,'cash',?1,20)").bind(&actor).execute(&pool).await.expect("outside collection");
+    sqlx::query("INSERT INTO shifts(id,shift_number,status,opening_cash_minor,opened_by,opened_at) VALUES('boundary-second',2,'open',0,?1,20)").bind(&actor).execute(&pool).await.expect("second");
+    sqlx::query("INSERT INTO sales(id,reference,occurred_at,sold_by,kind,total_minor,cost_total_minor) VALUES('boundary-sale','boundary-sale',20,?1,'sale',100,0)").bind(&actor).execute(&pool).await.expect("sale");
+    sqlx::query("INSERT INTO sale_payments(id,sale_id,payment_no,method,amount_minor,occurred_at) VALUES('boundary-payment','boundary-sale',1,'cash',100,20)").execute(&pool).await.expect("payment");
+    sqlx::query("INSERT INTO customer_ledger(id,customer_id,kind,amount_minor,method,actor_id,occurred_at) VALUES('boundary-collection','boundary-customer','payment',-50,'cash',?1,20)").bind(&actor).execute(&pool).await.expect("collection");
+    let mut conn=pool.acquire().await.expect("connection");
+    for (id, cash, collection) in [("boundary-first",0,0),("boundary-second",100,50)] {
+        let shift=mobile_shop_system_lib::data::repositories::shift::find_by_id(&mut conn,id).await.expect("read").expect("shift");
+        let totals=mobile_shop_system_lib::data::repositories::shift::compute_shift_totals(&mut conn,&shift).await.expect("totals");
+        assert_eq!((totals.cash_sales_minor,totals.customer_cash_in_minor),(cash,collection),"{id}");
+    }
+}
+
+#[tokio::test]
+async fn drawer_counts_are_separate_immutable_observations_with_idempotent_retries() {
+    let (pool,tokens,manager,seller,_) = setup_shop().await;
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"count-a","A","count-config-a").await.expect("drawer A");
+    shift_service::configure_drawer(&pool,tokens.as_ref(),"count-b","B","count-config-b").await.expect("drawer B");
+    let a=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",0,"count-1").await.expect("zero is a physical count");
+    assert!(a.shift_id.is_none());
+    let retry=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",0,"count-1").await.expect("retry");
+    assert_eq!(a.counted_at,retry.counted_at);
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",1,"count-1").await.is_err());
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"missing",0,"count-missing").await.is_err());
+    let opened=shift_service::open_shift(&pool,tokens.as_ref(),10).await.expect("shift");
+    let b=shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-b",123,"count-2").await.expect("count B");
+    assert_eq!(b.shift_id.as_deref(),Some(opened.shift.id.as_str()));
+    let preview=shift_service::cash_posting_preview(&pool,tokens.as_ref()).await.expect("preview");
+    assert_eq!(preview.recent_counts.len(),2);
+    assert!(preview.recent_postings.is_empty(),"a count is not a cash movement");
+    assert!(!preview.complete);
+    assert!(sqlx::query("UPDATE cash_drawer_physical_counts SET amount_minor=999 WHERE request_id='count-1'").execute(&pool).await.is_err());
+    assert!(sqlx::query("DELETE FROM cash_drawer_physical_counts WHERE request_id='count-1'").execute(&pool).await.is_err());
+    sqlx::query("CREATE TRIGGER reject_count_audit BEFORE INSERT ON audit_events WHEN NEW.event_type='cash_drawer_physical_counted' BEGIN SELECT RAISE(ABORT,'injected'); END").execute(&pool).await.expect("inject");
+    assert!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",10,"count-failed").await.is_err());
+    let n:i64=sqlx::query_scalar("SELECT COUNT(*) FROM cash_drawer_physical_counts WHERE request_id='count-failed'").fetch_one(&pool).await.expect("count");
+    assert_eq!(n,0,"audit failure rolls back the observation");
+    sqlx::query("DROP TRIGGER reject_count_audit").execute(&pool).await.expect("drop trigger");
+    auth::login(&pool,tokens.as_ref(),seller,PASSWORD).await.expect("seller");
+    assert_eq!(shift_service::record_drawer_physical_count(&pool,tokens.as_ref(),"count-a",10,"count-denied").await.expect_err("denied").code(),"PERMISSION_DENIED");
+    auth::login(&pool,tokens.as_ref(),manager,PASSWORD).await.expect("manager");
 }

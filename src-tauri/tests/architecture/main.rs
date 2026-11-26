@@ -3506,7 +3506,8 @@ fn wallet_groups_and_payment_attribution_migration_backfills_without_losing_the_
     for required in [
         "pub async fn list_payment_wallets",
         "pub async fn primary_payment_wallet",
-        "sp.wallet_id = ?1",
+        "sale_effective_wallet_attribution",
+        "COALESCE(e.wallet_id,sp.wallet_id)",
     ] {
         assert!(
             repo.contains(required),
@@ -3592,7 +3593,7 @@ fn every_money_flow_names_its_wallet_number() {
     // order and no method match that could count the same money for two numbers.
     let repo = code_only(WALLET_REPOSITORY);
     for required in [
-        "WHERE sp.wallet_id = ?1",
+        "sale_effective_wallet_attribution",
         "WHERE kind = 'payment' AND wallet_id = ?1",
         "WHERE status = 'delivered' AND pay_wallet_id = ?1",
     ] {
@@ -3618,13 +3619,16 @@ fn every_money_flow_names_its_wallet_number() {
         "a repair ticket must be able to name its wallet (`ADR-041`)"
     );
 
-    // Every service asks the same question through the same resolver — none of them re-implements
-    // the default, which is how a flow drifts.
+    // Every service asks the same question through the same resolver; it must
+    // reject missing electronic wallet selection rather than invent a default.
     let service = code_only(WALLET_SERVICE);
     assert!(
         service.contains("pub async fn resolve_payment_wallet_id"),
         "the wallet service must own the answer to `which number took this money` (`ADR-041`)"
     );
+    let resolver = service.split("pub async fn resolve_payment_wallet_id").nth(1).expect("resolver").split("pub async fn payment_wallet_candidates").next().expect("resolver body");
+    assert!(!resolver.contains("primary_payment_wallet"), "missing selection must never fall back to primary");
+    assert!(resolver.contains("PaymentWalletFailure::NotEligible"), "missing or invalid selection must be rejected");
     for (name, code) in [
         ("services/customer.rs", code_only(CUSTOMER_SERVICE)),
         ("services/repair.rs", code_only(REPAIR_SERVICE)),
@@ -3639,8 +3643,8 @@ fn every_money_flow_names_its_wallet_number() {
     // The picker is one component used by every flow, and it is the only thing that asks.
     let chips = code_only(POS_WALLET_CHIPS_VUE);
     assert!(
-        chips.contains("paymentWalletCandidates") && chips.contains("options.length > 1"),
-        "the wallet picker must list candidates and stay out of the way when there is one number"
+        chips.contains("paymentWalletCandidates") && chips.contains("pickable(method)") && chips.contains("options.value = found"),
+        "the wallet picker must list eligible candidates even when there is only one"
     );
     for (name, source) in [
         ("PayModal.vue", code_only(POS_PAY_MODAL_VUE)),

@@ -230,6 +230,9 @@ describe('Smart Alerts & Daily WhatsApp Summary (Plan 3.1 / ADR-036)', () => {
     });
 
     assert.ok(msg.includes('موبايل ستور'));
+    assert.ok(msg.includes('تقديرية غير مُطابَقة'));
+    assert.ok(msg.includes('رصيد الدرج غير متاح'));
+    assert.ok(!msg.includes('المفروض في الدرج'));
     assert.ok(msg.includes('فلوس الصيانة لوحدها: 2,700 ج.م'));
     assert.ok(msg.includes('فلوس السوفت وير لوحدها: 300 ج.م'));
     assert.ok(msg.includes('R-1092'));

@@ -8,6 +8,9 @@ import { describeError } from '../api/errors';
 import type { Session } from '../api/identity';
 import {
   closeShift,
+  recordShiftCashCount,
+  latestShiftCashCount,
+  type ShiftCashCount,
   openShift,
   type CurrentShiftState,
   type ShiftSummary,
@@ -28,6 +31,7 @@ import {
   parseCount,
   parseMoney,
 } from '../ui/format';
+import CashDrawerSetup from './CashDrawerSetup.vue';
 import Icon from '../ui/Icon.vue';
 import Modal from '../ui/Modal.vue';
 import { toast } from '../ui/toast';
@@ -45,18 +49,8 @@ const emit = defineEmits<{
 const busy = ref(false);
 
 // --- Open shift form state (when no shift is open) ---
-const defaultOpeningEgp = computed(() => {
-  const prevMinor = props.shiftState.lastClosedShift?.countedCashMinor;
-  if (typeof prevMinor === 'number' && prevMinor >= 0) {
-    return moneyInputValue(prevMinor);
-  }
-  return '1000';
-});
-
-const openingCashText = ref(defaultOpeningEgp.value);
-watch(defaultOpeningEgp, (v) => {
-  openingCashText.value = v;
-});
+// The opening and counted cash must be physically entered; a forecast is not a count.
+const openingCashText = ref('');
 
 const nextShiftNumber = computed(() => {
   const prevNo = props.shiftState.lastClosedShift?.shiftNumber ?? 0;
@@ -78,15 +72,20 @@ const denomCounts = reactive<Record<string, string>>({
 const countedCashText = ref('');
 const closeNote = ref('');
 
-watch(
-  () => props.shiftState.openShift?.totals.expectedCashMinor,
-  (expectedMinor) => {
-    if (typeof expectedMinor === 'number' && countedCashText.value === '') {
-      countedCashText.value = moneyInputValue(expectedMinor);
-    }
-  },
-  { immediate: true }
-);
+const savedCount = ref<ShiftCashCount | null>(null);
+const countLoadFailed = ref(false);
+let countRequest = 0;
+watch(() => props.shiftState.openShift?.shift.id, async (id) => {
+  const request = ++countRequest;
+  countedCashText.value = '';
+  savedCount.value = null;
+  countLoadFailed.value = false;
+  if (!id) return;
+  try {
+    const count = await latestShiftCashCount();
+    if (request === countRequest && count?.shiftId === id) savedCount.value = count;
+  } catch { if (request === countRequest) countLoadFailed.value = true; }
+}, { immediate: true });
 
 function onDenomInput(): void {
   const numericCounts: Record<string, number> = {};
@@ -107,26 +106,15 @@ function onDenomInput(): void {
   }
 }
 
-function clearDenomsAndMatchExpected(): void {
-  for (const d of EGYPTIAN_DENOMS) {
-    denomCounts[String(d)] = '';
-  }
-  const expMinor = props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
-  countedCashText.value = moneyInputValue(expMinor);
-}
-
-const countedCashMinor = computed<number>(() => {
+const countedCashMinor = computed<number | null>(() => {
   const parsed = parseMoney(countedCashText.value);
-  if (parsed !== null && parsed >= 0) return parsed;
-  return props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
+  return parsed !== null && parsed >= 0 ? parsed : null;
 });
-
-const differenceMinor = computed<number>(() => {
-  const exp = props.shiftState.openShift?.totals.expectedCashMinor ?? 0;
-  return countedCashMinor.value - exp;
+const differenceMinor = computed<number | null>(() => {
+  if (countedCashMinor.value === null || !props.shiftState.openShift) return null;
+  return countedCashMinor.value - props.shiftState.openShift.totals.expectedCashMinor;
 });
-
-const diffInfo = computed(() => shiftDifferenceState(differenceMinor.value));
+const diffInfo = computed(() => differenceMinor.value === null ? null : shiftDifferenceState(differenceMinor.value));
 
 const canCloseShift = computed<boolean>(() => {
   return (
@@ -160,7 +148,7 @@ async function submitOpenShift(): Promise<void> {
 
 function sendWhatsAppReport(): void {
   const open = props.shiftState.openShift;
-  if (!open) return;
+  if (!open || countedCashMinor.value === null) { toast('عدّ النقدية واكتب المعدود أولاً', 'err'); return; }
   const sent = sendShiftReportViaWhatsApp(
     open,
     appearance.shopName,
@@ -171,33 +159,33 @@ function sendWhatsAppReport(): void {
   toast(`تقرير الوردية للمالك: ${sent.note}`, 'ok');
 }
 
-async function submitCloseShift(): Promise<void> {
+async function submitCashCount(): Promise<void> {
   if (busy.value || !props.shiftState.openShift) return;
-  if (!canCloseShift.value) {
-    toast('تقفيل الوردية للمالك بس أو يتفعّل من الإعدادات', 'err');
-    return;
-  }
-  const minor = parseMoney(countedCashText.value);
-  if (minor === null || minor < 0) {
-    toast('اكتب المعدود الفعلي في الدرج بشكل صحيح', 'err');
-    return;
-  }
+  const minor = countedCashMinor.value;
+  if (minor === null) { toast('اكتب المعدود الفعلي في الدرج بشكل صحيح', 'err'); return; }
   busy.value = true;
   try {
-    const closed = await closeShift(minor, closeNote.value.trim() || null);
-    const diff = shiftDifferenceState(closed.shift.differenceMinor ?? 0);
-    toast(
-      `تم تقفيل الوردية #${closed.shift.shiftNumber} (${diff.label})`,
-      'ok'
-    );
+    const count = await recordShiftCashCount(minor);
+    if (count.shiftId !== props.shiftState.openShift?.shift.id) throw new Error('SHIFT_CHANGED');
+    savedCount.value = count;
+    countLoadFailed.value = false;
+    toast('تم تسجيل العدّ فقط؛ الوردية لا تزال مفتوحة وغير مطابقة', 'ok');
+  } catch (err) { toast(describeError(err), 'err'); }
+  finally { busy.value = false; }
+}
+
+async function submitOperationalClose(): Promise<void> {
+  if (busy.value || !canCloseShift.value || countedCashMinor.value === null || !props.shiftState.openShift) return;
+  busy.value = true;
+  try {
+    await closeShift(props.shiftState.openShift.shift.id, countedCashMinor.value, closeNote.value.trim() || null);
+    toast('تم إغلاق الوردية تشغيلياً وتسجيل العدّ؛ المطابقة المالية لا تزال معلّقة', 'ok');
     emit('changed');
     emit('close');
-  } catch (err) {
-    toast(describeError(err), 'err');
-  } finally {
-    busy.value = false;
-  }
+  } catch (err) { toast(describeError(err), 'err'); }
+  finally { busy.value = false; }
 }
+
 </script>
 
 <template>
@@ -209,12 +197,13 @@ async function submitCloseShift(): Promise<void> {
     "
     :sub="
       shiftState.openShift
-        ? `مفتوحة من ${fmtTime(new Date(shiftState.openShift.shift.openedAt))} — عدّ الفئات وطابق الدرج في أقل من 3 دقايق`
+        ? `مفتوحة من ${fmtTime(new Date(shiftState.openShift.shift.openedAt))} — عدّ النقدية؛ تقدير الدرج غير مُراجَع`
         : 'اكتب رصيد الفكة والنقدية الموجودة في الدرج لبداية الوردية'
     "
     :size="shiftState.openShift ? 'wide' : 'md'"
     @close="emit('close')"
   >
+    <CashDrawerSetup v-if="session.role === 'manager'" :can-configure="!shiftState.openShift" :shift-id="shiftState.openShift?.shift.id ?? null" @changed="emit('changed')" />
     <!-- Open a new shift -->
     <div v-if="!shiftState.openShift" data-open-shift-view>
       <form @submit.prevent="submitOpenShift">
@@ -251,8 +240,11 @@ async function submitCloseShift(): Promise<void> {
         >
           <Icon name="info" />
           <span>
-            الوردية اللي فاتت (#{{ shiftState.lastClosedShift.shiftNumber }}) اتقفلت على معدود
-            <b class="num">{{ money(shiftState.lastClosedShift.countedCashMinor ?? 0) }}</b>
+            الوردية اللي فاتت (#{{ shiftState.lastClosedShift.shiftNumber }}) سُجل لها مبلغ إغلاق
+            <b v-if="shiftState.lastClosedShift.countedCashMinor !== null" class="num">{{ money(shiftState.lastClosedShift.countedCashMinor) }}</b><b v-else>غير متاح</b>؛ مصدر العدّ القديم قد لا يكون مثبتاً والمطابقة معلّقة. عدّ النقدية مجدداً ولا تعتبر الرقم السابق رصيداً مؤكداً.
+          </span>
+          <span v-if="parseMoney(openingCashText) !== null && shiftState.lastClosedShift.countedCashMinor !== null" data-shift-handover-difference>
+            الفرق بين العدّ الجديد والمبلغ السابق (قد يختلف مصدرهما): {{ money((parseMoney(openingCashText) ?? 0) - shiftState.lastClosedShift.countedCashMinor) }} — فرق تسليم غير مُطابَق.
           </span>
         </div>
 
@@ -280,8 +272,8 @@ async function submitCloseShift(): Promise<void> {
                 <small v-if="s.closeNote" class="muted"> — {{ s.closeNote }}</small>
               </span>
               <span class="num">
-                معدود: <b>{{ money(s.countedCashMinor ?? 0) }}</b>
-                ({{ shiftDifferenceState(s.differenceMinor ?? 0).label }})
+                معدود: <b v-if="s.countedCashMinor !== null">{{ money(s.countedCashMinor) }}</b><b v-else>غير متاح</b>
+                (المطابقة معلّقة)
               </span>
             </div>
           </div>
@@ -291,6 +283,12 @@ async function submitCloseShift(): Promise<void> {
 
     <!-- Close current open shift -->
     <div v-else data-close-shift-view>
+      <div class="note" role="alert" data-shift-unreconciled style="margin-bottom: 12px; border-color: var(--warn)">
+        الإغلاق تشغيلي فقط بعد عدّ النقدية. مصادر النقدية غير مُطابَقة والفرق تقديري، وتظل المراجعة معلّقة للوردية التالية.
+      </div>
+      <p v-if="countLoadFailed" role="alert" data-shift-count-failed>تعذّر تحميل آخر عدّ؛ لا نفترض أنه صفر أو غير موجود.</p>
+      <p v-else-if="savedCount" data-shift-count-state>آخر عدّ مسجّل: {{ money(savedCount.amountMinor) }} — غير مُطابَق، والوردية لا تزال مفتوحة.</p>
+      <p v-else data-shift-count-state>لم يُسجّل عدّ لهذه الوردية؛ مصادر النقدية غير مُطابَقة.</p>
       <div
         v-if="!canCloseShift"
         class="note"
@@ -299,7 +297,7 @@ async function submitCloseShift(): Promise<void> {
       >
         <Icon name="lock-keyhole" />
         <span>
-          تقفيل الوردية للمالك بس. تقدر تراجع أرقام الدرج وتبعت التقرير واتساب، أو المالك يفعّل السماح للبيّاع من الإعدادات.
+تقفيل الوردية للمالك أو لمن سمح له المالك فقط؛ الإغلاق تشغيلي وليس مطابقة مالية.
         </span>
       </div>
 
@@ -320,7 +318,7 @@ async function submitCloseShift(): Promise<void> {
             padding: 14px;
           "
         >
-          <div class="lbl" style="margin-bottom: 8px">حسب الدفاتر — حركة النقدية بالدرج</div>
+          <div class="lbl" style="margin-bottom: 8px">تقدير حركة النقدية حسب توقيت الحركات — غير مُراجَع</div>
           <table class="tbl" style="width: 100%; font-size: 13.5px">
             <tbody>
               <tr>
@@ -341,16 +339,16 @@ async function submitCloseShift(): Promise<void> {
                   + {{ money(shiftState.openShift.totals.customerCashInMinor) }}
                 </td>
               </tr>
-              <tr v-if="shiftState.openShift.totals.servicesCashInMinor > 0">
-                <td>+ خدمات ومحافظ داخل الدرج</td>
+              <tr v-if="shiftState.openShift.totals.servicesCashInMinor !== 0">
+                <td>خدمات ومحافظ داخل الدرج (بعد الإلغاء)</td>
                 <td class="num" style="text-align: end" data-shift-services-in>
-                  + {{ money(shiftState.openShift.totals.servicesCashInMinor) }}
+                  {{ shiftState.openShift.totals.servicesCashInMinor > 0 ? '+ ' : '− ' }}{{ money(Math.abs(shiftState.openShift.totals.servicesCashInMinor)) }}
                 </td>
               </tr>
-              <tr v-if="shiftState.openShift.totals.servicesCashOutMinor > 0">
-                <td>− سحب محافظ خارج من الدرج</td>
+              <tr v-if="shiftState.openShift.totals.servicesCashOutMinor !== 0">
+                <td>سحب محافظ خارج من الدرج (بعد الإلغاء)</td>
                 <td class="num" style="text-align: end" data-shift-services-out>
-                  − {{ money(shiftState.openShift.totals.servicesCashOutMinor) }}
+                  {{ shiftState.openShift.totals.servicesCashOutMinor > 0 ? '− ' : '+ ' }}{{ money(Math.abs(shiftState.openShift.totals.servicesCashOutMinor)) }}
                 </td>
               </tr>
               <tr v-if="shiftState.openShift.totals.walletDrawerNetMinor !== 0">
@@ -358,6 +356,12 @@ async function submitCloseShift(): Promise<void> {
                 <td class="num" style="text-align: end" data-shift-wallet-drawer>
                   {{ shiftState.openShift.totals.walletDrawerNetMinor > 0 ? '+ ' : '− '
                   }}{{ money(Math.abs(shiftState.openShift.totals.walletDrawerNetMinor)) }}
+                </td>
+              </tr>
+              <tr v-if="shiftState.openShift.totals.drawerTransferNetMinor !== 0">
+                <td>النقل بين الأدراج (درج الوردية)</td>
+                <td class="num" style="text-align: end" data-shift-drawer-transfer>
+                  {{ shiftState.openShift.totals.drawerTransferNetMinor > 0 ? '+ ' : '− ' }}{{ money(Math.abs(shiftState.openShift.totals.drawerTransferNetMinor)) }}
                 </td>
               </tr>
               <tr v-if="shiftState.openShift.totals.cashInMinor > 0">
@@ -379,7 +383,7 @@ async function submitCloseShift(): Promise<void> {
                 </td>
               </tr>
               <tr style="font-weight: 800; font-size: 15px; border-top: 2px solid var(--border)">
-                <td>= المتوقع في الدرج</td>
+                <td>= تقدير غير مُراجَع</td>
                 <td class="num" style="text-align: end" data-shift-expected-cash>
                   {{ money(shiftState.openShift.totals.expectedCashMinor) }}
                 </td>
@@ -429,7 +433,7 @@ async function submitCloseShift(): Promise<void> {
                 </td>
               </tr>
               <tr v-if="session.role === 'manager'" style="font-weight: 700">
-                <td>صافي الربح بعد المصروفات</td>
+                <td>ربح تقديري غير مُراجَع</td>
                 <td class="num" style="text-align: end" data-shift-net-profit>
                   {{ money(shiftState.openShift.totals.netProfitMinor) }}
                 </td>
@@ -442,14 +446,7 @@ async function submitCloseShift(): Promise<void> {
         <div>
           <div class="row" style="justify-content: space-between; margin-bottom: 8px">
             <label class="lbl" style="margin: 0">عدّ الفئات المصرية (اختياري يحسبلك الإجمالي)</label>
-            <button
-              type="button"
-              class="btn sm"
-              data-shift-match-expected
-              @click="clearDenomsAndMatchExpected"
-            >
-              مطابق للمتوقع
-            </button>
+
           </div>
 
           <div
@@ -507,6 +504,7 @@ async function submitCloseShift(): Promise<void> {
 
           <div
             class="row"
+            v-if="diffInfo"
             data-shift-diff-banner
             :data-shift-diff-state="diffInfo.state"
             style="
@@ -519,7 +517,7 @@ async function submitCloseShift(): Promise<void> {
               border: 1px solid var(--border);
             "
           >
-            <span>الفرق (المعدود − المتوقع):</span>
+            <span>الفرق عن التقدير غير المُراجَع:</span>
             <span data-shift-diff-label>{{ diffInfo.label }}</span>
           </div>
 
@@ -553,6 +551,7 @@ async function submitCloseShift(): Promise<void> {
         <button
           type="button"
           class="btn"
+          :disabled="countedCashMinor === null"
           data-shift-wa-send
           @click="sendWhatsAppReport"
         >
@@ -561,12 +560,13 @@ async function submitCloseShift(): Promise<void> {
         <button
           type="button"
           class="btn primary"
-          :disabled="busy || !canCloseShift"
-          data-close-shift-submit
-          @click="submitCloseShift"
+          :disabled="busy || countedCashMinor === null"
+          data-shift-record-count
+          @click="submitCashCount"
         >
-          <Icon name="check" /> تقفيل الوردية #{{ shiftState.openShift.shift.shiftNumber }}
+          <Icon name="check" /> تسجيل العدّ فقط
         </button>
+        <button type="button" class="btn" :disabled="busy || !canCloseShift || countedCashMinor === null" data-close-shift-submit @click="submitOperationalClose">إغلاق تشغيلي (غير مُطابَق)</button>
       </template>
     </template>
   </Modal>

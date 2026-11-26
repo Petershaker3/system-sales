@@ -11,7 +11,7 @@ import { listUsers, type Session, type UserSummary } from '../../api/identity';
 import { listAllProductUnits, type ProductUnit } from '../../api/inventory';
 import { posCatalog, type PosProduct } from '../../api/pos';
 import { repairsOverview, type RepairsOverview } from '../../api/repairs';
-import { listSalesHistory, type SaleHistoryEntry } from '../../api/sales';
+import { listSalesHistory, salesFinancialEvents, type SaleHistoryEntry, type SalesFinancialEvents } from '../../api/sales';
 import { currentShiftSummary, type CurrentShiftState } from '../../api/shift';
 import { shortagesOverview, type ShortagesOverview } from '../../api/shortages';
 import { walletsOverview, type WalletsOverview } from '../../api/wallet';
@@ -32,6 +32,7 @@ import {
 } from '../../ui/format';
 import { openChatUrl } from '../../ui/external';
 import Icon from '../../ui/Icon.vue';
+import { affectedHistoryInWindow, reportAvailability, reportSource, reportWindowHasReversals, sourceErrorParts, type ReportWindow, type SourceState } from './report-availability';
 import { toast } from '../../ui/toast';
 import { buildWhatsAppUrl, normalizeEgyptianPhone } from '../pos/receipt';
 import {
@@ -102,7 +103,55 @@ const shortagesData = ref<ShortagesOverview | null>(null);
 const posProducts = ref<readonly PosProduct[]>([]);
 const allUnits = ref<readonly ProductUnit[]>([]);
 const showWaSummaryPreview = ref(false);
-const loading = ref(false);
+const HISTORY_LIMIT = 5000;
+const baseState = ref<SourceState>('loading');
+const dayState = ref<SourceState>('loading');
+const monthState = ref<SourceState>('loading');
+const reportError = ref('');
+let dayRequest = 0;
+let monthRequest = 0;
+const dayReversalState = ref<SourceState>('loading');
+const monthReversalState = ref<SourceState>('loading');
+const dayReversals = ref(false);
+const monthReversals = ref(false);
+const dayAvailability = computed(() => reportAvailability({
+  base: baseState.value, auxiliary: dayState.value === 'ready' ? dayReversalState.value : dayState.value, historyLength: history.value.length,
+  historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  hasReturnsOrCancellations: dayReversals.value || dayGuardWindows.value.some(window => affectedHistoryInWindow(history.value, window)),
+  repairHardwareProfit: todayRepairs.value?.hardware.netProfitMinor,
+  repairSoftwareProfit: todayRepairs.value?.software.netProfitMinor,
+}));
+const monthAvailability = computed(() => reportAvailability({
+  base: baseState.value, auxiliary: monthState.value === 'ready' ? monthReversalState.value : monthState.value, historyLength: history.value.length,
+  historyLimit: HISTORY_LIMIT, salesCostsAvailable: history.value.every(s => s.costTotalMinor != null && s.profitMinor != null),
+  hasReturnsOrCancellations: monthReversals.value || affectedHistoryInWindow(history.value, monthGuardWindow.value),
+  repairHardwareProfit: monthRepairs.value?.hardware.netProfitMinor,
+  repairSoftwareProfit: monthRepairs.value?.software.netProfitMinor,
+}));
+const activeAvailability = computed(() => activeTab.value === 'today' ? dayAvailability.value : monthAvailability.value);
+
+// Independent, explicitly provisional event components. They never unlock the
+// legacy report or feed its profit, exports, charts or WhatsApp summary.
+const eventTotals = ref<SalesFinancialEvents | null>(null);
+const eventState = ref<SourceState>('loading');
+let eventRequest = 0;
+async function loadEvents(): Promise<void> {
+  const request = ++eventRequest;
+  eventTotals.value = null;
+  eventState.value = 'loading';
+  const start = activeTab.value === 'today' ? dayStart(dayDate.value) : monthStart(selectedMonth.value);
+  const end = activeTab.value === 'today' ? addDays(start, 1) : addDays(monthEnd(selectedMonth.value), 1);
+  try {
+    const data = await salesFinancialEvents(start.getTime(), end.getTime());
+    if (request !== eventRequest) return;
+    eventTotals.value = data;
+    eventState.value = 'ready';
+  } catch {
+    if (request === eventRequest) eventState.value = 'failed';
+  }
+}
+watch([activeTab, dayDate, selectedMonth], () => { void loadEvents(); }, { immediate: true });
+
 
 function categoryNameById(id: string, fallback = ''): string {
   if (id === 'svc') return 'خدمات وصيانة';
@@ -160,6 +209,45 @@ const monthRep = computed(() =>
     isUsedCategory,
   }),
 );
+
+// These screens display comparisons as well as the selected period. Guard a
+// conservative window that includes those comparisons, not just the selected
+// day/month. A sale in the window can also be changed by a later reversal.
+const dayGuardWindows = computed<readonly ReportWindow[]>(() => [
+  { from: addDays(dayStart(dayDate.value), -6).getTime(), to: addDays(dayStart(dayDate.value), 1).getTime() },
+  { from: dayStart(currentMonthRep.value.P.from).getTime(), to: addDays(monthEnd(nowDate.value), 1).getTime() },
+]);
+const monthGuardWindow = computed<ReportWindow>(() => {
+  const report = monthRep.value;
+  const to = addDays(monthEnd(selectedMonth.value), 1).getTime();
+  // Month trend/rank uses historical sale months. A cancelled-only month may
+  // disappear from byMonth(), so include all loaded earlier sale dates.
+  const earlierSales = history.value.filter(s => s.occurredAt < to).map(s => s.occurredAt);
+  return { from: Math.min(dayStart(report.Y.from).getTime(), dayStart(report.P.from).getTime(), dayStart(report.from).getTime(), ...earlierSales), to };
+});
+
+let dayReversalRequest = 0;
+let monthReversalRequest = 0;
+watch(dayGuardWindows, async (windows) => {
+  const request = ++dayReversalRequest;
+  dayReversalState.value = 'loading';
+  try {
+    const found = await Promise.all(windows.map(window => reportWindowHasReversals(window, salesFinancialEvents)));
+    if (request === dayReversalRequest) { dayReversals.value = found.some(Boolean); dayReversalState.value = 'ready'; }
+  } catch {
+    if (request === dayReversalRequest) dayReversalState.value = 'failed';
+  }
+}, { immediate: true, flush: 'sync' });
+watch(monthGuardWindow, async (window) => {
+  const request = ++monthReversalRequest;
+  monthReversalState.value = 'loading';
+  try {
+    const found = await reportWindowHasReversals(window, salesFinancialEvents);
+    if (request === monthReversalRequest) { monthReversals.value = found; monthReversalState.value = 'ready'; }
+  } catch {
+    if (request === monthReversalRequest) monthReversalState.value = 'failed';
+  }
+}, { immediate: true, flush: 'sync' });
 
 const allMonthsAsc = computed(() => byMonth(history.value));
 const allMonthsDesc = computed(() => [...allMonthsAsc.value].reverse());
@@ -391,14 +479,11 @@ const todayGoodsProfitMinor = computed(() => todayData.value.profitMinor);
 const todayServicesProfitMinor = computed(() => {
   const repairs = todayRepairs.value;
   if (!repairs) return null;
-  if (
-    repairs.hardware.netProfitMinor === null &&
-    repairs.software.netProfitMinor === null
-  ) {
+  if (repairs.hardware.netProfitMinor === null || repairs.software.netProfitMinor === null) {
     return null;
   }
   return (
-    (repairs.hardware.netProfitMinor ?? 0) + (repairs.software.netProfitMinor ?? 0)
+    repairs.hardware.netProfitMinor + repairs.software.netProfitMinor
   );
 });
 
@@ -432,6 +517,7 @@ const expensesInMonthOnly = computed(() => appearance.expensesDeduct === 'month'
 
 /** One line that says the same thing as the word, in money. */
 const todayRatingLine = computed(() => {
+  if (todayServicesProfitMinor.value === null) return 'صافي اليوم غير محسوم بسبب تكلفة صيانة غير مكتملة';
   const r = todayRating.value;
   if (r.idle) return 'لسه مفيش حركة النهارده — التقييم بيبدأ أول ما تبيع أو تستلم شغل';
   if (r.netMinor < 0) {
@@ -439,10 +525,6 @@ const todayRatingLine = computed(() => {
   }
   return `صافي النهارده ${money(r.netMinor)} بعد ${money(todayExpensesMinor.value)} مصاريف`;
 });
-
-const expectedDrawerCashMinor = computed(
-  () => shiftState.value?.openShift?.totals.expectedCashMinor ?? 0,
-);
 
 const currentShiftNumber = computed(
   () =>
@@ -466,14 +548,13 @@ const monthWalletFeesMinor = computed(
 const monthExpensesMinor = computed(() => monthExpenses.value?.totalMinor ?? 0);
 
 /** What the month made after the money that left it (`ADR-047`). */
-const monthNetMinor = computed(
-  () =>
-    monthRep.value.T.profitMinor +
-    (monthRepairs.value?.hardware.netProfitMinor ?? 0) +
-    (monthRepairs.value?.software.netProfitMinor ?? 0) +
-    monthWalletFeesMinor.value -
-    monthExpensesMinor.value,
-);
+const monthNetMinor = computed(() => {
+  const hardware = monthRepairs.value?.hardware.netProfitMinor;
+  const software = monthRepairs.value?.software.netProfitMinor;
+  if (hardware == null || software == null) return null;
+  return monthRep.value.T.profitMinor + hardware + software +
+    monthWalletFeesMinor.value - monthExpensesMinor.value;
+});
 
 const smartAlerts = computed(() =>
   buildSmartAlertsBundle({
@@ -497,12 +578,13 @@ const dailyWhatsAppSummaryText = computed(() =>
     hardwareRevenueMinor: todayHardwareRevenueMinor.value,
     softwareRevenueMinor: todaySoftwareRevenueMinor.value,
     walletFeesMinor: todayServicesFeeMinor.value,
-    expectedDrawerCashMinor: expectedDrawerCashMinor.value,
+    expectedDrawerCashMinor: null,
     alerts: smartAlerts.value,
   }),
 );
 
 async function sendDailySummaryWhatsApp(): Promise<void> {
+  if (dayAvailability.value !== 'ready') return;
   showWaSummaryPreview.value = true;
   const msg = dailyWhatsAppSummaryText.value;
   try {
@@ -609,14 +691,26 @@ function onKeydown(e: KeyboardEvent): void {
 async function loadDayAuxiliary(day: Date): Promise<void> {
   const fromMs = dayStart(day).getTime();
   const toMs = addDays(dayStart(day), 1).getTime() - 1;
-  const [wOv, rOv, eOv] = await Promise.all([
-    walletsOverview(fromMs, fromMs, toMs).catch(() => null),
-    repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
-    expensesOverview(fromMs, toMs).catch(() => null),
-  ]);
-  todayWallets.value = wOv;
-  todayRepairs.value = rOv;
-  todayExpenses.value = eOv;
+  const request = ++dayRequest;
+  dayState.value = 'loading';
+  showWaSummaryPreview.value = false;
+  try {
+    const [wOv, rOv, eOv] = await Promise.all([
+      reportSource('المحافظ والخدمات', walletsOverview(fromMs, fromMs, toMs)),
+      reportSource('الصيانة', repairsOverview({ fromTs: fromMs, toTs: toMs })),
+      reportSource('المصاريف', expensesOverview(fromMs, toMs)),
+    ]);
+    if (request !== dayRequest) return;
+    todayWallets.value = wOv;
+    todayRepairs.value = rOv;
+    todayExpenses.value = eOv;
+    dayState.value = 'ready';
+  } catch (error) {
+    if (request !== dayRequest) return;
+    dayState.value = 'failed';
+    const failure = sourceErrorParts(error);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
+  }
 }
 
 /**
@@ -646,18 +740,30 @@ async function loadMonthAuxiliary(monthDate: Date): Promise<void> {
   const fromMs = monthStart(monthDate).getTime();
   const toMs = addDays(monthEnd(monthDate), 1).getTime() - 1;
   const todayStartMs = dayStart(nowDate.value).getTime();
-  const [wOv, rOv, eOv] = await Promise.all([
-    walletsOverview(todayStartMs, fromMs, toMs).catch(() => null),
-    repairsOverview({ fromTs: fromMs, toTs: toMs }).catch(() => null),
-    expensesOverview(fromMs, toMs).catch(() => null),
-  ]);
-  monthWallets.value = wOv;
-  monthRepairs.value = rOv;
-  monthExpenses.value = eOv;
+  const request = ++monthRequest;
+  monthState.value = 'loading';
+  try {
+    const [wOv, rOv, eOv] = await Promise.all([
+      reportSource('المحافظ والخدمات', walletsOverview(todayStartMs, fromMs, toMs)),
+      reportSource('الصيانة', repairsOverview({ fromTs: fromMs, toTs: toMs })),
+      reportSource('المصاريف', expensesOverview(fromMs, toMs)),
+    ]);
+    if (request !== monthRequest) return;
+    monthWallets.value = wOv;
+    monthRepairs.value = rOv;
+    monthExpenses.value = eOv;
+    monthState.value = 'ready';
+  } catch (error) {
+    if (request !== monthRequest) return;
+    monthState.value = 'failed';
+    const failure = sourceErrorParts(error);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
+  }
 }
 
 async function loadAll(): Promise<void> {
-  loading.value = true;
+  baseState.value = 'loading';
+  reportError.value = '';
   nowDate.value = new Date();
   try {
     const [
@@ -669,13 +775,13 @@ async function loadAll(): Promise<void> {
       posCat,
       unitsList,
     ] = await Promise.all([
-      listSalesHistory(5000),
-      listCategories().catch(() => [] as Category[]),
-      listUsers().catch(() => [] as UserSummary[]),
-      currentShiftSummary().catch(() => null),
-      shortagesOverview().catch(() => null),
-      posCatalog().catch(() => ({ products: [], categories: [], brands: [], units: [] })),
-      listAllProductUnits().catch(() => [] as ProductUnit[]),
+      reportSource('المبيعات', listSalesHistory(HISTORY_LIMIT)),
+      reportSource('التصنيفات', listCategories()),
+      reportSource('المستخدمين', listUsers()),
+      reportSource('الوردية', currentShiftSummary()),
+      reportSource('النواقص', shortagesOverview()),
+      reportSource('الأصناف', posCatalog()),
+      reportSource('وحدات المخزون', listAllProductUnits()),
     ]);
     history.value = salesData;
     categories.value = catsData;
@@ -686,10 +792,11 @@ async function loadAll(): Promise<void> {
     posProducts.value = posCat.products;
     allUnits.value = unitsList;
     await loadMonthAuxiliary(selectedMonth.value);
+    baseState.value = 'ready';
   } catch (err) {
-    toast(describeError(err), 'err');
-  } finally {
-    loading.value = false;
+    baseState.value = 'failed';
+    const failure = sourceErrorParts(err);
+    reportError.value = `${failure.source}: ${describeError(failure.cause)}`;
   }
 }
 
@@ -698,17 +805,19 @@ watch(selectedMonth, (next) => {
 });
 
 function exportCsv(): void {
+  if (monthAvailability.value !== 'ready') return;
   const R = monthRep.value;
   const lines = [
+    ['تنبيه', 'تقديرات غير مُطابَقة وغير معتمدة مالياً'],
     ['الشهر', fmtMonth(R.from)],
     ['المبيعات (ج.م)', String(R.T.salesMinor / 100)],
-    ['الربح (ج.م)', String(R.T.profitMinor / 100)],
+    ['الربح التقديري غير المُطابَق (ج.م)', String(R.T.profitMinor / 100)],
     ['عدد الفواتير', String(R.T.invoices)],
     ['إيراد الصيانة (ج.م)', String(monthHardwareRevenueMinor.value / 100)],
     ['إيراد السوفت وير (ج.م)', String(monthSoftwareRevenueMinor.value / 100)],
     ['عمولات المحافظ (ج.م)', String(monthWalletFeesMinor.value / 100)],
     ['مصاريف الشهر (ج.م)', String(monthExpensesMinor.value / 100)],
-    ['صافي الشهر بعد المصاريف (ج.م)', String(monthNetMinor.value / 100)],
+    ['صافي الشهر التقديري غير المُطابَق (ج.م)', monthNetMinor.value === null ? 'غير محسوم' : String(monthNetMinor.value / 100)],
   ];
   const csv = lines.map((row) => row.join(',')).join('\n');
   if (
@@ -727,6 +836,7 @@ function exportCsv(): void {
 }
 
 function printReport(): void {
+  if (activeAvailability.value !== 'ready') return;
   if (
     typeof window !== 'undefined' &&
     typeof window.print === 'function' &&
@@ -749,6 +859,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page" data-reports-screen>
+    <div class="note warn" role="alert" data-reports-unverified>
+      أرقام الربح والصافي والتقييمات تقديرية وغير مُطابَقة أو معتمدة مالياً؛ مصادر النقدية والتكاليف لم تكتمل مراجعتها. لا تستخدمها كربح مؤكد.
+    </div>
     <div class="page-h">
       <h2>التقارير</h2>
       <span class="sub">
@@ -806,21 +919,48 @@ onBeforeUnmount(() => {
         type="button"
         class="btn primary"
         data-reports-wa-summary
+        :disabled="dayAvailability !== 'ready'"
         @click="sendDailySummaryWhatsApp"
       >
         <Icon name="message-circle" /> ملخص اليوم واتساب للمالك
       </button>
-      <button type="button" class="btn" data-reports-export @click="exportCsv">
+      <button type="button" class="btn" data-reports-export :disabled="monthAvailability !== 'ready'" @click="exportCsv">
         <Icon name="download" /> تصدير Excel
       </button>
-      <button type="button" class="btn" data-reports-print @click="printReport">
+      <button type="button" class="btn" data-reports-print :disabled="activeAvailability !== 'ready'" @click="printReport">
         <Icon name="printer" /> طباعة
       </button>
     </div>
 
+    <div v-if="activeAvailability !== 'ready'" class="card" role="alert" data-reports-incomplete>
+      <p v-if="activeAvailability === 'loading'">بيتحمّل التقرير…</p>
+      <template v-else>
+        <p>التقرير غير مكتمل؛ تعذّر تحميل مصدر، أو بيانات التكلفة غير متاحة، أو سجل المبيعات بلغ حد التحميل. الأرقام مش معروضة كصفر.</p>
+        <p v-if="(activeTab === 'today' ? dayReversals || dayGuardWindows.some(window => affectedHistoryInWindow(history, window)) : monthReversals || affectedHistoryInWindow(history, monthGuardWindow))">الفترة أو مقارناتها تحتوي على مرتجعات أو إلغاءات، أو بيانات المرتجعات غير متاحة؛ التقرير الحالي لا يحسب أثرها حسب تاريخ الحركة.</p>
+        <p v-if="(activeTab === 'today' ? dayReversalState : monthReversalState) === 'failed'">تعذّر التحقق من حركات المرتجعات والإلغاءات؛ التقرير غير متاح.</p>
+        <p v-if="reportError">{{ reportError }}</p>
+        <button type="button" class="btn" @click="loadAll">حاول تاني</button>
+      </template>
+    </div>
+    <section class="card" data-reports-event-components aria-label="حركات المبيعات حسب التاريخ">
+      <h3>حركات المبيعات حسب تاريخها — معاينة غير مُراجَعة</h3>
+      <p>الفترة يوم أو شهر عمل كامل وفق ساعة بداية اليوم وإعدادات التوقيت المحلية. المبيعات الأصلية تُسجّل في تاريخها، والمرتجعات والإلغاءات في تاريخ حركتها. هذه مكونات أولية وليست ربحاً أو تقريراً مالياً معتمداً؛ لم تتم مطابقة مصادر الدفع والمخزون بعد.</p>
+      <p v-if="eventState === 'loading'">بيتحمّل ملخص الحركات…</p>
+      <p v-else-if="eventState === 'failed'" role="alert">ملخص الحركات غير متاح أو غير متسق؛ لم تُستبدل البيانات بأصفار. <button type="button" class="btn" @click="loadEvents">حاول تاني</button></p>
+      <dl v-else-if="eventTotals">
+        <dt>فواتير البيع الأصلية</dt><dd>{{ num(eventTotals.saleCount) }} — {{ money(eventTotals.saleTotalMinor) }}</dd>
+        <dt>تكلفة فواتير البيع الأصلية</dt><dd>{{ money(eventTotals.saleCostMinor) }}</dd>
+        <dt>حركات المرتجع ومبالغها</dt><dd>{{ num(eventTotals.returnCount) }} — {{ money(eventTotals.refundMinor) }}</dd>
+        <dt>تكلفة المرتجع السليم إلى المخزون</dt><dd>{{ money(eventTotals.intactCostMinor) }}</dd>
+        <dt>تكلفة المرتجع التالف</dt><dd>{{ money(eventTotals.damagedCostMinor) }}</dd>
+        <dt>حركات الإلغاء ومبالغها</dt><dd>{{ num(eventTotals.cancellationCount) }} — {{ money(eventTotals.cancelledTotalMinor) }}</dd>
+        <dt>تكلفة فواتير الإلغاء</dt><dd>{{ money(eventTotals.cancelledCostMinor) }}</dd>
+      </dl>
+    </section>
+    <template v-if="activeAvailability === 'ready'">
     <!-- معاينة رسالة ملخص اليوم واتساب للمالك -->
     <div
-      v-if="showWaSummaryPreview"
+      v-if="showWaSummaryPreview && dayAvailability === 'ready'"
       class="card"
       data-reports-wa-preview
       style="border-color: var(--ok)"
@@ -856,17 +996,17 @@ onBeforeUnmount(() => {
       <!-- تقييم النهارده في كلمة، فوق كل حاجة (`ADR-047`) -->
       <section
         class="card day-rating"
-        :class="todayRating.tone"
+        :class="todayServicesProfitMinor === null ? 'warn' : todayRating.tone"
         data-reports-day-rating
-        :data-day-rating="todayRating.key"
+        :data-day-rating="todayServicesProfitMinor === null ? 'incomplete' : todayRating.key"
       >
         <div class="dr-word">
           <small>تقييم النهارده</small>
-          <strong data-day-rating-word>{{ todayRating.word }}</strong>
+          <strong data-day-rating-word>{{ todayServicesProfitMinor === null ? 'غير محسوم' : todayRating.word }}</strong>
         </div>
         <div class="dr-body">
           <p class="dr-line" data-day-rating-line>{{ todayRatingLine }}</p>
-          <ul v-if="todayRating.reasons.length" class="dr-reasons">
+          <ul v-if="todayServicesProfitMinor !== null && todayRating.reasons.length" class="dr-reasons">
             <li v-for="(why, i) in todayRating.reasons" :key="i">{{ why }}</li>
           </ul>
         </div>
@@ -893,7 +1033,7 @@ onBeforeUnmount(() => {
             <b class="num">{{ money(todayHardwareRevenueMinor) }}</b>
             <small class="muted">
               صافي
-              {{ money(todayRepairs?.hardware.netProfitMinor ?? todayHardwareRevenueMinor) }}
+              {{ todayRepairs?.hardware.netProfitMinor == null ? 'غير محسوم' : money(todayRepairs.hardware.netProfitMinor) }}
             </small>
           </div>
           <div class="li" data-day-section="software">
@@ -902,7 +1042,7 @@ onBeforeUnmount(() => {
             <b class="num">{{ money(todaySoftwareRevenueMinor) }}</b>
             <small class="muted">
               صافي
-              {{ money(todayRepairs?.software.netProfitMinor ?? todaySoftwareRevenueMinor) }}
+              {{ todayRepairs?.software.netProfitMinor == null ? 'غير محسوم' : money(todayRepairs.software.netProfitMinor) }}
             </small>
           </div>
           <div class="li" data-day-section="wallets">
@@ -921,11 +1061,11 @@ onBeforeUnmount(() => {
             </small>
           </div>
         </div>
-        <div class="dr-total" :class="todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
+        <div class="dr-total" :class="todayServicesProfitMinor === null ? 'warn' : todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
           <span data-day-net-label>
             {{ expensesInMonthOnly ? 'صافي النهارده قبل المصاريف (المصاريف في ملخص الشهر)' : 'صافي النهارده بعد المصاريف' }}
           </span>
-          <strong class="num" data-day-net>{{ money(todayRating.netMinor) }}</strong>
+          <strong class="num" data-day-net>{{ todayServicesProfitMinor === null ? 'غير محسوم' : money(todayRating.netMinor) }}</strong>
         </div>
       </section>
 
@@ -998,8 +1138,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="card kpi" data-reports-today-kpi="drawer">
-          <div class="label">المفروض في الدرج</div>
-          <div class="value num">{{ money(expectedDrawerCashMinor) }}</div>
+          <div class="label">رصيد الدرج</div>
+          <div class="value">غير متاح لحين مطابقة مصادر النقدية</div>
           <div class="sub muted">وردية #{{ num(currentShiftNumber) }}</div>
         </div>
       </div>
@@ -1409,8 +1549,8 @@ onBeforeUnmount(() => {
 
         <div class="card kpi" data-reports-kpi="net-profit">
           <div class="label">صافي الربح</div>
-          <div class="value num" :class="{ 'danger-t': monthNetMinor < 0 }">
-            {{ money(monthNetMinor) }}
+          <div class="value num" :class="{ 'danger-t': monthNetMinor !== null && monthNetMinor < 0 }">
+            {{ monthNetMinor === null ? 'غير محسوم' : money(monthNetMinor) }}
           </div>
           <div class="sub muted">بعد {{ money(monthExpensesMinor) }} مصاريف الشهر</div>
         </div>
@@ -1774,7 +1914,7 @@ onBeforeUnmount(() => {
             <div class="sub muted">
               {{ num(monthRepairs?.hardware.deliveredCount ?? 0) }} جهاز مُسلّم ·
               صافي ربح
-              {{ money(monthRepairs?.hardware.netProfitMinor ?? monthHardwareRevenueMinor) }}
+              {{ monthRepairs?.hardware.netProfitMinor == null ? 'غير محسوم' : money(monthRepairs.hardware.netProfitMinor) }}
             </div>
           </div>
 
@@ -1784,7 +1924,7 @@ onBeforeUnmount(() => {
             <div class="sub muted">
               {{ num(monthRepairs?.software.deliveredCount ?? 0) }} عملية سوفت ·
               صافي ربح
-              {{ money(monthRepairs?.software.netProfitMinor ?? monthSoftwareRevenueMinor) }}
+              {{ monthRepairs?.software.netProfitMinor == null ? 'غير محسوم' : money(monthRepairs.software.netProfitMinor) }}
             </div>
           </div>
 
@@ -1806,9 +1946,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="dr-total" :class="monthNetMinor < 0 ? 'danger-t' : 'ok-t'">
+        <div class="dr-total" :class="monthNetMinor === null ? 'warn' : monthNetMinor < 0 ? 'danger-t' : 'ok-t'">
           <span>صافي الشهر بعد المصاريف (كل الأقسام)</span>
-          <strong class="num" data-reports-month-net>{{ money(monthNetMinor) }}</strong>
+          <strong class="num" data-reports-month-net>{{ monthNetMinor === null ? 'غير محسوم' : money(monthNetMinor) }}</strong>
         </div>
       </div>
 
@@ -1933,6 +2073,7 @@ onBeforeUnmount(() => {
           </table>
         </div>
       </div>
+    </template>
     </template>
   </div>
 </template>

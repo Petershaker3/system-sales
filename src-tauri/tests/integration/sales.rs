@@ -197,6 +197,10 @@ async fn cancelling_a_sale_restores_stock_and_links_the_reversal() {
     .await
     .expect("reversal link");
     assert_eq!(linked, sale.sale_id);
+    let allocated: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(a.amount_minor),0) FROM refund_payment_allocations a JOIN sale_payments p ON p.id=a.reversal_payment_id WHERE p.sale_id=?1"
+    ).bind(&reversal.sale_id).fetch_one(&pool).await.expect("cancellation payment allocations");
+    assert_eq!(allocated, sale.total_minor);
 
     // The ledger reconciles: the receipt and the reversal cancel the sale.
     let moved: i64 = sqlx::query_scalar(

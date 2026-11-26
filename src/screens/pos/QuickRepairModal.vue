@@ -38,9 +38,8 @@ const partCostText = ref('');
 const paidNow = ref(true);
 const payMethod = ref<RepairPayMethod>('cash');
 /**
- * On which number the money landed (`ADR-041`). The screens that take money always
- * name the number when a company holds more than one: `WalletNumberChips` shows
- * nothing for a single number, which is the common case.
+ * On which number the money landed. Electronic payments require an explicit
+ * selection even when a company has only one configured wallet.
  */
 const payWalletId = ref<string | null>(null);
 const customerName = ref('');

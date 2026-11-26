@@ -24,6 +24,8 @@ export interface ShiftRecord {
 }
 
 export interface ShiftTotals {
+  /** Missing or false means timestamp-derived and not financially reconciled. */
+  readonly cashReconciled?: boolean;
   readonly openingCashMinor: number;
   readonly cashSalesMinor: number;
   readonly vfSalesMinor: number;
@@ -40,6 +42,7 @@ export interface ShiftTotals {
   readonly servicesCashInMinor: number;
   readonly servicesCashOutMinor: number;
   readonly walletDrawerNetMinor: number;
+  readonly drawerTransferNetMinor: number;
   readonly cashInMinor: number;
   readonly ownerDrawMinor: number;
   readonly expensesMinor: number;
@@ -109,8 +112,95 @@ export function recordCashMovement(
 }
 
 export function closeShift(
+  shiftId: string,
   countedCashMinor: number,
   closeNote: string | null = null
 ): Promise<ShiftSummary> {
-  return invoke<ShiftSummary>('close_shift', { countedCashMinor, closeNote });
+  return invoke<ShiftSummary>('close_shift', { shiftId, countedCashMinor, closeNote });
+}
+
+/** A physical observation, not a verified drawer balance or shift closing. */
+export interface ShiftCashCount {
+  readonly id: string;
+  readonly shiftId: string;
+  readonly amountMinor: number;
+  readonly countedBy: string;
+  readonly countedAt: number;
+}
+export function recordShiftCashCount(amountMinor: number): Promise<ShiftCashCount> {
+  return invoke<ShiftCashCount>('record_shift_cash_count', { amountMinor });
+}
+export function latestShiftCashCount(): Promise<ShiftCashCount | null> {
+  return invoke<ShiftCashCount | null>('latest_shift_cash_count');
+}
+
+/** Partial source-linked records, not a cash balance or reconciliation. */
+export interface CashDrawerIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly createdBy: string;
+  readonly createdAt: number;
+  readonly isDefault: boolean;
+}
+export interface CashSourcePosting {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly shiftId: string | null;
+  readonly drawerId: string | null;
+  readonly signedMinor: number;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
+export interface DrawerPhysicalCount {
+  readonly requestId: string;
+  readonly drawerId: string;
+  readonly shiftId: string | null;
+  readonly amountMinor: number;
+  readonly countedBy: string;
+  readonly countedAt: number;
+}
+export interface UncertainRepairRefund {
+  readonly repairId: string;
+  readonly ticketNo: string;
+  readonly shiftId: string | null;
+  readonly amountMinor: number;
+  readonly actorId: string;
+  readonly occurredAt: number;
+}
+export interface RepairCashRefundReview {
+  readonly requestId: string;
+  readonly repairId: string;
+  readonly shiftId: string;
+  readonly drawerId: string;
+  readonly payoutAt: number;
+  readonly evidence: string;
+  readonly actorId: string;
+  readonly reviewedAt: number;
+}
+export interface CashPostingPreview {
+  readonly repairCashRefundReviews: RepairCashRefundReview[];
+  readonly uncertainRepairRefunds: UncertainRepairRefund[];
+  readonly uncertainRepairRefundCount: number;
+  readonly drawers: CashDrawerIdentity[];
+  readonly recentPostings: CashSourcePosting[];
+  readonly recentCounts: DrawerPhysicalCount[];
+  readonly complete: false;
+}
+export function cashPostingPreview(): Promise<CashPostingPreview> {
+  return invoke('cash_posting_preview');
+}
+export function configureDrawer(drawerId: string, name: string, requestId: string): Promise<void> {
+  return invoke('configure_drawer', { drawerId, name, requestId });
+}
+
+export function transferDrawerCash(shiftId: string, toDrawerId: string, amountMinor: number, reason: string, requestId: string): Promise<void> {
+  return invoke('transfer_drawer_cash', { shiftId, toDrawerId, amountMinor, reason, requestId });
+}
+
+export function recordDrawerPhysicalCount(drawerId: string, amountMinor: number, requestId: string): Promise<DrawerPhysicalCount> {
+  return invoke('record_drawer_physical_count', { drawerId, amountMinor, requestId });
+}
+
+export function reviewRepairCashRefund(requestId: string, repairId: string, shiftId: string, drawerId: string, payoutAt: number, evidence: string): Promise<RepairCashRefundReview> {
+  return invoke('review_repair_cash_refund', { requestId, repairId, shiftId, drawerId, payoutAt, evidence });
 }

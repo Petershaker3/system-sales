@@ -163,6 +163,7 @@ export const ErrorCode = {
   SALE_REFERENCE_CONFLICT: 'SALE_REFERENCE_CONFLICT',
   SALE_ALREADY_CANCELLED: 'SALE_ALREADY_CANCELLED',
   SALE_REVERSAL_INCONSISTENT: 'SALE_REVERSAL_INCONSISTENT',
+  SALE_REFUND_SOURCE_UNVERIFIABLE: 'SALE_REFUND_SOURCE_UNVERIFIABLE',
   SALE_BUSY: 'SALE_BUSY',
   SALE_CUSTOMER_ALREADY_LINKED: 'SALE_CUSTOMER_ALREADY_LINKED',
   SALE_LINK_NOT_ALLOWED: 'SALE_LINK_NOT_ALLOWED',
@@ -223,12 +224,16 @@ export const ErrorCode = {
   CUSTOMER_NOTE_INVALID: 'CUSTOMER_NOTE_INVALID',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  CASH_DRAWER_INVALID: 'CASH_DRAWER_INVALID',
+  REPAIR_CASH_REFUND_EVIDENCE_INVALID: 'REPAIR_CASH_REFUND_EVIDENCE_INVALID',
   SHIFT_ALREADY_OPEN: 'SHIFT_ALREADY_OPEN',
   SHIFT_NOT_OPEN: 'SHIFT_NOT_OPEN',
   SHIFT_OPENING_CASH_INVALID: 'SHIFT_OPENING_CASH_INVALID',
   SHIFT_COUNTED_CASH_INVALID: 'SHIFT_COUNTED_CASH_INVALID',
   SHIFT_CLOSE_NOTE_INVALID: 'SHIFT_CLOSE_NOTE_INVALID',
   SHIFT_CLOSE_FORBIDDEN_FOR_SELLER: 'SHIFT_CLOSE_FORBIDDEN_FOR_SELLER',
+  SHIFT_CASH_UNRECONCILED: 'SHIFT_CASH_UNRECONCILED',
+  SHIFT_CHANGED: 'SHIFT_CHANGED',
   EXPENSE_CATEGORY_INVALID: 'EXPENSE_CATEGORY_INVALID',
   EXPENSE_AMOUNT_INVALID: 'EXPENSE_AMOUNT_INVALID',
   EXPENSE_NOTE_INVALID: 'EXPENSE_NOTE_INVALID',
@@ -496,6 +501,8 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SALE_REFERENCE_CONFLICT]:
     'تعذّر توليد رقم الفاتورة لهذا اليوم. راجع إعداد بادئة الفاتورة.',
   [ErrorCode.SALE_ALREADY_CANCELLED]: 'تم إلغاء عملية البيع هذه من قبل.',
+  [ErrorCode.SALE_REFUND_SOURCE_UNVERIFIABLE]:
+    'تعذّر التحقق من مصدر المرتجع أو ربط المرتجعات القديمة بالدفع الأصلي. لم تُسجّل حركة؛ راجع المسؤول الفني.',
   [ErrorCode.SALE_REVERSAL_INCONSISTENT]:
     'تعذّر إلغاء العملية: المخزن أو طريقة التكلفة تغيّرا منذ البيع. كلّم المسؤول الفني عن الجهاز.',
   [ErrorCode.SALE_BUSY]:
@@ -538,7 +545,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.SALE_RETURN_REASON_REQUIRED]:
     'اكتب سبب المرتجع قبل الحفظ.',
   [ErrorCode.SALE_PAYMENT_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
 
   // النسخ الاحتياطي المشفّر (ADR-003)
   [ErrorCode.BACKUP_NOT_A_BACKUP_FILE]:
@@ -598,11 +605,13 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.CUSTOMER_PAYMENT_METHOD_INVALID]:
     'طريقة تحصيل الآجل غير مسموحة.',
   [ErrorCode.CUSTOMER_PAYMENT_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
   [ErrorCode.CUSTOMER_NOTE_INVALID]:
     'الملاحظة طويلة زيادة عن اللزوم.',
 
   // الوردية والدرج والمصروفات (البند 1.9، ADR-024)
+  [ErrorCode.REPAIR_CASH_REFUND_EVIDENCE_INVALID]: 'لا يمكن إثبات رد نقدي كامل بهذه البيانات. راجع دليل التحصيل والوردية والدرج ووقت الصرف؛ لا تُخمّن مصدر المرتجع.',
+  [ErrorCode.CASH_DRAWER_INVALID]: 'بيانات الدرج أو طلب الإعداد غير صالحة. راجع الاسم والدرج المختار.',
   [ErrorCode.SHIFT_ALREADY_OPEN]:
     'فيه وردية مفتوحة بالفعل دلوقتي.',
   [ErrorCode.SHIFT_NOT_OPEN]:
@@ -613,6 +622,9 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
     'المعدود في الدرج لازم يكون صفر أو أكبر.',
   [ErrorCode.SHIFT_CLOSE_NOTE_INVALID]:
     'ملاحظة تقفيل الوردية طويلة زيادة عن اللزوم.',
+  [ErrorCode.SHIFT_CHANGED]: 'الوردية اتغيّرت؛ راجع الوردية المفتوحة قبل الإغلاق.',
+  [ErrorCode.SHIFT_CASH_UNRECONCILED]:
+    'لا يمكن تقفيل الوردية: مصادر النقدية لم تُطابق. تسجيل العدّ لا يغلق الوردية.',
   [ErrorCode.SHIFT_CLOSE_FORBIDDEN_FOR_SELLER]:
     'تقفيل الوردية للمالك بس. كلّم المالك يقفّلها أو يفعّلها من الإعدادات.',
   [ErrorCode.EXPENSE_CATEGORY_INVALID]:
@@ -698,7 +710,7 @@ const MESSAGES_AR: Readonly<Record<ErrorCodeValue, string>> = {
   [ErrorCode.REPAIR_PAY_METHOD_INVALID]:
     'طريقة التحصيل غير صحيحة.',
   [ErrorCode.REPAIR_PAY_WALLET_INVALID]:
-    'الرقم اللي اخترته ما بيستقبلش الطريقة دي — اختار رقم تاني، أو سيبه فاضي يتسجّل على الأساسي.',
+    'اختار رقم المحفظة اللي استلم المبلغ وتأكد إنه بيستقبل الطريقة دي.',
   // الموبايل والكمبيوتر: أربع حالات تخص اللي ماسك الموبايل في إيده (`ADR-042`).
   [ErrorCode.COMPANION_NO_HOST]:
     'الموبايل لسه ما عرفش عنوان الكمبيوتر — امسح باركود الربط اللي على الكمبيوتر الأول.',
