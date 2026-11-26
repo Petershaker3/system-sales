@@ -241,3 +241,6 @@ pub const UNCERTAIN_REPAIR_REFUNDS: &str = include_str!("0053_uncertain_repair_r
 
 /// Evidence-backed review of a previously uncertain wholly cash repair payout (0054).
 pub const REPAIR_CASH_REFUND_REVIEWS: &str = include_str!("0054_repair_cash_refund_reviews.sql");
+
+/// Repair cost basis, cancellation disposition and append-only cost history (0055).
+pub const REPAIR_COST_ACCOUNTING: &str = include_str!("0055_repair_cost_accounting.sql");

@@ -65,10 +65,14 @@ pub struct RawRepairRow {
     pub created_by_name: String,
     pub created_at: i64,
     pub delivered_at: Option<i64>,
+    pub cancelled_at: Option<i64>,
+    pub cancelled_parts_status: Option<String>,
+    pub cancelled_parts_cost_minor: Option<i64>,
 }
 
 impl RawRepairRow {
     pub fn into_ticket(self, include_cost: bool) -> RepairTicket {
+        let is_cancelled = self.status == "cancelled";
         let collected_minor = match self.status.as_str() {
             "cancelled" => 0,
             "delivered" => self.final_price_minor.max(self.deposit_minor),
@@ -84,7 +88,16 @@ impl RawRepairRow {
         } else {
             (target_price - self.deposit_minor).max(0)
         };
-        let net_profit = collected_minor - self.parts_cost_minor;
+        let cost_minor = match self.status.as_str() {
+            "delivered" => Some(self.parts_cost_minor),
+            "cancelled" => match self.cancelled_parts_status.as_deref() {
+                Some("no_parts") => Some(0),
+                Some("used") => self.cancelled_parts_cost_minor,
+                _ => None,
+            },
+            _ => None,
+        };
+        let net_profit = cost_minor.map(|cost| collected_minor - cost);
         RepairTicket {
             id: self.id,
             ticket_no: self.ticket_no,
@@ -100,10 +113,16 @@ impl RawRepairRow {
             status: self.status,
             estimated_price_minor: self.estimated_price_minor,
             final_price_minor: self.final_price_minor,
-            parts_cost_minor: include_cost.then_some(self.parts_cost_minor),
+            // On an open ticket this remains the entered estimate for operational
+            // visibility. It is not included in financial bucket profit.
+            parts_cost_minor: include_cost.then_some(if is_cancelled {
+                cost_minor
+            } else {
+                Some(self.parts_cost_minor)
+            }).flatten(),
             part_name: self.part_name,
             part_supplier: self.part_supplier,
-            net_profit_minor: include_cost.then_some(net_profit),
+            net_profit_minor: if include_cost { net_profit } else { None },
             deposit_minor: self.deposit_minor,
             collected_minor,
             remaining_minor,
@@ -115,6 +134,9 @@ impl RawRepairRow {
             created_by_name: self.created_by_name,
             created_at: self.created_at,
             delivered_at: self.delivered_at,
+            cancelled_at: self.cancelled_at,
+            cancelled_parts_status: self.cancelled_parts_status,
+            cancelled_parts_cost_minor: self.cancelled_parts_cost_minor,
         }
     }
 }
@@ -147,6 +169,9 @@ fn map_raw_row(r: sqlx::sqlite::SqliteRow) -> RawRepairRow {
         created_by_name: r.get("created_by_name"),
         created_at: r.get("created_at"),
         delivered_at: r.get("delivered_at"),
+        cancelled_at: r.get("cancelled_at"),
+        cancelled_parts_status: r.get("cancelled_parts_status"),
+        cancelled_parts_cost_minor: r.get("cancelled_parts_cost_minor"),
     }
 }
 
@@ -173,7 +198,8 @@ pub async fn find_raw_by_id(
                 r.deposit_minor, r.pay_method, r.technician_name,
                 r.warranty_days, r.note, r.created_by,
                 COALESCE(u.display_name, r.created_by) AS created_by_name,
-                r.created_at, r.delivered_at
+                r.created_at, r.delivered_at, r.cancelled_at,
+                r.cancelled_parts_status, r.cancelled_parts_cost_minor
            FROM repairs r
            LEFT JOIN users u ON u.id = r.created_by
           WHERE r.id = ?1",
@@ -364,14 +390,20 @@ pub async fn mark_cancelled(
     conn: &mut SqliteConnection,
     id: &str,
     note: Option<&str>,
+    cancelled_at: i64,
+    parts_status: &str,
+    parts_cost_minor: Option<i64>,
 ) -> Result<RawRepairRow, sqlx::Error> {
     let existing = find_raw_by_id(conn, id)
         .await?
         .ok_or(sqlx::Error::RowNotFound)?;
     let next_note = note.unwrap_or(&existing.note);
 
-    sqlx::query("UPDATE repairs SET status = 'cancelled', note = ?1 WHERE id = ?2")
+    sqlx::query("UPDATE repairs SET status = 'cancelled', note = ?1, cancelled_at = ?2, cancelled_parts_status = ?3, cancelled_parts_cost_minor = ?4 WHERE id = ?5")
         .bind(next_note)
+        .bind(cancelled_at)
+        .bind(parts_status)
+        .bind(parts_cost_minor)
         .bind(id)
         .execute(&mut *conn)
         .await?;
@@ -379,6 +411,30 @@ pub async fn mark_cancelled(
     find_raw_by_id(conn, id)
         .await?
         .ok_or(sqlx::Error::RowNotFound)
+}
+
+pub async fn append_cost_history(
+    conn: &mut SqliteConnection,
+    repair_id: &str,
+    actor_id: &str,
+    occurred_at: i64,
+    cost_basis: &str,
+    old_cost_minor: Option<i64>,
+    new_cost_minor: Option<i64>,
+    note: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO repair_cost_history(id, repair_id, actor_id, occurred_at, cost_basis, old_cost_minor, new_cost_minor, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(repair_id)
+        .bind(actor_id)
+        .bind(occurred_at)
+        .bind(cost_basis)
+        .bind(old_cost_minor)
+        .bind(new_cost_minor)
+        .bind(note)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 pub async fn list_all_raw(conn: &mut SqliteConnection) -> Result<Vec<RawRepairRow>, sqlx::Error> {
@@ -390,7 +446,8 @@ pub async fn list_all_raw(conn: &mut SqliteConnection) -> Result<Vec<RawRepairRo
                 r.deposit_minor, r.pay_method, r.technician_name,
                 r.warranty_days, r.note, r.created_by,
                 COALESCE(u.display_name, r.created_by) AS created_by_name,
-                r.created_at, r.delivered_at
+                r.created_at, r.delivered_at, r.cancelled_at,
+                r.cancelled_parts_status, r.cancelled_parts_cost_minor
            FROM repairs r
            LEFT JOIN users u ON u.id = r.created_by
           ORDER BY
@@ -441,6 +498,7 @@ fn add_to_bucket(
     row: &RawRepairRow,
     created_in_period: bool,
     delivered_in_period: bool,
+    cancelled_in_period: bool,
     is_open: bool,
 ) {
     if is_open {
@@ -453,6 +511,27 @@ fn add_to_bucket(
         bucket.tickets_count += 1;
     }
     if row.status == "cancelled" {
+        if cancelled_in_period {
+            match row.cancelled_parts_status.as_deref() {
+                Some("no_parts") => {}
+                Some("used") => {
+                    if let (Some(parts), Some(cost)) =
+                        (&mut bucket.parts_cost_minor, row.cancelled_parts_cost_minor)
+                    {
+                        *parts += cost;
+                    }
+                }
+                _ => {
+                    bucket.parts_cost_minor = None;
+                    bucket.net_profit_minor = None;
+                }
+            }
+        }
+        if let (Some(parts), Some(ref mut profit)) =
+            (bucket.parts_cost_minor, &mut bucket.net_profit_minor)
+        {
+            *profit = bucket.total_revenue_minor - parts;
+        }
         return;
     }
     // Deposit collected at intake (cash)
@@ -468,10 +547,6 @@ fn add_to_bucket(
         bucket.delivery_collected_minor += delivery_slice;
         bucket.total_revenue_minor += delivery_slice;
         accumulate_payment(bucket, &row.pay_method, delivery_slice);
-        if let Some(ref mut parts) = bucket.parts_cost_minor {
-            *parts += row.parts_cost_minor;
-        }
-    } else if row.status != "delivered" && created_in_period && row.parts_cost_minor > 0 {
         if let Some(ref mut parts) = bucket.parts_cost_minor {
             *parts += row.parts_cost_minor;
         }
@@ -503,6 +578,7 @@ pub async fn build_overview(
         hw_rev: i64,
         sw_rev: i64,
         parts_cost: i64,
+        cost_unknown: bool,
     }
     let mut tech_map: BTreeMap<String, TechAcc> = BTreeMap::new();
     let mut visible_tickets = Vec::new();
@@ -517,6 +593,9 @@ pub async fn build_overview(
             .delivered_at
             .map(|d| in_window(d, from_ts, to_ts))
             .unwrap_or(false);
+        let cancelled_in_period = row.cancelled_at
+            .map(|at| in_window(at, from_ts, to_ts))
+            .unwrap_or(row.status == "cancelled");
 
         if row.service_kind == "software" {
             add_to_bucket(
@@ -524,6 +603,7 @@ pub async fn build_overview(
                 &row,
                 created_in_period,
                 delivered_in_period,
+                cancelled_in_period,
                 is_open,
             );
         } else {
@@ -532,6 +612,7 @@ pub async fn build_overview(
                 &row,
                 created_in_period,
                 delivered_in_period,
+                cancelled_in_period,
                 is_open,
             );
         }
@@ -540,6 +621,7 @@ pub async fn build_overview(
             &row,
             created_in_period,
             delivered_in_period,
+            cancelled_in_period,
             is_open,
         );
 
@@ -574,7 +656,23 @@ pub async fn build_overview(
             }
         }
 
-        if is_open || created_in_period || delivered_in_period {
+        if row.status == "cancelled" && cancelled_in_period {
+            if let Some(tech) = row
+                .technician_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let entry = tech_map.entry(tech.to_owned()).or_default();
+                match row.cancelled_parts_status.as_deref() {
+                    Some("no_parts") => {}
+                    Some("used") => entry.parts_cost += row.cancelled_parts_cost_minor.unwrap_or(0),
+                    _ => entry.cost_unknown = true,
+                }
+            }
+        }
+
+        if is_open || created_in_period || delivered_in_period || cancelled_in_period {
             visible_tickets.push(row.into_ticket(include_cost));
         }
     }
@@ -592,8 +690,8 @@ pub async fn build_overview(
                 hardware_revenue_minor: acc.hw_rev,
                 software_revenue_minor: acc.sw_rev,
                 total_revenue_minor,
-                parts_cost_minor: include_cost.then_some(acc.parts_cost),
-                net_profit_minor: include_cost.then_some(net),
+                parts_cost_minor: if include_cost && !acc.cost_unknown { Some(acc.parts_cost) } else { None },
+                net_profit_minor: if include_cost && !acc.cost_unknown { Some(net) } else { None },
             }
         })
         .collect();
@@ -641,4 +739,58 @@ pub async fn record_uncertain_repair_refund(conn: &mut SqliteConnection, id: &st
     sqlx::query("INSERT INTO uncertain_repair_refunds(repair_id,shift_id,amount_minor,actor_id,occurred_at) SELECT ?1,s.id,?2,?3,?4 FROM (SELECT 1) x LEFT JOIN shifts s ON s.status='open' AND ?4>=s.opened_at")
         .bind(id).bind(amount).bind(actor).bind(at).execute(&mut *conn).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod accounting_tests {
+    use super::*;
+
+    fn row(status: &str, parts_status: Option<&str>, cancel_cost: Option<i64>) -> RawRepairRow {
+        RawRepairRow {
+            id: "repair".into(), ticket_no: "R-1".into(), service_kind: "hardware".into(),
+            customer_name: String::new(), customer_phone: String::new(), device_name: "device".into(),
+            imei: None, device_lock: String::new(), issue: "issue".into(), accessories: String::new(),
+            due_label: String::new(), status: status.into(), estimated_price_minor: 1000,
+            final_price_minor: if status == "delivered" { 1000 } else { 0 }, parts_cost_minor: 500,
+            part_name: String::new(), part_supplier: String::new(), deposit_minor: 100,
+            pay_method: "cash".into(), technician_name: None, warranty_days: 0, note: String::new(),
+            created_by: "user".into(), created_by_name: "user".into(), created_at: 1,
+            delivered_at: (status == "delivered").then_some(2), cancelled_at: (status == "cancelled").then_some(3),
+            cancelled_parts_status: parts_status.map(str::to_owned), cancelled_parts_cost_minor: cancel_cost,
+        }
+    }
+
+    #[test]
+    fn open_estimate_does_not_enter_actual_cost_or_profit() {
+        let mut bucket = RepairKindFinancialBucket::empty("hardware", true);
+        add_to_bucket(&mut bucket, &row("received", None, None), true, false, false, true);
+        assert_eq!(bucket.parts_cost_minor, Some(0));
+        assert_eq!(bucket.net_profit_minor, Some(100));
+    }
+
+    #[test]
+    fn delivery_recognizes_final_cost_in_delivery_period() {
+        let mut bucket = RepairKindFinancialBucket::empty("hardware", true);
+        add_to_bucket(&mut bucket, &row("delivered", None, None), true, true, false, false);
+        assert_eq!(bucket.parts_cost_minor, Some(500));
+        assert_eq!(bucket.net_profit_minor, Some(500));
+    }
+
+    #[test]
+    fn cancellation_cost_requires_explicit_disposition() {
+        let mut no_parts = RepairKindFinancialBucket::empty("hardware", true);
+        add_to_bucket(&mut no_parts, &row("cancelled", Some("no_parts"), None), false, false, true, false);
+        assert_eq!(no_parts.parts_cost_minor, Some(0));
+        assert_eq!(no_parts.net_profit_minor, Some(0));
+
+        let mut used = RepairKindFinancialBucket::empty("hardware", true);
+        add_to_bucket(&mut used, &row("cancelled", Some("used"), Some(250)), false, false, true, false);
+        assert_eq!(used.parts_cost_minor, Some(250));
+        assert_eq!(used.net_profit_minor, Some(-250));
+
+        let mut unknown = RepairKindFinancialBucket::empty("hardware", true);
+        add_to_bucket(&mut unknown, &row("cancelled", Some("unknown"), None), false, false, true, false);
+        assert_eq!(unknown.parts_cost_minor, None);
+        assert_eq!(unknown.net_profit_minor, None);
+    }
 }

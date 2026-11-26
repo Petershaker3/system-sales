@@ -479,14 +479,11 @@ const todayGoodsProfitMinor = computed(() => todayData.value.profitMinor);
 const todayServicesProfitMinor = computed(() => {
   const repairs = todayRepairs.value;
   if (!repairs) return null;
-  if (
-    repairs.hardware.netProfitMinor === null &&
-    repairs.software.netProfitMinor === null
-  ) {
+  if (repairs.hardware.netProfitMinor === null || repairs.software.netProfitMinor === null) {
     return null;
   }
   return (
-    (repairs.hardware.netProfitMinor ?? 0) + (repairs.software.netProfitMinor ?? 0)
+    repairs.hardware.netProfitMinor + repairs.software.netProfitMinor
   );
 });
 
@@ -520,6 +517,7 @@ const expensesInMonthOnly = computed(() => appearance.expensesDeduct === 'month'
 
 /** One line that says the same thing as the word, in money. */
 const todayRatingLine = computed(() => {
+  if (todayServicesProfitMinor.value === null) return 'صافي اليوم غير محسوم بسبب تكلفة صيانة غير مكتملة';
   const r = todayRating.value;
   if (r.idle) return 'لسه مفيش حركة النهارده — التقييم بيبدأ أول ما تبيع أو تستلم شغل';
   if (r.netMinor < 0) {
@@ -550,14 +548,13 @@ const monthWalletFeesMinor = computed(
 const monthExpensesMinor = computed(() => monthExpenses.value?.totalMinor ?? 0);
 
 /** What the month made after the money that left it (`ADR-047`). */
-const monthNetMinor = computed(
-  () =>
-    monthRep.value.T.profitMinor +
-    (monthRepairs.value?.hardware.netProfitMinor ?? 0) +
-    (monthRepairs.value?.software.netProfitMinor ?? 0) +
-    monthWalletFeesMinor.value -
-    monthExpensesMinor.value,
-);
+const monthNetMinor = computed(() => {
+  const hardware = monthRepairs.value?.hardware.netProfitMinor;
+  const software = monthRepairs.value?.software.netProfitMinor;
+  if (hardware == null || software == null) return null;
+  return monthRep.value.T.profitMinor + hardware + software +
+    monthWalletFeesMinor.value - monthExpensesMinor.value;
+});
 
 const smartAlerts = computed(() =>
   buildSmartAlertsBundle({
@@ -820,7 +817,7 @@ function exportCsv(): void {
     ['إيراد السوفت وير (ج.م)', String(monthSoftwareRevenueMinor.value / 100)],
     ['عمولات المحافظ (ج.م)', String(monthWalletFeesMinor.value / 100)],
     ['مصاريف الشهر (ج.م)', String(monthExpensesMinor.value / 100)],
-    ['صافي الشهر التقديري غير المُطابَق (ج.م)', String(monthNetMinor.value / 100)],
+    ['صافي الشهر التقديري غير المُطابَق (ج.م)', monthNetMinor.value === null ? 'غير محسوم' : String(monthNetMinor.value / 100)],
   ];
   const csv = lines.map((row) => row.join(',')).join('\n');
   if (
@@ -999,17 +996,17 @@ onBeforeUnmount(() => {
       <!-- تقييم النهارده في كلمة، فوق كل حاجة (`ADR-047`) -->
       <section
         class="card day-rating"
-        :class="todayRating.tone"
+        :class="todayServicesProfitMinor === null ? 'warn' : todayRating.tone"
         data-reports-day-rating
-        :data-day-rating="todayRating.key"
+        :data-day-rating="todayServicesProfitMinor === null ? 'incomplete' : todayRating.key"
       >
         <div class="dr-word">
           <small>تقييم النهارده</small>
-          <strong data-day-rating-word>{{ todayRating.word }}</strong>
+          <strong data-day-rating-word>{{ todayServicesProfitMinor === null ? 'غير محسوم' : todayRating.word }}</strong>
         </div>
         <div class="dr-body">
           <p class="dr-line" data-day-rating-line>{{ todayRatingLine }}</p>
-          <ul v-if="todayRating.reasons.length" class="dr-reasons">
+          <ul v-if="todayServicesProfitMinor !== null && todayRating.reasons.length" class="dr-reasons">
             <li v-for="(why, i) in todayRating.reasons" :key="i">{{ why }}</li>
           </ul>
         </div>
@@ -1036,7 +1033,7 @@ onBeforeUnmount(() => {
             <b class="num">{{ money(todayHardwareRevenueMinor) }}</b>
             <small class="muted">
               صافي
-              {{ money(todayRepairs?.hardware.netProfitMinor ?? todayHardwareRevenueMinor) }}
+              {{ todayRepairs?.hardware.netProfitMinor == null ? 'غير محسوم' : money(todayRepairs.hardware.netProfitMinor) }}
             </small>
           </div>
           <div class="li" data-day-section="software">
@@ -1045,7 +1042,7 @@ onBeforeUnmount(() => {
             <b class="num">{{ money(todaySoftwareRevenueMinor) }}</b>
             <small class="muted">
               صافي
-              {{ money(todayRepairs?.software.netProfitMinor ?? todaySoftwareRevenueMinor) }}
+              {{ todayRepairs?.software.netProfitMinor == null ? 'غير محسوم' : money(todayRepairs.software.netProfitMinor) }}
             </small>
           </div>
           <div class="li" data-day-section="wallets">
@@ -1064,11 +1061,11 @@ onBeforeUnmount(() => {
             </small>
           </div>
         </div>
-        <div class="dr-total" :class="todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
+        <div class="dr-total" :class="todayServicesProfitMinor === null ? 'warn' : todayRating.netMinor < 0 ? 'danger-t' : 'ok-t'">
           <span data-day-net-label>
             {{ expensesInMonthOnly ? 'صافي النهارده قبل المصاريف (المصاريف في ملخص الشهر)' : 'صافي النهارده بعد المصاريف' }}
           </span>
-          <strong class="num" data-day-net>{{ money(todayRating.netMinor) }}</strong>
+          <strong class="num" data-day-net>{{ todayServicesProfitMinor === null ? 'غير محسوم' : money(todayRating.netMinor) }}</strong>
         </div>
       </section>
 
@@ -1552,8 +1549,8 @@ onBeforeUnmount(() => {
 
         <div class="card kpi" data-reports-kpi="net-profit">
           <div class="label">صافي الربح</div>
-          <div class="value num" :class="{ 'danger-t': monthNetMinor < 0 }">
-            {{ money(monthNetMinor) }}
+          <div class="value num" :class="{ 'danger-t': monthNetMinor !== null && monthNetMinor < 0 }">
+            {{ monthNetMinor === null ? 'غير محسوم' : money(monthNetMinor) }}
           </div>
           <div class="sub muted">بعد {{ money(monthExpensesMinor) }} مصاريف الشهر</div>
         </div>
@@ -1917,7 +1914,7 @@ onBeforeUnmount(() => {
             <div class="sub muted">
               {{ num(monthRepairs?.hardware.deliveredCount ?? 0) }} جهاز مُسلّم ·
               صافي ربح
-              {{ money(monthRepairs?.hardware.netProfitMinor ?? monthHardwareRevenueMinor) }}
+              {{ monthRepairs?.hardware.netProfitMinor == null ? 'غير محسوم' : money(monthRepairs.hardware.netProfitMinor) }}
             </div>
           </div>
 
@@ -1927,7 +1924,7 @@ onBeforeUnmount(() => {
             <div class="sub muted">
               {{ num(monthRepairs?.software.deliveredCount ?? 0) }} عملية سوفت ·
               صافي ربح
-              {{ money(monthRepairs?.software.netProfitMinor ?? monthSoftwareRevenueMinor) }}
+              {{ monthRepairs?.software.netProfitMinor == null ? 'غير محسوم' : money(monthRepairs.software.netProfitMinor) }}
             </div>
           </div>
 
@@ -1949,9 +1946,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="dr-total" :class="monthNetMinor < 0 ? 'danger-t' : 'ok-t'">
+        <div class="dr-total" :class="monthNetMinor === null ? 'warn' : monthNetMinor < 0 ? 'danger-t' : 'ok-t'">
           <span>صافي الشهر بعد المصاريف (كل الأقسام)</span>
-          <strong class="num" data-reports-month-net>{{ money(monthNetMinor) }}</strong>
+          <strong class="num" data-reports-month-net>{{ monthNetMinor === null ? 'غير محسوم' : money(monthNetMinor) }}</strong>
         </div>
       </div>
 

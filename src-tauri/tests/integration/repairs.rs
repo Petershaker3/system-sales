@@ -252,19 +252,20 @@ async fn hardware_and_software_repairs_track_kanban_stages_and_separate_money_bu
     assert_eq!(owner_overview.hardware.parts_cost_minor, Some(2100_00));
     assert_eq!(owner_overview.hardware.net_profit_minor, Some(1100_00));
 
-    // Software bucket: 2 tickets (1 delivered + 1 open), 250 + 100 deposit = 350 EGP revenue, 50 EGP cost, 300 EGP net profit.
+    // Software bucket: 2 tickets (1 delivered + 1 open), 250 + 100 deposit = 350 EGP revenue.
+    // The open ticket's 50 EGP parts estimate is excluded from actual cost and profit.
     assert_eq!(owner_overview.software.tickets_count, 2);
     assert_eq!(owner_overview.software.open_count, 1);
     assert_eq!(owner_overview.software.delivered_count, 1);
     assert_eq!(owner_overview.software.total_revenue_minor, 350_00);
-    assert_eq!(owner_overview.software.parts_cost_minor, Some(50_00));
-    assert_eq!(owner_overview.software.net_profit_minor, Some(300_00));
+    assert_eq!(owner_overview.software.parts_cost_minor, Some(0));
+    assert_eq!(owner_overview.software.net_profit_minor, Some(350_00));
 
-    // Combined bucket: 3 tickets, 3,550 EGP total revenue, 2,150 EGP cost, 1,400 EGP net profit.
+    // Combined bucket: 3 tickets, 3,550 EGP total revenue, 2,100 EGP actual cost, 1,450 EGP net profit.
     assert_eq!(owner_overview.combined.tickets_count, 3);
     assert_eq!(owner_overview.combined.total_revenue_minor, 3550_00);
-    assert_eq!(owner_overview.combined.parts_cost_minor, Some(2150_00));
-    assert_eq!(owner_overview.combined.net_profit_minor, Some(1400_00));
+    assert_eq!(owner_overview.combined.parts_cost_minor, Some(2100_00));
+    assert_eq!(owner_overview.combined.net_profit_minor, Some(1450_00));
 
     // Technician breakdown separates "م. حسن" (hardware) and "يوسف" (software).
     assert_eq!(owner_overview.technicians.len(), 2);

@@ -328,9 +328,17 @@ pub async fn cancel_repair(
     id: String,
     note: Option<String>,
     cash_payout_confirmed: Option<bool>,
+    parts_disposition: Option<String>,
+    cancellation_parts_cost_minor: Option<i64>,
 ) -> Result<RepairTicketDto, RepairCommandError> {
-    let ticket = use_cases::cancel_repair_with_cash_confirmation(
-        &ctx.pool, ctx.tokens.as_ref(), &id, note.as_deref(), cash_payout_confirmed.unwrap_or(false)
+    let ticket = use_cases::cancel_repair_with_cash_confirmation_and_cost(
+        &ctx.pool,
+        ctx.tokens.as_ref(),
+        &id,
+        note.as_deref(),
+        cash_payout_confirmed.unwrap_or(false),
+        parts_disposition.as_deref().unwrap_or("unknown"),
+        cancellation_parts_cost_minor,
     ).await?;
     Ok(RepairTicketDto::from(ticket))
 }

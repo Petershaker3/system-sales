@@ -172,6 +172,9 @@ pub struct RepairTicket {
     pub created_by_name: String,
     pub created_at: i64,
     pub delivered_at: Option<i64>,
+    pub cancelled_at: Option<i64>,
+    pub cancelled_parts_status: Option<String>,
+    pub cancelled_parts_cost_minor: Option<i64>,
 }
 
 /// Separate financial accounting bucket (`hardware`, `software`, or `all`).
